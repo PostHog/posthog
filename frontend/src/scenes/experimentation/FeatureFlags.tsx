@@ -55,7 +55,7 @@ export function FeatureFlags(): JSX.Element {
                                 explicitValue={featureFlag.key}
                             />
                         </div>
-                        <Typography.Text title={featureFlag.key}>{stringWithWBR(featureFlag.key, 20)}</Typography.Text>
+                        <Typography.Text title={featureFlag.key}>{stringWithWBR(featureFlag.key, 17)}</Typography.Text>
                     </div>
                 )
             },
