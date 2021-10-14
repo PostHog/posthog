@@ -103,7 +103,7 @@ export const insightLogic = kea<insightLogicType>({
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
                     // fetch this now, as it might be different when we report below
-                    const { scene } = sceneLogic.values
+                    const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
 
                     // If a query is in progress, debounce before making the second query
                     if (cache.abortController) {
@@ -390,7 +390,7 @@ export const insightLogic = kea<insightLogicType>({
                         actions.setShowTimeoutMessage(true)
                         const tags = {
                             insight: values.activeView,
-                            scene: sceneLogic.values.scene,
+                            scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
                         }
                         posthog.capture('insight timeout message shown', tags)
                         captureInternalMetric({ method: 'incr', metric: 'insight_timeout', value: 1, tags })
@@ -424,7 +424,7 @@ export const insightLogic = kea<insightLogicType>({
                 const duration = new Date().getTime() - values.queryStartTimes[queryId]
                 const tags = {
                     insight: values.activeView,
-                    scene: sceneLogic.values.scene,
+                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
                     success: !exception,
                     ...exception,
                 }
