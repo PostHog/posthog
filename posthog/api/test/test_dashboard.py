@@ -7,9 +7,8 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
-from posthog.models.organization import OrganizationMembership
 from posthog.test.base import APIBaseTest
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key
 
 
 class TestDashboard(APIBaseTest):

@@ -92,7 +92,6 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> Optiona
 
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     if result:
-        cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
         return result
     return None
 
