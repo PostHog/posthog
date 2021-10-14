@@ -4,10 +4,12 @@ import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelPlotOutlined, BarChartOutlined } from '@ant-design/icons'
 import { FunnelLayout } from 'lib/constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelDisplayLayoutPicker(): JSX.Element {
-    const { barGraphLayout } = useValues(funnelLogic)
-    const { setFilters } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { barGraphLayout } = useValues(funnelLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
     const options = [
         {
             value: FunnelLayout.vertical,

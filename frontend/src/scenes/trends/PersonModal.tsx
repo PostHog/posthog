@@ -1,10 +1,9 @@
 import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, ViewType } from '~/types'
-import { personsModalLogic } from './personsModalLogic'
+import { parsePeopleParams, personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import './PersonModal.scss'
@@ -44,6 +43,11 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                     {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
                     {people?.breakdown_value !== undefined &&
                         `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                </>
+            ) : filters.insight === ViewType.PATHS ? (
+                <>
+                    {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
+                    <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
                 </>
             ) : (
                 <>

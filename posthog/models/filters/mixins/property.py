@@ -28,11 +28,14 @@ class PropertyMixin(BaseParamMixin):
         if isinstance(properties, list):
             _properties = []
             for prop_params in properties:
-                try:
-                    new_prop = Property(**prop_params)
-                    _properties.append(new_prop)
-                except:
-                    continue
+                if isinstance(prop_params, Property):
+                    _properties.append(prop_params)
+                else:
+                    try:
+                        new_prop = Property(**prop_params)
+                        _properties.append(new_prop)
+                    except:
+                        continue
             return _properties
         if not properties:
             return []

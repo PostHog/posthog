@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { kea, LogicWrapper } from 'kea'
 import { router } from 'kea-router'
 import { identifierToHuman, delay } from 'lib/utils'
@@ -8,13 +7,14 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { AvailableFeature, ViewType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
 import { teamLogic } from './teamLogic'
-import { featureFlagLogic } from '../lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from '../lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from './organizationLogic'
+import { urls } from 'scenes/urls'
 
 export enum Scene {
     Error404 = '404',
@@ -237,49 +237,6 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/organization/members': '/organization/settings',
 }
 
-export const urls = {
-    default: () => '/',
-    notFound: () => '404',
-    dashboards: () => '/dashboard',
-    dashboard: (id: string | number) => `/dashboard/${id}`,
-    createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
-    action: (id: string | number) => `/action/${id}`,
-    actions: () => '/actions',
-    insights: () => '/insights',
-    insightView: (view: ViewType) => `/insights?insight=${view}`,
-    insightRouter: (id: string) => `/i/${id}`,
-    savedInsights: () => '/saved_insights',
-    events: () => '/events',
-    sessions: () => '/sessions',
-    sessionRecordings: () => '/session_recordings',
-    person: (id: string) => `/person/${id}`,
-    persons: () => '/persons',
-    cohort: (id: string | number) => `/cohorts/${id}`,
-    cohorts: () => '/cohorts',
-    featureFlags: () => '/feature_flags',
-    featureFlag: (id: string | number) => `/feature_flags/${id}`,
-    annotations: () => '/annotations',
-    plugins: () => '/project/plugins',
-    projectCreateFirst: () => '/project/create',
-    projectSettings: () => '/project/settings',
-    mySettings: () => '/me/settings',
-    organizationSettings: () => '/organization/settings',
-    organizationBilling: () => '/organization/billing',
-    organizationCreateFirst: () => '/organization/create',
-    instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
-    // Onboarding / setup routes
-    login: () => '/login',
-    preflight: () => '/preflight',
-    signup: () => '/signup',
-    inviteSignup: (id: string) => `/signup/${id}`,
-    personalization: () => '/personalization',
-    ingestion: () => '/ingestion',
-    onboardingSetup: () => '/setup',
-    home: () => '/home',
-}
-
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
@@ -398,12 +355,9 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 teamLogic.selectors.isCurrentTeamUnavailable,
                 featureFlagLogic.selectors.featureFlags,
             ],
-            (loadingScene, scene, isCurrentTeamUnavailable, featureFlags) => {
+            (loadingScene, scene, isCurrentTeamUnavailable) => {
                 const baseActiveScene = loadingScene || scene
-                return isCurrentTeamUnavailable &&
-                    featureFlags[FEATURE_FLAGS.PROJECT_BASED_PERMISSIONING] &&
-                    baseActiveScene &&
-                    sceneConfigurations[baseActiveScene]?.projectBased
+                return isCurrentTeamUnavailable && baseActiveScene && sceneConfigurations[baseActiveScene]?.projectBased
                     ? Scene.ErrorProjectUnavailable
                     : baseActiveScene
             },
@@ -432,16 +386,16 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         },
         guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
             const { preflight } = preflightLogic.values
-            const { user } = userLogic.values
+            const { currentOrganization } = organizationLogic.values
             let featureAvailable: boolean
-            if (!preflight || !user) {
+            if (!preflight || !currentOrganization) {
                 featureAvailable = false
             } else if (!guardOn.cloud && preflight.cloud) {
                 featureAvailable = true
             } else if (!guardOn.selfHosted && !preflight.cloud) {
                 featureAvailable = true
             } else {
-                featureAvailable = !!user.organization?.available_features.includes(featureKey)
+                featureAvailable = !!currentOrganization?.available_features.includes(featureKey)
             }
             if (featureAvailable) {
                 featureAvailableCallback?.()
@@ -490,13 +444,14 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                             router.actions.replace(urls.organizationCreateFirst())
                             return
                         }
-                    } else if (!user.team) {
+                    } else if (teamLogic.values.isCurrentTeamUnavailable) {
                         if (location.pathname !== urls.projectCreateFirst()) {
                             router.actions.replace(urls.projectCreateFirst())
                             return
                         }
                     } else if (
-                        !user.team.completed_snippet_onboarding &&
+                        teamLogic.values.currentTeam &&
+                        !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/personalization')
                     ) {

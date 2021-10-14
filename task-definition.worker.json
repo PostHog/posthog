@@ -105,10 +105,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PLUGIN_SERVER_ACTION_MATCHING",
-                    "value": "1"
-                },
-                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },
@@ -249,6 +245,13 @@
             ],
             "entryPoint": ["sh", "-c"],
             "command": ["./bin/docker-worker-celery --with-scheduler"],
+            "ulimits": [
+                {
+                    "name": "nofile",
+                    "softLimit": 1024000,
+                    "hardLimit": 1024000
+                }
+            ],
             "linuxParameters": {
                 "initProcessEnabled": true
             }

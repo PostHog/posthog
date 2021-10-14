@@ -22,3 +22,7 @@ class ClickhousePathsViewSet(PathsViewSet):
             resp.append({"name": row[0], "id": row[1], "count": row[2]})
 
         return Response(resp)
+
+
+class LegacyClickhousePathsViewSet(ClickhousePathsViewSet):
+    legacy_team_compatibility = True

@@ -16,6 +16,7 @@ import { AnnotationType, AnnotationScope } from '~/types'
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
+import { teamLogic } from '../teamLogic'
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 const { TextArea } = Input
@@ -190,6 +191,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
     const [textInput, setTextInput] = useState('')
     const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
     const [selectedDate, setDate] = useState<dayjs.Dayjs>(dayjs())
+    const { currentTeam } = useValues(teamLogic)
     const { user } = useValues(userLogic)
 
     useEffect(() => {
@@ -245,7 +247,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                         key={AnnotationScope.Project}
                                         icon={<ProjectOutlined />}
                                     >
-                                        Project {user?.team?.name}
+                                        Project {currentTeam?.name}
                                     </Menu.Item>
                                 ) : (
                                     <Menu.Item

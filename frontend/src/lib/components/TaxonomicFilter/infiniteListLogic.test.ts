@@ -2,7 +2,7 @@ import { infiniteListLogic } from './infiniteListLogic'
 import { BuiltLogic } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { initKeaTestLogic, expectLogic } from '~/test/kea-test-utils'
 import { mockEventDefinitions } from '~/test/mocks'
 
@@ -11,7 +11,8 @@ jest.mock('lib/api')
 describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>
 
-    mockAPI(async ({ pathname, searchParams }) => {
+    mockAPI(async (url) => {
+        const { pathname, searchParams } = url
         if (pathname === 'api/projects/@current/event_definitions') {
             const results = searchParams.search
                 ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
@@ -21,6 +22,7 @@ describe('infiniteListLogic', () => {
                 count: results.length,
             }
         }
+        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({
@@ -111,5 +113,32 @@ describe('infiniteListLogic', () => {
                 expect.objectContaining({ name: 'event1' })
             ),
         ])
+    })
+})
+
+describe('infiniteListLogic with optionsFromProp', () => {
+    let logic: BuiltLogic<infiniteListLogicType>
+
+    initKeaTestLogic({
+        logic: infiniteListLogic,
+        props: {
+            taxonomicFilterLogicKey: 'testList',
+            listGroupType: TaxonomicFilterGroupType.Wildcards,
+            optionsFromProp: {
+                wildcard: [{ name: 'first' }, { name: 'second' }],
+            },
+        },
+        onLogic: (l) => (logic = l),
+    })
+
+    it('doesnt call loadRemoteItems on mount, loads results locally', async () => {
+        await expectLogic(logic)
+            .toDispatchActions([])
+            .toMatchValues({
+                results: expect.arrayContaining([
+                    expect.objectContaining({ name: 'first' }),
+                    expect.objectContaining({ name: 'second' }),
+                ]),
+            })
     })
 })

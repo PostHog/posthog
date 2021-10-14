@@ -106,7 +106,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk}], name="cohort1",)
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
         query, params = parse_prop_clauses(filter.properties, self.team.pk)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
@@ -143,7 +143,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 team=self.team, groups=[{"event_id": "$pageview", "days": 1}], name="cohort1",
             )
 
-            filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team
+            )
             query, params = parse_prop_clauses(filter.properties, self.team.pk)
             final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
             result = sync_execute(final_query, {**params, "team_id": self.team.pk})
@@ -153,7 +155,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2",
             )
 
-            filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],})
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team
+            )
             query, params = parse_prop_clauses(filter.properties, self.team.pk)
             final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
             result = sync_execute(final_query, {**params, "team_id": self.team.pk})
@@ -191,7 +195,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort1",
             )
 
-            filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team
+            )
             query, params = parse_prop_clauses(filter.properties, self.team.pk)
             final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
             result = sync_execute(final_query, {**params, "team_id": self.team.pk})
@@ -201,7 +207,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 team=self.team, groups=[{"action_id": action.pk, "days": 7}], name="cohort2",
             )
 
-            filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],})
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team
+            )
             query, params = parse_prop_clauses(filter.properties, self.team.pk)
             final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
             result = sync_execute(final_query, {**params, "team_id": self.team.pk})
@@ -226,7 +234,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
         query, params = parse_prop_clauses(filter.properties, self.team.pk)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
@@ -247,10 +255,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         cohort1 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop__is_not": "something"}}], name="cohort1",
+            team=self.team,
+            groups=[
+                {"properties": [{"type": "person", "key": "$some_prop", "operator": "is_not", "value": "something"}]}
+            ],
+            name="cohort1",
         )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
         query, params = parse_prop_clauses(filter.properties, self.team.pk)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
@@ -658,7 +670,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 WHERE person_id IN
                     (SELECT person_id
                     FROM person_static_cohort
-                    WHERE cohort_id = %(cohort_id_0)s
+                    WHERE cohort_id = %(_cohort_id_0)s
                     AND team_id = %(team_id)s)
                 """,
                     reindent=True,

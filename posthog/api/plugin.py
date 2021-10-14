@@ -291,8 +291,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
 
 class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
     permission_classes = [
@@ -362,3 +360,7 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
     # A set of keys for config fields that have secret = true
     secret_fields = set([field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]])
     return secret_fields
+
+
+class LegacyPluginConfigViewSet(PluginConfigViewSet):
+    legacy_team_compatibility = True

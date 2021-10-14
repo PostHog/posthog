@@ -2,7 +2,6 @@ from rest_framework import status
 
 from posthog.demo import create_demo_team
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
@@ -109,10 +108,8 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(team.timezone, "UTC")
 
     def test_filter_permission(self):
-
         response = self.client.patch(
-            "/api/projects/%s/" % (self.user.team.pk if self.user.team else 0),
-            {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
+            f"/api/projects/{self.team.id}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

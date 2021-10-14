@@ -14,7 +14,8 @@ import {
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { Scene, sceneLogic, urls } from 'scenes/sceneLogic'
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
@@ -43,7 +44,7 @@ import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
-import { teamLogic } from '../../scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 // to show the right page in the sidebar
 const sceneOverride: Partial<Record<Scene, string>> = {
@@ -228,7 +229,7 @@ function MenuItems(): JSX.Element {
             )}
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <MenuItem
-                    title="Explore"
+                    title="New Insight"
                     icon={<IconExplore />}
                     identifier="insights"
                     to={urls.insightView(ViewType.TRENDS)}
@@ -285,12 +286,12 @@ function MenuItems(): JSX.Element {
             />
             {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? (
                 <MenuItem
-                    title="Session Rec."
+                    title="Recordings"
                     icon={<PlayCircleFilled />}
                     identifier="sessionRecordings"
                     to={urls.sessionRecordings()}
-                    hotkey="s"
-                    tooltip="Watch session recordings"
+                    hotkey="r"
+                    tooltip="Playback user recordings as if you were next to them"
                 />
             ) : (
                 <MenuItem

@@ -3,6 +3,7 @@ import {
     FlattenedFunnelStep,
     FlattenedFunnelStepByBreakdown,
     FunnelStep,
+    FunnelStepReference,
     FunnelStepWithConversionMetrics,
 } from '~/types'
 import { getReferenceStep, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
@@ -11,10 +12,13 @@ import React from 'react'
 import { BreakdownVerticalBarGroup } from 'scenes/funnels/FunnelBarGraph'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { zeroPad } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { FunnelStepDropdown } from 'scenes/funnels/FunnelStepDropdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
     return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order, false, fallbackColor)
@@ -45,7 +49,8 @@ function BreakdownBarGroupWrapper({
     dashboardItemId?: number
     showLabels: boolean
 }): JSX.Element {
-    const logic = funnelLogic({ dashboardItemId })
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
     const {
         stepReference,
         visibleStepsWithConversionMetrics: steps,
@@ -95,6 +100,8 @@ export const renderGraphAndHeader = (
     dashboardItemId?: number,
     useCustomName?: boolean
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const stepIndex = step?.order ?? 0
     if (rowIndex === 0 || rowIndex === 1) {
         // Empty cell
         if (colIndex === 0) {
@@ -139,12 +146,13 @@ export const renderGraphAndHeader = (
                 return {
                     children: (
                         <div className="funnel-step-title">
-                            <span className="funnel-step-glyph">{zeroPad(humanizeOrder(step?.order ?? 0), 2)}</span>
+                            <span className="funnel-step-glyph">{zeroPad(humanizeOrder(stepIndex), 2)}</span>
                             {useCustomName && step ? (
                                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                             ) : (
                                 <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
                             )}
+                            {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && <FunnelStepDropdown index={stepIndex} />}
                         </div>
                     ),
                     props: {
@@ -180,8 +188,9 @@ export const renderGraphAndHeader = (
                 return {
                     children: (
                         <div className="funnel-step-title">
-                            <span className="funnel-step-glyph">{zeroPad(humanizeOrder(step?.order ?? 0), 2)}</span>
+                            <span className="funnel-step-glyph">{zeroPad(humanizeOrder(stepIndex), 2)}</span>
                             <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
+                            {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && <FunnelStepDropdown index={stepIndex} />}
                         </div>
                     ),
                     props: {

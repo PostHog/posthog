@@ -26,14 +26,18 @@ class SessionsFilterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> SessionsFilter:
         request = self.context["request"]
-        instance = SessionsFilter.objects.create(team=request.user.team, created_by=request.user, **validated_data,)
+        instance = SessionsFilter.objects.create(
+            team_id=self.context["team_id"], created_by=request.user, **validated_data,
+        )
         posthoganalytics.capture(instance.created_by.distinct_id, "sessions filter created")
         return instance
 
 
 class SessionsFilterViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True
-
     queryset = SessionsFilter.objects.all().order_by("name")
     serializer_class = SessionsFilterSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+
+
+class LegacySessionsFilterViewSet(SessionsFilterViewSet):
+    legacy_team_compatibility = True

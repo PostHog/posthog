@@ -10,20 +10,20 @@
             z-index: 999;
         }
     }
+}
 
-    .paths-dropdown-ellipsis {
-        display: flex;
-        font-size: 18px;
-        border: none;
-        font-weight: 600;
-        padding: 0px 4px;
-        height: 26px;
-        border-radius: 4px;
-        line-height: 18px;
-        &:hover {
-            cursor: pointer;
-            background-color: rgba(83, 117, 255, 0.08);
-        }
+.paths-dropdown-ellipsis {
+    display: flex;
+    font-size: 18px;
+    border: none;
+    font-weight: 600;
+    padding: 0px 4px;
+    height: 26px;
+    border-radius: 4px;
+    line-height: 18px;
+    &:hover {
+        cursor: pointer;
+        background-color: rgba(83, 117, 255, 0.08);
     }
 }
 
@@ -36,5 +36,17 @@
             background-color: rgba(83, 117, 255, 0.08);
             border-radius: 4;
         }
+    }
+}
+
+.pathcard-dropdown-info-option {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0px 8px;
+    color: black;
+    &:hover {
+        color: black;
+        cursor: default;
     }
 }

@@ -115,25 +115,19 @@ def filter_events(
         filters &= Q(timestamp__gte=date_from)
     if include_dates:
         filters &= Q(timestamp__lte=filter.date_to + relativity)
-    if filter.properties or filter.filter_test_accounts:
-        filters &= properties_to_Q(filter.properties, team_id=team_id, filter_test_accounts=filter.filter_test_accounts)
+    if filter.properties:
+        filters &= properties_to_Q(filter.properties, team_id=team_id)
     if entity and entity.properties:
         filters &= properties_to_Q(entity.properties, team_id=team_id)
     return filters
 
 
-def properties_to_Q(
-    properties: List[Property], team_id: int, is_person_query: bool = False, filter_test_accounts: bool = False
-) -> Q:
+def properties_to_Q(properties: List[Property], team_id: int, is_person_query: bool = False) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
     If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
     """
     filters = Q()
-
-    if filter_test_accounts:
-        test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
-        properties.extend([Property(**prop) for prop in test_account_filters])
 
     if len(properties) == 0:
         return filters

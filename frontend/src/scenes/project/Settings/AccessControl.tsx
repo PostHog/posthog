@@ -5,7 +5,7 @@ import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 import { sceneLogic } from '../../sceneLogic'
-import { teamLogic } from '../../teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { LockOutlined, UnlockOutlined } from '@ant-design/icons'
 
 export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.Element {

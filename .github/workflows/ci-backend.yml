@@ -13,7 +13,39 @@ env:
     TEST: 1
 
 jobs:
+    # Job to decide if we should run backend ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
+        runs-on: ubuntu-latest
+        name: Determine need to run backend checks
+        # Set job outputs to values from filter step
+        outputs:
+            backend: ${{ steps.filter.outputs.backend }}
+        steps:
+            # For pull requests it's not necessary to checkout the code
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      backend:
+                        # Avoid running backend tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. We could make
+                        # the dependencies more clear if we separated the backend/frontend
+                        # code completely
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        # Make sure we run if someone is explicitly change the workflow
+                        - .github/workflows/ci-backend.yml
+
     backend-code-quality:
+        needs: changes
+        # Make sure we only run on backend changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Code quality checks
         runs-on: ubuntu-latest
 
@@ -66,6 +98,9 @@ jobs:
                   mypy .
 
     django:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
 
@@ -103,7 +138,7 @@ jobs:
               run: |
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
-                  git diff --name-only origin/master..HEAD | grep migrations | python manage.py test_migrations_are_null
+                  git diff --name-only origin/master..HEAD | grep posthog/migrations | python manage.py test_migrations_are_null
 
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
@@ -114,7 +149,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/ -n auto
+                  pytest -m "not ee" posthog/ -n auto --cov --cov-report=xml:coverage-postgres.xml
             - name: Run EE tests
               env:
                   PRIMARY_DB: 'clickhouse'
@@ -123,9 +158,18 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee -m "not saml_only"
+                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml
+                  pytest posthog -m "ee"
+            - uses: codecov/codecov-action@v2
+              with:
+                  files: ./coverage-postgres.xml,./coverage-clickhouse.xml
+                  fail_ci_if_error: false
+                  verbose: true
 
     saml:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – with SAML
         runs-on: ubuntu-latest
         steps:
@@ -172,9 +216,13 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python -m pytest ee/ -p ee.override_clickhouse_db
+                  pytest ee/
+                  pytest posthog -m "ee"
 
     cloud:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – Cloud
         runs-on: ubuntu-latest
         steps:
@@ -206,6 +254,7 @@ jobs:
               run: |
                   python -m pip install -r deploy/requirements-dev.txt
                   python -m pip install -r deploy/requirements.txt
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
@@ -258,8 +307,12 @@ jobs:
               run: |
                   cd deploy/
                   pytest ee -m "not skip_on_multitenancy"
+                  pytest posthog -m "ee and not skip_on_multitenancy"
 
     foss:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – FOSS
         runs-on: ubuntu-latest
 

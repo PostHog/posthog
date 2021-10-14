@@ -15,17 +15,18 @@ import './TrendTab.scss'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { Tooltip } from 'lib/components/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export interface TrendTabProps {
     view: string
 }
 
 export function TrendTab({ view }: TrendTabProps): JSX.Element {
-    const { filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
-    const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(trendsLogic(insightProps))
+    const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
-    const { toggleLifecycle } = useActions(trendsLogic)
     const lifecycles = [
         { name: 'new', tooltip: 'Users that are new.' },
         { name: 'resurrecting', tooltip: 'Users who were once active but became dormant, and are now active again.' },
@@ -183,7 +184,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     />
                                     {filters.breakdown && (
                                         <CloseButton
-                                            onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
+                                            onClick={() => setFilters({ breakdown: undefined, breakdown_type: null })}
                                             style={{ marginTop: 1, marginLeft: 5 }}
                                         />
                                     )}

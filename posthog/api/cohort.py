@@ -166,8 +166,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
 
 class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -179,3 +177,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         queryset = queryset.annotate(count=Count("people"))
         return queryset.select_related("created_by").order_by("id")
+
+
+class LegacyCohortViewSet(CohortViewSet):
+    legacy_team_compatibility = True

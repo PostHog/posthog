@@ -5,7 +5,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Collapse, InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathType, FunnelPathType, PathEdgeParameters } from '~/types'
+import { PathType, ViewType, FunnelPathType, PathEdgeParameters } from '~/types'
 import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -15,13 +15,20 @@ import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { CloseButton } from 'lib/components/CloseButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/components/Tooltip'
+import { PersonModal } from 'scenes/trends/PersonModal'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function NewPathTab(): JSX.Element {
-    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
-    const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: null }))
+    const { insightProps } = useValues(insightLogic)
+    const { filter, wildcards } = useValues(pathsLogic(insightProps))
+    const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
+
+    const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
+    const { setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
@@ -33,16 +40,19 @@ export function NewPathTab(): JSX.Element {
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const groupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
-        ? filter.include_event_types.map((item) => {
-              if (item === PathType.Screen) {
-                  return TaxonomicFilterGroupType.Screens
-              } else if (item === PathType.CustomEvent) {
-                  return TaxonomicFilterGroupType.CustomEvents
-              } else {
-                  return TaxonomicFilterGroupType.PageviewUrls
-              }
-          })
-        : []
+        ? [
+              ...filter.include_event_types.map((item) => {
+                  if (item === PathType.Screen) {
+                      return TaxonomicFilterGroupType.Screens
+                  } else if (item === PathType.CustomEvent) {
+                      return TaxonomicFilterGroupType.CustomEvents
+                  } else {
+                      return TaxonomicFilterGroupType.PageviewUrls
+                  }
+              }),
+              TaxonomicFilterGroupType.Wildcards,
+          ]
+        : [TaxonomicFilterGroupType.Wildcards]
 
     const overrideStartInput =
         filter.funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(filter.funnel_paths)
@@ -145,6 +155,14 @@ export function NewPathTab(): JSX.Element {
 
     return (
         <>
+            <PersonModal
+                visible={showingPeople && !cohortModalVisible}
+                view={ViewType.PATHS}
+                filters={filter}
+                onSaveCohort={() => {
+                    setCohortModalVisible(true)
+                }}
+            />
             <Row>
                 <Col span={12}>
                     <Col className="event-types" style={{ paddingBottom: 16 }}>
@@ -242,6 +260,7 @@ export function NewPathTab(): JSX.Element {
                                     }
                                     groupTypes={groupTypes}
                                     disabled={overrideStartInput || overrideEndInput}
+                                    wildcardOptions={wildcards}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 1}
@@ -307,6 +326,7 @@ export function NewPathTab(): JSX.Element {
                                     }
                                     groupTypes={groupTypes}
                                     disabled={overrideEndInput || overrideStartInput}
+                                    wildcardOptions={wildcards}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 0}
@@ -474,7 +494,11 @@ export function NewPathTab(): JSX.Element {
                                 type: 'event',
                             }))
                         }
-                        onChange={updateExclusions}
+                        onChange={(values) => {
+                            const exclusion = values.length > 0 ? values.map((v) => v.value) : values
+                            updateExclusions(exclusion as string[])
+                        }}
+                        wildcardOptions={wildcards}
                     />
                 </Col>
             </Row>

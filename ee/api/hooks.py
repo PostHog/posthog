@@ -24,7 +24,7 @@ class HookSerializer(serializers.ModelSerializer):
 
 class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
-    Retrieve, create, update or destroy webhooks.
+    Retrieve, create, update or destroy REST hooks.
     """
 
     queryset = Hook.objects.all()
@@ -34,4 +34,4 @@ class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = cast(User, self.request.user)
-        serializer.save(user=user, team=user.team)
+        serializer.save(user=user, team_id=self.team_id)

@@ -1,4 +1,5 @@
 import datetime as dt
+import random
 from unittest.mock import Mock, patch
 
 from freezegun.api import freeze_time
@@ -22,6 +23,31 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(
             OrganizationMembership.objects.get(organization_id=response_data.get("id"), user=self.user).level,
             OrganizationMembership.Level.OWNER,
+        )
+
+    def test_create_two_similarly_named_organizations(self):
+        random.seed(0)
+
+        response = self.client.post("/api/organizations/", {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertDictContainsSubset(
+            {
+                "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            },
+            response.json(),
+        )
+
+        response = self.client.post(
+            "/api/organizations/", {"name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertDictContainsSubset(
+            {
+                "name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX",
+                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yWAc",
+            },
+            response.json(),
         )
 
     def test_delete_second_managed_organization(self):

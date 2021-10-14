@@ -1,20 +1,19 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import api from 'lib/api'
-import { toParams, objectsEqual, uuid } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, SharedInsightLogicProps, FilterType, ViewType } from '~/types'
+import { ActionType, InsightLogicProps, FilterType, ViewType } from '~/types'
 import {
     RetentionTablePayload,
     RetentionTrendPayload,
     RetentionTablePeoplePayload,
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -30,111 +29,34 @@ export const retentionOptionDescriptions = {
 }
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
-export function defaultFilters(filters: Record<string, any>): Record<string, any> {
-    return {
-        target_entity: filters.target_entity || {
-            id: '$pageview',
-            name: '$pageview',
-            type: 'events',
-        },
-        returning_entity: filters.returning_entity || { id: '$pageview', type: 'events', name: '$pageview' },
-        date_to: filters.date_to,
-        period: filters.period || 'Day',
-        retention_type: filters.retention_type || RETENTION_FIRST_TIME,
-        display: filters.display || ACTIONS_TABLE,
-        properties: filters.properties || [],
-        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-        insight: ViewType.RETENTION,
-    }
-}
 
 export const retentionTableLogic = kea<retentionTableLogicType>({
-    props: {} as SharedInsightLogicProps,
-    key: (props) => {
-        return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
-    },
-    connect: {
-        actions: [insightHistoryLogic, ['createInsight']],
-        values: [actionsModel, ['actions']],
-    },
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
+    connect: (props: InsightLogicProps) => ({
+        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], actionsModel, ['actions']],
+        actions: [insightLogic(props), ['loadResultsSuccess']],
+    }),
     actions: () => ({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         loadMorePeople: true,
         updatePeople: (people) => ({ people }),
-        updateRetention: (retention: RetentionTablePayload[] | RetentionTrendPayload[]) => ({ retention }),
         clearPeople: true,
-        clearRetention: true,
-        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
-    loaders: ({ values, props }) => ({
-        results: {
-            __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
-            setCachedResults: ({ results }) => {
-                return results
-            },
-            loadResults: async (refresh = false, breakpoint) => {
-                if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
-                    return props.cachedResults
-                }
-                const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
-                insightLogic.actions.startQuery(queryId)
-                if (dashboardItemId) {
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
-                }
-
-                let res
-                const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
-                try {
-                    res = await api.get(`api/insight/retention/?${urlParams}`)
-                } catch (e) {
-                    breakpoint()
-                    insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
-                    if (dashboardItemId) {
-                        dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
-                    }
-                    return []
-                }
-                breakpoint()
-                insightLogic.actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
-                if (dashboardItemId) {
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, res.last_refresh)
-                }
-
-                return res.result
-            },
-        },
+    loaders: ({ values }) => ({
         people: {
             __default: {} as RetentionTablePeoplePayload | RetentionTrendPeoplePayload,
             loadPeople: async (rowIndex: number) => {
-                if (values.filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
-                    const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
-                    const res = await api.get(`api/person/retention/?${urlParams}`)
-                    return res
-                } else {
-                    const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
-                    const res = await api.get(`api/person/retention/?${urlParams}`)
-                    return res
-                }
+                const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
+                const res = await api.get(`api/person/retention/?${urlParams}`)
+                return res
             },
         },
     }),
-    reducers: ({ props }) => ({
-        filters: [
-            props.filters
-                ? defaultFilters(props.filters as Record<string, any>)
-                : (state: any) => defaultFilters(router.selectors.searchParams(state)),
-            {
-                setFilters: (state, { filters }) => ({ ...state, ...filters }),
-            },
-        ],
+    reducers: {
         people: {
             clearPeople: () => ({}),
             updatePeople: (_, { people }) => people,
-        },
-        results: {
-            updateRetention: (_, { retention }) => retention,
-            clearRetention: () => [],
         },
         loadingMore: [
             false,
@@ -143,74 +65,41 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 updatePeople: () => false,
             },
         ],
-    }),
+    },
     selectors: {
+        loadedFilters: [
+            (s) => [s.insight],
+            ({ filters }): Partial<FilterType> => (filters?.insight === ViewType.RETENTION ? filters ?? {} : {}),
+        ],
+        results: [
+            (s) => [s.insight],
+            ({ filters, result }): RetentionTablePayload[] | RetentionTrendPayload[] => {
+                return filters?.insight === ViewType.RETENTION &&
+                    result &&
+                    (result.length === 0 ||
+                        (!result[0].values && filters.display === ACTIONS_LINE_GRAPH_LINEAR) ||
+                        (result[0].values && filters.display === ACTIONS_TABLE))
+                    ? result
+                    : []
+            },
+        ],
+        resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         actionsLookup: [
-            (selectors) => [(selectors as any).actions],
+            (s) => [s.actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
         actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
         actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
     },
-    events: ({ actions, props }) => ({
-        afterMount: () => {
-            if (props.dashboardItemId) {
-                // loadResults gets called in urlToAction for non-dashboard insights
-                actions.loadResults()
-            }
-        },
-    }),
-    actionToUrl: ({ props, values }) => ({
-        setFilters: () => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
-            }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
-        },
-        setProperties: () => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
-            }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
-        },
-    }),
-    urlToAction: ({ actions, values, key }) => ({
-        '/insights': ({}, searchParams: Record<string, any>) => {
-            if (searchParams.insight === ViewType.RETENTION) {
-                if (key != DEFAULT_RETENTION_LOGIC_KEY) {
-                    return
-                }
-
-                const cleanSearchParams = searchParams
-                const cleanedFilters = values.filters
-
-                if (cleanSearchParams.display !== cleanedFilters.display) {
-                    actions.clearRetention()
-                    actions.clearPeople()
-                }
-                if (!objectsEqual(cleanSearchParams, cleanedFilters)) {
-                    actions.setFilters(cleanSearchParams)
-                }
-            }
-        },
-    }),
     listeners: ({ actions, values, props }) => ({
-        setProperties: () => {
-            actions.loadResults()
+        setProperties: ({ properties }) => {
+            insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, properties }, values.filters))
         },
-        setFilters: () => {
-            actions.loadResults()
+        setFilters: ({ filters }) => {
+            insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, ...filters }, values.filters))
         },
-        loadResults: () => {
+        loadResultsSuccess: async () => {
             actions.clearPeople()
-            insightLogic.actions.setAllFilters(values.filters)
-            if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    actions.createInsight(values.filters)
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filters)
-                }
-            }
         },
         loadMorePeople: async () => {
             if (values.people.next) {

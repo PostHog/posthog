@@ -30,7 +30,6 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
@@ -46,7 +45,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         team_id = self.team_id
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
 
         events = (
             Event.objects.filter(team_id=team_id, event="$autocapture")
@@ -98,7 +97,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             """
             SELECT
                 value, COUNT(1) as id
-            FROM ( 
+            FROM (
                 SELECT
                     ("posthog_element"."{key}") as "value"
                 FROM
@@ -120,3 +119,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return response.Response([{"name": value.value} for value in values])
+
+
+class LegacyElementViewSet(ElementViewSet):
+    legacy_team_compatibility = True

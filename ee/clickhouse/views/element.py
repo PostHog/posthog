@@ -13,7 +13,7 @@ from posthog.models.filters import Filter
 class ClickhouseElementViewSet(ElementViewSet):
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:  # type: ignore
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
 
         date_from, date_to, _ = parse_timestamps(filter, team_id=self.team.pk)
 
@@ -58,3 +58,7 @@ class ClickhouseElementViewSet(ElementViewSet):
             GET_VALUES.format(), {"team_id": self.team.id, "regex": select_regex, "filter_regex": filter_regex}
         )
         return response.Response([{"name": value[0]} for value in result])
+
+
+class LegacyClickhouseElementViewSet(ClickhouseElementViewSet):
+    legacy_team_compatibility = True

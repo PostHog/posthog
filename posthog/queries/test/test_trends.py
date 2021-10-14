@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Tuple
 
 from freezegun import freeze_time
 
@@ -27,7 +27,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
     class TestTrends(AbstractTimerangeTest, AbstractIntervalTest, APIBaseTest):
         maxDiff = None
 
-        def _create_events(self, use_time=False):
+        def _create_events(self, use_time=False) -> Tuple[Action, Person]:
 
             person = person_factory(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
@@ -1301,7 +1301,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 0)
 
-        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
+        @test_with_materialized_columns(person_properties=["name"])
         def test_filter_events_by_cohort(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -1327,7 +1327,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     data={
                         "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
                         "events": [{"id": "event_name"}],
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -1629,7 +1630,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
                 event_factory(team=self.team, event="sign up", distinct_id="someone_else")
 
-            calculate_action(sign_up_action.id)
+            sign_up_action.calculate_events()
 
             with freeze_time("2020-01-04"):
                 action_response = trends().run(
@@ -1850,6 +1851,28 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         data={
                             "properties": [{"key": "name", "value": "person1", "type": "person",}],
                             "events": [{"id": "watched movie"}],
+                        }
+                    ),
+                    self.team,
+                )
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+            self.assertEqual(response[0]["data"][4], 1.0)
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
+            self.assertEqual(response[0]["data"][5], 0)
+
+        @test_with_materialized_columns(person_properties=["name"])
+        def test_entity_person_property_filtering(self):
+            self._create_multiple_people()
+            with freeze_time("2020-01-04"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "events": [
+                                {
+                                    "id": "watched movie",
+                                    "properties": [{"key": "name", "value": "person1", "type": "person",}],
+                                }
+                            ],
                         }
                     ),
                     self.team,
@@ -2147,9 +2170,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "filter_test_accounts": "true",
             }
-            filter = Filter(data=data)
-            filter_2 = Filter(data={**data, "filter_test_accounts": "false",})
-            filter_3 = Filter(data={**data, "breakdown": "key"})
+            filter = Filter(data=data, team=self.team)
+            filter_2 = Filter(data={**data, "filter_test_accounts": "false",}, team=self.team)
+            filter_3 = Filter(data={**data, "breakdown": "key"}, team=self.team)
             result = trends().run(filter, self.team,)
             self.assertEqual(result[0]["count"], 1)
             result = trends().run(filter_2, self.team,)
@@ -2157,7 +2180,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             result = trends().run(filter_3, self.team,)
             self.assertEqual(result[0]["count"], 1)
 
-        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
+        @test_with_materialized_columns(person_properties=["name"])
         def test_filter_test_accounts_cohorts(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -2175,8 +2198,70 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.team.save()
 
             response = trends().run(
-                Filter(data={"events": [{"id": "event_name"}], "filter_test_accounts": True}), self.team,
+                Filter(data={"events": [{"id": "event_name"}], "filter_test_accounts": True}, team=self.team),
+                self.team,
             )
+
+            self.assertEqual(response[0]["count"], 2)
+            self.assertEqual(response[0]["data"][-1], 2)
+
+        def test_filter_by_precalculated_cohort(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+
+            event_factory(event="event_name", team=self.team, distinct_id="person_1")
+            event_factory(event="event_name", team=self.team, distinct_id="person_2")
+            event_factory(event="event_name", team=self.team, distinct_id="person_2")
+
+            cohort = cohort_factory(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch()
+            with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "events": [{"id": "event_name"}],
+                            "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
+                        },
+                        team=self.team,
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["count"], 2)
+            self.assertEqual(response[0]["data"][-1], 2)
+
+        def test_breakdown_filter_by_precalculated_cohort(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+
+            event_factory(event="event_name", team=self.team, distinct_id="person_1")
+            event_factory(event="event_name", team=self.team, distinct_id="person_2")
+            event_factory(event="event_name", team=self.team, distinct_id="person_2")
+
+            cohort = cohort_factory(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch()
+
+            with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "events": [{"id": "event_name"}],
+                            "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
+                            "breakdown": "name",
+                            "breakdown_type": "person",
+                        },
+                        team=self.team,
+                    ),
+                    self.team,
+                )
 
             self.assertEqual(response[0]["count"], 2)
             self.assertEqual(response[0]["data"][-1], 2)

@@ -13,8 +13,6 @@ from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
 
 
 class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     @action(methods=["GET"], detail=False)
@@ -55,3 +53,7 @@ class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team,
         )
         return resp
+
+
+class LegacyPathsViewSet(PathsViewSet):
+    legacy_team_compatibility = True

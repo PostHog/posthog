@@ -16,6 +16,8 @@ class AvailableFeature(str, Enum):
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
+SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
+
 SESSIONS_FILTER_RECORDING_TYPE = "recording"
 SESSIONS_FILTER_COHORT_TYPE = "cohort"
 SESSIONS_FILTER_PERSON_TYPE = "person"
@@ -113,6 +115,8 @@ FUNNEL_STEP_BREAKDOWN = "funnel_step_breakdown"
 FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
+FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
+FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 BIN_COUNT = "bin_count"
 ENTRANCE_PERIOD_START = "entrance_period_start"
 DROP_OFF = "drop_off"
@@ -144,10 +148,16 @@ class FunnelVizType(str, Enum):
     STEPS = "steps"
 
 
+class FunnelCorrelationType(str, Enum):
+    EVENTS = "events"
+    PROPERTIES = "properties"
+
+
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"
 
 DISTINCT_ID_FILTER = "distinct_id"
+PERSON_UUID_FILTER = "person_uuid"
 
 
 class AnalyticsDBMS(str, Enum):
@@ -158,11 +168,11 @@ class AnalyticsDBMS(str, Enum):
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 
-ENVIRONMENT_TEST = "test"
-ENVIRONMENT_PRODUCTION = "production"
-
 
 class RetentionQueryType(str, Enum):
     RETURNING = "returning"
     TARGET = "target"
     TARGET_FIRST_TIME = "target_first_time"
+
+
+MAX_SLUG_LENGTH = 48

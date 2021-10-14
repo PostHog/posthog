@@ -1,18 +1,19 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function RubyInstallSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Bash}>{'gem "posthog-ruby"'}</CodeSnippet>
 }
 
 function RubySetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <CodeSnippet language={Language.Ruby}>
             {`posthog = PostHog::Client.new({
-    api_key: "${user?.team?.api_token}",
+    api_key: "${currentTeam?.api_token}",
     api_host: "${window.location.origin}",
     on_error: Proc.new { |status, msg| print msg }
 })`}

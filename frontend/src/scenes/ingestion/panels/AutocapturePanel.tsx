@@ -8,13 +8,13 @@ import { Link } from 'lib/components/Link'
 import { JSInstructions } from '../frameworks'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function AutocapturePanel(): JSX.Element {
     const { index, totalSteps, framework } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { reportIngestionBookmarkletCollapsible } = useActions(eventUsageLogic)
 
     const handlePanelChange = (shownPanels: string | string[]): void => {
@@ -39,7 +39,7 @@ export function AutocapturePanel(): JSX.Element {
             onSubmit={() => setVerify(true)}
             onBack={() => setPlatform(null)}
         >
-            {user?.team && (
+            {currentTeam && (
                 <Collapse onChange={handlePanelChange}>
                     <Collapse.Panel
                         header={
@@ -63,7 +63,7 @@ export function AutocapturePanel(): JSX.Element {
                             <li>Click continue below and see events coming in.</li>
                         </ol>
                         <div className="mt">
-                            <JSBookmarklet team={user.team} />
+                            <JSBookmarklet team={currentTeam} />
                         </div>
                         <div className="mt">
                             <Alert

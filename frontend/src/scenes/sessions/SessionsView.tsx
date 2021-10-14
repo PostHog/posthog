@@ -30,8 +30,9 @@ import { IconEventsShort } from 'lib/components/icons'
 import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { urls } from '../sceneLogic'
+import { urls } from 'scenes/urls'
 import { SessionPlayerDrawer } from 'scenes/sessionRecordings/SessionPlayerDrawer'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -131,7 +132,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     title={
                         currentTeam?.session_recording_opt_in
                             ? 'Replay sessions as if you were right next to your users.'
-                            : 'Session recording is turned off for this project. Click to go to settings.'
+                            : 'Recordings is turned off for this project. Click to go to settings.'
                     }
                     delayMs={0}
                 >
@@ -152,7 +153,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             ),
             render: function RenderEndPoint(session: SessionType) {
                 return session.session_recordings.length ? (
-                    <SessionRecordingsButton sessionRecordings={session.session_recordings} />
+                    <SessionRecordingsButton
+                        sessionRecordings={session.session_recordings}
+                        source={RecordingWatchedSource.SessionsList}
+                    />
                 ) : null
             },
             span: 4,
@@ -220,11 +224,15 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                 ? 'No recordings found for this date.'
                                 : currentTeam?.session_recording_opt_in
                                 ? 'Play all recordings found for this date.'
-                                : 'Session recording is turned off for this project. Enable in Project Settings.'
+                                : 'Recordings is turned off for this project. Enable in Project Settings.'
                         }
                     >
                         <LinkButton
-                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                            to={
+                                firstRecordingId
+                                    ? sessionPlayerUrl(firstRecordingId, RecordingWatchedSource.SessionsListPlayAll)
+                                    : '#'
+                            }
                             type="primary"
                             data-attr="play-all-recordings"
                             disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled

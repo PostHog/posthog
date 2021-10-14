@@ -82,7 +82,7 @@ class TestDashboard(APIBaseTest):
         dashboard_item = DashboardItem.objects.get()
         self.assertEqual(dashboard_item.name, "dashboard item")
         # Short ID is automatically generated
-        self.assertRegexpMatches(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
+        self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
 
     def test_token_auth(self):
         self.client.logout()

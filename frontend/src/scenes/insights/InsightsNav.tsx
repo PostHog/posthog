@@ -32,7 +32,9 @@ export function InsightsNav(): JSX.Element {
                         <Button
                             type="link"
                             data-attr="insight-history-button"
-                            className={`insight-history-button${activeView === ViewType.HISTORY ? ' active' : ''}`}
+                            className={`insight-history-button${
+                                (activeView as ViewType) === ViewType.HISTORY ? ' active' : ''
+                            }`}
                             onClick={() => setActiveView(ViewType.HISTORY)}
                             icon={<ClockCircleOutlined />}
                         >

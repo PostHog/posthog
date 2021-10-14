@@ -28,6 +28,7 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import clsx from 'clsx'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -75,6 +76,8 @@ export interface ActionFilterRowProps {
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each row
     rowClassName?: string
+    propertyFilterWrapperClassName?: string
+    stripeActionRow?: boolean // Whether or not to alternate the color behind the action rows
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     groupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
@@ -111,6 +114,8 @@ export function ActionFilterRow({
     customRowPrefix,
     customRowSuffix,
     rowClassName,
+    propertyFilterWrapperClassName,
+    stripeActionRow = true,
     hasBreakdown,
     showNestedArrow = false,
     hideDeleteBtn = false,
@@ -141,7 +146,7 @@ export function ActionFilterRow({
     const onMathSelect = (_: unknown, selectedMath: string): void => {
         updateFilterMath({
             math: selectedMath,
-            math_property: MATHS[selectedMath]?.onProperty ? mathProperty : undefined,
+            math_property: MATHS[selectedMath]?.onProperty ? mathProperty ?? '$time' : undefined,
             type: filter.type,
             index,
         })
@@ -281,7 +286,13 @@ export function ActionFilterRow({
     )
 
     return (
-        <div className={`${horizontalUI ? 'action-row-striped' : 'action-row'} ${fullWidth ? 'full-width' : ''}`}>
+        <div
+            className={clsx({
+                'action-row-striped': horizontalUI && stripeActionRow,
+                'action-row': !horizontalUI || !stripeActionRow,
+                'full-width': fullWidth,
+            })}
+        >
             {!horizontalUI && index > 0 && showOr && (
                 <Row align="middle" style={{ marginTop: 12 }}>
                     {orLabel}
@@ -393,7 +404,13 @@ export function ActionFilterRow({
                 )}
 
             {visible && (
-                <div className="mr property-filter-wrapper">
+                <div
+                    className={
+                        propertyFilterWrapperClassName
+                            ? `mr property-filter-wrapper ${propertyFilterWrapperClassName}`
+                            : 'mr property-filter-wrapper'
+                    }
+                >
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}

@@ -57,7 +57,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team=self.context["request"].user.team, deleted=False)
+            FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False)
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -81,7 +81,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
             )
 
-        FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
+        FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
         instance = super().create(validated_data)
 
         posthoganalytics.capture(
@@ -109,8 +109,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -246,3 +244,7 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
             serializer.is_valid(raise_exception=True)
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
+    legacy_team_compatibility = True

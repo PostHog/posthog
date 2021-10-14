@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
-import { BuiltLogic, Logic, useActions, useValues } from 'kea'
+import { useActions, useValues, BindLogic } from 'kea'
 import { Dropdown, Menu, Alert, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
@@ -233,13 +233,13 @@ export function DashboardItem({
         cachedResults: (item as any).result,
         preventLoading,
     }
-    const { showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
+    const { insightProps, showTimeoutMessage, showErrorMessage } = useValues(insightLogic(logicProps))
+
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { loadResults } = useActions(getLogicFromInsight(item.filters.insight, logicProps))
-    const { results, resultsLoading, isLoading } = useValues(getLogicFromInsight(item.filters.insight, logicProps))
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(
-        funnelLogic(logicProps) as Logic & BuiltLogic
-    )
+    const activeInsightLogic = getLogicFromInsight(item.filters.insight, insightProps)
+    const { loadResults } = useActions(activeInsightLogic)
+    const { results, resultsLoading, isLoading } = useValues(activeInsightLogic)
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
     const previousLoading = usePrevious(resultsLoading)
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
@@ -284,7 +284,7 @@ export function DashboardItem({
         return null
     })()
 
-    return (
+    const response = (
         <div
             key={item.id}
             className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${
@@ -633,5 +633,11 @@ export function DashboardItem({
                 />
             )}
         </div>
+    )
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            {response}
+        </BindLogic>
     )
 }

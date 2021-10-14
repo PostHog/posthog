@@ -9,11 +9,11 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
-from posthog.constants import AvailableFeature
+from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
-from .utils import UUIDModel, sane_repr
+from .utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 
 try:
     from ee.models.license import License
@@ -25,6 +25,9 @@ INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 
 class OrganizationManager(models.Manager):
+    def create(self, *args: Any, **kwargs: Any):
+        return create_with_slug(super().create, *args, **kwargs)
+
     def bootstrap(
         self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
@@ -75,6 +78,7 @@ class Organization(UUIDModel):
         related_query_name="organization",
     )
     name: models.CharField = models.CharField(max_length=64)
+    slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     domain_whitelist: ArrayField = ArrayField(
@@ -155,6 +159,7 @@ class Organization(UUIDModel):
             "person_count": sum((team.person_set.count() for team in self.teams.all())),
             "setup_section_2_completed": self.setup_section_2_completed,
             "personalization": self.personalization,
+            "name": self.name,
         }
 
 

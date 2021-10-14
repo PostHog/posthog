@@ -15,7 +15,7 @@ from posthog.models import Team, User
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.utils import cors_response, load_data_from_request
 
-from .capture import _get_project_id
+from .utils import get_project_id
 
 
 def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
@@ -93,10 +93,10 @@ def get_decide(request: HttpRequest):
                 generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
             )
 
-        token, _ = get_token(data, request)
+        token = get_token(data, request)
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
-            project_id = _get_project_id(data, request)
+            project_id = get_project_id(data, request)
 
             if not project_id:
                 return cors_response(

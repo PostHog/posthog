@@ -1,7 +1,7 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function AndroidInstallSnippet(): JSX.Element {
     return (
@@ -14,12 +14,12 @@ function AndroidInstallSnippet(): JSX.Element {
 }
 
 function AndroidSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     return (
         <CodeSnippet language={Language.Java}>
             {`public class SampleApp extends Application {
-    private static final String POSTHOG_API_KEY = "${user?.team?.api_token}";
+    private static final String POSTHOG_API_KEY = "${currentTeam?.api_token}";
     private static final String POSTHOG_HOST = "${window.location.origin}";
 
     @Override

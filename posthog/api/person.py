@@ -79,7 +79,6 @@ class PersonFilter(filters.FilterSet):
 
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -180,7 +179,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         target_date = request.GET.get("target_date", None)
         if target_date is None:
             return response.Response(
@@ -258,3 +257,7 @@ def paginated_result(
     entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0,
 ) -> Optional[str]:
     return format_next_url(request, offset, 100) if len(entites) > 99 else None
+
+
+class LegacyPersonViewSet(PersonViewSet):
+    legacy_team_compatibility = True

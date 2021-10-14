@@ -74,10 +74,13 @@ class PathEventQuery(ClickhouseEventQuery):
         event_query, event_params = self._get_event_query()
         self.params.update(event_params)
 
+        person_query, person_params = self._get_person_query()
+        self.params.update(person_params)
+
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
-            {self._get_person_query()}
+            {person_query}
             {funnel_paths_join}
             WHERE team_id = %(team_id)s
             {event_query}
