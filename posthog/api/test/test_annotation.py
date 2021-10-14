@@ -5,7 +5,8 @@ import pytz
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Annotation, Dashboard, DashboardItem, Organization, User
+from posthog.models import Annotation, Dashboard, DashboardItem, Organization, User, organization
+from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
 
@@ -118,6 +119,29 @@ class TestAnnotation(APIBaseTest):
         mock_capture.assert_called_once_with(
             self.user.distinct_id, "annotation updated", {"scope": "organization", "date_marker": None},
         )
+
+    def test_deleting_annotation_of_other_team_prevented(self):
+        other_organization, other_team, _ = User.objects.bootstrap("Other Corp", "Juan", None)
+        other_annotation = Annotation.objects.create(
+            organization=other_organization,
+            team=other_team,
+            created_by=self.user,
+            created_at="2020-01-04T12:00:00Z",
+            content="hello world!",
+        )
+        response_via_other_team = self.client.delete(
+            f"/api/projects/{other_team.pk}/annotations/{other_annotation.pk}/"
+        )
+
+        self.assertEqual(response_via_other_team.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.permission_denied_response("You don't have access to the project."), response_via_other_team.json()
+        )
+
+        response_via_self_team = self.client.delete(f"/api/projects/{self.team.pk}/annotations/{other_annotation.pk}/")
+
+        self.assertEqual(response_via_self_team.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.not_found_response(), response_via_self_team.json())
 
     def test_deleting_annotation(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
