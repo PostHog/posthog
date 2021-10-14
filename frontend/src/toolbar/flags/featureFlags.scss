@@ -1,3 +1,6 @@
+.flags-button-window {
+    width: min(350px, 100vw);
+}
 .toolbar-block {
     .ant-list {
         padding-top: 5px;
@@ -8,13 +11,24 @@
 
         .feature-flag-row-header {
             background-color: #fafafa;
-            padding: 10px;
             border-radius: 4px;
+            align-items: center;
+            min-height: 38px;
+            padding: 0 5px;
+            > * {
+                margin: 0 5px;
+            }
             .feature-flag-title {
                 flex: 1;
-                margin-right: 5px;
                 font-weight: bold;
-                font-size: 13;
+                font-size: 13px;
+            }
+            .feature-flag-external-link {
+                color: rgba(0, 0, 0, 0.5);
+                line-height: normal;
+                &:hover {
+                    color: rgba(0, 0, 0, 0.8);
+                }
             }
         }
         .feature-flag-row-header.overridden {
