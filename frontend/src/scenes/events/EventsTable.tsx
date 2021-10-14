@@ -365,7 +365,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     }}
                     expandable={{
                         expandedRowRender: function renderExpand({ event }) {
-                            return <EventDetails event={event} />
+                            return event && <EventDetails event={event} />
                         },
                         rowExpandable: ({ event }) => !!event,
                         expandRowByClick: true,
