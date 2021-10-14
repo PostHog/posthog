@@ -7,12 +7,12 @@ import { useValues } from 'kea'
 import { personHeaderLogic } from 'scenes/persons/personHeaderLogic'
 import clsx from 'clsx'
 
-export interface PersonHeader {
+export interface PersonHeaderProps {
     person?: Partial<PersonType> | null
     withIcon?: boolean
 }
 
-export function PersonHeader(props: PersonHeader): JSX.Element {
+export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const logic = personHeaderLogic(props)
     const { withIcon, personDisplay, personLink, isIdentified } = useValues(logic)
 
