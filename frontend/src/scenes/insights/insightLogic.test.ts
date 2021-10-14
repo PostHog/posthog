@@ -3,6 +3,7 @@ import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { insightLogic } from './insightLogic'
 import { AvailableFeature, PropertyOperator, ViewType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { combineUrl, router } from 'kea-router'
 
 jest.mock('lib/api')
 
@@ -149,6 +150,69 @@ describe('insightLogic', () => {
                         }),
                     })
             })
+        })
+    })
+
+    describe('reacts to the URL', () => {
+        initKeaTestLogic({
+            logic: insightLogic,
+            props: {
+                syncWithUrl: true,
+                dashboardItemId: undefined,
+            },
+            onLogic: (l) => (logic = l),
+        })
+
+        beforeEach(async () => await expectLogic(logic).toFinishAllListeners())
+
+        it('sets filters from the URL', async () => {
+            const url = combineUrl('/insights', { insight: 'TRENDS', interval: 'minute' }).url
+            router.actions.push(url)
+            await expectLogic(logic)
+                .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
+                .toMatchValues({
+                    filters: expect.objectContaining({ insight: 'TRENDS', interval: 'minute' }),
+                })
+
+            // setting the same URL twice doesn't call `setFilters`
+            router.actions.push(url)
+            await expectLogic(logic)
+                .toDispatchActions([router.actionCreators.push(url)])
+                .toNotHaveDispatchedActions(['setFilters'])
+                .toMatchValues({
+                    filters: expect.objectContaining({ insight: 'TRENDS', interval: 'minute' }),
+                })
+
+            // calls when the values changed
+            const url2 = combineUrl('/insights', { insight: 'TRENDS', interval: 'week' }).url
+            router.actions.push(url2)
+            await expectLogic(logic)
+                .toDispatchActions([router.actionCreators.push(url2), 'setFilters'])
+                .toMatchValues({
+                    filters: expect.objectContaining({ insight: 'TRENDS', interval: 'week' }),
+                })
+        })
+
+        it('sets the URL when changing filters', async () => {
+            logic.actions.setFilters({ insight: 'TRENDS', interval: 'minute' })
+            await expectLogic()
+                .toDispatchActions(logic, [logic.actionCreators.setFilters({ insight: 'TRENDS', interval: 'minute' })])
+                .toDispatchActions(router, ['replace', 'locationChanged'])
+                .toMatchValues(router, { searchParams: expect.objectContaining({ interval: 'minute' }) })
+
+            // no change in filters, doesn't change the URL
+            logic.actions.setFilters({ insight: 'TRENDS', interval: 'minute' })
+            await expectLogic()
+                .toDispatchActions(logic, [logic.actionCreators.setFilters({ insight: 'TRENDS', interval: 'minute' })])
+                .toNotHaveDispatchedActions(router, ['replace', 'locationChanged'])
+                .toMatchValues(router, { searchParams: expect.objectContaining({ interval: 'minute' }) })
+
+            logic.actions.setFilters({ insight: 'TRENDS', interval: 'month' })
+            await expectLogic()
+                .toDispatchActions(router, ['replace', 'locationChanged'])
+                .toMatchValues(router, {
+                    searchParams: expect.objectContaining({ insight: 'TRENDS', interval: 'month' }),
+                })
         })
     })
 })
