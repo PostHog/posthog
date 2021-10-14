@@ -3,61 +3,40 @@ import { tableConfigLogicType } from './tableConfigLogicType'
 import { router } from 'kea-router'
 import { ColumnChoice } from '~/types'
 
-export const tableConfigLogic = kea<tableConfigLogicType>({
+export interface TableConfigLogicProps {
+    availableColumns: string[]
+    defaultColumns: string[]
+}
+
+export const tableConfigLogic = kea<tableConfigLogicType<TableConfigLogicProps>>({
+    props: { availableColumns: [], defaultColumns: [] } as TableConfigLogicProps,
     actions: {
         showModal: true,
         hideModal: false,
-        setSelectedColumns: (columnConfig: ColumnChoice) => ({ columnConfig }), // confirmed choice, applied to table
-        setUsersUnsavedSelection: (columns: string[]) => ({ columns }), // unsaved, user currently editing
-        setDefaultColumns: (columns: string[]) => ({ columns }),
-        setAllPossibleColumns: (columns: string[]) => ({ columns }),
+        setSelectedColumns: (columnConfig: ColumnChoice) => ({ columnConfig }),
     },
-    reducers: {
-        modalVisible: [
-            false,
-            {
-                showModal: () => true,
-                setSelectedColumns: () => false,
-                hideModal: () => false,
-            },
-        ],
-        allPossibleColumns: [
-            [] as string[],
-            {
-                setAllPossibleColumns: (_, { columns }) => columns,
-            },
-        ],
-        defaultColumns: [
-            [] as string[],
-            {
-                setDefaultColumns: (_, { columns }) => columns,
-            },
-        ],
-        usersUnsavedSelection: [
-            [] as string[],
-            {
-                setUsersUnsavedSelection: (_, { columns }) => columns,
-                setDefaultColumns: (state, { columns }) => (state.length ? state : columns),
-            },
-        ],
+    reducers: () => ({
         selectedColumns: [
             'DEFAULT' as ColumnChoice,
             {
                 setSelectedColumns: (_, { columnConfig }) => columnConfig,
             },
         ],
-    },
+        modalVisible: [
+            false,
+            {
+                showModal: () => true,
+                save: () => false,
+                hideModal: () => false,
+                setSelectedColumns: () => false,
+            },
+        ],
+    }),
     selectors: {
         tableWidth: [
             (selectors) => [selectors.selectedColumns],
             (selectedColumns: ColumnChoice): number => {
                 return selectedColumns === 'DEFAULT' ? 7 : selectedColumns.length + 1
-            },
-        ],
-        selectableColumns: [
-            (selectors) => [selectors.allPossibleColumns, selectors.usersUnsavedSelection],
-            (allPossibleColumns, currentlyEditingSelection) => {
-                return allPossibleColumns.filter((column) => !currentlyEditingSelection.includes(column))
             },
         ],
     },

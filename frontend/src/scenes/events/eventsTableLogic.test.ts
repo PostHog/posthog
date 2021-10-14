@@ -477,7 +477,5 @@ describe('eventsTableLogic', () => {
             })
             expect(toastSpy).toHaveBeenCalled()
         })
-
-        describe('calling the API', () => {})
     })
 })

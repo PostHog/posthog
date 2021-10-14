@@ -12,9 +12,12 @@ describe('tableConfigLogic', () => {
         throw new Error(`Unmocked ${method} fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
     })
 
+    const defaultColumns = ['a', 'b']
+    const availableColumns = [...defaultColumns, 'c', 'd', 'e']
+
     initKeaTestLogic({
         logic: tableConfigLogic,
-        props: {},
+        props: { defaultColumns, availableColumns },
         onLogic: (l) => {
             logic = l
         },
@@ -24,69 +27,7 @@ describe('tableConfigLogic', () => {
         await expectLogic(logic).toMatchValues({
             modalVisible: false,
             selectedColumns: 'DEFAULT',
-            usersUnsavedSelection: [],
-            defaultColumns: [],
-            allPossibleColumns: [],
             tableWidth: 7,
-        })
-    })
-
-    it('can set the default columns', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setDefaultColumns(['a', 'b'])
-        }).toMatchValues({
-            defaultColumns: ['a', 'b'],
-        })
-    })
-
-    it('can set the selection currently being edited', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setUsersUnsavedSelection(['c', 'd'])
-        }).toMatchValues({
-            usersUnsavedSelection: ['c', 'd'],
-        })
-    })
-
-    it('uses default columns for the selection currently being edited if there is not already a selection', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setDefaultColumns(['a', 'b'])
-        }).toMatchValues({
-            usersUnsavedSelection: ['a', 'b'],
-        })
-    })
-
-    it('does not uses default columns for the selection currently being edited if there is already a selection', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setUsersUnsavedSelection(['c', 'd'])
-            logic.actions.setDefaultColumns(['a', 'b'])
-        }).toMatchValues({
-            usersUnsavedSelection: ['c', 'd'],
-        })
-    })
-
-    it('replaces the default columns when user is editing', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setDefaultColumns(['a', 'b'])
-            logic.actions.setUsersUnsavedSelection(['c', 'e'])
-        }).toMatchValues({
-            usersUnsavedSelection: ['c', 'e'],
-        })
-    })
-
-    it('can set all possible columns', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setAllPossibleColumns(['a', 'b'])
-        }).toMatchValues({
-            allPossibleColumns: ['a', 'b'],
-        })
-    })
-
-    it('selectable columns are any that are possible but not currently selected', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setAllPossibleColumns(['a', 'b', 'c', 'd'])
-            logic.actions.setDefaultColumns(['a', 'b'])
-        }).toMatchValues({
-            selectableColumns: ['c', 'd'],
         })
     })
 
