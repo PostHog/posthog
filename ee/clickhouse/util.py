@@ -28,7 +28,13 @@ class ClickhouseTestMixin:
     @contextmanager
     def capture_select_queries(self):
         queries = []
-        original_get_client = ch_pool.get_client
+        from ee.conftest import multi_workers_pool
+
+        if "a" in multi_workers_pool:
+            pool = multi_workers_pool["a"]
+        else:
+            pool = ch_pool
+        original_get_client = pool.get_client
 
         # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
         # a roundabout way to handle this, but it seems tricky to spy on the

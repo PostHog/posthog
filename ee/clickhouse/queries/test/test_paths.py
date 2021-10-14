@@ -10,7 +10,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries import ClickhousePaths
 from ee.clickhouse.queries.paths import ClickhousePathsPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -44,20 +44,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         result = ClickhousePathsPersons(person_filter, self.team, funnel_filter)._exec_query()
         return [row[0] for row in result]
 
-    def test_denormalized_properties(self):
-        materialize("events", "$current_url")
-        materialize("events", "$screen_name")
-
-        query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
-        self.assertNotIn("json", query.lower())
-
-        query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
-        self.assertNotIn("json", query.lower())
-
-        self.test_current_url_paths_and_logic()
-
     def test_step_limit(self):
-
         with freeze_time("2012-01-01T03:21:34.000Z"):
             p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
             _create_event(
@@ -1955,3 +1942,17 @@ class TestClickhousePathsEdgeValidation(TestCase):
         results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH_2)
+
+
+class TestClickhousePathsDenormalized(ClickhouseDestroyTablesMixin):
+    def test_denormalized_properties(self):
+        materialize("events", "$current_url")
+        materialize("events", "$screen_name")
+
+        query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
+        self.assertNotIn("json", query.lower())
+
+        query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
+        self.assertNotIn("json", query.lower())
+
+        self.test_current_url_paths_and_logic()

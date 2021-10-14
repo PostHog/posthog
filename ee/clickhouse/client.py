@@ -135,8 +135,16 @@ else:
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
-    def sync_execute(query, args=None, settings=None, with_column_types=False):
-        with ch_pool.get_client() as client:
+    def sync_execute(query, args=None, settings=None, with_column_types=False, pool=None):
+        from ee.conftest import multi_workers_pool
+
+        if pool:
+            pass
+        elif "a" in multi_workers_pool:
+            pool = multi_workers_pool["a"]
+        else:
+            pool = ch_pool
+        with pool.get_client() as client:
             start_time = perf_counter()
 
             prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
@@ -201,6 +209,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     if app_settings.SHELL_PLUS_PRINT_SQL:
         print()
         print(format_sql(formatted_sql))
+    annotated_sql = annotated_sql.replace("posthog_test.", "gw0.")
 
     return annotated_sql, args, tags
 

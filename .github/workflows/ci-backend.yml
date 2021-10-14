@@ -206,17 +206,18 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/ -n auto
+                  # pytest -m "not ee" posthog/ -n auto
             - name: Run EE tests
               env:
                   PRIMARY_DB: 'clickhouse'
+                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee/
-                  pytest posthog -m "ee"
+                  pytest ee/ -n 4
+                  pytest posthog -m "ee" -n auto
 
     cloud:
         needs: changes
@@ -305,7 +306,7 @@ jobs:
                   PRIMARY_DB: 'clickhouse'
               run: |
                   cd deploy/
-                  pytest ee -m "not skip_on_multitenancy"
+                  pytest ee -m "not skip_on_multitenancy" -n 4
                   pytest posthog -m "ee and not skip_on_multitenancy"
 
     foss:

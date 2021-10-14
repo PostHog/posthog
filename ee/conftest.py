@@ -1,7 +1,9 @@
+import os
+
 import pytest
 from infi.clickhouse_orm import Database
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import make_ch_pool, sync_execute
 from ee.clickhouse.sql.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
@@ -19,7 +21,7 @@ from posthog.test.base import TestMixin
 from posthog.utils import is_clickhouse_enabled
 
 
-def reset_clickhouse_tables():
+def reset_clickhouse_tables(pool=None, worker_id=None):
     # Reset clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL, DROP_COHORTPEOPLE_TABLE_SQL
@@ -48,19 +50,39 @@ def reset_clickhouse_tables():
         (DROP_SESSION_RECORDING_EVENTS_TABLE_SQL, SESSION_RECORDING_EVENTS_TABLE_SQL),
         (DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL, PLUGIN_LOG_ENTRIES_TABLE_SQL),
         (DROP_COHORTPEOPLE_TABLE_SQL, CREATE_COHORTPEOPLE_TABLE_SQL),
-        (DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL, KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL),
-        (DROP_DEAD_LETTER_QUEUE_TABLE_SQL, DEAD_LETTER_QUEUE_TABLE_SQL),
-        (DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL, DEAD_LETTER_QUEUE_TABLE_MV_SQL),
+        (
+            DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
+            KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL.replace("default", worker_id or "default").replace(
+                "posthog_test", worker_id or "default"
+            ),
+        ),
+        (
+            DROP_DEAD_LETTER_QUEUE_TABLE_SQL,
+            DEAD_LETTER_QUEUE_TABLE_SQL.replace("default", worker_id or "default").replace(
+                "posthog_test", worker_id or "default"
+            ),
+        ),
+        (
+            DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
+            DEAD_LETTER_QUEUE_TABLE_MV_SQL.replace("default", worker_id or "default").replace(
+                "posthog_test", worker_id or "default"
+            ),
+        ),
     ]
     for item in TABLES_TO_CREATE_DROP:
-        sync_execute(item[0])
-        sync_execute(item[1])
+        sync_execute(item[0], pool=pool)
+        sync_execute(item[1], pool=pool)
 
 
 if is_clickhouse_enabled():
 
     @pytest.fixture(scope="package")
     def django_db_setup(django_db_setup, django_db_keepdb):
+        # If it is parallel, we set up a database for each worker in setup_db_env_var below
+        if not os.environ.get("IS_PARALLEL"):
+            yield
+            return
+
         database = Database(
             CLICKHOUSE_DATABASE,
             db_url=CLICKHOUSE_HTTP_URL,
@@ -87,6 +109,25 @@ if is_clickhouse_enabled():
                 database.drop_database()
             except:
                 pass
+
+
+multi_workers_pool = {}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_db_env_var(worker_id):
+    os.environ["IS_PARALLEL"] = "1"
+    database = Database(
+        worker_id,
+        db_url=CLICKHOUSE_HTTP_URL,
+        username=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        verify_ssl_cert=CLICKHOUSE_VERIFY,
+    )
+    if not database.db_exists:
+        database.create_database()
+    multi_workers_pool["a"] = make_ch_pool(database=worker_id)
+    reset_clickhouse_tables(pool=multi_workers_pool["a"], worker_id=worker_id)
 
 
 @pytest.fixture
