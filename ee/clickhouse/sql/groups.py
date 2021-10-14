@@ -53,4 +53,4 @@ FROM {CLICKHOUSE_DATABASE}.kafka_{GROUPS_TABLE}
 """
 
 # { ..., "group_0": 1325 }
-# To join with events join using JSONExtractInt(events.properties, "$group_{type_id}")
+# To join with events join using JSONExtractString(events.properties, "$group_{group_type_index}")

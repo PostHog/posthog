@@ -1,5 +1,4 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
-from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
@@ -20,12 +19,17 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     distinct_id VARCHAR,
     elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC')
+    {materialized_columns}
     {extra_fields}
-) ENGINE = {engine}
+) ENGINE = {engine} 
 """
 
-GROUP_TYPE_COLUMN_DEFINITIONS = "".join(f", group_{index} VARCHAR" for index in range(GROUP_TYPES_LIMIT))
-GROUP_TYPE_COLUMN_NAMES = "".join(f"group_{index}," for index in range(GROUP_TYPES_LIMIT))
+EVENTS_TABLE_MATERIALIZED_COLUMNS = """
+    , properties_issampledevent VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'isSampledEvent'))
+    , properties_currentscreen VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentScreen'))
+    , properties_objectname VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectName'))
+    , properties_test_prop VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop'))
+"""
 
 EVENTS_TABLE_SQL = (
     EVENTS_TABLE_BASE_SQL
@@ -38,7 +42,8 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
     table_name=EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
-    extra_fields=GROUP_TYPE_COLUMN_DEFINITIONS + KAFKA_COLUMNS,
+    extra_fields=KAFKA_COLUMNS,
+    materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     sample_by_uuid="SAMPLE BY uuid" if not DEBUG else "",  # https://github.com/PostHog/posthog/issues/5684
     storage_policy=STORAGE_POLICY,
 )
@@ -47,7 +52,8 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
-    extra_fields=GROUP_TYPE_COLUMN_DEFINITIONS,
+    extra_fields="",
+    materialized_columns="",
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -64,15 +70,11 @@ team_id,
 distinct_id,
 elements_chain,
 created_at,
-{group_columns}
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=EVENTS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
-    group_columns=GROUP_TYPE_COLUMN_NAMES,
+    table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 INSERT_EVENT_SQL = """
