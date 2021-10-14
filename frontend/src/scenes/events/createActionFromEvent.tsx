@@ -4,9 +4,10 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { eventToName } from 'lib/utils'
 import { Link } from 'lib/components/Link'
+import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType } from '../../types'
 
-export function recurseSelector(elements, parts, index) {
-    let element = elements[index]
+export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
+    const element = elements[index]
     if (element.attr_id) {
         return `[id="${element.attr_id}"] > ${parts}`
     }
@@ -21,7 +22,7 @@ export function recurseSelector(elements, parts, index) {
     return recurseSelector(elements, parts, index + 1)
 }
 
-function elementsToAction(elements) {
+function elementsToAction(elements: ElementType[]): ActionStepType {
     return {
         tag_name: elements[0].tag_name,
         href: elements[0].href,
@@ -30,15 +31,20 @@ function elementsToAction(elements) {
     }
 }
 
-export async function createActionFromEvent(event, increment, recurse = createActionFromEvent) {
-    let actionData = {
+export async function createActionFromEvent(
+    event: EventType,
+    increment: number,
+    recurse: typeof createActionFromEvent = createActionFromEvent
+): Promise<void> {
+    const actionData: Pick<ActionType, 'name' | 'steps'> = {
+        name: '',
         steps: [
             {
                 event: event.event,
                 ...(event.event === '$pageview' || event.event === '$autocapture'
                     ? {
                           url: event.properties.$current_url,
-                          url_matching: 'exact',
+                          url_matching: ActionStepUrlMatching.Exact,
                       }
                     : {}),
                 ...(event.elements.length > 0 ? elementsToAction(event.elements) : {}),
@@ -56,11 +62,11 @@ export async function createActionFromEvent(event, increment, recurse = createAc
         actionData.name = actionData.name + ' ' + increment
     }
 
-    if (event.properties.$event_type === 'submit') {
+    if (event.properties.$event_type === 'submit' && actionData.steps?.length) {
         actionData.steps[0].properties = [{ key: '$event_type', value: 'submit' }]
     }
 
-    let action = {}
+    let action: ActionType
     try {
         action = await api.create('api/action', actionData)
     } catch (response) {
@@ -73,6 +79,7 @@ export async function createActionFromEvent(event, increment, recurse = createAc
                     <Link to="/action">manually creating an action instead.</Link>
                 </>
             )
+            return
         }
     }
     if (action.id) {
