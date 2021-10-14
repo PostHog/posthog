@@ -533,7 +533,9 @@ export const insightLogic = kea<insightLogicType>({
                         actions.loadInsight(hashParams.fromItem)
                     }
                 } else {
-                    actions.setInsightMode(ItemMode.Edit, null)
+                    if (values.insightMode !== ItemMode.Edit) {
+                        actions.setInsightMode(ItemMode.Edit, null)
+                    }
                 }
 
                 const cleanSearchParams = cleanFilters(searchParams, values.filters)
