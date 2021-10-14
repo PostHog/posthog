@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -32,7 +32,12 @@ OrgReportMetadata = TypedDict(
 )
 
 OrgUsageData = TypedDict(
-    "OrgUsageData", {"event_count_lifetime": int, "event_count_in_period": int, "event_count_in_month": int,}
+    "OrgUsageData",
+    {
+        "event_count_lifetime": Optional[int],
+        "event_count_in_period": Optional[int],
+        "event_count_in_month": Optional[int],
+    },
 )
 
 OrgReport = TypedDict(
@@ -62,7 +67,6 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
     Returns a list of all the successfully sent reports.
     """
     period_start, period_end = get_previous_day()
-    month_start = period_start.replace(day=1)
     realm = get_instance_realm()
     license_keys = get_instance_licenses()
     metadata: OrgReportMetadata = {
@@ -91,6 +95,7 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
     for id, org in org_data.items():
         distinct_id = User.objects.filter(current_team_id__in=org["teams"]).first().distinct_id  # type: ignore
         try:
+            month_start = period_start.replace(day=1)
             usage = get_org_usage(
                 team_ids=org["teams"], period_start=period_start, period_end=period_end, month_start=month_start,
             )
@@ -115,9 +120,9 @@ def get_org_usage(
     team_ids: List[Union[str, int]], period_start: datetime, period_end: datetime, month_start: datetime,
 ) -> OrgUsageData:
     default_usage: OrgUsageData = {
-        "event_count_lifetime": 0,
-        "event_count_in_period": 0,
-        "event_count_in_month": 0,
+        "event_count_lifetime": None,
+        "event_count_in_period": None,
+        "event_count_in_month": None,
     }
     usage = default_usage
     usage["event_count_lifetime"] = Event.objects.filter(team_id__in=team_ids).count()
