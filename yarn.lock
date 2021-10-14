@@ -10845,10 +10845,10 @@ junk@^3.1.0:
   resolved "https://registry.yarnpkg.com/junk/-/junk-3.1.0.tgz#31499098d902b7e98c5d9b9c80f43457a88abfa1"
   integrity sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==
 
-kea-loaders@^0.4.0:
-  version "0.4.0"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.4.0.tgz#4639dda7b213e45fe1276ec63f53fb4e8b4ee9fc"
-  integrity sha512-pIBGVdf25BxlZWK5gEa44DxM4GwRdtb4WTGYTcDUBeqSDsoaR0SE432C3Uio1xBxXPuty4B6Hfn+ShKeWo7uXw==
+kea-loaders@^0.5.1:
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.5.1.tgz#558eeeeaf9d5c613e66b2ede7677f7dbe2f460f1"
+  integrity sha512-gbTnxfwISS2iAHmdhvkzZnAiNe0c9FM+wbGrCNnh2PgYJntd5e5lV6sD6sWu9gJnN1ME6fXlblFzRZdobo+22w==
 
 kea-localstorage@^1.1.1:
   version "1.1.1"
@@ -10862,10 +10862,10 @@ kea-router@^1.0.2:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^1.1.6:
-  version "1.1.6"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.1.6.tgz#b151a8c0aad065769781267d65df43628a16d52d"
-  integrity sha512-vGNwnMy69s12jDHCzxjUk+cDGDRhPc7JplRszCQ0snAqHRdU32YWWFe7nIgYW1/7gu4YkME7hJ9VWHRd1e71xQ==
+kea-typegen@^1.2.2:
+  version "1.2.2"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.2.2.tgz#1eec505c9b570b13053a4fd0a048f5390d0b211b"
+  integrity sha512-2Ushf0mZWqpJMbBBc7raDtUIqOkxv7SmRQs4Y3R5pyMfcw5zOcxAJJKwnX9QfYK0N37O8GlGs7wQLti17md99A==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     diff "^5.0.0"
@@ -10882,10 +10882,10 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.4.10:
-  version "2.4.10"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.10.tgz#f31de4651f3a896451ca252f8489ed9c4cbfb69a"
-  integrity sha512-N2OibPpTYzuYag9tBrcQvBVb04Kt0PIVmJ9i40T77//O0AyOkUF1jQQ+uoyQk8ALYFEQylYdlNELTyFJWWefwQ==
+kea@^2.5.1:
+  version "2.5.1"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.5.1.tgz#7b396e11acd1aad65d2cdee0e19d3755c3d7830e"
+  integrity sha512-yvhnM/QHd70bCZwablIKDXuUoqrNljYoc5H4ibrUc0MW/ZrN/KTvesjXGAgkGb01m2H8jXFnzGOQXkxxngVtoQ==
 
 killable@^1.0.1:
   version "1.0.1"
