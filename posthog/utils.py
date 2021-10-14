@@ -822,7 +822,3 @@ def format_query_params_absolute_url(request: Request, offset: Optional[int] = N
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"limit={limit}"
 
     return url_to_format
-
-
-def get_seconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
-    return abs(int((d1 - d2).total_seconds() * 1000))

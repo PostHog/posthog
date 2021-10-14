@@ -236,11 +236,12 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             (selectors) => [
                 selectors.firstChunkLoaded,
                 selectors.sessionPlayerDataLoading,
-                selectors.loadingNextRecording,
+                selectors.sessionPlayerData,
             ],
-            (firstChunkLoaded, sessionPlayerDataLoading, loadingNextRecording) =>
-                firstChunkLoaded || // If first chunk is ready OR
-                !(sessionPlayerDataLoading || loadingNextRecording), // data isn't being fetched
+            (firstChunkLoaded, sessionPlayerDataLoading, sessionPlayerData) =>
+                (firstChunkLoaded || // If first chunk is ready
+                    !sessionPlayerDataLoading) && // data isn't being fetched
+                !!sessionPlayerData?.snapshots?.find((s) => s.type === 2), // there's a full snapshot in the data that was loaded
         ],
         highlightedSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],

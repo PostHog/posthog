@@ -9,7 +9,7 @@ from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.sessions.session_recording import RECORDINGS_NUM_SNAPSHOTS_LIMIT
 from posthog.queries.sessions.utils import cached_recording
-from posthog.utils import format_query_params_absolute_url, get_seconds_between_dates
+from posthog.utils import format_query_params_absolute_url
 
 DistinctId = str
 Snapshots = List[Any]
@@ -34,32 +34,34 @@ class SessionRecording:
         self._limit = self._filter.limit if self._filter.limit else RECORDINGS_NUM_SNAPSHOTS_LIMIT
         self._offset = self._filter.offset if self._filter.offset else 0
 
-    @cached_recording
     def query_recording_snapshots(self) -> Union[QuerySet, List[SessionRecordingEvent]]:
         return SessionRecordingEvent.objects.filter(team=self._team, session_id=self._session_recording_id).order_by(
             "timestamp"
         )
 
-    def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime], Optional[int], Snapshots]:
+    @cached_recording
+    def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime], Snapshots]:
         events = self.query_recording_snapshots()
-
         if len(events) == 0:
-            return None, None, None, []
-
+            return None, None, []
         return (
             events[0].distinct_id,
             events[0].timestamp,
-            get_seconds_between_dates(events[len(events) - 1].timestamp, events[0].timestamp),
-            [e.snapshot_data for e in events],
+            list(
+                decompress_chunked_snapshot_data(
+                    self._team.pk, self._session_recording_id, [e.snapshot_data for e in events]
+                )
+            ),
         )
 
     def run(self) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        distinct_id, start_time, duration, snapshots = self.get_snapshot_data()
+        distinct_id, start_time, snapshots = self.get_snapshot_data()
+
         # Apply limit and offset after decompressing to account for non-fully formed chunks.
-        snapshots = list(decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, snapshots))
         snapshots_subset = snapshots[self._offset : (self._offset + self._limit)]
+        duration = snapshots[-1].get("timestamp", 0) - snapshots[0].get("timestamp", 0)
         has_next = len(snapshots) > (self._offset + self._limit + 1)
 
         next_url = (

@@ -169,7 +169,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
         def test_query_run_queries_with_default_limit_and_offset(self):
             chunked_session_id = "6"
-            num_events = 1001
+            num_events = RECORDINGS_NUM_SNAPSHOTS_LIMIT + 1
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
@@ -182,7 +182,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
                 self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
-                self.assertIsNotNone(session["next"])  # limit (1001) is above RECORDINGS_NUM_SNAPSHOTS_LIMIT (1000)
+                self.assertIsNotNone(session["next"])  # limit is 1 above RECORDINGS_NUM_SNAPSHOTS_LIMIT
                 self.assertEqual(session["duration"], (num_events - 1) * 1000)
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
