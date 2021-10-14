@@ -169,4 +169,4 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         team = self.get_object()
         team.api_token = generate_random_token_project()
         team.save()
-        return response.Response(TeamSerializer(team).data)
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
