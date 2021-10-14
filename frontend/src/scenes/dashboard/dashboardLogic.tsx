@@ -383,9 +383,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         refreshMetrics: [
-            (s) => [s.refreshStatus, s.items],
-            (refreshStatus, items) => {
-                const total = items?.length ?? 0
+            (s) => [s.refreshStatus],
+            (refreshStatus) => {
+                const total = Object.keys(refreshStatus).length ?? 0
                 return {
                     completed: total - (Object.values(refreshStatus).filter((s) => s.loading).length ?? 0),
                     total,

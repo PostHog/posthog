@@ -87,6 +87,10 @@ describe('dashboardLogic', () => {
                             [dashboardJson.items[0].id]: { loading: true },
                             [dashboardJson.items[1].id]: { loading: true },
                         },
+                        refreshMetrics: {
+                            completed: 0,
+                            total: 2,
+                        },
                     })
                     .toDispatchActionsInAnyOrder([
                         // and updates the action in the model
@@ -100,6 +104,16 @@ describe('dashboardLogic', () => {
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, false),
                     ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [dashboardJson.items[0].id]: { refreshed: true },
+                            [dashboardJson.items[1].id]: { refreshed: true },
+                        },
+                        refreshMetrics: {
+                            completed: 2,
+                            total: 2,
+                        },
+                    })
             })
 
             it('reloads selected items', async () => {
@@ -114,6 +128,10 @@ describe('dashboardLogic', () => {
                         refreshStatus: {
                             [dashboardJson.items[0].id]: { loading: true },
                         },
+                        refreshMetrics: {
+                            completed: 0,
+                            total: 1,
+                        },
                     })
                     .toDispatchActionsInAnyOrder([
                         (a) =>
@@ -121,6 +139,15 @@ describe('dashboardLogic', () => {
                             a.payload.item.id === dashboardJson.items[0].id,
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
                     ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [dashboardJson.items[0].id]: { refreshed: true },
+                        },
+                        refreshMetrics: {
+                            completed: 1,
+                            total: 1,
+                        },
+                    })
             })
         })
     })
