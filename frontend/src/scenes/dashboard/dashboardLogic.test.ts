@@ -67,8 +67,8 @@ describe('dashboardLogic', () => {
             })
         })
 
-        describe('reload all items', () => {
-            it('reloads when called', async () => {
+        describe('reload items', () => {
+            it('reloads all items', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.refreshAllDashboardItemsManual()
                 })
@@ -84,8 +84,8 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            172: { loading: true },
-                            175: { loading: true },
+                            [dashboardJson.items[0].id]: { loading: true },
+                            [dashboardJson.items[1].id]: { loading: true },
                         },
                     })
                     .toDispatchActionsInAnyOrder([
@@ -99,6 +99,27 @@ describe('dashboardLogic', () => {
                         // no longer reloading
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, false),
+                    ])
+            })
+
+            it('reloads selected items', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.refreshAllDashboardItems([dashboardJson.items[0] as any])
+                })
+                    .toDispatchActions([
+                        'refreshAllDashboardItems',
+                        logic.actionCreators.setRefreshStatuses([dashboardJson.items[0].id], true),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [dashboardJson.items[0].id]: { loading: true },
+                        },
+                    })
+                    .toDispatchActionsInAnyOrder([
+                        (a) =>
+                            a.type === dashboardsModel.actionTypes.updateDashboardItem &&
+                            a.payload.item.id === dashboardJson.items[0].id,
+                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
                     ])
             })
         })
