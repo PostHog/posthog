@@ -23,9 +23,12 @@ const { TextArea } = Input
 
 export function Annotations(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsTableLogic)
-    const { updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } =
-        useActions(annotationsTableLogic)
+    const { annotations, annotationsLoading, next, loadingNext } = useValues(
+        annotationsTableLogic({ teamId: currentTeamId })
+    )
+    const { updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
+        annotationsTableLogic({ teamId: currentTeamId })
+    )
     const { createGlobalAnnotation } = useActions(annotationsModel({ teamId: currentTeamId }))
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null as AnnotationType | null)
