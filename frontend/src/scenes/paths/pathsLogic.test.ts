@@ -11,7 +11,9 @@ describe('pathsLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (['api/insight/paths/'].includes(pathname)) {
+        if (pathname === 'api/insight') {
+            return { results: [] }
+        } else if (['api/insight/paths/'].includes(pathname)) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
@@ -64,6 +66,20 @@ describe('pathsLogic', () => {
                         step_limit: 999,
                     }),
                 })
+        })
+    })
+
+    describe('dashboard item interface', () => {
+        initKeaTestLogic({
+            logic: pathsLogic,
+            props: { dashboardItemId: undefined },
+            onLogic: (l) => (logic = l),
+        })
+
+        it('can load directly', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadResults()
+            }).toDispatchActions(['loadResults'])
         })
     })
 })
