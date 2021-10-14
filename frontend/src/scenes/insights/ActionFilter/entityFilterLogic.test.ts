@@ -7,7 +7,8 @@ import {
     LocalFilter,
     toLocalFilters,
 } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
