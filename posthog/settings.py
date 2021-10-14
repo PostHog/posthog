@@ -72,9 +72,6 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false":
     PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
         # Add hard-coded feature flags for static releases here
         "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
-        "4267-event-property-taxonomy",
-        "4871-plugin-metrics",
-        "5720-plugins-ui-jobs",
         "6050-remove-sessions",
         "5440-multivariate-support",
         "6063-rename-filters",
