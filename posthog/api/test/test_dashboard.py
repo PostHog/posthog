@@ -190,17 +190,12 @@ class TestDashboard(APIBaseTest):
                 last_refresh=now(),
             )
 
-        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
-        self.assertIsNone(response["items"][0]["result"])
-        self.assertIsNone(response["items"][0]["last_refresh"])
-
         with freeze_time("2020-01-20T13:00:01Z"):
             response = self.client.get("/api/dashboard/%s?refresh=true" % dashboard.pk)
 
             self.assertEqual(response.status_code, 200)
 
             response_data = response.json()
-            self.assertEqual(response_data["items"][0]["id"], item_default.pk)
             self.assertIsNotNone(response_data["items"][0]["result"])
             self.assertIsNotNone(response_data["items"][0]["last_refresh"])
             self.assertEqual(response_data["items"][0]["result"][0]["count"], 0)
