@@ -12,10 +12,10 @@ describe('insightLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (['api/insight/42'].includes(pathname)) {
+        if (['api/insight/42', 'api/insight/43'].includes(pathname)) {
             return {
-                result: ['result from api'],
-                id: 42,
+                result: pathname === 'api/insight/42' ? ['result from api'] : null,
+                id: pathname === 'api/insight/42' ? 42 : 43,
                 filters: {
                     insight: ViewType.TRENDS,
                     events: [{ id: 3 }],
@@ -115,7 +115,7 @@ describe('insightLogic', () => {
 
             it('makes a query to load the results', async () => {
                 await expectLogic(logic)
-                    .toDispatchActions(['loadResultsSuccess'])
+                    .toDispatchActions(['loadResults', 'loadResultsSuccess'])
                     .toMatchValues({
                         insight: expect.objectContaining({ id: 42, result: ['result from api'] }),
                         filters: expect.objectContaining({
@@ -127,7 +127,7 @@ describe('insightLogic', () => {
             })
         })
 
-        describe('props with no filters, no cached results', () => {
+        describe('props with no filters, no cached results, results from API', () => {
             initKeaTestLogic({
                 logic: insightLogic,
                 props: {
@@ -141,9 +141,41 @@ describe('insightLogic', () => {
             it('makes a query to load the results', async () => {
                 await expectLogic(logic)
                     .toDispatchActions(['loadInsight', 'loadInsightSuccess'])
-                    .printActions({ compact: true })
                     .toMatchValues({
                         insight: expect.objectContaining({ id: 42, result: ['result from api'] }),
+                        filters: expect.objectContaining({
+                            events: [{ id: 3 }],
+                            properties: [expect.objectContaining({ value: 'a' })],
+                        }),
+                    })
+                    .toNotHaveDispatchedActions(['loadResults']) // does not fetch results as there was no filter
+            })
+        })
+
+        describe('props with no filters, no cached results, no results from API', () => {
+            initKeaTestLogic({
+                logic: insightLogic,
+                props: {
+                    dashboardItemId: 43, // 43 --> result: null
+                    cachedResults: undefined,
+                    filters: undefined,
+                },
+                onLogic: (l) => (logic = l),
+            })
+
+            it('makes a query to load the results', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadInsight', 'loadInsightSuccess'])
+                    .toMatchValues({
+                        insight: expect.objectContaining({ id: 43, result: null }),
+                        filters: expect.objectContaining({
+                            events: [{ id: 3 }],
+                            properties: [expect.objectContaining({ value: 'a' })],
+                        }),
+                    })
+                    .toDispatchActions(['loadResults', 'loadResultsSuccess'])
+                    .toMatchValues({
+                        insight: expect.objectContaining({ id: 43, result: ['result from api'] }),
                         filters: expect.objectContaining({
                             events: [{ id: 3 }],
                             properties: [expect.objectContaining({ value: 'a' })],
