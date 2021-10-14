@@ -1,21 +1,22 @@
-import React from 'react'
+import React, { Dispatch, SetStateAction } from 'react'
 import { Select } from 'antd'
 import { FundOutlined } from '@ant-design/icons'
-import { defaultSmoothing, smoothings } from 'lib/components/SmoothingFilter/smoothings'
-import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
+import { smoothings } from 'lib/components/SmoothingFilter/smoothings'
 import { ViewType } from '~/types'
+import { intervalFilterLogic } from '../IntervalFilter/intervalFilterLogic'
+import { useValues } from 'kea'
 
 interface SmoothingFilterProps {
     view: ViewType
-    interval: IntervalKeyType
     disabled?: boolean
 }
 
-const useSmoothing = (): void => {
-    React.useState<string>('1')
+const useSmoothing = (): [string, Dispatch<SetStateAction<string>>] => {
+    return React.useState<string>('1')
 }
 
-export function SmoothingFilter({ view, interval, disabled }: SmoothingFilterProps): JSX.Element {
+export function SmoothingFilter({ view, disabled }: SmoothingFilterProps): JSX.Element {
+    const { interval } = useValues(intervalFilterLogic)
     const [smoothing, setSmoothing] = useSmoothing()
     const options = Object.entries(smoothings).map(([key, { label }]) => ({
         key,
@@ -28,13 +29,13 @@ export function SmoothingFilter({ view, interval, disabled }: SmoothingFilterPro
             ) : (
                 label
             ),
-        disabled: (interval !== 'day' && view !== ViewType.TRENDS) || disabled,
     }))
-    return (
+    return interval === 'day' && view === ViewType.SESSIONS ? (
         <Select
+            key={interval}
             bordered={false}
             disabled={disabled}
-            defaultValue={smoothing || defaultSmoothing}
+            defaultValue={'1'}
             value={smoothing || undefined}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
@@ -43,5 +44,7 @@ export function SmoothingFilter({ view, interval, disabled }: SmoothingFilterPro
             data-attr="smoothing-filter"
             options={options}
         />
+    ) : (
+        <></>
     )
 }
