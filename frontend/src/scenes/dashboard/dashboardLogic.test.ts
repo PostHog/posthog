@@ -76,11 +76,11 @@ describe('dashboardLogic', () => {
                         // starts loading
                         'refreshAllDashboardItemsManual',
                         'refreshAllDashboardItems',
-                    ])
-                    .toDispatchActionsInAnyOrder([
                         // sets the "reloading" status
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, true),
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, true),
+                        logic.actionCreators.setRefreshStatuses(
+                            dashboardJson.items.map(({ id }) => id),
+                            true
+                        ),
                     ])
                     .toMatchValues({
                         refreshStatus: {

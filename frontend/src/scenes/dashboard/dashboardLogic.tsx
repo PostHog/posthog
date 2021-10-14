@@ -199,7 +199,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 }),
                 setRefreshStatuses: (_, { ids, loading }) =>
                     Object.fromEntries(
-                        Object.entries(ids.map((id) => [id, loading ? { loading: true } : { refreshed: true }]))
+                        ids.map((id) => [id, loading ? { loading: true } : { refreshed: true }])
                     ) as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
                 setRefreshError: (state, { id }) => ({
                     ...state,
