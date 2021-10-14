@@ -10845,10 +10845,10 @@ junk@^3.1.0:
   resolved "https://registry.yarnpkg.com/junk/-/junk-3.1.0.tgz#31499098d902b7e98c5d9b9c80f43457a88abfa1"
   integrity sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==
 
-kea-loaders@^0.5.0:
-  version "0.5.0"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.5.0.tgz#b77a31b4a2be8201f9cbd475fc69eefbc3a187bf"
-  integrity sha512-vBfRkANCY8+MnccQX7jHlfvT8vAtA6A/hKXNJQFecNEvS4eAiR0G02s+CwzOpRax9p1PmpJo6SfyLH+hD6JROw==
+kea-loaders@^0.5.1:
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.5.1.tgz#558eeeeaf9d5c613e66b2ede7677f7dbe2f460f1"
+  integrity sha512-gbTnxfwISS2iAHmdhvkzZnAiNe0c9FM+wbGrCNnh2PgYJntd5e5lV6sD6sWu9gJnN1ME6fXlblFzRZdobo+22w==
 
 kea-localstorage@^1.1.1:
   version "1.1.1"
