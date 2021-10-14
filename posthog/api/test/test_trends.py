@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, TypedDict, Union
+from typing import Any, Dict, List, Optional, TypedDict, Union
 
 import pytest
 from django.test import Client
@@ -70,18 +70,20 @@ def test_includes_only_intervals_within_range(client: Client):
                 breakdown=json.dumps([cohort["id"]]),
                 breakdown_type="cohort",
                 display="ActionsLineGraph",
-                events=[
-                    {
-                        "id": "$pageview",
-                        "math": "dau",
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [],
-                        "math_property": None,
-                    }
-                ],
+                events=json.dumps(
+                    [
+                        {
+                            "id": "$pageview",
+                            "math": "dau",
+                            "name": "$pageview",
+                            "custom_name": None,
+                            "type": "events",
+                            "order": 0,
+                            "properties": [],
+                            "math_property": None,
+                        }
+                    ]
+                ),
             ),
         )
         assert trends == {
@@ -112,31 +114,103 @@ def test_includes_only_intervals_within_range(client: Client):
         }
 
 
+@pytest.mark.django_db
+@pytest.mark.ee
+def test_can_specify_number_of_smoothing_intervals(client: Client):
+    """
+    The Smoothing feature should allow specifying a number of intervals over
+    which we will provide smoothing of the aggregated trend data.
+    """
+    organization = create_organization(name="test org")
+    team = create_team(organization=organization)
+    user = create_user("user", "pass", organization)
+
+    client.force_login(user)
+
+    with freeze_time("2021-09-20T16:00:00"):
+        #  First identify as a member of the cohort
+        distinct_id = "abc"
+        identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
+
+        for date in ["2021-09-01", "2021-09-02", "2021-09-03", "2021-09-04"]:
+            capture_event(
+                event=EventData(
+                    event="$pageview",
+                    team_id=team.id,
+                    distinct_id=distinct_id,
+                    timestamp=datetime.fromisoformat(date),
+                    properties={"distinct_id": "abc"},
+                )
+            )
+
+        trends = get_trends_ok(
+            client,
+            request=TrendsRequest(
+                date_from="2021-09-01",
+                date_to="2021-09-04",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraph",
+                smoothing_intervals=28,
+                events=json.dumps(
+                    [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "custom_name": None,
+                            "type": "events",
+                            "order": 0,
+                            "properties": [],
+                        }
+                    ]
+                ),
+            ),
+        )
+
+        assert trends == {
+            "is_cached": False,
+            "last_refresh": "2021-09-20T16:00:00Z",
+            "next": None,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    },
+                    "label": "$pageview",
+                    "count": 4.0,
+                    "data": [1.0, 1.0, 1.0, 1.0],
+                    "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021", "4-Sep-2021"],
+                    "days": ["2021-09-01", "2021-09-02", "2021-09-03", "2021-09-04"],
+                }
+            ],
+        }
+
+
 @dataclasses.dataclass
 class TrendsRequest:
     date_from: str
     date_to: str
     interval: str
     insight: str
-    breakdown: Union[List[int], str]
-    breakdown_type: str
     display: str
-    events: List[Dict[str, Any]]
+    #  Must be a json encoded list of events to match
+    events: str
+    breakdown: Optional[Union[List[int], str]] = None
+    breakdown_type: Optional[str] = None
+    smoothing_intervals: Optional[int] = 1
 
 
 def get_trends(client, request: TrendsRequest):
     return client.get(
         "/api/insight/trend/",
-        data={
-            "date_from": request.date_from,
-            "date_to": request.date_to,
-            "interval": request.interval,
-            "insight": request.insight,
-            "breakdown": request.breakdown,
-            "breakdown_type": request.breakdown_type,
-            "display": request.display,
-            "events": json.dumps(request.events),
-        },
+        data={key: value for key, value in dataclasses.asdict(request).items() if value is not None},
     )
 
 
