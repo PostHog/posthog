@@ -35,6 +35,36 @@ class StructuredViewSetMixin(_GenericViewSet):
 
     _parents_query_dict: Optional[Dict[str, Any]]
 
+    def create(self, *args, **kwargs):
+        super_cls = super()
+        if self.legacy_team_compatibility:
+            print(f"Legacy endpoint called – create on {super_cls.get_view_name()}")
+        return super_cls.create(*args, **kwargs)
+
+    def retrieve(self, *args, **kwargs):
+        super_cls = super()
+        if self.legacy_team_compatibility:
+            print(f"Legacy endpoint called – retrieve on {super_cls.get_view_name()}")
+        return super_cls.retrieve(*args, **kwargs)
+
+    def list(self, *args, **kwargs):
+        super_cls = super()
+        if self.legacy_team_compatibility:
+            print(f"Legacy endpoint called – list on {super_cls.get_view_name()}")
+        return super_cls.list(*args, **kwargs)
+
+    def update(self, *args, **kwargs):
+        super_cls = super()
+        if self.legacy_team_compatibility:
+            print(f"Legacy endpoint called – update on {super_cls.get_view_name()}")
+        return super_cls.update(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        super_cls = super()
+        if self.legacy_team_compatibility:
+            print(f"Legacy endpoint called – delete on {super_cls.get_view_name()}")
+        return super_cls.delete(*args, **kwargs)
+
     def get_queryset(self):
         queryset = super().get_queryset()
         return self.filter_queryset_by_parents_lookups(queryset)
