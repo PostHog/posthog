@@ -14,6 +14,7 @@ import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBi
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useValues } from 'kea'
+import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     filters: FilterType
@@ -111,6 +112,8 @@ export function InsightDisplayConfig({
                     />
                 )}
                 {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
+
+                <SmoothingFilter view={activeView} interval={'day'} />
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
