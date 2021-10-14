@@ -517,7 +517,7 @@ export const insightLogic = kea<insightLogicType>({
                     // - not saved if we came from a dashboard --> there's a separate "save" button for that
                     !router.values.hashParams.fromDashboard
                 ) {
-                    if ('from_dashboard' in insight.filters) {
+                    if (Object.keys(insight.filters).length === 0 || 'from_dashboard' in insight.filters) {
                         Sentry.captureException(new Error(`Would save filters with "from_dashboard"`), {
                             tags: {
                                 filters_to_save: JSON.stringify(insight.filters),
@@ -542,14 +542,14 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
-                if (hashParams.fromItem) {
+                if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
+                    if (values.insightMode !== ItemMode.Edit) {
+                        actions.setInsightMode(ItemMode.Edit, null)
+                    }
+                } else if (hashParams.fromItem) {
                     if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
                         // Do not load the result if missing, as setFilters below will do so anyway.
                         actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
-                    }
-                } else {
-                    if (values.insightMode !== ItemMode.Edit) {
-                        actions.setInsightMode(ItemMode.Edit, null)
                     }
                 }
 
