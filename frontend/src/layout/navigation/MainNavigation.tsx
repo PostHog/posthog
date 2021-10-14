@@ -4,7 +4,6 @@ import {
     ApiFilled,
     ClockCircleFilled,
     DownOutlined,
-    HomeOutlined,
     MessageOutlined,
     PlusOutlined,
     ProjectFilled,
@@ -223,9 +222,6 @@ function MenuItems(): JSX.Element {
                     to={urls.onboardingSetup()}
                     hotkey="u"
                 />
-            )}
-            {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
-                <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to={urls.home()} />
             )}
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <MenuItem

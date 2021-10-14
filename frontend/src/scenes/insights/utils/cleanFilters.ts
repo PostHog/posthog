@@ -133,9 +133,10 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
         // TODO: Deprecated; should be removed once backend is updated
         if (filters.insight === ViewType.STICKINESS) {
             cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
-        }
-        if (filters.insight === ViewType.LIFECYCLE) {
+        } else if (filters.insight === ViewType.LIFECYCLE) {
             cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
+        } else {
+            cleanSearchParams['shown_as'] = undefined
         }
 
         if (filters.insight === ViewType.SESSIONS && !filters.session) {
