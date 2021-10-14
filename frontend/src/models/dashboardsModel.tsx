@@ -165,14 +165,17 @@ export const dashboardsModel = kea<dashboardsModelType>({
         dashboards: [
             () => [selectors.sortedDashboards],
             (sortedDashboards) => {
-                return [...sortedDashboards.filter((d) => d.pinned), ...sortedDashboards.filter((d) => !d.pinned)]
+                return sortedDashboards.sort((a, b) => b.pinned - a.pinned)
             },
         ],
         dashboardsLoading: [
             () => [selectors.rawDashboardsLoading, selectors.sharedDashboardsLoading],
             (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
         ],
-        pinnedDashboards: [() => [selectors.dashboards], (dashboards) => dashboards.filter((d) => d.pinned)],
+        pinnedDashboards: [
+            () => [selectors.sortedDashboards],
+            (sortedDashboards) => sortedDashboards.filter((d) => d.pinned),
+        ],
     }),
 
     events: ({ actions }) => ({
