@@ -99,7 +99,7 @@ describe('the person header', () => {
 
         it('is a UUID regardless of props', async () => {
             await expectLogic(logic).then(() => {
-                expect(logic.key).toEqual(JSON.stringify(props))
+                expect(logic.key).toEqual('2442792429')
             })
         })
     })
