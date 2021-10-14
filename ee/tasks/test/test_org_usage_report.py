@@ -8,6 +8,7 @@ from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.tasks.org_usage_report import send_all_org_usage_reports
+from posthog.constants import AnalyticsDBMS
 from posthog.models import Organization, Person, Team, User
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
@@ -36,7 +37,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
             self.assertIsNotNone(all_reports[0]["product"])
 
         def test_event_counts(self) -> None:
-            with self.settings(**{"EE_AVAILABLE": True}):
+            with self.settings(**{"EE_AVAILABLE": True, "PRIMARY_DB": AnalyticsDBMS.CLICKHOUSE}):
                 with freeze_time("2020-11-02"):
                     _create_person("old_user1", team=self.team)
                     _create_person("old_user2", team=self.team)
