@@ -168,7 +168,7 @@ class FunnelPathsMixin(BaseParamMixin):
 class PathGroupingMixin(BaseParamMixin):
     @cached_property
     def path_groupings(self) -> Optional[List[str]]:
-        path_groupings = self._data.get(PATH_GROUPINGS, [])
+        path_groupings = self._data.get(PATH_GROUPINGS, None)
         if isinstance(path_groupings, str):
             return json.loads(path_groupings)
 
@@ -182,7 +182,7 @@ class PathGroupingMixin(BaseParamMixin):
 class PathReplacementMixin(BaseParamMixin):
     @cached_property
     def path_replacements(self) -> Optional[List[Dict[str, str]]]:
-        path_replacements = self._data.get(PATH_REPLACEMENTS, [])
+        path_replacements = self._data.get(PATH_REPLACEMENTS, None)
         if isinstance(path_replacements, str):
             return json.loads(path_replacements)
 
