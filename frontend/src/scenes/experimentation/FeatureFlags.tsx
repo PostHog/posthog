@@ -124,12 +124,7 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Link
-                        to={
-                            '/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&properties=[{"key":"$active_feature_flags","operator":"icontains","value":"' +
-                            featureFlag.key +
-                            '"}]&breakdown_type=event' +
-                            BackTo
-                        }
+                        to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}${BackTo}`}
                         data-attr="usage"
                         onClick={(e) => e.stopPropagation()}
                     >
