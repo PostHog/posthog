@@ -12,7 +12,7 @@ const toUrl = (person: Partial<PersonType> | null | undefined): string | undefin
 
 export const personHeaderLogic = kea<personHeaderLogicType>({
     props: {} as PersonHeaderProps,
-    key: (props) => (props ? toKey(props) : uuid()),
+    key: (props) => toKey(props),
     reducers: ({ props }) => ({
         withIcon: [props.withIcon || false],
         personLink: [toUrl(props.person) as string],
