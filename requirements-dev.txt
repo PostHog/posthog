@@ -4,16 +4,19 @@
 #
 #    pip-compile requirements-dev.in
 #
+appdirs==1.4.4
+    # via black
 asgiref==3.3.2
     # via
     #   -c requirements.txt
     #   django
 attrs==21.2.0
     # via
+    #   black
     #   flake8-bugbear
     #   pytest
     #   syrupy
-black==21.9b0
+black==19.10b0
     # via -r requirements-dev.in
 certifi==2019.11.28
     # via
@@ -95,7 +98,6 @@ mccabe==0.6.1
 mypy-extensions==0.4.3
     # via
     #   -r requirements-dev.in
-    #   black
     #   mypy
 mypy==0.910
     # via
@@ -113,8 +115,6 @@ pep517==0.11.0
     # via pip-tools
 pip-tools==6.4.0
     # via -r requirements-dev.in
-platformdirs==2.4.0
-    # via black
 pluggy==1.0.0
     # via pytest
 py==1.10.0
@@ -184,21 +184,22 @@ syrupy==1.4.7
     # via -r requirements-dev.in
 toml==0.10.2
     # via
+    #   black
     #   django-stubs
     #   mypy
     #   pytest
 tomli==1.2.1
     # via
-    #   black
     #   coverage
     #   pep517
+typed-ast==1.4.3
+    # via black
 types-pytz==2021.3.0
     # via django-stubs
 types-pyyaml==5.4.11
     # via django-stubs
 typing-extensions==3.10.0.2
     # via
-    #   black
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework-stubs
