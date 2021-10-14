@@ -289,19 +289,20 @@ describe('sessionsPlayLogic', () => {
                     })
             })
             it('session player data is still loading', async () => {
+                const newSnapshots = [
+                    ...recordingJson.snapshots,
+                    {
+                        type: 2,
+                        data: { source: 0 },
+                        timestamp: 1634019260528,
+                    },
+                ]
                 api.get.mockImplementationOnce(async (url: string) => {
                     if (combineUrl(url).pathname === 'api/event/session_recording') {
                         return {
                             result: {
                                 ...recordingJson,
-                                snapshots: [
-                                    ...recordingJson.snapshots,
-                                    {
-                                        type: 2,
-                                        data: 'hello',
-                                        timestamp: 1634019260528,
-                                    },
-                                ],
+                                snapshots: newSnapshots,
                             },
                         }
                     }
@@ -317,7 +318,7 @@ describe('sessionsPlayLogic', () => {
                     })
                     .toDispatchActions(['loadRecordingSuccess'])
                     .toMatchValues({
-                        sessionPlayerData: recordingJson,
+                        sessionPlayerData: { ...recordingJson, snapshots: newSnapshots },
                         firstChunkLoaded: true,
                         isPlayable: true,
                     })

@@ -20,7 +20,7 @@ from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.sessions.utils import cached_recording
-from posthog.utils import format_query_params_absolute_url
+from posthog.utils import format_query_params_absolute_url, get_milliseconds_between_dates
 
 DistinctId = str
 Snapshots = List[Any]
@@ -103,9 +103,13 @@ class SessionRecording:
 
         # Apply limit and offset after decompressing to account for non-fully formed chunks.
         snapshots_subset = snapshots[self._offset : (self._offset + self._limit)]
-        duration = snapshots[-1].get("timestamp", 0) - snapshots[0].get("timestamp", 0)
+        duration = 0
+        if len(snapshots) > 1:
+            duration = get_milliseconds_between_dates(
+                datetime.fromtimestamp(snapshots[-1].get("timestamp", 0)),
+                datetime.fromtimestamp(snapshots[0].get("timestamp", 0)),
+            )
         has_next = len(snapshots) > (self._offset + self._limit + 1)
-
         next_url = (
             format_query_params_absolute_url(self._request, self._offset + self._limit, self._limit)
             if has_next
