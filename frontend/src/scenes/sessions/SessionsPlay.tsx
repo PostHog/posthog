@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Player, PlayerRef, findCurrent, PlayerContextProvider } from '@posthog/react-rrweb-player'
+import {
+    PlayerRef,
+    findCurrent,
+    PlayerContextProvider,
+    PlayerController,
+    PlayerFrame,
+} from '@posthog/react-rrweb-player'
 import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
 import {
     UserOutlined,
@@ -123,17 +129,28 @@ export function SessionsPlay(): JSX.Element {
                         ) : (
                             <span className="ph-no-capture">
                                 <PlayerContextProvider
-                                    events={sessionPlayerData?.snapshots || []}
-                                 />
-                                <Player
                                     ref={playerRef}
-                                    key="session-player"
+                                    key="session-player" // efficient repaints
+                                    events={sessionPlayerData?.snapshots || []}
                                     onPlayerTimeChange={setCurrentPlayerTime}
                                     onNext={showNext ? goToNext : undefined}
                                     onPrevious={showPrev ? goToPrevious : undefined}
                                     duration={sessionPlayerData?.duration ?? 0}
                                     isBuffering={sessionPlayerDataLoading}
-                                />
+                                >
+                                    <div
+                                        style={{
+                                            height: '100%',
+                                            width: '100%',
+                                            backgroundColor: '#ccc',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                        }}
+                                    >
+                                        <PlayerFrame />
+                                        <PlayerController />
+                                    </div>
+                                </PlayerContextProvider>
                             </span>
                         )}
                     </div>
