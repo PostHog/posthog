@@ -22,7 +22,7 @@ django-stubs
 fakeredis
 freezegun
 packaging
-black
+black==19.10b0
 isort
 pytest
 pytest-django
