@@ -73,24 +73,25 @@ class LoginSerializer(serializers.Serializer):
         return user
 
 
-class CreateStandardResponseMixin:
+class NonCreatingViewSetMixin(mixins.CreateModelMixin):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-            Method `create()` is overridden to send a more appropriate HTTP status code.
+            Method `create()` is overridden to send a more appropriate HTTP 
+            status code (as no object is actually created).
             """
-        response = super().create(request, *args, **kwargs)  # type: ignore
-        response.status_code = status.HTTP_200_OK
+        response = super().create(request, *args, **kwargs)
+        response.status_code = getattr(self, "SUCCESS_STATUS_CODE", status.HTTP_200_OK)
         return response
 
 
-class LoginViewSet(CreateStandardResponseMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginSerializer
     permission_classes = (permissions.AllowAny,)
 
 
 class PasswordResetSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(write_only=True)
 
     def create(self, validated_data):
 
@@ -131,7 +132,7 @@ class PasswordResetSerializer(serializers.Serializer):
 
         # TODO: Limit number of requests for password reset emails
 
-        return {"email": email}
+        return True
 
 
 class PasswordResetCompleteSerializer(serializers.Serializer):
@@ -141,50 +142,46 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
     def create(self, validated_data):
         # Special handling for E2E tests (note we don't actually change anything in the DB, just simulate the response)
         if settings.E2E_TESTING and validated_data["token"] == "e2e_test_token":
-            return {"success": True}
+            return True
 
         try:
             user = User.objects.get(uuid=self.context["view"].kwargs["user_uuid"])
         except User.DoesNotExist:
-            user = None
+            raise serializers.ValidationError(
+                {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
+            )
 
-        if user:
-            if not default_token_generator.check_token(user, validated_data["token"]):
-                raise serializers.ValidationError(
-                    {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
-                )
+        if not default_token_generator.check_token(user, validated_data["token"]):
+            raise serializers.ValidationError(
+                {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
+            )
 
-            password = validated_data["password"]
-            try:
-                validate_password(password, user)
-            except ValidationError as e:
-                raise serializers.ValidationError({"password": e.messages})
+        password = validated_data["password"]
+        try:
+            validate_password(password, user)
+        except ValidationError as e:
+            raise serializers.ValidationError({"password": e.messages})
 
-            user.set_password(password)
-            user.save()
+        user.set_password(password)
+        user.save()
 
-            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
-            report_user_password_reset(user)
-            return {"success": True}
-
-        return {"success": False}
-
-    def to_representation(self, instance: Dict[str, Any]) -> Dict[str, Any]:
-        return instance
+        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
+        report_user_password_reset(user)
+        return True
 
 
-class PasswordResetViewSet(CreateStandardResponseMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+class PasswordResetViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = PasswordResetSerializer
     permission_classes = (permissions.AllowAny,)
+    SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
 
 
-class PasswordResetCompleteViewSet(
-    CreateStandardResponseMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
-):
+class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = PasswordResetCompleteSerializer
     permission_classes = (permissions.AllowAny,)
+    SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
 
     def get_object(self):
 
@@ -209,3 +206,8 @@ class PasswordResetCompleteViewSet(
             )
 
         return {"success": True, "token": token}
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().retrieve(request, *args, **kwargs)
+        response.status_code = self.SUCCESS_STATUS_CODE
+        return response

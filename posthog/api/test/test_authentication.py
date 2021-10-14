@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -132,8 +133,8 @@ class TestPasswordResetAPI(APIBaseTest):
             CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
         ):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"email": self.CONFIG_EMAIL})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content.decode(), "")
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, set([self.CONFIG_EMAIL]))
 
@@ -178,8 +179,7 @@ class TestPasswordResetAPI(APIBaseTest):
             CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
         ):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"email": self.CONFIG_EMAIL})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, set([self.CONFIG_EMAIL]))
 
@@ -206,8 +206,7 @@ class TestPasswordResetAPI(APIBaseTest):
             CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
         ):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"email": "i_dont_exist@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         # No emails should be sent
         self.assertEqual(len(mail.outbox), 0)
@@ -254,8 +253,8 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_can_validate_token(self):
         token = default_token_generator.make_token(self.user)
         response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content.decode(), "")
 
     def test_cant_validate_token_without_a_token(self):
         response = self.client.get(f"/api/reset/{self.user.uuid}/")
@@ -293,8 +292,8 @@ class TestPasswordResetAPI(APIBaseTest):
 
         token = default_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "00112233"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content.decode(), "")
 
         # assert the user gets logged in automatically
         response = self.client.get("/api/users/@me/")
@@ -390,13 +389,37 @@ class TestPasswordResetAPI(APIBaseTest):
             self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
             self.assertFalse(self.user.check_password("a12345678"))
 
+    def test_cant_reset_password_with_invalid_user_id(self):
+        token = default_token_generator.make_token(self.user)
+
+        response = self.client.post(f"/api/reset/{uuid.uuid4()}/", {"token": token, "password": "a12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
+        # user remains logged out
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # password was not changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
+        self.assertFalse(self.user.check_password("a12345678"))
+
     def test_e2e_test_special_handlers(self):
         with self.settings(E2E_TESTING=True):
             response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         with self.settings(E2E_TESTING=True):
             response = self.client.post(
                 "/api/reset/e2e_test_user/", {"token": "e2e_test_token", "password": "a12345678"}
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
