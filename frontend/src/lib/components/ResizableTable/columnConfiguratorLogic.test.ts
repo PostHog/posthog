@@ -1,5 +1,6 @@
 import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 
 describe('the column configurator lets the user change which columns should be visible', () => {
