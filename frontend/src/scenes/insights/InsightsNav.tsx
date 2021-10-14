@@ -121,10 +121,7 @@ export function InsightsNav(): JSX.Element {
                         <Tooltip
                             placement="top"
                             title={
-                                <>
-                                    Understand growth by breaking down new, resurrected, returning, and 
-                                    dormant users.
-                                </>
+                                <>Understand growth by breaking down new, resurrected, returning, and dormant users.</>
                             }
                             data-attr="insight-lifecycle-tab"
                         >
