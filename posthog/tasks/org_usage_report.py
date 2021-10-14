@@ -108,7 +108,6 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
             }
             org_reports.append(report)  # type: ignore
         except Exception as err:
-            print(err)  # TEMP
             report_org_usage_failure(distinct_id, str(err))
         if not dry_run:
             report_org_usage(distinct_id, report)
