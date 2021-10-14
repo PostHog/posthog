@@ -1,17 +1,17 @@
 import { kea } from 'kea'
 import { PersonType } from '~/types'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { PersonHeaderProps } from 'scenes/persons/PersonHeader'
 import { uuid } from 'lib/utils'
 
 import { personHeaderLogicType } from './personHeaderLogicType'
 import { urls } from 'scenes/urls'
-const toKey = (props: PersonHeader): string => (props.person ? JSON.stringify(props) : uuid())
+const toKey = (props: PersonHeaderProps): string => (props.person ? JSON.stringify(props) : uuid())
 
 const toUrl = (person: Partial<PersonType> | null | undefined): string | undefined =>
     person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : ''
 
 export const personHeaderLogic = kea<personHeaderLogicType>({
-    props: {} as PersonHeader,
+    props: {} as PersonHeaderProps,
     key: (props) => (props ? toKey(props) : uuid()),
     reducers: ({ props }) => ({
         withIcon: [props.withIcon || false],
