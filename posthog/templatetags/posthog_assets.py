@@ -54,12 +54,7 @@ def human_social_providers(providers: List[str]) -> str:
             return "GitLab"
         return "Single sign-on (SSO)"
 
-    output = ""
-
-    for provider in providers:
-        output = output + f"{friendly_provider(provider)}, "
-
-    return output[:-2]
+    return ", ".join(map(friendly_provider, providers))
 
 
 @register.simple_tag
