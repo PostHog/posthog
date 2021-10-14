@@ -567,6 +567,7 @@ export function DashboardItem({
                                                         deleteWithUndo({
                                                             object: {
                                                                 id: item.id,
+                                                                name: item.name,
                                                             },
                                                             endpoint: 'insight',
                                                             callback: loadDashboardItems,
