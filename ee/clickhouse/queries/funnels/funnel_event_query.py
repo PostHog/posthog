@@ -12,30 +12,21 @@ class FunnelEventQuery(ClickhouseEventQuery):
             f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id",
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp",
             (
-                f"{self.EVENT_TABLE_ALIAS}.properties as properties"
-                if self._column_optimizer.should_query_event_properties_column
-                else ""
-            ),
-            (
                 f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
                 if self._column_optimizer.should_query_elements_chain_column
                 else ""
             ),
             f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
-            f"{self.PERSON_TABLE_ALIAS}.person_props as person_props"
-            if self._should_join_persons and self._column_optimizer.should_query_person_properties_column
-            else "",
         ]
 
         _fields.extend(
             f"{self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-            for column_name in self._column_optimizer.materialized_event_columns_to_query
+            for column_name in self._column_optimizer.event_columns_to_query
         )
 
         if self._should_join_persons:
             _fields.extend(
-                f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
-                for column_name in self._column_optimizer.materialized_person_columns_to_query
+                f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._person_query.fields
             )
 
         _fields = list(filter(None, _fields))
@@ -55,10 +46,13 @@ class FunnelEventQuery(ClickhouseEventQuery):
 
         self.params.update(entity_params)
 
+        person_query, person_params = self._get_person_query()
+        self.params.update(person_params)
+
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
-            {self._get_person_query()}
+            {person_query}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}

@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
@@ -47,7 +48,7 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*self.filter.properties, *self.entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter, self.team_id, table_name="e", person_properties_column="person_props",
+            props_to_filter, self.team_id, table_name="e", person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )
         aggregate_operation, _, math_params = process_math(self.entity)
 
@@ -95,14 +96,15 @@ class ClickhouseTrendsBreakdown:
                 lambda _: [],
             )
 
-        self.params = {**self.params, **_params}
+        person_join_condition, person_join_params = self._person_join_condition()
+        self.params = {**self.params, **_params, **person_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in TRENDS_DISPLAY_BY_VALUE:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter,
-                event_join=self._person_join_condition,
+                event_join=person_join_condition,
                 aggregate_operation=aggregate_operation,
                 breakdown_value=breakdown_value,
             )
@@ -125,7 +127,7 @@ class ClickhouseTrendsBreakdown:
                 )
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
-                    event_join=self._person_join_condition,
+                    event_join=person_join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -137,7 +139,7 @@ class ClickhouseTrendsBreakdown:
             else:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
-                    event_join=self._person_join_condition,
+                    event_join=person_join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -245,17 +247,20 @@ class ClickhouseTrendsBreakdown:
         else:
             return str(value) or "none"
 
-    @property
-    def _person_join_condition(self) -> str:
-        person_query = ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer)
+    def _person_join_condition(self) -> Tuple[str, Dict]:
+        person_query = ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
         if person_query.is_used:
-            return f"""
+            query, params = person_query.get_query()
+            return (
+                f"""
             {EVENT_JOIN_PERSON_SQL}
-            INNER JOIN ({person_query.get_query()}) person
+            INNER JOIN ({query}) person
             ON person.id = pdi.person_id
-            """
+            """,
+                params,
+            )
         elif self.entity.math == "dau":
             # Only join distinct_ids
-            return EVENT_JOIN_PERSON_SQL
+            return EVENT_JOIN_PERSON_SQL, {}
         else:
-            return ""
+            return "", {}

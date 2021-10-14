@@ -4,11 +4,12 @@ from typing import Any, Dict, List, Tuple, Union
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from posthog.models import Cohort, Filter, Property, Team
+from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 
@@ -44,7 +45,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._team_id = team_id
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._person_query = ClickhousePersonQuery(
-            self._filter, self._team_id, self._column_optimizer, extra_person_fields
+            self._filter, self._team_id, self._column_optimizer, extra_fields=extra_person_fields
         )
         self.params: Dict[str, Any] = {
             "team_id": self._team_id,
@@ -122,16 +123,18 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 return True
         return False
 
-    def _get_person_query(self) -> str:
+    def _get_person_query(self) -> Tuple[str, Dict]:
         if self._should_join_persons:
-            return f"""
-            INNER JOIN (
-                {self._person_query.get_query()}
-            ) {self.PERSON_TABLE_ALIAS}
+            person_query, params = self._person_query.get_query()
+            return (
+                f"""
+            INNER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
-            """
+            """,
+                params,
+            )
         else:
-            return ""
+            return "", {}
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 
@@ -159,7 +162,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     self._team_id,
                     prepend=f"global_{idx}",
                     allow_denormalized_props=True,
-                    person_properties_column=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+                    person_properties_mode=PersonPropertiesMode.EXCLUDE,
                 )
                 final.append(filter_query)
                 params.update(filter_params)

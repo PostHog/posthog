@@ -2,7 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import posthoganalytics
 
@@ -138,3 +138,16 @@ def report_bulk_invited(
             "email_available": email_available,
         },
     )
+
+
+def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
+    """
+    Triggered daily by Celery scheduler.
+    """
+    posthoganalytics.capture(
+        distinct_id, "organization event usage report", properties,
+    )
+
+
+def report_org_usage_failure(distinct_id: str, err: str) -> None:
+    posthoganalytics.capture(distinct_id, "organization event usage report failure", properties={"error": err,})

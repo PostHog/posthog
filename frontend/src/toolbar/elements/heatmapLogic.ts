@@ -68,7 +68,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                         ...values.heatmapFilter,
                     }
 
-                    const url = `${toolbarLogic.values.apiURL}api/element/stats/${encodeParams(params, '?')}`
+                    const url = `${toolbarLogic.values.apiURL}/api/element/stats/${encodeParams(params, '?')}`
                     const response = await fetch(url)
                     const results = await response.json()
 
