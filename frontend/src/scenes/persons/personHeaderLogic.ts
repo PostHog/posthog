@@ -5,7 +5,19 @@ import { uuid } from 'lib/utils'
 
 import { personHeaderLogicType } from './personHeaderLogicType'
 import { urls } from 'scenes/urls'
-const toKey = (props: PersonHeaderProps): string => (props.person ? JSON.stringify(props) : uuid())
+
+//adapted from https://stackoverflow.com/a/7616484
+const hashCode = (str: string): string => {
+    let hash = 0
+
+    for (let i = 0; i < str.length; i++) {
+        const chr = str.charCodeAt(i)
+        hash = (hash << 5) - hash + chr
+    }
+    return (hash >>> 0).toString()
+}
+
+const toKey = (props: PersonHeaderProps): string => (props.person ? hashCode(JSON.stringify(props)) : uuid())
 
 const toUrl = (person: Partial<PersonType> | null | undefined): string | undefined =>
     person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : ''
