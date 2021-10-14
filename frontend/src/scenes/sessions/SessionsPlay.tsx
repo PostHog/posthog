@@ -123,6 +123,7 @@ export function SessionsPlay(): JSX.Element {
                         ) : (
                             <span className="ph-no-capture">
                                 <Player
+                                    events={sessionPlayerData?.snapshots || []}
                                     ref={playerRef}
                                     key="session-player"
                                     onPlayerTimeChange={setCurrentPlayerTime}
