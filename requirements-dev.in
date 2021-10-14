@@ -15,12 +15,12 @@ flake8-import-order
 flake8-logging-format
 flake8-print
 pip-tools
-mypy
+mypy==0.790
 mypy-extensions
 djangorestframework-stubs
-django-stubs
+django-stubs==1.8.0
 fakeredis
-freezegun
+freezegun==0.3.15
 packaging
 black==19.10b0
 isort

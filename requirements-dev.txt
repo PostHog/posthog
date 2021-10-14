@@ -40,7 +40,7 @@ coverage[toml]==6.0.2
     # via pytest-cov
 django-stubs-ext==0.3.1
     # via django-stubs
-django-stubs==1.9.0
+django-stubs==1.8.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
@@ -77,7 +77,7 @@ flake8==4.0.1
     #   flake8-commas
     #   flake8-comprehensions
     #   flake8-print
-freezegun==1.1.0
+freezegun==0.3.15
     # via -r requirements-dev.in
 idna==2.8
     # via
@@ -99,7 +99,7 @@ mypy-extensions==0.4.3
     # via
     #   -r requirements-dev.in
     #   mypy
-mypy==0.910
+mypy==0.790
     # via
     #   -r requirements-dev.in
     #   django-stubs
@@ -173,6 +173,7 @@ six==1.14.0
     #   -c requirements.txt
     #   fakeredis
     #   flake8-print
+    #   freezegun
     #   python-dateutil
 sortedcontainers==2.4.0
     # via fakeredis
@@ -185,19 +186,15 @@ syrupy==1.4.7
 toml==0.10.2
     # via
     #   black
-    #   django-stubs
-    #   mypy
     #   pytest
 tomli==1.2.1
     # via
     #   coverage
     #   pep517
 typed-ast==1.4.3
-    # via black
-types-pytz==2021.3.0
-    # via django-stubs
-types-pyyaml==5.4.11
-    # via django-stubs
+    # via
+    #   black
+    #   mypy
 typing-extensions==3.10.0.2
     # via
     #   django-stubs
