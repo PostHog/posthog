@@ -3,13 +3,11 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.auth import views as auth_views
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
 from django.urls.base import reverse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic.base import TemplateView
 
 from posthog.api import (
     api_not_found,
@@ -23,7 +21,6 @@ from posthog.api import (
     user,
 )
 from posthog.demo import demo
-from posthog.email import is_email_available
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
@@ -33,10 +30,12 @@ def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
-def login(request):
+def login_view(request):
+    """
+    Checks if SAML is enforced and prevents using password authentication if it's the case.
+    """
     if getattr(settings, "SAML_ENFORCED", False):
         return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
-
     return home(request)
 
 
@@ -49,13 +48,6 @@ def authorize_and_redirect(request):
         request=request,
         context={"domain": urlparse(url).hostname, "redirect_url": url,},
     )
-
-
-def is_input_valid(inp_type, val):
-    # Uses inp_type instead of is_email for explicitness in function call
-    if inp_type == "email":
-        return len(val) > 2 and val.count("@") > 0
-    return len(val) > 0
 
 
 # Try to include EE endpoints
@@ -90,6 +82,10 @@ urlpatterns = [
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
+    path(
+        "api/reset/<str:user_uuid>/",
+        authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
@@ -106,23 +102,7 @@ urlpatterns = [
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
-    *(
-        []
-        if is_email_available()
-        else [
-            path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"),)
-        ]
-    ),
-    path(
-        "accounts/reset/<uidb64>/<token>/",
-        auth_views.PasswordResetConfirmView.as_view(
-            success_url="/",
-            post_reset_login_backend="django.contrib.auth.backends.ModelBackend",
-            post_reset_login=True,
-        ),
-    ),
-    path("accounts/", include("django.contrib.auth.urls")),
-    path("login", login),
+    path("login", login_view),
 ]
 
 # Allow crawling on PostHog Cloud, disable for all self-hosted installations
@@ -142,7 +122,7 @@ if settings.TEST:
 
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "reset"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 

@@ -24,6 +24,7 @@ export function DashboardItems(): JSX.Element {
         updateItemColor,
         setDashboardMode,
         setDiveDashboard,
+        refreshAllDashboardItems,
     } = useActions(dashboardLogic)
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
@@ -103,6 +104,7 @@ export function DashboardItems(): JSX.Element {
                             resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
                         }
                         isReloading={isRefreshing(item.id)}
+                        reload={() => refreshAllDashboardItems([item])}
                         loadDashboardItems={loadDashboardItems}
                         setDiveDashboard={setDiveDashboard}
                         duplicateDashboardItem={duplicateDashboardItem}

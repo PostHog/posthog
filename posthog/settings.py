@@ -471,6 +471,7 @@ REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
+SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relatively short because cached result is used throughout the duration a session recording loads.
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -478,6 +479,8 @@ TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached r
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
+
+PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
 # shell_plus settings
 # https://django-extensions.readthedocs.io/en/latest/shell_plus.html

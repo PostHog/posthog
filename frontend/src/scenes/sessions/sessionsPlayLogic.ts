@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
-import { eventToName, toParams } from 'lib/utils'
+import { errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
 import { PersonType, SessionType } from '~/types'
 import dayjs from 'dayjs'
@@ -18,10 +18,13 @@ interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
     start_time: string
+    next: string | null
+    duration: number
 }
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
     connect: {
+        logic: [eventUsageLogic],
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
         actions: [
             sessionsTableLogic,
@@ -36,18 +39,21 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
+        appendToRecordingData: (nextSnapshots: eventWithTime[]) => ({ nextSnapshots }),
+        loadRecording: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
     },
     reducers: {
         sessionRecordingId: [
             null as SessionRecordingId | null,
             {
-                loadRecording: (_, sessionRecordingId) => sessionRecordingId,
+                loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
             },
         ],
         sessionPlayerData: [
             null as null | SessionPlayerData,
             {
-                loadRecording: () => null,
+                appendToRecordingData: (state, { nextSnapshots }) =>
+                    state ? { ...state, snapshots: [...state.snapshots, ...nextSnapshots] } : null,
             },
         ],
         addingTagShown: [
@@ -68,6 +74,21 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 openNextRecordingOnLoad: () => true,
                 loadRecording: () => false,
                 closeSessionPlayer: () => false,
+            },
+        ],
+        firstChunkLoaded: [
+            false,
+            {
+                loadRecordingSuccess: () => true,
+            },
+        ],
+        sessionPlayerDataLoading: [
+            false,
+            {
+                loadRecordingSuccess: (_, { sessionPlayerData }) => {
+                    // If sessionPlayerData doesn't have a next url, it means the entire recording is still loading.
+                    return !!sessionPlayerData?.next
+                },
             },
         ],
         source: [
@@ -122,6 +143,20 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportRecordingViewed({ delay: 10, ...payload })
         },
+        loadRecordingSuccess: async () => {
+            // If there is more data to poll for load the next batch.
+            // This will keep calling loadRecording until `next` is empty.
+            if (!!values.sessionPlayerData?.next) {
+                await actions.loadRecording(undefined, values.sessionPlayerData.next)
+            }
+        },
+        loadRecordingFailure: ({ error }) => {
+            errorToast(
+                'Error fetching your session recording',
+                'Your recording returned the following error response:',
+                error
+            )
+        },
     }),
     loaders: ({ values, actions }) => ({
         tags: [
@@ -138,12 +173,25 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             },
         ],
         sessionPlayerData: {
-            loadRecording: async (sessionRecordingId: string): Promise<SessionPlayerData> => {
+            loadRecording: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
                 const startTime = performance.now()
-                const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
-                const response = await api.get(`api/event/session_recording?${params}`)
-                actions.reportUsage(response.result, performance.now() - startTime)
-                return response.result
+
+                let response
+                if (url) {
+                    // Subsequent calls to get rest of recording
+                    response = await api.get(url)
+                } else {
+                    // Very first call
+                    const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
+                    response = await api.get(`api/event/session_recording?${params}`)
+                    actions.reportUsage(response.result, performance.now() - startTime)
+                }
+
+                const currData = values.sessionPlayerData
+                return {
+                    ...response.result,
+                    snapshots: [...(currData?.snapshots ?? []), ...(response.result?.snapshots ?? [])],
+                }
             },
         },
     }),
@@ -183,6 +231,17 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         shouldLoadSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
             (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
+        ],
+        isPlayable: [
+            (selectors) => [
+                selectors.firstChunkLoaded,
+                selectors.sessionPlayerDataLoading,
+                selectors.sessionPlayerData,
+            ],
+            (firstChunkLoaded, sessionPlayerDataLoading, sessionPlayerData) =>
+                (firstChunkLoaded || // If first chunk is ready
+                    !sessionPlayerDataLoading) && // data isn't being fetched
+                !!sessionPlayerData?.snapshots?.find((s) => s.type === 2), // there's a full snapshot in the data that was loaded
         ],
         highlightedSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
