@@ -217,9 +217,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             )
 
             const { id } = dashboard
-            const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(
-                (d) => d.id !== id && !d.deleted
-            )
+            const nextDashboard = values.displayDashboards.find((d) => d.id !== id && !d.deleted)
 
             if (values.redirect) {
                 if (nextDashboard) {
