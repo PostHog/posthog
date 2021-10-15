@@ -24,6 +24,13 @@ from posthog.test.base import BaseTest
 
 # Refers to migration 0173_should_update_person_props_function
 # This is a Postgres function we use in the plugin server
+
+UPDATE_A = '{ "a": 1 }'
+UPDATE_B = '{ "b": 1 }'
+UPDATE_C = '{ "c": 1 }'
+UPDATE_D = '{ "d": 1 }'
+
+
 class TestShouldUpdatePersonProp(BaseTest):
     def test_update_without_properties_last_updated_at(self):
         person = Person.objects.create(
@@ -36,18 +43,22 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT 
-                    should_update_person_prop({person.id}, 'a', now()::text, 'set'),
-                    should_update_person_prop({person.id}, 'b', now()::text, 'set_once')
+                SELECT update_person_props(
+	                id, 
+	                properties,
+	                properties_last_updated_at, 
+	                properties_last_operation, 
+	                now()::text, 
+	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+                FROM posthog_person 
+                WHERE id={person.id}
             """
             )
 
-            result = cursor.fetchall()
-            set_op_result = result[0][0]
-            set_once_op_result = result[0][1]
+        updated_person = Person.objects.get(id=person.id)
 
-            self.assertEqual(set_op_result, True)
-            self.assertEqual(set_once_op_result, True)
+        # both updated
+        self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
 
     def test_update_without_properties_last_operation(self):
         person = Person.objects.create(
@@ -63,20 +74,24 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT 
-                    should_update_person_prop({person.id}, 'a', now()::text, 'set'),
-                    should_update_person_prop({person.id}, 'b', now()::text, 'set_once')
+                SELECT update_person_props(
+	                id, 
+	                properties,
+	                properties_last_updated_at, 
+	                properties_last_operation, 
+	                now()::text, 
+	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+                FROM posthog_person 
+                WHERE id={person.id}
             """
             )
 
-            result = cursor.fetchall()
-            set_op_result = result[0][0]
-            set_once_op_result = result[0][1]
+        updated_person = Person.objects.get(id=person.id)
 
-            self.assertEqual(set_op_result, True)
-            self.assertEqual(set_once_op_result, True)
+        # both updated
+        self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
 
-    # tests cases 1 and 2 from the table
+    # # tests cases 1 and 2 from the table
     def test_update_non_existent_prop(self):
         person = Person.objects.create(
             team=self.team, properties={}, properties_last_updated_at={}, properties_last_operation={}
@@ -85,20 +100,24 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT 
-                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set'),
-                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set_once')
+                SELECT update_person_props(
+	                id, 
+	                properties,
+	                properties_last_updated_at, 
+	                properties_last_operation, 
+	                now()::text, 
+	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+                FROM posthog_person 
+                WHERE id={person.id}
             """
             )
 
-            result = cursor.fetchall()
-            set_op_result = result[0][0]
-            set_once_op_result = result[0][1]
+        updated_person = Person.objects.get(id=person.id)
 
-            self.assertEqual(set_op_result, True)
-            self.assertEqual(set_once_op_result, True)
+        # both updated
+        self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
 
-    # tests cases 3 and 4 from the table
+    # # tests cases 3 and 4 from the table
     def test_set_operation_with_earlier_timestamp(self):
         person = Person.objects.create(
             team=self.team,
@@ -109,24 +128,27 @@ class TestShouldUpdatePersonProp(BaseTest):
             },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
-
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT 
-                    should_update_person_prop({person.id}, 'a', now()::text, 'set'),
-                    should_update_person_prop({person.id}, 'b', now()::text, 'set')
+                SELECT update_person_props(
+	                id, 
+	                properties,
+	                properties_last_updated_at, 
+	                properties_last_operation, 
+	                now()::text, 
+	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+                FROM posthog_person 
+                WHERE id={person.id}
             """
             )
 
-            result = cursor.fetchall()
-            previous_op_set_result = result[0][0]
-            previous_op_set_once_result = result[0][1]
+        updated_person = Person.objects.get(id=person.id)
 
-            self.assertEqual(previous_op_set_result, False)
-            self.assertEqual(previous_op_set_once_result, True)
+        # b updated
+        self.assertEqual(updated_person.properties, {"a": 0, "b": 1})
 
-    # tests cases 5 and 6 from the table
+    # # tests cases 5 and 6 from the table
     def test_set_operation_with_older_timestamp(self):
         person = Person.objects.create(
             team=self.team,
@@ -141,20 +163,24 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT 
-                    should_update_person_prop({person.id}, 'a', now()::text, 'set'),
-                    should_update_person_prop({person.id}, 'b', now()::text, 'set')
+                SELECT update_person_props(
+	                id, 
+	                properties,
+	                properties_last_updated_at, 
+	                properties_last_operation, 
+	                now()::text, 
+	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+                FROM posthog_person 
+                WHERE id={person.id}
             """
             )
 
-            result = cursor.fetchall()
-            previous_op_set_result = result[0][0]
-            previous_op_set_once_result = result[0][1]
+        updated_person = Person.objects.get(id=person.id)
 
-            self.assertEqual(previous_op_set_result, True)
-            self.assertEqual(previous_op_set_once_result, True)
+        # both updated
+        self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
 
-    # tests cases 7 and 8 from the table
+    # # tests cases 7 and 8 from the table
     def test_set_once_operation_with_earlier_timestamp(self):
         person = Person.objects.create(
             team=self.team,
@@ -169,20 +195,24 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT 
-                    should_update_person_prop({person.id}, 'a', now()::text, 'set_once'),
-                    should_update_person_prop({person.id}, 'b', now()::text, 'set_once')
+                SELECT update_person_props(
+	                id, 
+	                properties,
+	                properties_last_updated_at, 
+	                properties_last_operation, 
+	                now()::text, 
+	                array[row('a', 'set_once', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+                FROM posthog_person 
+                WHERE id={person.id}
             """
             )
 
-            result = cursor.fetchall()
-            previous_op_set_result = result[0][0]
-            previous_op_set_once_result = result[0][1]
+        updated_person = Person.objects.get(id=person.id)
 
-            self.assertEqual(previous_op_set_result, False)
-            self.assertEqual(previous_op_set_once_result, True)
+        # b updated
+        self.assertEqual(updated_person.properties, {"a": 0, "b": 1})
 
-    # tests cases 9 and 10 from the table
+    # # tests cases 9 and 10 from the table
     def test_set_once_operation_with_older_timestamp(self):
         person = Person.objects.create(
             team=self.team,
@@ -197,43 +227,56 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT 
-                    should_update_person_prop({person.id}, 'a', now()::text, 'set_once'),
-                    should_update_person_prop({person.id}, 'b', now()::text, 'set_once')
+                SELECT update_person_props(
+	                id, 
+	                properties,
+	                properties_last_updated_at, 
+	                properties_last_operation, 
+	                now()::text, 
+	                array[row('a', 'set_once', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+                FROM posthog_person 
+                WHERE id={person.id}
             """
             )
 
-            result = cursor.fetchall()
-            previous_op_set_result = result[0][0]
-            previous_op_set_once_result = result[0][1]
+        updated_person = Person.objects.get(id=person.id)
 
-            self.assertEqual(previous_op_set_result, False)
-            self.assertEqual(previous_op_set_once_result, False)
+        # neither updated
+        self.assertEqual(updated_person.properties, {"a": 0, "b": 0})
 
-    # tests cases 11-14 from the table
-    def test_equal_timestamps(self):
-        timestamp = datetime(2000, 1, 1, 1, 1, 1).isoformat()
-        person = Person.objects.create(
-            team=self.team,
-            properties={"a": 0, "b": 0},
-            properties_last_updated_at={"a": timestamp, "b": timestamp,},
-            properties_last_operation={"a": "set", "b": "set_once"},
-        )
+    # # tests cases 11-14 from the table
+    # def test_equal_timestamps(self):
+    #     timestamp = datetime(2000, 1, 1, 1, 1, 1).isoformat()
+    #     person = Person.objects.create(
+    #         team=self.team,
+    #         properties={"a": 0, "b": 0},
+    #         properties_last_updated_at={"a": timestamp, "b": timestamp,},
+    #         properties_last_operation={"a": "set", "b": "set_once"},
+    #     )
+    #     with connection.cursor() as cursor:
+    #         cursor.execute(
+    #             f"""
+    #             SELECT update_person_props(
 
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT 
-                    should_update_person_prop({person.id}, 'a', '{timestamp}', 'set_once'),
-                    should_update_person_prop({person.id}, 'a', '{timestamp}', 'set'),
-                    should_update_person_prop({person.id}, 'b', '{timestamp}', 'set_once'),
-                    should_update_person_prop({person.id}, 'b', '{timestamp}', 'set')
-            """
-            )
 
-            results = cursor.fetchall()[0]
+#                 id,
+#                 properties,
+#                 properties_last_updated_at,
+#                 properties_last_operation,
+#                 now()::text,
+#                 array[
+#                     row('a', 'set_once', '{UPDATE_A}'::jsonb)::person_property_updates,
+#                     row('b', 'set', '{UPDATE_B}'::jsonb)::person_property_updates,
+#                     row('b', 'set_once', '{UPDATE_C}'::jsonb)::person_property_updates,
+#                     row('b', 'set', '{UPDATE_D}'::jsonb)::person_property_updates
+#                 ])
+#             FROM posthog_person
+#             WHERE id={person.id}
+#         """
+#         )
 
-            self.assertEqual(results[0], False)
-            self.assertEqual(results[1], False)
-            self.assertEqual(results[2], False)
-            self.assertEqual(results[3], False)
+
+#     updated_person = Person.objects.get(id=person.id)
+
+#     # b updated
+#     self.assertEqual(updated_person.properties, {"a": 0, "b": 0, "c": 0, "d": 0, })
