@@ -132,26 +132,78 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
         distinct_id = "abc"
         identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
 
-        for date in ["2021-09-01", "2021-09-02", "2021-09-03", "2021-09-04"]:
-            capture_event(
-                event=EventData(
-                    event="$pageview",
-                    team_id=team.id,
-                    distinct_id=distinct_id,
-                    timestamp=datetime.fromisoformat(date),
-                    properties={"distinct_id": "abc"},
-                )
+        # Two events on 1 Sep
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-01"),
+                properties={"distinct_id": "abc"},
             )
+        )
+
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-01"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        # One event on 2 Sep
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-02"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        # Three events on 3 Sep
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-03"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-03"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-03"),
+                properties={"distinct_id": "abc"},
+            )
+        )
 
         trends = get_trends_ok(
             client,
             request=TrendsRequest(
                 date_from="2021-09-01",
-                date_to="2021-09-04",
+                date_to="2021-09-03",
                 interval="day",
                 insight="TRENDS",
                 display="ActionsLineGraph",
-                smoothing_intervals=28,
+                smoothing_intervals=3,
                 events=json.dumps(
                     [
                         {
@@ -184,10 +236,10 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                         "properties": [],
                     },
                     "label": "$pageview",
-                    "count": 4.0,
-                    "data": [1.0, 1.0, 1.0, 1.0],
-                    "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021", "4-Sep-2021"],
-                    "days": ["2021-09-01", "2021-09-02", "2021-09-03", "2021-09-04"],
+                    "count": 3.0,
+                    "data": [2.0, 1.5, 2.0],
+                    "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
+                    "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                 }
             ],
         }
