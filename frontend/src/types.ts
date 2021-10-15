@@ -30,8 +30,10 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
 }
 
+export type ColumnChoice = string[] | 'DEFAULT'
+
 export interface ColumnConfig {
-    active: string[] | 'DEFAULT'
+    active: ColumnChoice
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -205,7 +207,7 @@ export interface ActionStepType {
     href?: string | null
     id?: number
     name?: string
-    properties?: []
+    properties?: AnyPropertyFilter[]
     selector?: string | null
     tag_name?: string
     text?: string | null
@@ -1088,7 +1090,7 @@ export interface PreflightStatus {
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
     posthog_version?: string
-    email_service_available?: boolean
+    email_service_available: boolean
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean

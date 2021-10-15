@@ -818,3 +818,32 @@ def get_helm_info_env() -> dict:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
     except Exception:
         return {}
+
+
+OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
+LIMIT_REGEX = re.compile(r"([&?]limit=)(\d+)")
+
+
+def format_query_params_absolute_url(request: Request, offset: Optional[int] = None, limit: Optional[int] = None):
+    url_to_format = request.get_raw_uri()
+
+    if not url_to_format:
+        return None
+
+    if offset:
+        if OFFSET_REGEX.search(url_to_format):
+            url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+        else:
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"offset={offset}"
+
+    if limit:
+        if LIMIT_REGEX.search(url_to_format):
+            url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
+        else:
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"limit={limit}"
+
+    return url_to_format
+
+
+def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
+    return abs(int((d1 - d2).total_seconds() * 1000))

@@ -108,6 +108,16 @@ class TestMixin:
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
+    def validate_basic_html(self, html_message, site_url, preheader=None):
+        # absolute URLs are used
+        self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)  # type: ignore
+
+        # CSS is inlined
+        self.assertIn('style="display: none;', html_message)  # type: ignore
+
+        if preheader:
+            self.assertIn(preheader, html_message)  # type: ignore
+
 
 class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     """

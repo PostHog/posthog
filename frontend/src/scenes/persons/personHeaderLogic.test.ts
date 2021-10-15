@@ -98,7 +98,7 @@ describe('the person header', () => {
             onLogic: (l) => (logic = l),
         })
 
-        it('is a UUID regardless of props', async () => {
+        it('is a hash', async () => {
             await expectLogic(logic).then(() => {
                 expect(logic.key).toEqual('2442792429')
             })
@@ -116,9 +116,9 @@ describe('the person header', () => {
             onLogic: (l) => (logic = l),
         })
 
-        it('to a UUID', async () => {
+        it('to a string "unidentified"', async () => {
             await expectLogic(logic).then(() => {
-                expect(logic.key).toEqual(uuid())
+                expect(logic.key).toEqual('unidentified')
             })
         })
     })

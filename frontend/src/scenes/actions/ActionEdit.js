@@ -14,7 +14,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
 import { compactNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export function ActionEdit({ action: loadedAction, actionId, onSave, temporaryToken }) {
     let logic = actionEditLogic({

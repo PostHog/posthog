@@ -68,9 +68,7 @@ describe('eventsTableLogic', () => {
             selectedEvent: null,
             newEvents: [],
             highlightEvents: {},
-            columnConfigSaving: false,
             automaticLoadEnabled: false,
-            columnConfig: 'DEFAULT',
         })
     })
 
@@ -117,14 +115,6 @@ describe('eventsTableLogic', () => {
                 logic.actions.toggleAutomaticLoad(false)
             }).toMatchValues({
                 automaticLoadEnabled: false,
-            })
-        })
-
-        it('can mark that column config is saving', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setColumnConfigSaving(true)
-            }).toMatchValues({
-                columnConfigSaving: true,
             })
         })
 
@@ -488,7 +478,5 @@ describe('eventsTableLogic', () => {
             })
             expect(toastSpy).toHaveBeenCalled()
         })
-
-        describe('calling the API', () => {})
     })
 })
