@@ -122,7 +122,7 @@ export const insightLogic = kea<insightLogicType>({
 
                     const dashboardItemId = props.dashboardItemId
                     actions.startQuery(queryId)
-                    if (dashboardItemId) {
+                    if (dashboardItemId && dashboardsModel.isMounted()) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                     }
 
@@ -161,7 +161,7 @@ export const insightLogic = kea<insightLogicType>({
                         breakpoint()
                         cache.abortController = null
                         actions.endQuery(queryId, insight, null, e)
-                        if (dashboardItemId) {
+                        if (dashboardItemId && dashboardsModel.isMounted()) {
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                         }
                         if (filters.insight === ViewType.FUNNELS) {
@@ -174,7 +174,7 @@ export const insightLogic = kea<insightLogicType>({
                                 e.message
                             )
                         }
-                        return values.insight
+                        throw e
                     }
                     breakpoint()
                     cache.abortController = null
@@ -183,7 +183,7 @@ export const insightLogic = kea<insightLogicType>({
                         (values.filters.insight as ViewType) || ViewType.TRENDS,
                         response.last_refresh
                     )
-                    if (dashboardItemId) {
+                    if (dashboardItemId && dashboardsModel.isMounted()) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(
                             dashboardItemId,
                             false,
