@@ -53,7 +53,8 @@ SESSIONS_IN_RANGE_QUERY = """
     WHERE full_snapshots > 0 {filter_query}
 """
 
-RECORDINGS_NUM_SNAPSHOTS_LIMIT = 100
+# Arbitrarily large number that acts as an FF for chunked session recording loading
+RECORDINGS_NUM_SNAPSHOTS_LIMIT = 1000000000
 
 
 class SessionRecording:
