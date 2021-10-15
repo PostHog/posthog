@@ -47,6 +47,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import posthog from 'posthog-js'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -100,6 +101,7 @@ export const funnelLogic = kea<funnelLogicType>({
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        sendCorrelationAnalysisFeedback: (rating: number, comment?: string) => ({ rating, comment }),
     }),
 
     loaders: ({ values }) => ({
@@ -799,6 +801,9 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
+        },
+        sendCorrelationAnalysisFeedback: ({ rating, comment }) => {
+            posthog.capture('correlation analysis feedback', { rating, comment })
         },
     }),
 })
