@@ -165,7 +165,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
         dashboards: [
             () => [selectors.sortedDashboards],
             (sortedDashboards) => {
-                return sortedDashboards.sort((a, b) => Number(b.pinned) - Number(a.pinned))
+                return sortedDashboards.sort(
+                    (a, b) =>
+                        (Number(b.pinned) - Number(a.pinned)) * 10 +
+                        (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
+                )
             },
         ],
         dashboardsLoading: [
