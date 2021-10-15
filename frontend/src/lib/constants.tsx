@@ -231,16 +231,11 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    PROJECT_HOME: 'project-home-exp-5', // owner: @kpthatsme
     TRAILING_WAU_MAU: '3638-trailing-wau-mau', // owner: @EDsCODE
     EVENT_COLUMN_CONFIG: '4141-event-columns', // owner: @paolodamico
-    INGESTION_TAXONOMY: '4267-event-property-taxonomy', // owner: @liyiy
-    PLUGIN_METRICS: '4871-plugin-metrics', // owner: @yakkomajuri
-    INGESTION_HELP_BUTTON: '112-ingestion-help-button', // owner: @kpthatsme
     SAVED_INSIGHTS: '3408-saved-insights', // owner: @alexkim
     MULTIVARIATE_SUPPORT: '5440-multivariate-support', // owner: @mariusandra
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim
-    PLUGINS_UI_JOBS: '5720-plugins-ui-jobs', // owner: @yakkomajuri
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI: 'new-paths-ui', // owner: @EDsCODE
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
