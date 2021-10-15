@@ -118,8 +118,8 @@ export const teamLogic = kea<teamLogicType>({
         afterMount: () => {
             const appContext = getAppContext()
             if (appContext) {
-                // If app context is available (it should be practically always) we can immediately know current_team
-                actions.loadCurrentTeamSuccess(appContext.currentTeam)
+                // If app context is available (it should be practically always) we can immediately know currentTeam
+                actions.loadCurrentTeamSuccess(appContext.current_team)
             } else {
                 // If app context is not available, a traditional request is needed
                 actions.loadCurrentTeam()
