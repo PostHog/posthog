@@ -24,6 +24,7 @@ class Migration(migrations.Migration):
         ),
         migrations.RunSQL(
             """
+            -- not-null-ignore
             CREATE FUNCTION update_person_props(
                     person_id int,
                     properties jsonb,
