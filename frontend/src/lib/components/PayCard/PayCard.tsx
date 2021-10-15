@@ -19,6 +19,7 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
     const { push } = useActions(router)
     const [shown, setShown] = useState(false)
     const storageKey = `pay-gate-dismissed-${identifier}`
+    const { reportPayGateDismissed, reportPayGateShown } = useActions(eventUsageLogic)
 
     const handleClick = (): void => {
         if (preflight?.cloud) {
@@ -33,13 +34,13 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
         e.stopPropagation()
         setShown(false)
         window.localStorage.setItem(storageKey, '1')
-        eventUsageLogic.actions.reportPayGateDismissed(identifier)
+        reportPayGateDismissed(identifier)
     }
 
     useEffect(() => {
         if (!window.localStorage.getItem(storageKey)) {
             setShown(true)
-            eventUsageLogic.actions.reportPayGateShown(identifier)
+            reportPayGateShown(identifier)
         }
     }, [])
 
