@@ -4,6 +4,7 @@ import { TableProps } from 'antd'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
+import { FlagOutlined } from '@ant-design/icons'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
 import { IconSize, InsightLabel } from 'lib/components/InsightLabel'
@@ -11,7 +12,7 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils'
-import { ChartParams, FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
+import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown, FunnelStepWithConversionMetrics } from '~/types'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import {
     EmptyValue,
@@ -24,9 +25,20 @@ import {
 } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import './FunnelStepTable.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
-export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element | null {
-    const logic = funnelLogic({ dashboardItemId, _filters })
+function getSignificanceFromBreakdownStep(
+    breakdown: FlattenedFunnelStepByBreakdown,
+    stepOrder: number
+): FunnelStepWithConversionMetrics['significant'] {
+    return breakdown.steps?.[stepOrder].significant
+}
+
+export function FunnelStepTable(): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const dashboardItemId = insightProps.dashboardItemId || undefined
+    const logic = funnelLogic(insightProps)
     const {
         stepsWithCount,
         flattenedSteps,
@@ -203,12 +215,27 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             rowIndex,
                             step.order === 0 ? 4 : (stepIndex - 1) * 5 + 6,
                             breakdown.steps?.[step.order]?.conversionRates.fromBasisStep != undefined ? (
-                                <span>
-                                    {formatDisplayPercentage(
-                                        breakdown.steps?.[step.order]?.conversionRates.fromBasisStep
+                                <>
+                                    {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
+                                    getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
+                                        <Tooltip title="Significantly different from other breakdown values">
+                                            <span className="table-text-highlight">
+                                                <FlagOutlined style={{ marginRight: 2 }} />{' '}
+                                                {formatDisplayPercentage(
+                                                    breakdown.steps?.[step.order]?.conversionRates.fromBasisStep
+                                                )}
+                                                %
+                                            </span>
+                                        </Tooltip>
+                                    ) : (
+                                        <span>
+                                            {formatDisplayPercentage(
+                                                breakdown.steps?.[step.order]?.conversionRates.fromBasisStep
+                                            )}
+                                            %
+                                        </span>
                                     )}
-                                    %
-                                </span>
+                                </>
                             ) : (
                                 EmptyValue
                             ),
@@ -264,12 +291,28 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 rowIndex,
                                 (stepIndex - 1) * 5 + 8,
                                 breakdown.steps?.[step.order]?.conversionRates.fromPrevious != undefined ? (
-                                    <span>
-                                        {formatDisplayPercentage(
-                                            1 - breakdown.steps?.[step.order]?.conversionRates.fromPrevious
+                                    <>
+                                        {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
+                                        !getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep &&
+                                        getSignificanceFromBreakdownStep(breakdown, step.order)?.fromPrevious ? (
+                                            <Tooltip title="Significantly different from other breakdown values">
+                                                <span className="table-text-highlight">
+                                                    <FlagOutlined style={{ marginRight: 2 }} />{' '}
+                                                    {formatDisplayPercentage(
+                                                        1 - breakdown.steps?.[step.order]?.conversionRates.fromPrevious
+                                                    )}
+                                                    %
+                                                </span>
+                                            </Tooltip>
+                                        ) : (
+                                            <span>
+                                                {formatDisplayPercentage(
+                                                    1 - breakdown.steps?.[step.order]?.conversionRates.fromPrevious
+                                                )}
+                                                %
+                                            </span>
                                         )}
-                                        %
-                                    </span>
+                                    </>
                                 ) : (
                                     EmptyValue
                                 ),
@@ -506,7 +549,12 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
               dataSource: flattenedStepsByBreakdown,
               columns,
               showHeader: false,
-              rowClassName: (_, index) => (index === 2 ? 'funnel-table-cell' : ''),
+              rowClassName: (record, index) => {
+                  if (featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] && record.significant) {
+                      return 'table-cell-highlight'
+                  }
+                  return index === 2 ? 'funnel-table-cell' : ''
+              },
           }
         : {
               dataSource: flattenedSteps,

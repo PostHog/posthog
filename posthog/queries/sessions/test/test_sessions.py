@@ -3,7 +3,7 @@ import unittest
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Event
+from posthog.models import Cohort, Event
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.person import Person
 from posthog.queries.sessions.sessions import Sessions
@@ -328,7 +328,8 @@ def sessions_test_factory(sessions, event_factory, person_factory):
                             "session": "dist",
                             FILTER_TEST_ACCOUNTS: True,
                             "events": [{"id": "1st action"},],
-                        }
+                        },
+                        team=self.team,
                     ),
                     self.team,
                 )
@@ -342,11 +343,48 @@ def sessions_test_factory(sessions, event_factory, person_factory):
                             "session": "avg",
                             FILTER_TEST_ACCOUNTS: True,
                             "events": [{"id": "1st action"},],
-                        }
+                        },
+                        team=self.team,
                     ),
                     self.team,
                 )
                 self.assertEqual(response[0]["data"][6], 26)
+
+        def test_filter_sessions_precalculated_cohort(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["2"], properties={"name": "Jane"})
+            person_factory(
+                team_id=self.team.pk, distinct_ids=["4"],
+            )
+
+            with freeze_time("2012-01-11T01:25:30.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+                event_factory(team=self.team, event="1st action", distinct_id="4")
+            with freeze_time("2012-01-11T01:31:30.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+            with freeze_time("2012-01-11T01:51:30.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="4")
+
+            cohort = Cohort.objects.create(
+                team=self.team, groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
+            cohort.calculate_people()
+            cohort.calculate_people_ch()
+
+            with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+                with freeze_time("2012-01-12T03:40:30.000Z"):
+                    response = sessions().run(
+                        SessionsFilter(
+                            data={
+                                "interval": "day",
+                                "session": "avg",
+                                "events": [{"id": "1st action"},],
+                                "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
+                            },
+                            team=self.team,
+                        ),
+                        self.team,
+                    )
+                    self.assertEqual(response[0]["data"][6], 6)
 
     return TestSessions
 

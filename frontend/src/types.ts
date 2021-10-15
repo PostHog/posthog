@@ -30,8 +30,10 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
 }
 
+export type ColumnChoice = string[] | 'DEFAULT'
+
 export interface ColumnConfig {
-    active: string[] | 'DEFAULT'
+    active: ColumnChoice
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -79,6 +81,7 @@ export interface PersonalAPIKeyType {
 export interface OrganizationBasicType {
     id: string
     name: string
+    slug: string
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -204,7 +207,7 @@ export interface ActionStepType {
     href?: string | null
     id?: number
     name?: string
-    properties?: []
+    properties?: AnyPropertyFilter[]
     selector?: string | null
     tag_name?: string
     text?: string | null
@@ -318,6 +321,19 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     key: 'duration'
     value: number
     operator: PropertyOperator
+}
+
+export interface RecordingFilters {
+    date_from?: string | null
+    date_to?: string | null
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+    offset?: number
+    session_recording_duration?: RecordingDurationFilter
+}
+export interface SessionRecordingsResponse {
+    results: SessionRecordingType[]
+    has_next: boolean
 }
 
 interface RecordingNotViewedFilter extends BasePropertyFilter {
@@ -495,6 +511,7 @@ export interface SessionRecordingType {
     end_time: string
     distinct_id?: string
     email?: string
+    person?: PersonType
 }
 
 export interface BillingType {
@@ -543,6 +560,7 @@ export interface DashboardItemType {
     result: any | null
     updated_at: string
     tags: string[]
+    next?: string // only used in the frontend to store the next breakdown url
 }
 
 export interface DashboardType {
@@ -725,7 +743,7 @@ export interface FilterType {
     shown_as?: ShownAsType
     session?: string
     period?: string
-    retentionType?: RetentionType
+    retention_type?: RetentionType
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
@@ -923,6 +941,11 @@ export interface LoadedRawFunnelResults {
     filters: Partial<FilterType>
 }
 
+export enum FunnelStepReference {
+    total = 'total',
+    previous = 'previous',
+}
+
 export interface FunnelStepWithConversionMetrics extends FunnelStep {
     droppedOffFromPrevious: number
     conversionRates: {
@@ -932,6 +955,11 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
     rowKey?: number | string
+    significant?: {
+        fromPrevious: boolean
+        total: boolean
+        fromBasisStep: boolean // either fromPrevious or total, depending on FunnelStepReference
+    }
 }
 
 export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
@@ -951,6 +979,7 @@ export interface FlattenedFunnelStepByBreakdown {
         total: number
     }
     steps?: FunnelStepWithConversionMetrics[]
+    significant?: boolean
 }
 
 export interface ChartParams {
@@ -960,18 +989,22 @@ export interface ChartParams {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     cachedResults?: TrendResult[]
-    view: ViewType
 }
 
-// Shared between dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
-export interface SharedInsightLogicProps {
-    // the chart is displayed on a dashboard right now, used in the key if present
+// Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+export interface InsightLogicProps {
+    /** currently persisted insight */
     dashboardItemId?: number | null
-    // the insight is connected to a dashboard item, yet viewed on the insights scene
-    fromDashboardItemId?: number | null
+    /** enable url handling for this insight */
+    syncWithUrl?: boolean
+    /** cached results, avoid making a request */
     cachedResults?: any
+    /** cached filters, avoid making a request */
     filters?: Partial<FilterType> | null
+    /** not sure about this one */
     preventLoading?: boolean
+    /** enable this to make unsaved queries */
+    doNotPersist?: boolean
 }
 
 export interface FeatureFlagGroupType {
@@ -1057,7 +1090,7 @@ export interface PreflightStatus {
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
     posthog_version?: string
-    email_service_available?: boolean
+    email_service_available: boolean
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean

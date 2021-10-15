@@ -55,7 +55,7 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
                 (pathname === '/insights' && !objectsEqual(date_from, values.dates.dateFrom)) ||
                 !objectsEqual(date_to, values.dates.dateTo)
             ) {
-                router.actions.replace(pathname, searchParams)
+                router.actions.replace(pathname, searchParams, router.values.hashParams)
             }
         },
         dateAutomaticallyChanged: async (_, breakpoint) => {

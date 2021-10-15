@@ -6,11 +6,16 @@ import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { Radio, Switch, Row, Typography, List, Button } from 'antd'
 import { AnimatedCollapsible } from './AnimatedCollapsible'
 import { PostHog } from 'posthog-js'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { urls } from 'scenes/urls'
+import { IconExternalLinkBold } from 'lib/components/icons'
 
 export function FeatureFlags(): JSX.Element {
     const { userFlagsWithCalculatedInfo, showLocalFeatureFlagWarning } = useValues(featureFlagsLogic)
     const { setOverriddenUserFlag, deleteOverriddenUserFlag, setShowLocalFeatureFlagWarning } =
         useActions(featureFlagsLogic)
+    const { apiURL } = useValues(toolbarLogic)
+
     return (
         <div className="toolbar-block">
             {showLocalFeatureFlagWarning ? (
@@ -54,6 +59,16 @@ export function FeatureFlags(): JSX.Element {
                                     <Typography.Text ellipsis className="feature-flag-title">
                                         {feature_flag.key}
                                     </Typography.Text>
+                                    <a
+                                        className="feature-flag-external-link"
+                                        href={`${apiURL}${
+                                            feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
+                                        }`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        <IconExternalLinkBold />
+                                    </a>
                                     <Switch
                                         checked={!!currentValue}
                                         onChange={(checked) => {

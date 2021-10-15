@@ -14,6 +14,7 @@ from posthog.models.filters.mixins.common import (
     ShownAsMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 from posthog.models.filters.mixins.stickiness import SelectedIntervalMixin, TotalIntervalsDerivedMixin
 from posthog.models.team import Team
 
@@ -28,6 +29,7 @@ class StickinessFilter(
     CompareMixin,
     ShownAsMixin,
     InsightMixin,
+    SimplifyFilterMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Callable

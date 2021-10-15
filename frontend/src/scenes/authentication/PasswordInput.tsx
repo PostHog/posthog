@@ -13,6 +13,7 @@ interface PasswordInputProps extends FormItemProps {
     validateMinLength?: boolean
     validationDisabled?: boolean
     disabled?: boolean
+    inputName?: string
 }
 
 export const PasswordInput = React.forwardRef(function PasswordInputInternal(
@@ -23,6 +24,7 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
         style,
         validationDisabled,
         disabled,
+        inputName = 'password',
         ...props
     }: PasswordInputProps,
     ref: React.LegacyRef<Input>
@@ -54,7 +56,7 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                 )}
             </div>
             <Form.Item
-                name="password"
+                name={inputName}
                 rules={
                     !validationDisabled
                         ? [

@@ -84,10 +84,9 @@ export function Login(): JSX.Element {
                                     Create an account
                                 </Link>
                             )}
-                            <a href="/accounts/password_reset/" data-attr="forgot-password" className="rhs">
+                            <Link to="/reset" data-attr="forgot-password" className="rhs">
                                 Forgot your password?
-                            </a>
-                            &nbsp;
+                            </Link>
                         </div>
                         <SocialLoginButtons caption="Or log in with" />
                     </div>

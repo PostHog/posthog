@@ -37,7 +37,7 @@ from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.request import Request
-from sentry_sdk import push_scope
+from sentry_sdk import configure_scope
 
 from posthog.constants import AnalyticsDBMS, AvailableFeature
 from posthog.exceptions import RequestParsingError
@@ -75,6 +75,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
 def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
+    `at` is the datetime to use as a reference point.
     """
 
     if not at:
@@ -87,6 +88,26 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
     )  # very start of the previous Monday
+
+    return (period_start, period_end)
+
+
+def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Returns a pair of datetimes, representing the start and end of the preceding day.
+    `at` is the datetime to use as a reference point.
+    """
+
+    if not at:
+        at = timezone.now()
+
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at - datetime.timedelta(days=1), datetime.time.max, tzinfo=pytz.UTC,
+    )  # very end of the previous day
+
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end, datetime.time.min, tzinfo=pytz.UTC,
+    )  # very start of the previous day
 
     return (period_start, period_end)
 
@@ -390,9 +411,10 @@ def load_data_from_request(request):
         return None
 
     # add the data in sentry's scope in case there's an exception
-    with push_scope() as scope:
+    with configure_scope() as scope:
         scope.set_context("data", data)
-        scope.set_tag("origin", request.META.get("REMOTE_HOST"))
+        scope.set_tag("origin", request.META.get("REMOTE_HOST", "unknown"))
+        scope.set_tag("referer", request.META.get("HTTP_REFERER", "unknown"))
 
     compression = (
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
@@ -772,7 +794,9 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 def should_refresh(request: Request) -> bool:
     key = "refresh"
-    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true"
+    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
+        key, False
+    ) == True
 
 
 def str_to_bool(value: Any) -> bool:
@@ -794,3 +818,32 @@ def get_helm_info_env() -> dict:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
     except Exception:
         return {}
+
+
+OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
+LIMIT_REGEX = re.compile(r"([&?]limit=)(\d+)")
+
+
+def format_query_params_absolute_url(request: Request, offset: Optional[int] = None, limit: Optional[int] = None):
+    url_to_format = request.get_raw_uri()
+
+    if not url_to_format:
+        return None
+
+    if offset:
+        if OFFSET_REGEX.search(url_to_format):
+            url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+        else:
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"offset={offset}"
+
+    if limit:
+        if LIMIT_REGEX.search(url_to_format):
+            url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
+        else:
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"limit={limit}"
+
+    return url_to_format
+
+
+def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
+    return abs(int((d1 - d2).total_seconds() * 1000))

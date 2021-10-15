@@ -33,6 +33,46 @@
             word-break: break-all;
         }
     }
+
+    &.highlight {
+        background: #f1f4ff;
+        /* main/primary */
+
+        border: 2px solid #5375ff;
+        box-sizing: border-box;
+        border-radius: 2px;
+    }
+}
+
+.table-cell-highlight {
+    background: #f1f4ff;
+    /* main/primary */
+
+    border: 2px solid #5375ff;
+    box-sizing: border-box;
+    border-radius: 2px;
+}
+
+.table-text-highlight {
+    /* main/primary */
+
+    background: #5375ff;
+    border-radius: 4px;
+
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 16px;
+    align-items: right;
+    text-align: right;
+
+    display: flex;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+
+    /* text/light */
+    color: #ffffff;
+
+    padding: 6px;
 }
 
 .funnel-step-title-row {

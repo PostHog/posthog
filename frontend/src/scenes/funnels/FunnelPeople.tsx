@@ -8,9 +8,11 @@ import { percentage, Loading } from 'lib/utils'
 import { EntityTypes } from '~/types'
 import './FunnelPeople.scss'
 import { Card } from 'antd'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function People(): JSX.Element | null {
-    const { stepsWithCount, peopleSorted, peopleLoading, areFiltersValid } = useValues(funnelLogic({}))
+    const { insightProps } = useValues(insightLogic)
+    const { stepsWithCount, peopleSorted, peopleLoading, areFiltersValid } = useValues(funnelLogic(insightProps))
 
     if (!stepsWithCount && !areFiltersValid) {
         return null

@@ -9,6 +9,7 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from sentry_sdk.api import capture_exception
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -127,6 +128,12 @@ class InsightSerializer(InsightBasicSerializer):
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("data")
 
+    def validate_filters(self, value):
+        # :KLUDGE: Debug code to track down the cause of blank dashboards
+        if len(value) == 0 or ("from_dashboard" in value and len(value) == 1):
+            capture_exception(Exception("Saving dashbord_item with blank filters"))
+        return value
+
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
@@ -201,14 +208,14 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
         return Response({**result, "next": next})
 
     @cached_function
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
             stickiness_filter = StickinessFilter(
@@ -235,7 +242,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @cached_function
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        result = Sessions().run(filter=SessionsFilter(request=request), team=self.team)
+        result = Sessions().run(filter=SessionsFilter(request=request, team=self.team), team=self.team)
         return {"result": result}
 
     # ******************************************

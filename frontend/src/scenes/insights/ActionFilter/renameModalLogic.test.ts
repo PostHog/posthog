@@ -5,12 +5,13 @@ import {
     EntityFilterProps,
     LocalFilter,
 } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import { EntityFilter } from '~/types'
 import { renameModalLogicType } from 'scenes/insights/ActionFilter/renameModalLogicType'
 import { renameModalLogic, RenameModalProps } from 'scenes/insights/ActionFilter/renameModalLogic'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { entityFilterLogicType } from 'scenes/insights/ActionFilter/entityFilterLogicType'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
@@ -20,16 +21,8 @@ describe('entityFilterLogic', () => {
     let logic: BuiltLogic<renameModalLogicType<RenameModalProps>>
     let entityLogic: BuiltLogic<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (
-            ['api/action/', 'api/projects/@current/event_definitions/', 'api/users/@me/', 'api/dashboard'].includes(
-                pathname
-            )
-        ) {
-            return { results: [] }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
-        }
+    mockAPI(async (url) => {
+        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({

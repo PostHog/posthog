@@ -15,6 +15,7 @@ from posthog.models.filters.mixins.common import (
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin
+from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 
 RETENTION_DEFAULT_INTERVALS = 11
 
@@ -32,6 +33,7 @@ class RetentionFilter(
     OffsetMixin,
     FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
     # TODO: proper fix for EventQuery abstraction, make filters uniform
+    SimplifyFilterMixin,
     BaseFilter,
 ):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:

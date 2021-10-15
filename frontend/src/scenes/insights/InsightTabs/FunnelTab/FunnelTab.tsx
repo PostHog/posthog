@@ -24,11 +24,14 @@ import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/Fu
 import { SavedFunnels } from 'scenes/insights/SavedCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelTab(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { loadResults } = useActions(insightLogic)
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
+    const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
     const screens = useBreakpoint()
@@ -90,7 +93,7 @@ export function FunnelTab(): JSX.Element {
                             </Row>
                             <ActionFilter
                                 filters={filters}
-                                setFilters={(newFilters: Record<string, any>): void => setFilters(newFilters, false)}
+                                setFilters={setFilters}
                                 typeKey={`EditFunnel-action`}
                                 hideMathSelector={true}
                                 buttonCopy="Add funnel step"
@@ -202,10 +205,14 @@ export function FunnelTab(): JSX.Element {
                     <hr />
                     <h4 className="secondary">Options</h4>
                     <FunnelConversionWindowFilter />
-                    <hr />
-                    {/* TODO: Remove saved funnels after #3408 is wrapped up. */}
-                    <h4 className="secondary">Saved Funnels</h4>
-                    <SavedFunnels />
+                    {!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                        <>
+                            <hr />
+                            {/* TODO: Remove saved funnels after #3408 is wrapped up. */}
+                            <h4 className="secondary">Saved Funnels</h4>
+                            <SavedFunnels />
+                        </>
+                    )}
                 </Col>
             </Row>
         </>
@@ -213,7 +220,10 @@ export function FunnelTab(): JSX.Element {
 }
 
 function CalculateFunnelButton({ style }: { style: React.CSSProperties }): JSX.Element {
-    const { filters, areFiltersValid, filtersDirty, clickhouseFeaturesEnabled, isLoading } = useValues(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filters, areFiltersValid, filtersDirty, clickhouseFeaturesEnabled, isLoading } = useValues(
+        funnelLogic(insightProps)
+    )
     const [tooltipOpen, setTooltipOpen] = useState(false)
     const shouldRecalculate = filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled
 

@@ -1,10 +1,10 @@
 import { BuiltLogic } from 'kea'
 import { insightMetadataLogicType } from 'scenes/insights/InsightMetadata/insightMetadataLogicType'
 import { insightMetadataLogic, InsightMetadataLogicProps } from 'scenes/insights/InsightMetadata/insightMetadataLogic'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic, truth } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { truth } from '~/test/kea-test-utils/jest'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AvailableFeature } from '~/types'
@@ -21,31 +21,27 @@ describe('insightMetadataLogic', () => {
         tags: ['Most Creative Tag'],
     }
 
-    mockAPI(async ({ pathname, searchParams }) => {
+    mockAPI(async (url) => {
+        const { pathname } = url
         if (pathname.startsWith('api/insight')) {
             return { results: [], next: null }
-        } else if (pathname === 'api/users/@me/') {
-            return {
-                results: {
-                    organization: {
-                        available_features: [AvailableFeature.DASHBOARD_COLLABORATION],
-                    },
-                },
-            }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
     })
 
     initKeaTestLogic({
         logic: insightMetadataLogic,
-        props: { insight },
+        props: { insight, insightProps: { dashboardItemId: insight.id } },
         onLogic: (l) => (logic = l),
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([insightLogic, userLogic, featureFlagLogic])
+            await expectLogic(logic).toMount([
+                insightLogic({ dashboardItemId: insight.id }),
+                userLogic,
+                featureFlagLogic,
+            ])
         })
 
         // Below is more fully tested by testing of cleanMetadataValues() in utils.test
@@ -61,6 +57,7 @@ describe('insightMetadataLogic', () => {
             initKeaTestLogic({
                 logic: insightMetadataLogic,
                 props: {
+                    insightProps: { dashboardItemId: insight.id },
                     insight: {
                         name: undefined,
                         description: '         ',
@@ -84,6 +81,7 @@ describe('insightMetadataLogic', () => {
         initKeaTestLogic({
             logic: insightMetadataLogic,
             props: {
+                insightProps: { dashboardItemId: undefined },
                 insight: {},
             },
             onLogic: (l) => (logic = l),
@@ -127,7 +125,10 @@ describe('insightMetadataLogic', () => {
                 })
                     .toDispatchActions(logic, ['saveInsightMetadata'])
                     .toDispatchActions(insightLogic, [
-                        insightLogic.actionCreators.setInsight({ name: insight.name }, true),
+                        insightLogic({ dashboardItemId: undefined }).actionCreators.setInsight(
+                            { name: insight.name },
+                            true
+                        ),
                     ])
                     .toDispatchActions(logic, [
                         logic.actionCreators.setInsightMetadata({ name: insight.name }),
@@ -147,7 +148,9 @@ describe('insightMetadataLogic', () => {
                 })
                     .toDispatchActions(logic, ['saveInsightMetadata'])
                     .toDispatchActions(insightLogic, [
-                        insightLogic.actionCreators.updateInsight({ name: insight.name }),
+                        insightLogic({ dashboardItemId: undefined }).actionCreators.updateInsight({
+                            name: insight.name,
+                        }),
                     ])
                     .toDispatchActions(logic, [
                         logic.actionCreators.setInsightMetadata({ name: insight.name }),

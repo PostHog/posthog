@@ -5,10 +5,12 @@ import { EntityFilter, FunnelVizType } from '~/types'
 import { Row, Select } from 'antd'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelStepsPicker(): JSX.Element | null {
-    const { filters, numberOfSeries, areFiltersValid, filterSteps } = useValues(funnelLogic)
-    const { changeStepRange } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filters, numberOfSeries, areFiltersValid, filterSteps } = useValues(funnelLogic(insightProps))
+    const { changeStepRange } = useActions(funnelLogic(insightProps))
 
     if (filters.funnel_viz_type === FunnelVizType.Steps) {
         return null

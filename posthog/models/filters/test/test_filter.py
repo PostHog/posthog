@@ -38,6 +38,44 @@ class TestFilter(BaseTest):
             list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from", "interval"],
         )
 
+    def test_simplify_test_accounts(self):
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+
+        data = {"properties": [{"key": "attr", "value": "some_val"}]}
+
+        filter = Filter(data=data, team=self.team)
+        self.assertEqual(
+            filter.properties_to_dict(),
+            {"properties": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],},
+        )
+        self.assertTrue(filter.is_simplified)
+
+        filter = Filter(data={**data, FILTER_TEST_ACCOUNTS: True}, team=self.team)
+
+        self.assertEqual(
+            filter.properties_to_dict(),
+            {
+                "properties": [
+                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
+                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                ]
+            },
+        )
+        self.assertTrue(filter.is_simplified)
+
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {
+                "properties": [
+                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
+                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                ]
+            },
+        )
+
 
 def property_to_Q_test_factory(filter_events: Callable, event_factory, person_factory):
     class TestPropertiesToQ(BaseTest):
@@ -413,7 +451,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             self.team.save()
             event_factory(team=self.team, distinct_id="team_member", event="$pageview")
             event_factory(team=self.team, distinct_id="random_user", event="$pageview")
-            filter = Filter(data={FILTER_TEST_ACCOUNTS: True, "events": [{"id": "$pageview"}]})
+            filter = Filter(data={FILTER_TEST_ACCOUNTS: True, "events": [{"id": "$pageview"}]}, team=self.team)
             events = filter_events(filter=filter, team=self.team, person_query=True)
             self.assertEqual(len(events), 1)
 
@@ -426,9 +464,7 @@ def _filter_events(filter: Filter, team: Team, person_query: Optional[bool] = Fa
     if person_query:
         events = events.add_person_id(team.pk)
 
-    events = events.filter(
-        properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
-    )
+    events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
     events = events.filter(team_id=team.pk)
     if order_by:
         events = events.order_by(order_by)

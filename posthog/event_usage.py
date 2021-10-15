@@ -2,7 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import List
+from typing import Any, Dict, List, Optional
 
 import posthoganalytics
 
@@ -17,6 +17,8 @@ def report_user_signed_up(
     new_onboarding_enabled: bool = False,
     backend_processor: str = "",  # which serializer/view processed the request
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
+    user_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the User object
+    org_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the Organization object
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
@@ -31,6 +33,12 @@ def report_user_signed_up(
         "signup_social_provider": social_provider,
         "realm": get_instance_realm(),
     }
+    if user_analytics_metadata is not None:
+        props.update(user_analytics_metadata)
+
+    if org_analytics_metadata is not None:
+        for k, v in org_analytics_metadata.items():
+            props[f"org__{k}"] = v
 
     # TODO: This should be $set_once as user props.
     posthoganalytics.identify(distinct_id, props)
@@ -89,6 +97,13 @@ def report_user_updated(user: User, updated_attrs: List[str]) -> None:
     )
 
 
+def report_user_password_reset(user: User) -> None:
+    """
+    Reports a user resetting their password.
+    """
+    posthoganalytics.capture(user.distinct_id, "user password reset")
+
+
 def report_team_member_invited(
     distinct_id: str, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
 ) -> None:
@@ -130,3 +145,16 @@ def report_bulk_invited(
             "email_available": email_available,
         },
     )
+
+
+def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
+    """
+    Triggered daily by Celery scheduler.
+    """
+    posthoganalytics.capture(
+        distinct_id, "organization event usage report", properties,
+    )
+
+
+def report_org_usage_failure(distinct_id: str, err: str) -> None:
+    posthoganalytics.capture(distinct_id, "organization event usage report failure", properties={"error": err,})

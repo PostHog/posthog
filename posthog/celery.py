@@ -79,6 +79,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
 
+    sender.add_periodic_task(
+        crontab(
+            hour=0, minute=randrange(0, 40)
+        ),  # every day at a random minute past midnight. Sends data from the preceding whole day.
+        send_org_usage_report.s(),
+        name="send event usage report",
+    )
+
     if is_clickhouse_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
@@ -115,14 +123,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         except Exception as err:
             capture_exception(err)
             print(f"Scheduling materialized column task failed: {err}")
-
-    elif settings.PLUGIN_SERVER_ACTION_MATCHING >= 2:
-        sender.add_periodic_task(
-            ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
-            calculate_event_action_mappings.s(),
-            name="calculate event action mappings",
-            expires=ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
-        )
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
@@ -270,6 +270,18 @@ def clickhouse_send_license_usage():
         from ee.tasks.send_license_usage import send_license_usage
 
         send_license_usage()
+
+
+@app.task(ignore_result=True)
+def send_org_usage_report():
+    if is_clickhouse_enabled():
+        from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
+
+        send_reports_clickhouse()
+    else:
+        from posthog.tasks.org_usage_report import send_all_org_usage_reports as send_reports_postgres
+
+        send_reports_postgres()
 
 
 @app.task(ignore_result=True)
