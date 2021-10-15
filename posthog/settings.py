@@ -75,10 +75,9 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false":
         "6050-remove-sessions",
         "5440-multivariate-support",
         "6063-rename-filters",
-        "5733-funnel-vertical-breakdown",
         "4141-event-columns",
-        "new-paths-ui",  # TODO: EE and Paid feature gate
-        "new-paths-ui-edge-weights",  # TODO: EE and Paid feature gate
+        "new-paths-ui",
+        "new-paths-ui-edge-weights",
     ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
