@@ -11,14 +11,14 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL("DROP FUNCTION IF EXISTS should_update_person_props;"),
-        migrations.RunSQL("DROP TYPE IF EXISTS person_property_updates;"),
+        migrations.RunSQL("DROP TYPE IF EXISTS person_property_update;"),
         migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;"),
         migrations.RunSQL(
             """
-        CREATE TYPE person_property_updates AS (
-            key text,
+        CREATE TYPE person_property_update AS (
             update_op text,
-            update jsonb
+            key text,
+            value jsonb
         );
         """
         ),
@@ -31,21 +31,21 @@ class Migration(migrations.Migration):
                     properties_last_updated_at jsonb,
                     properties_last_operation jsonb,
                     event_timestamp text,
-                    updates person_property_updates []
+                    property_updates person_property_update []
                 ) RETURNS jsonb AS $$
             DECLARE 
                 result_props jsonb := properties;
                 result_props_last_updated_at jsonb := properties_last_updated_at;
                 result_props_last_operation jsonb := properties_last_operation;
-                update person_property_updates;
+                property_update person_property_update;
             BEGIN 
-                FOREACH update IN ARRAY updates LOOP 
+                FOREACH property_update IN ARRAY property_updates LOOP 
                     IF TRUE= 
                         (SELECT NOT property_exists
                             OR stored_timestamp IS NULL
                             OR last_operation IS NULL
                             OR (
-                                update.update_op = 'set'
+                                property_update.update_op = 'set'
                                 AND event_timestamp > stored_timestamp
                             )
                             OR (
@@ -53,17 +53,15 @@ class Migration(migrations.Migration):
                                 AND event_timestamp < stored_timestamp
                             )
                         FROM (
-                                SELECT properties->
-                                update.key IS NOT NULL as property_exists,
-                                    properties_last_updated_at->>
-                                update.key as stored_timestamp,
-                                    properties_last_operation->>
-                                update.key as last_operation
+                                SELECT 
+                                properties->property_update.key IS NOT NULL as property_exists,
+                                properties_last_updated_at->>property_update.key as stored_timestamp,
+                                properties_last_operation->>property_update.key as last_operation
                             ) as person_props )
                     THEN 
-                        result_props := result_props || update.update;
-                        result_props_last_updated_at := result_props_last_updated_at || jsonb_build_object(update.key,  event_timestamp);
-                        result_props_last_operation := result_props_last_operation || jsonb_build_object(update.key,  update.update_op);
+                        result_props := result_props || jsonb_build_object(property_update.key,  property_update.value);
+                        result_props_last_updated_at := result_props_last_updated_at || jsonb_build_object(property_update.key,  event_timestamp);
+                        result_props_last_operation := result_props_last_operation || jsonb_build_object(property_update.key,  property_update.update_op);
                     END IF;
                 END LOOP;
             UPDATE posthog_person

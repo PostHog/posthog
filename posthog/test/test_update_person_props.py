@@ -22,13 +22,8 @@ from posthog.test.base import BaseTest
 # 13| set      | yes           | equal                      | set_once    | no
 # 14| set_once | yes           | equal                      | set_once    | no
 
-# Refers to migration 0173_should_update_person_props_function
+# Refers to migration 0176_update_person_props_function
 # This is a Postgres function we use in the plugin server
-
-UPDATE_A = '{ "a": 1 }'
-UPDATE_B = '{ "b": 1 }'
-UPDATE_C = '{ "c": 1 }'
-UPDATE_D = '{ "d": 1 }'
 
 
 class TestShouldUpdatePersonProp(BaseTest):
@@ -49,7 +44,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                properties_last_updated_at, 
 	                properties_last_operation, 
 	                now()::text, 
-	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
             """
@@ -80,7 +75,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                properties_last_updated_at, 
 	                properties_last_operation, 
 	                now()::text, 
-	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
             """
@@ -106,7 +101,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                properties_last_updated_at, 
 	                properties_last_operation, 
 	                now()::text, 
-	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
             """
@@ -137,7 +132,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                properties_last_updated_at, 
 	                properties_last_operation, 
 	                now()::text, 
-	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
             """
@@ -169,7 +164,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                properties_last_updated_at, 
 	                properties_last_operation, 
 	                now()::text, 
-	                array[row('a', 'set', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
             """
@@ -201,7 +196,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                properties_last_updated_at, 
 	                properties_last_operation, 
 	                now()::text, 
-	                array[row('a', 'set_once', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+	                array[row('set_once', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
             """
@@ -233,7 +228,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                properties_last_updated_at, 
 	                properties_last_operation, 
 	                now()::text, 
-	                array[row('a', 'set_once', '{UPDATE_A}'::jsonb)::person_property_updates, row('b', 'set_once', '{UPDATE_B}'::jsonb)::person_property_updates]) 
+	                array[row('set_once', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
             """
@@ -265,10 +260,10 @@ class TestShouldUpdatePersonProp(BaseTest):
 #                 properties_last_operation,
 #                 now()::text,
 #                 array[
-#                     row('a', 'set_once', '{UPDATE_A}'::jsonb)::person_property_updates,
-#                     row('b', 'set', '{UPDATE_B}'::jsonb)::person_property_updates,
-#                     row('b', 'set_once', '{UPDATE_C}'::jsonb)::person_property_updates,
-#                     row('b', 'set', '{UPDATE_D}'::jsonb)::person_property_updates
+#                     row('a', 'set_once', '{UPDATE_A}'::jsonb)::person_property_update,
+#                     row('b', 'set', '{UPDATE_B}'::jsonb)::person_property_update,
+#                     row('b', 'set_once', '{UPDATE_C}'::jsonb)::person_property_update,
+#                     row('b', 'set', '{UPDATE_D}'::jsonb)::person_property_update
 #                 ])
 #             FROM posthog_person
 #             WHERE id={person.id}
