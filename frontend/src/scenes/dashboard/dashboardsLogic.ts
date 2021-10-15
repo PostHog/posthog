@@ -21,14 +21,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
     },
     selectors: {
         dashboards: [
-            () => [dashboardsModel.selectors.dashboards],
+            () => [dashboardsModel.selectors.sortedDashboards],
             (dashboards: DashboardType[]) =>
                 dashboards
                     .filter((d) => !d.deleted)
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')),
         ],
         dashboardTags: [
-            () => [dashboardsModel.selectors.dashboards],
+            () => [dashboardsModel.selectors.sortedDashboards],
             (dashboards: DashboardType[]): string[] =>
                 uniqueBy(
                     dashboards.flatMap(({ tags }) => tags),

@@ -267,7 +267,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.dashboards],
+            () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.sortedDashboards],
             (sharedDashboards, dashboards): DashboardType | null => {
                 if (sharedDashboards && props.id && !!sharedDashboards[props.id]) {
                     return sharedDashboards[props.id]

@@ -146,12 +146,12 @@ const MenuItem = ({
 }
 
 function PinnedDashboards(): JSX.Element {
-    const { pinnedDashboards, dashboards } = useValues(dashboardsModel)
+    const { pinnedDashboards, displayDashboards } = useValues(dashboardsModel)
     const { setPinnedDashboardsVisible } = useActions(navigationLogic)
 
     return (
         <Menu className="pinned-dashboards">
-            {dashboards.length ? (
+            {displayDashboards.length ? (
                 <>
                     {pinnedDashboards.length && (
                         <Menu.ItemGroup title="Pinned dashboards" key="pinned">
@@ -168,9 +168,9 @@ function PinnedDashboards(): JSX.Element {
                             ))}
                         </Menu.ItemGroup>
                     )}
-                    {dashboards.length > pinnedDashboards.length && (
+                    {displayDashboards.length > pinnedDashboards.length && (
                         <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
-                            {dashboards
+                            {displayDashboards
                                 .filter((item: DashboardType) => !item.pinned)
                                 .map((item: DashboardType) => (
                                     <Menu.Item key={`dashboard-${item.id}`} style={{ margin: 0 }}>

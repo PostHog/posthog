@@ -23,7 +23,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
             (s) => [
                 s._dashboardId,
                 dashboardsModel.selectors.lastDashboardId,
-                dashboardsModel.selectors.dashboards,
+                dashboardsModel.selectors.sortedDashboards,
                 (_, props) => props.fromDashboard,
             ],
             (_dashboardId, lastDashboardId, dashboards, fromDashboard) =>

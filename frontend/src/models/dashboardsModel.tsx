@@ -162,7 +162,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 )
             },
         ],
-        dashboards: [
+        /** Display dashboards are additionally sorted by pin status: pinned first. */
+        displayDashboards: [
             () => [selectors.sortedDashboards],
             (sortedDashboards) => {
                 return sortedDashboards.sort(
