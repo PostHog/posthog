@@ -281,7 +281,7 @@ export const commandPaletteLogic = kea<
         commandRegistrations: [
             (selectors) => [
                 selectors.rawCommandRegistrations,
-                dashboardsModel.selectors.sortedDashboards,
+                dashboardsModel.selectors.nameSortedDashboards,
                 teamLogic.selectors.currentTeam,
             ],
             (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({

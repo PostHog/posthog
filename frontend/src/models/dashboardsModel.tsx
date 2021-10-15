@@ -154,7 +154,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
     },
 
     selectors: ({ selectors }) => ({
-        sortedDashboards: [
+        nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
                 return Object.values(rawDashboards).sort((a, b) =>
@@ -163,10 +163,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
             },
         ],
         /** Display dashboards are additionally sorted by pin status: pinned first. */
-        displayDashboards: [
-            () => [selectors.sortedDashboards],
-            (sortedDashboards) => {
-                return sortedDashboards.sort(
+        pinSortedDashboards: [
+            () => [selectors.nameSortedDashboards],
+            (nameSortedDashboards) => {
+                return nameSortedDashboards.sort(
                     (a, b) =>
                         (Number(b.pinned) - Number(a.pinned)) * 10 +
                         (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
@@ -178,8 +178,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
             (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
         ],
         pinnedDashboards: [
-            () => [selectors.sortedDashboards],
-            (sortedDashboards) => sortedDashboards.filter((d) => d.pinned),
+            () => [selectors.nameSortedDashboards],
+            (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),
         ],
     }),
 
@@ -217,7 +217,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             )
 
             const { id } = dashboard
-            const nextDashboard = values.displayDashboards.find((d) => d.id !== id && !d.deleted)
+            const nextDashboard = values.pinSortedDashboards.find((d) => d.id !== id && !d.deleted)
 
             if (values.redirect) {
                 if (nextDashboard) {

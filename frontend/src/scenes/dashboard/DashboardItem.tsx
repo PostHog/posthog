@@ -193,7 +193,7 @@ export function DashboardItem({
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
-    const { sortedDashboards } = useValues(dashboardsModel)
+    const { nameSortedDashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -217,8 +217,8 @@ export function DashboardItem({
     const viewText = displayMap[_type].viewText
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
-    const otherDashboards: DashboardType[] = sortedDashboards.filter((d: DashboardType) => d.id !== dashboardId)
-    const getDashboard = (id: number): DashboardType | undefined => sortedDashboards.find((d) => d.id === id)
+    const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboardId)
+    const getDashboard = (id: number): DashboardType | undefined => nameSortedDashboards.find((d) => d.id === id)
 
     const longPressProps = useLongPress(setEditMode, {
         ms: 500,
