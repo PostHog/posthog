@@ -112,6 +112,8 @@ describe('Password Reset', () => {
         cy.get('#passwordConfirm').type('NEW123456789')
         cy.get('button[type=submit]').click()
         cy.get('.Toastify__toast--success').should('be.visible')
-        cy.location('pathname').should('contain', '/insights')
+
+        // assert the user was redirected; can't test actual redirection to /insights because the test handler doesn't actually log in the user
+        cy.location('pathname').should('not.contain', '/reset/e2e_test_user/e2e_test_token')
     })
 })
