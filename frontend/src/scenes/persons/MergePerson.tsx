@@ -8,6 +8,8 @@ import { personsLogic } from './personsLogic'
 import { toast } from 'react-toastify'
 import posthog from 'posthog-js'
 
+type PersonIds = NonNullable<PersonType['id']>[]
+
 export function MergePerson({
     person,
     onPersonChange,
@@ -17,7 +19,7 @@ export function MergePerson({
     onPersonChange: CallableFunction
     closeModal: () => void
 }): JSX.Element {
-    const [selectedPeople, setSelectedPeople] = useState([])
+    const [selectedPeople, setSelectedPeople] = useState<PersonIds>([])
 
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons } = useValues(personsLogic)
@@ -53,7 +55,7 @@ export function MergePerson({
                 showSearch
                 style={{ width: '100%' }}
                 placeholder="Please select persons to merge"
-                onChange={(value) => setSelectedPeople(value)}
+                onChange={(value: PersonIds) => setSelectedPeople(value)}
                 filterOption={false}
                 onSearch={(value) => {
                     setListFilters({ search: value })

@@ -7,16 +7,16 @@ import pytz
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
-from django.test import TestCase
 from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.email import EmailMessage, _send_email
 from posthog.models import Event, MessagingRecord, Organization, Person, Team, User
 from posthog.tasks.email import send_weekly_email_reports
+from posthog.test.base import BaseTest
 
 
-class TestEmail(TestCase):
+class TestEmail(BaseTest):
     def create_person(self, team: Team, base_distinct_id: str = "") -> Person:
         person = Person.objects.create(team=team)
         person.add_distinct_id(base_distinct_id)
@@ -123,20 +123,17 @@ class TestEmail(TestCase):
         self.assertEqual(
             mail.outbox[0].subject, "PostHog weekly report for Sep 14, 2020 to Sep 20",
         )
+
         self.assertEqual(
             mail.outbox[0].body, "",
         )  # no plain-text version support yet
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
-        self.assertIn(
-            "http://localhost:9999/static/posthog-logo.png", html_message,
-        )  # absolute URLs are used
-
-        self.assertIn('style="font-weight: 600"', html_message)  # CSS is inlined
-
-        self.assertIn(
-            "Your PostHog weekly report is ready! Your team had 6 active users last week! &#127881;", html_message,
-        )  # preheader
+        self.validate_basic_html(
+            html_message,
+            "http://localhost:9999",
+            preheader="Your PostHog weekly report is ready! Your team had 6 active users last week! &#127881;",
+        )
 
         # Ensure records are properly saved to prevent duplicate emails
         self.assertEqual(MessagingRecord.objects.count(), record_count + 2)

@@ -1,6 +1,7 @@
 import { funnelLogic } from './funnelLogic'
 import { api, defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'

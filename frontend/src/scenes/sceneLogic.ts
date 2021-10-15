@@ -52,9 +52,7 @@ export enum Scene {
     PasswordResetComplete = 'passwordResetComplete',
     PreflightCheck = 'preflightCheck',
     Ingestion = 'ingestion',
-    Personalization = 'personalization', // DEPRECATED
-    OnboardingSetup = 'onboardingSetup', // DEPRECATED
-    Home = 'home', // DEPRECATED
+    OnboardingSetup = 'onboardingSetup',
 }
 
 const preloadedScenes: Record<string, LoadedScene> = {
@@ -106,7 +104,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
-    [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
     [Scene.SavedInsights]: () => import(/* webpackChunkName: 'savedInsights' */ './saved-insights/SavedInsights'),
     [Scene.PasswordReset]: () => import(/* webpackChunkName: 'passwordReset' */ './authentication/PasswordReset'),
     [Scene.PasswordResetComplete]: () =>
@@ -179,9 +176,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
     },
     [Scene.Plugins]: {
-        projectBased: true,
-    },
-    [Scene.Home]: {
         projectBased: true,
     },
     [Scene.SavedInsights]: {
@@ -288,7 +282,6 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.onboardingSetup()]: Scene.OnboardingSetup,
-    [urls.home()]: Scene.Home,
 }
 
 export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({

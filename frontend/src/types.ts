@@ -30,8 +30,10 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
 }
 
+export type ColumnChoice = string[] | 'DEFAULT'
+
 export interface ColumnConfig {
-    active: string[] | 'DEFAULT'
+    active: ColumnChoice
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -79,6 +81,7 @@ export interface PersonalAPIKeyType {
 export interface OrganizationBasicType {
     id: string
     name: string
+    slug: string
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -204,7 +207,7 @@ export interface ActionStepType {
     href?: string | null
     id?: number
     name?: string
-    properties?: []
+    properties?: AnyPropertyFilter[]
     selector?: string | null
     tag_name?: string
     text?: string | null
@@ -952,6 +955,11 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
     rowKey?: number | string
+    significant?: {
+        fromPrevious: boolean
+        total: boolean
+        fromBasisStep: boolean // either fromPrevious or total, depending on FunnelStepReference
+    }
 }
 
 export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
@@ -971,6 +979,7 @@ export interface FlattenedFunnelStepByBreakdown {
         total: number
     }
     steps?: FunnelStepWithConversionMetrics[]
+    significant?: boolean
 }
 
 export interface ChartParams {

@@ -18,6 +18,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { extractObjectDiffKeys } from './utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -76,6 +77,10 @@ export const insightLogic = kea<insightLogicType>({
         updateInsightFilters: (filters: FilterType) => ({ filters }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
+        loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
+            id,
+            doNotLoadResults,
+        }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
@@ -87,20 +92,21 @@ export const insightLogic = kea<insightLogicType>({
                 result: props.cachedResults || null,
             } as Partial<DashboardItemType>,
             {
-                loadInsight: async (id: number) => {
+                loadInsight: async ({ id }) => {
                     return await api.get(`api/insight/${id}`)
                 },
-                updateInsight: async (payload: Partial<DashboardItemType>) => {
+                updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
                     if (!Object.entries(payload).length) {
                         return
                     }
                     const response = await api.update(`api/insight/${values.insight.id}`, payload)
+                    breakpoint()
                     return { ...response, result: response.result || values.insight.result }
                 },
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
                     // fetch this now, as it might be different when we report below
-                    const { scene } = sceneLogic.values
+                    const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
 
                     // If a query is in progress, debounce before making the second query
                     if (cache.abortController) {
@@ -205,6 +211,16 @@ export const insightLogic = kea<insightLogicType>({
     }),
     reducers: ({ props }) => ({
         insight: {
+            loadInsight: (state, { id }) =>
+                id === state.id
+                    ? state
+                    : {
+                          // blank slate if switched to a new insight
+                          id,
+                          tags: [],
+                          result: null,
+                          filters: {},
+                      },
             setInsight: (state, { insight, shouldMergeWithExisting }) =>
                 shouldMergeWithExisting
                     ? {
@@ -313,10 +329,23 @@ export const insightLogic = kea<insightLogicType>({
             (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
     },
-    listeners: ({ actions, values, props }) => ({
-        setFilters: async ({ filters }, breakpoint) => {
+    listeners: ({ actions, selectors, values, props }) => ({
+        setFilters: async ({ filters }, breakpoint, _, previousState) => {
             const { fromDashboard } = router.values.hashParams
-            eventUsageLogic.actions.reportInsightViewed(filters, values.isFirstLoad, Boolean(fromDashboard))
+            const previousFilters = selectors.filters(previousState)
+            if (objectsEqual(previousFilters, filters)) {
+                return
+            }
+
+            const changedKeysObj: Record<string, any> = extractObjectDiffKeys(previousFilters, filters)
+
+            eventUsageLogic.actions.reportInsightViewed(
+                filters,
+                values.isFirstLoad,
+                Boolean(fromDashboard),
+                0,
+                changedKeysObj
+            )
             actions.setNotFirstLoad()
 
             const filterLength = (filter?: Partial<FilterType>): number =>
@@ -345,7 +374,13 @@ export const insightLogic = kea<insightLogicType>({
 
             // tests will wait for all breakpoints to finish
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportInsightViewed(filters, values.isFirstLoad, Boolean(fromDashboard), 10)
+            eventUsageLogic.actions.reportInsightViewed(
+                filters,
+                values.isFirstLoad,
+                Boolean(fromDashboard),
+                10,
+                changedKeysObj
+            )
         },
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
@@ -358,7 +393,7 @@ export const insightLogic = kea<insightLogicType>({
                         actions.setShowTimeoutMessage(true)
                         const tags = {
                             insight: values.activeView,
-                            scene: sceneLogic.values.scene,
+                            scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
                         }
                         posthog.capture('insight timeout message shown', tags)
                         captureInternalMetric({ method: 'incr', metric: 'insight_timeout', value: 1, tags })
@@ -392,7 +427,7 @@ export const insightLogic = kea<insightLogicType>({
                 const duration = new Date().getTime() - values.queryStartTimes[queryId]
                 const tags = {
                     insight: values.activeView,
-                    scene: sceneLogic.values.scene,
+                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
                     success: !exception,
                     ...exception,
                 }
@@ -444,22 +479,22 @@ export const insightLogic = kea<insightLogicType>({
                 </div>
             )
         },
-        loadInsightSuccess: async ({ insight }) => {
+        loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/insight`, but it didn't have `results`, so make another query
-            if (!insight.result && values.filters) {
+            if (!insight.result && values.filters && !payload?.doNotLoadResults) {
                 actions.loadResults()
             }
         },
         // called when search query was successful
-        loadResultsSuccess: async ({ insight }) => {
+        loadResultsSuccess: async ({ insight }, breakpoint) => {
             if (props.doNotPersist) {
                 return
             }
-
             if (!insight.id) {
                 const createdInsight = await api.create('api/insight', {
                     filters: insight.filters,
                 })
+                breakpoint()
                 actions.setInsight({ ...insight, ...createdInsight, result: createdInsight.result || insight.result })
                 if (props.syncWithUrl) {
                     router.actions.replace('/insights', router.values.searchParams, {
@@ -496,17 +531,20 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
+                if (hashParams.fromItem) {
+                    if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
+                        // Do not load the result if missing, as setFilters below will do so anyway.
+                        actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
+                    }
+                } else {
+                    if (values.insightMode !== ItemMode.Edit) {
+                        actions.setInsightMode(ItemMode.Edit, null)
+                    }
+                }
+
                 const cleanSearchParams = cleanFilters(searchParams, values.filters)
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams)
-                }
-
-                if (hashParams.fromItem) {
-                    if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
-                        actions.loadInsight(hashParams.fromItem)
-                    }
-                } else {
-                    actions.setInsightMode(ItemMode.Edit, null)
                 }
             }
         },

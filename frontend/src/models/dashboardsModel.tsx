@@ -154,13 +154,18 @@ export const dashboardsModel = kea<dashboardsModelType>({
     },
 
     selectors: ({ selectors }) => ({
-        dashboards: [
+        sortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                const list = Object.values(rawDashboards).sort((a, b) =>
+                return Object.values(rawDashboards).sort((a, b) =>
                     (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
                 )
-                return [...list.filter((d) => d.pinned), ...list.filter((d) => !d.pinned)]
+            },
+        ],
+        dashboards: [
+            () => [selectors.sortedDashboards],
+            (sortedDashboards) => {
+                return [...sortedDashboards.filter((d) => d.pinned), ...sortedDashboards.filter((d) => !d.pinned)]
             },
         ],
         dashboardsLoading: [
