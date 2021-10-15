@@ -1,9 +1,9 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { AnyPropertyFilter } from '~/types'
+import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 
 export function PathCleaningFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -19,7 +19,7 @@ export function PathCleaningFiltersConfig(): JSX.Element {
         <div style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 8 }}>
                 {currentTeam && (
-                    <PropertyFilters
+                    <PathCleanFilters
                         pageKey="testaccountfilters"
                         propertyFilters={currentTeam?.test_account_filters}
                         onChange={handleChange}
