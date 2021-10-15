@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import api from 'lib/api'
 import { successToast } from 'lib/utils'
 
@@ -93,7 +92,7 @@ export const passwordResetLogic = kea<
                     'Your password was successfully changed. Redirecting you...'
                 )
                 await breakpoint(3000)
-                router.actions.push('/')
+                window.location.href = '/' // We need the refresh
             }
         },
     },
