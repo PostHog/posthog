@@ -83,7 +83,7 @@ function ResetForm(): JSX.Element {
     return (
         <>
             <div className="text-center mb">
-                Enter your email address. If it exists, you’ll receive an email with a reset link soon.
+                Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>
             {!resetResponseLoading && resetResponse?.errorCode && (
                 <ErrorMessage style={{ marginBottom: 16 }}>
