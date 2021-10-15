@@ -37,6 +37,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
             show: show || false,
             useTemplate: useTemplate || '',
         }),
+        duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
+            id: id,
+            name: name || `#${id}`,
+            show: show || false,
+        }),
     }),
     loaders: ({ values }) => ({
         rawDashboards: [
@@ -104,6 +109,16 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return response
             },
+            duplicateDashboard: async ({ id, name, show }) => {
+                const result = (await api.create('api/dashboard', {
+                    use_dashboard: id,
+                    name: `${name} (Copy)`,
+                })) as DashboardType
+                if (show) {
+                    router.actions.push(urls.dashboard(result.id))
+                }
+                return result
+            },
         },
     }),
 
@@ -135,6 +150,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             },
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            duplicateDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
         },
         lastDashboardId: [
             null as null | number,
@@ -218,6 +234,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
             }
 
             actions.delayedDeleteDashboard(id)
+        },
+
+        duplicateDashboardSuccess: async ({ dashboard }) => {
+            toast(`Dashboard copied as "${dashboard.name}"!`)
         },
     }),
 
