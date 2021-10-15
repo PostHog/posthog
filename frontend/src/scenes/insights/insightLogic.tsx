@@ -519,13 +519,20 @@ export const insightLogic = kea<insightLogicType>({
                 ) {
                     const filterLength = Object.keys(insight.filters).length
                     if (filterLength === 0 || (filterLength === 1 && 'from_dashboard' in insight.filters)) {
-                        Sentry.captureException(new Error(`Would save filters with "from_dashboard"`), {
-                            extra: {
-                                filters_to_save: JSON.stringify(insight.filters),
-                                insight: JSON.stringify(insight),
-                                filters: JSON.stringify(values.filters),
-                            },
-                        })
+                        Sentry.captureException(
+                            new Error(
+                                filterLength === 0
+                                    ? 'Would save empty filters'
+                                    : `Would save filters with just "from_dashboard"`
+                            ),
+                            {
+                                extra: {
+                                    filters_to_save: JSON.stringify(insight.filters),
+                                    insight: JSON.stringify(insight),
+                                    filters: JSON.stringify(values.filters),
+                                },
+                            }
+                        )
                     } else {
                         actions.updateInsight({ filters: insight.filters })
                     }
