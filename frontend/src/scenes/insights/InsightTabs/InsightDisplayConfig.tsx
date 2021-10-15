@@ -113,7 +113,7 @@ export function InsightDisplayConfig({
                 )}
                 {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
 
-                <SmoothingFilter view={activeView} />
+                {activeView === ViewType.TRENDS ? <SmoothingFilter /> : null}
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 

@@ -1,44 +1,47 @@
-export const smoothings = {
-    minute: {
-        1: {
-            label: 'No smoothing',
-            intervals: 1,
-        },
-        5: {
-            label: '5 Min',
-            intervals: 7,
-        },
-        60: {
-            label: '60 Min',
-            intervals: 28,
-        },
-    },
-    hour: {
-        1: {
-            label: 'No smoothing',
-            intervals: 1,
-        },
-        24: {
-            label: '24 Hrs',
-            intervals: 28,
-        },
-    },
-    day: {
-        1: {
-            label: 'No smoothing',
-            intervals: 1,
-        },
-        7: {
-            label: '7 Day',
-            intervals: 7,
-        },
-        28: {
-            label: '28 Day',
-            intervals: 28,
-        },
-    },
-    week: {},
-    month: {},
-}
+import { IntervalType } from '~/types'
 
-export type SmoothingKeyType = keyof typeof smoothings
+// Lists the valid smoothing intervals value for each interval type. Note that
+// the typing should catch if we update IntervalType but do not add an explicit
+// option to this lookup
+export const smoothingOptions: Record<IntervalType, { label: string; value: number }[]> = {
+    minute: [
+        {
+            label: 'No smoothing',
+            value: 1,
+        },
+        {
+            label: '5 Min',
+            value: 5,
+        },
+        {
+            label: '60 Min',
+            value: 60,
+        },
+    ],
+    hour: [
+        {
+            label: 'No smoothing',
+            value: 1,
+        },
+        {
+            label: '24 Hrs',
+            value: 24,
+        },
+    ],
+    day: [
+        {
+            label: 'No smoothing',
+            value: 1,
+        },
+        {
+            label: '7 Day',
+            value: 7,
+        },
+        {
+            label: '28 Day',
+            value: 28,
+        },
+    ],
+    week: [],
+    month: [],
+}
