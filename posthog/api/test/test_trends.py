@@ -195,7 +195,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             )
         )
 
-        trends = get_trends_ok(
+        interval_3_trend = get_trends_ok(
             client,
             request=TrendsRequest(
                 date_from="2021-09-01",
@@ -219,7 +219,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             ),
         )
 
-        assert trends == {
+        assert interval_3_trend == {
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -238,6 +238,233 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "label": "$pageview",
                     "count": 3.0,
                     "data": [2.0, 1.5, 2.0],
+                    "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
+                    "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                }
+            ],
+        }
+
+        interval_1_trend = get_trends_ok(
+            client,
+            request=TrendsRequest(
+                date_from="2021-09-01",
+                date_to="2021-09-03",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraph",
+                smoothing_intervals=1,
+                events=json.dumps(
+                    [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "custom_name": None,
+                            "type": "events",
+                            "order": 0,
+                            "properties": [],
+                        }
+                    ]
+                ),
+            ),
+        )
+
+        assert interval_1_trend == {
+            "is_cached": False,
+            "last_refresh": "2021-09-20T16:00:00Z",
+            "next": None,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    },
+                    "label": "$pageview",
+                    "count": 3.0,
+                    "data": [2.0, 1.0, 3.0],
+                    "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
+                    "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                }
+            ],
+        }
+
+def test_smoothing_intervals_copes_with_null_values(client: Client):
+    """
+    The Smoothing feature should allow specifying a number of intervals over
+    which we will provide smoothing of the aggregated trend data.
+    """
+    organization = create_organization(name="test org")
+    team = create_team(organization=organization)
+    user = create_user("user", "pass", organization)
+
+    client.force_login(user)
+
+    with freeze_time("2021-09-20T16:00:00"):
+        #  First identify as a member of the cohort
+        distinct_id = "abc"
+        identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
+
+        # Three events on 1 Sep
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-01"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-01"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-01"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        # No events on 2 Sept
+
+        # Three events on 3 Sep
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-03"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-03"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        capture_event(
+            event=EventData(
+                event="$pageview",
+                team_id=team.id,
+                distinct_id=distinct_id,
+                timestamp=datetime.fromisoformat("2021-09-03"),
+                properties={"distinct_id": "abc"},
+            )
+        )
+
+        interval_3_trend = get_trends_ok(
+            client,
+            request=TrendsRequest(
+                date_from="2021-09-01",
+                date_to="2021-09-03",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraph",
+                smoothing_intervals=3,
+                events=json.dumps(
+                    [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "custom_name": None,
+                            "type": "events",
+                            "order": 0,
+                            "properties": [],
+                        }
+                    ]
+                ),
+            ),
+        )
+
+        assert interval_3_trend == {
+            "is_cached": False,
+            "last_refresh": "2021-09-20T16:00:00Z",
+            "next": None,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    },
+                    "label": "$pageview",
+                    "count": 3.0,
+                    "data": [3.0, 1.5, 2.0],
+                    "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
+                    "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                }
+            ],
+        }
+
+        interval_1_trend = get_trends_ok(
+            client,
+            request=TrendsRequest(
+                date_from="2021-09-01",
+                date_to="2021-09-03",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraph",
+                smoothing_intervals=1,
+                events=json.dumps(
+                    [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "custom_name": None,
+                            "type": "events",
+                            "order": 0,
+                            "properties": [],
+                        }
+                    ]
+                ),
+            ),
+        )
+
+        assert interval_1_trend == {
+            "is_cached": False,
+            "last_refresh": "2021-09-20T16:00:00Z",
+            "next": None,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    },
+                    "label": "$pageview",
+                    "count": 3.0,
+                    "data": [3.0, 0.0, 3.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                 }
