@@ -1,17 +1,27 @@
 import { kea } from 'kea'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
+    SimpleOption,
     TaxonomicFilterGroupType,
+    TaxonomicFilterGroup,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
+import { teamLogic } from '../../../scenes/teamLogic'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
+import { cohortsModel } from '~/models/cohortsModel'
+import { actionsModel } from '~/models/actionsModel'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { propertyDefinitionsModel } from '../../../models/propertyDefinitionsModel'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
-
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: () => ({
         moveUp: true,
         moveDown: true,
@@ -62,9 +72,102 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
+        groups: [
+            (selectors) => [selectors.currentTeamId],
+            (currentTeamId): TaxonomicFilterGroup[] => [
+                {
+                    name: 'Events',
+                    type: TaxonomicFilterGroupType.Events,
+                    logic: eventDefinitionsModel,
+                    value: 'eventDefinitions',
+                    getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
+                    getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
+                },
+                {
+                    name: 'Actions',
+                    type: TaxonomicFilterGroupType.Actions,
+                    logic: actionsModel({ teamId: currentTeamId }) as any,
+                    value: 'actions',
+                    getName: (action: ActionType): string => action.name,
+                    getValue: (action: ActionType): TaxonomicFilterValue => action.id,
+                },
+                {
+                    name: 'Elements',
+                    type: TaxonomicFilterGroupType.Elements,
+                    options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
+                        name: option,
+                    })) as SimpleOption[],
+                    getName: (option: SimpleOption): string => option.name,
+                    getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
+                },
+                {
+                    name: 'Event properties',
+                    type: TaxonomicFilterGroupType.EventProperties,
+                    logic: propertyDefinitionsModel,
+                    value: 'propertyDefinitions',
+                    getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
+                    getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,
+                },
+                {
+                    name: 'Person properties',
+                    type: TaxonomicFilterGroupType.PersonProperties,
+                    logic: personPropertiesModel,
+                    value: 'personProperties',
+                    getName: (personProperty: PersonProperty): string => personProperty.name,
+                    getValue: (personProperty: PersonProperty): TaxonomicFilterValue => personProperty.name,
+                },
+                {
+                    name: 'Cohorts',
+                    type: TaxonomicFilterGroupType.Cohorts,
+                    logic: cohortsModel,
+                    value: 'cohorts',
+                    getName: (cohort: CohortType): string => cohort.name || `Cohort ${cohort.id}`,
+                    getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
+                },
+                {
+                    name: 'Cohorts',
+                    type: TaxonomicFilterGroupType.CohortsWithAllUsers,
+                    logic: cohortsModel,
+                    value: 'cohortsWithAllUsers',
+                    getName: (cohort: CohortType): string => cohort.name || `Cohort ${cohort.id}`,
+                    getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
+                },
+                {
+                    name: 'Pageview Urls',
+                    type: TaxonomicFilterGroupType.PageviewUrls,
+                    endpoint: 'api/event/values/?key=$current_url',
+                    searchAlias: 'value',
+                    getName: (option: SimpleOption): string => option.name,
+                    getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
+                },
+                {
+                    name: 'Screens',
+                    type: TaxonomicFilterGroupType.Screens,
+                    endpoint: 'api/event/values/?key=$screen_name',
+                    searchAlias: 'value',
+                    getName: (option: SimpleOption): string => option.name,
+                    getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
+                },
+                {
+                    name: 'Custom Events',
+                    type: TaxonomicFilterGroupType.CustomEvents,
+                    logic: eventDefinitionsModel,
+                    value: 'customEvents',
+                    getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
+                    getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
+                },
+                {
+                    name: 'Wildcards',
+                    type: TaxonomicFilterGroupType.Wildcards,
+                    // Populated via optionsFromProp
+                    getName: (option: SimpleOption): string => option.name,
+                    getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
+                },
+            ],
+        ],
         groupTypes: [
-            () => [(_, props) => props.groupTypes],
-            (groupTypes): TaxonomicFilterGroupType[] => groupTypes || groups.map((g) => g.type),
+            (selectors) => [(_, props) => props.groupTypes, selectors.groups],
+            (groupTypes, groups): TaxonomicFilterGroupType[] => groupTypes || groups.map((g) => g.type),
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
@@ -85,6 +188,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (values.activeTab) {
                 infiniteListLogic({
                     ...props,
+                    teamId: values.currentTeamId,
                     listGroupType: values.activeTab,
                 }).actions.moveUp()
             }
@@ -96,6 +200,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (values.activeTab) {
                 infiniteListLogic({
                     ...props,
+                    teamId: values.currentTeamId,
                     listGroupType: values.activeTab,
                 }).actions.moveDown()
             }
@@ -107,6 +212,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (values.activeTab) {
                 infiniteListLogic({
                     ...props,
+                    teamId: values.currentTeamId,
                     listGroupType: values.activeTab,
                 }).actions.selectSelected()
             }

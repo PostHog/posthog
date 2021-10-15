@@ -1,6 +1,6 @@
 import apiNoMock from 'lib/api'
 import { combineUrl } from 'kea-router'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, TeamType } from '~/types'
 
 type APIMockReturnType = {
     [K in keyof typeof apiNoMock]: jest.Mock<ReturnType<typeof apiNoMock[K]>, Parameters<typeof apiNoMock[K]>>
@@ -20,6 +20,8 @@ type APIRoute = {
 interface APIMockOptions {
     availableFeatures: AvailableFeature[]
 }
+
+export const MOCK_TEAM_ID: TeamType['id'] = 997
 
 export const api = apiNoMock as any as APIMockReturnType
 
@@ -47,12 +49,13 @@ export function defaultAPIMocks(
         }
     } else if (pathname === 'api/projects/@current') {
         return {
+            id: MOCK_TEAM_ID,
             ingested_event: true,
             completed_snippet_onboarding: true,
         }
     } else if (
         [
-            'api/action/',
+            `api/projects/${MOCK_TEAM_ID}/actions/`,
             'api/projects/@current/event_definitions/',
             'api/dashboard',
             'api/organizations/@current',

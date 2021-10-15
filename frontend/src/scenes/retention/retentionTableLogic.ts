@@ -14,6 +14,7 @@ import {
 } from 'scenes/retention/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { getProjectBasedLogicKeyBuilder } from '../../lib/utils/logics'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -32,9 +33,14 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
 export const retentionTableLogic = kea<retentionTableLogicType>({
     props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
+    key: getProjectBasedLogicKeyBuilder(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], actionsModel, ['actions']],
+        values: [
+            insightLogic(props),
+            ['filters', 'insight', 'insightLoading'],
+            actionsModel({ teamId: props.teamId }),
+            ['actions'],
+        ],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
     actions: () => ({

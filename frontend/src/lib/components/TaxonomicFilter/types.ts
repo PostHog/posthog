@@ -1,7 +1,11 @@
 import { LogicWrapper } from 'kea'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
-import { SimpleOption } from './groups'
+import { ProjectBasedLogicProps } from '../../utils/logics'
+
+export interface SimpleOption {
+    name: string
+}
 
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
@@ -27,8 +31,8 @@ export interface TaxonomicFilterGroup {
     logic?: LogicWrapper
     value?: string
     searchAlias?: string
-    getName: (object: any) => string
-    getValue: (object: any) => TaxonomicFilterValue
+    getName: (instance: any) => string
+    getValue: (instance: any) => TaxonomicFilterValue
 }
 
 export enum TaxonomicFilterGroupType {
@@ -45,7 +49,7 @@ export enum TaxonomicFilterGroupType {
     Wildcards = 'wildcard',
 }
 
-export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
+export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps, ProjectBasedLogicProps {
     listGroupType: TaxonomicFilterGroupType
 }
 

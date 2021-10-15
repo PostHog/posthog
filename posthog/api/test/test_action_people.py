@@ -91,7 +91,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     )
 
             event_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-31",
@@ -105,7 +105,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             with freeze_time("2020-01-31 00:06:34"):
                 event_response = self.client.get(
-                    "/api/action/people/",
+                    f"/api/projects/{self.team.id}/actions/people/",
                     data={
                         "date_from": "-30d",
                         "date_to": "2020-01-31",
@@ -153,7 +153,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 )
 
             event_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={"date_from": "2020-01-04", "date_to": "2020-01-04", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
             ).json()
 
@@ -212,7 +212,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             # check grouped minute
             min_grouped_action_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "minute",
                     "date_from": "2020-01-04 19:20:00",
@@ -222,7 +222,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
             min_grouped_grevent_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "minute",
                     "date_from": "2020-01-04 19:20:00",
@@ -253,7 +253,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             )
             # check solo hour
             action_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "hour",
                     "date_from": "2020-01-04 14:00:00",
@@ -263,7 +263,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
             event_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "hour",
                     "date_from": "2020-01-04 14:00:00",
@@ -278,7 +278,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             # check grouped hour
             hour_grouped_action_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "hour",
                     "date_from": "2020-01-04 16:00:00",
@@ -288,7 +288,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
             hour_grouped_grevent_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "hour",
                     "date_from": "2020-01-04 16:00:00",
@@ -324,7 +324,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             calculate_actions_from_last_calculation()
             # test people
             action_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-04",
                     "date_to": "2020-01-04",
@@ -334,7 +334,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
             event_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-04",
                     "date_to": "2020-01-04",
@@ -368,7 +368,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             calculate_actions_from_last_calculation()
             # test people
             action_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-03",
                     "date_to": "2020-01-04",
@@ -379,7 +379,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
             event_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-03",
                     "date_to": "2020-01-04",
@@ -409,7 +409,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             )
             # check grouped week
             week_grouped_action_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "week",
                     "date_from": "2019-11-01",
@@ -419,7 +419,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
             week_grouped_grevent_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "week",
                     "date_from": "2019-11-01",
@@ -452,7 +452,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             )
             # check grouped month
             month_group_action_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "month",
                     "date_from": "2019-11-01",
@@ -462,7 +462,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
             month_group_grevent_response = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "interval": "month",
                     "date_from": "2019-11-01",
@@ -553,7 +553,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
         def test_people_csv(self):
             person1, _, _, _ = self._create_multiple_people()
             people = self.client.get(
-                "/api/action/people.csv",
+                f"/api/projects/{self.team.id}/actions/people.csv",
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
@@ -582,7 +582,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             action_factory(name="watched movie", team=self.team)
 
             people = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
@@ -601,7 +601,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             # all people
             people = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
@@ -623,7 +623,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             action = action_factory(name="watched movie", team=self.team)
 
             people = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
@@ -643,7 +643,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             action = action_factory(name="watched movie", team=self.team)
 
             people = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
@@ -664,7 +664,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             person1, person2, person3, person4 = self._create_multiple_people()
 
             people = self.client.get(
-                "/api/action/people/",
+                f"/api/projects/{self.team.id}/actions/people/",
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",

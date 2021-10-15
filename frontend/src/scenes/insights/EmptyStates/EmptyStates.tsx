@@ -11,6 +11,7 @@ import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from '../../teamLogic'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -168,10 +169,13 @@ export function ErrorMessage(): JSX.Element {
 }
 
 export function FunnelInvalidFiltersEmptyState(): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { insightProps } = useValues(insightLogic)
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
-    const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
+    const { addFilter } = useActions(
+        entityFilterLogic({ teamId: currentTeamId, setFilters, filters, typeKey: 'EditFunnel-action' })
+    )
 
     return (
         <div className="insight-empty-state funnels-empty-state info-message">

@@ -11,7 +11,7 @@ describe('retentionTableLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname === 'api/insight') {
+        if (['api/insight', 'api/projects/85/actions/'].includes(pathname)) {
             return { results: [] }
         } else if (pathname === 'api/insight/retention/') {
             return { result: ['result from api'] }
@@ -20,7 +20,7 @@ describe('retentionTableLogic', () => {
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { teamId: 85, dashboardItemId: 123 }
         initKeaTestLogic({
             logic: retentionTableLogic,
             props,

@@ -5,11 +5,14 @@ import { FunnelPlotOutlined } from '@ant-design/icons'
 
 import { funnelCommandLogicType } from './funnelCommandLogicType'
 import { router } from 'kea-router'
+import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from '../../../../lib/utils/logics'
 const FUNNEL_COMMAND_SCOPE = 'funnels'
 
 export const funnelCommandLogic = kea<funnelCommandLogicType>({
+    props: {} as ProjectBasedLogicProps,
+    key: getProjectBasedLogicKeyBuilder(),
     connect: [commandPaletteLogic],
-    events: () => ({
+    events: ({ props }) => ({
         afterMount: () => {
             const results: CommandResultTemplate[] = [
                 {
@@ -17,6 +20,7 @@ export const funnelCommandLogic = kea<funnelCommandLogicType>({
                     display: 'Clear Funnel',
                     executor: () => {
                         funnelLogic({
+                            teamId: props.teamId,
                             dashboardItemId: router.values.searchParams.fromItem,
                             syncWithUrl: true,
                         }).actions.clearFunnel()

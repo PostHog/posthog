@@ -3,6 +3,7 @@ import { initKea } from '~/initKea'
 import { testUtilsPlugin, expectLogic } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
+import { teamLogic } from '../scenes/teamLogic'
 
 export function initKeaTestLogic<L extends Logic = Logic>({
     logic,
@@ -13,8 +14,9 @@ export function initKeaTestLogic<L extends Logic = Logic>({
     props?: LogicWrapper<L>['props']
     onLogic?: (l: BuiltLogic<L>) => any
 }): void {
-    let builtLogic: BuiltLogic<L>
+    let unmountTeamLogic: () => void
     let unmount: () => void
+    let builtLogic: BuiltLogic<L>
 
     beforeEach(async () => {
         posthog.init('no token', {
@@ -33,6 +35,7 @@ export function initKeaTestLogic<L extends Logic = Logic>({
         ;(history as any).pushState = history.push
         ;(history as any).replaceState = history.replace
         initKea({ beforePlugins: [testUtilsPlugin], routerLocation: history.location, routerHistory: history })
+        unmountTeamLogic = teamLogic.build().mount()
         builtLogic = logic.build({ ...props })
         await onLogic?.(builtLogic)
         unmount = builtLogic.mount()
@@ -40,6 +43,7 @@ export function initKeaTestLogic<L extends Logic = Logic>({
 
     afterEach(async () => {
         unmount()
+        unmountTeamLogic()
         await expectLogic(logic).toFinishAllListeners()
     })
 }

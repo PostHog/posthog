@@ -7,9 +7,12 @@ import { Tabs, Button } from 'antd'
 import { createActionFromEvent } from './createActionFromEvent'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { EventJSON } from 'scenes/events/EventJSON'
+import { useValues } from 'kea'
+import { teamLogic } from '../teamLogic'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }) {
+    const { currentTeamId } = useValues(teamLogic)
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
     let displayedEventProperties = {}
@@ -30,7 +33,7 @@ export function EventDetails({ event }) {
     return (
         <>
             <Button
-                onClick={() => createActionFromEvent(event, 0)}
+                onClick={() => createActionFromEvent(currentTeamId, event, 0)}
                 style={{ float: 'right', zIndex: 1 }}
                 type="primary"
             >

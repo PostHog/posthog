@@ -6,17 +6,20 @@ import { Button, Input, Modal } from 'antd'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { renameModalLogic } from 'scenes/insights/ActionFilter/renameModalLogic'
 import { InputFocusOptions } from 'antd/es/input/Input'
+import { teamLogic } from '../../teamLogic'
 
 interface RenameModalProps {
+    relevantEntityFilterLogic: typeof entityFilterLogic
     typeKey: string
     view?: InsightType
 }
 
-export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
-    const { selectedFilter, modalVisible } = useValues(entityFilterLogic)
-    const { renameFilter, hideModal } = useActions(entityFilterLogic)
+export function RenameModal({ relevantEntityFilterLogic, typeKey, view }: RenameModalProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const { selectedFilter, modalVisible } = useValues(relevantEntityFilterLogic)
+    const { renameFilter, hideModal } = useActions(relevantEntityFilterLogic)
 
-    const logic = renameModalLogic({ typeKey, filter: selectedFilter })
+    const logic = renameModalLogic({ teamId: currentTeamId, typeKey, filter: selectedFilter })
     const { name } = useValues(logic)
     const { setName } = useActions(logic)
 

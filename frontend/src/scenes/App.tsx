@@ -1,5 +1,5 @@
 import React from 'react'
-import { kea, useMountedLogic, useValues } from 'kea'
+import { BindLogic, kea, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
@@ -20,6 +20,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
 import { ProjectBasedLogicProps } from '../lib/utils/logics'
+import { actionsModel } from '../models/actionsModel'
+import { annotationsModel } from '../models/annotationsModel'
+import { cohortsModel } from '../models/cohortsModel'
+import { dashboardsModel } from '../models/dashboardsModel'
+import { eventDefinitionsModel } from '../models/eventDefinitionsModel'
+import { personPropertiesModel } from '../models/personPropertiesModel'
+import { propertyDefinitionsModel } from '../models/propertyDefinitionsModel'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -67,11 +74,24 @@ export function App(): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
 
     if (showApp) {
+        const modelProps: ProjectBasedLogicProps = { teamId: currentTeamId }
         return (
-            <>
-                {user && currentTeamId ? <Models teamId={currentTeamId} /> : null}
-                <AppScene />
-            </>
+            <BindLogic logic={actionsModel} props={modelProps}>
+                <BindLogic logic={annotationsModel} props={modelProps}>
+                    <BindLogic logic={cohortsModel} props={modelProps}>
+                        <BindLogic logic={dashboardsModel} props={modelProps}>
+                            <BindLogic logic={eventDefinitionsModel} props={modelProps}>
+                                <BindLogic logic={personPropertiesModel} props={modelProps}>
+                                    <BindLogic logic={propertyDefinitionsModel} props={modelProps}>
+                                        {user && currentTeamId ? <Models teamId={currentTeamId} /> : null}
+                                        <AppScene />
+                                    </BindLogic>
+                                </BindLogic>
+                            </BindLogic>
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
         )
     }
 

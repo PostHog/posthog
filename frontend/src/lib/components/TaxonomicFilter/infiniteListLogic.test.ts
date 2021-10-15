@@ -29,6 +29,7 @@ describe('infiniteListLogic', () => {
     initKeaTestLogic({
         logic: infiniteListLogic,
         props: {
+            teamId: 97,
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Events,
         },
@@ -123,6 +124,7 @@ describe('infiniteListLogic with optionsFromProp', () => {
     initKeaTestLogic({
         logic: infiniteListLogic,
         props: {
+            teamId: 98,
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Wildcards,
             optionsFromProp: {

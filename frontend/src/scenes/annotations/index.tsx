@@ -29,7 +29,7 @@ export function Annotations(): JSX.Element {
     const { updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
         annotationsTableLogic({ teamId: currentTeamId })
     )
-    const { createGlobalAnnotation } = useActions(annotationsModel({ teamId: currentTeamId }))
+    const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null as AnnotationType | null)
     const { tableScrollX } = useIsTableScrolling('lg')

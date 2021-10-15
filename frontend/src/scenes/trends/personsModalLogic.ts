@@ -12,6 +12,7 @@ import { TrendPeople } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from '../../lib/utils/logics'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -75,6 +76,8 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 }
 
 export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
+    props: {} as ProjectBasedLogicProps,
+    key: getProjectBasedLogicKeyBuilder(),
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
@@ -158,7 +161,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
     },
-    loaders: ({ actions, values }) => ({
+    loaders: ({ actions, values, props }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
                 let people = []
@@ -213,7 +216,9 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         { label, action, date_from, date_to, breakdown_value },
                         filters
                     )
-                    people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
+                    people = await api.get(
+                        `api/projects/${props.teamId}/actions/people/?${filterParams}${searchTermParam}`
+                    )
                 }
                 breakpoint()
                 const peopleResult = {
@@ -320,13 +325,15 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             return [router.values.location.pathname, router.values.searchParams, otherHashParams]
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': (_, {}, { personModal }) => {
-            if (personModal && !values.showingPeople) {
-                actions.loadPeople(personModal)
-            }
-            if (!personModal && values.showingPeople) {
-                actions.hidePeople()
+            if (props.teamId) {
+                if (personModal && !values.showingPeople) {
+                    actions.loadPeople(personModal)
+                }
+                if (!personModal && values.showingPeople) {
+                    actions.hidePeople()
+                }
             }
         },
     }),

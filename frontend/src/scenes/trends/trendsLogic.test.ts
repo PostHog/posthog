@@ -25,13 +25,13 @@ describe('trendsLogic', () => {
     describe('core assumptions', () => {
         initKeaTestLogic({
             logic: trendsLogic,
-            props: { dashboardItemId: undefined },
+            props: { teamId: 19, dashboardItemId: undefined },
             onLogic: (l) => (logic = l),
         })
 
         it('loads results on mount', async () => {
             await expectLogic(logic).toDispatchActions([
-                insightLogic({ dashboardItemId: undefined }).actionTypes.loadResults,
+                insightLogic({ teamId: 19, dashboardItemId: undefined }).actionTypes.loadResults,
             ])
         })
     })
@@ -39,7 +39,7 @@ describe('trendsLogic', () => {
     describe('reducers', () => {
         initKeaTestLogic({
             logic: trendsLogic,
-            props: { dashboardItemId: undefined },
+            props: { teamId: 29, dashboardItemId: undefined },
             onLogic: (l) => (logic = l),
         })
 
@@ -66,7 +66,7 @@ describe('trendsLogic', () => {
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { teamId: 39, dashboardItemId: 123 }
         initKeaTestLogic({
             logic: trendsLogic,
             props,

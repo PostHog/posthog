@@ -41,6 +41,7 @@ describe('insightLogic', () => {
         initKeaTestLogic({
             logic: insightLogic,
             props: {
+                teamId: 4,
                 dashboardItemId: undefined,
             },
             onLogic: (l) => (logic = l),
@@ -54,7 +55,7 @@ describe('insightLogic', () => {
     describe('analytics', () => {
         initKeaTestLogic({
             logic: insightLogic,
-            props: { dashboardItemId: undefined, filters: { insight: 'TRENDS' } },
+            props: { teamId: 24, dashboardItemId: undefined, filters: { insight: 'TRENDS' } },
             onLogic: (l) => (logic = l),
         })
 
@@ -74,6 +75,7 @@ describe('insightLogic', () => {
             initKeaTestLogic({
                 logic: insightLogic,
                 props: {
+                    teamId: 73,
                     dashboardItemId: 42,
                     cachedResults: ['cached result'],
                     filters: {
@@ -105,6 +107,7 @@ describe('insightLogic', () => {
             initKeaTestLogic({
                 logic: insightLogic,
                 props: {
+                    teamId: 91,
                     dashboardItemId: 42,
                     cachedResults: undefined,
                     filters: {
@@ -134,6 +137,7 @@ describe('insightLogic', () => {
             initKeaTestLogic({
                 logic: insightLogic,
                 props: {
+                    teamId: 413,
                     dashboardItemId: 42,
                     cachedResults: undefined,
                     filters: undefined,
@@ -159,6 +163,7 @@ describe('insightLogic', () => {
             initKeaTestLogic({
                 logic: insightLogic,
                 props: {
+                    teamId: 8,
                     dashboardItemId: 43, // 43 --> result: null
                     cachedResults: undefined,
                     filters: undefined,
@@ -192,6 +197,7 @@ describe('insightLogic', () => {
         initKeaTestLogic({
             logic: insightLogic,
             props: {
+                teamId: 52,
                 syncWithUrl: true,
                 dashboardItemId: undefined,
             },

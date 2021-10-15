@@ -17,9 +17,9 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 jest.mock('lib/api')
 
-describe('entityFilterLogic', () => {
+describe('renameModalLogic', () => {
     let logic: BuiltLogic<renameModalLogicType<RenameModalProps>>
-    let entityLogic: BuiltLogic<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>
+    let relevantEntityFilterLogic: BuiltLogic<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>
 
     mockAPI(async (url) => {
         return defaultAPIMocks(url)
@@ -28,16 +28,17 @@ describe('entityFilterLogic', () => {
     initKeaTestLogic({
         logic: entityFilterLogic,
         props: {
+            teamId: 77,
             setFilters: jest.fn(),
             filters: filtersJson,
             typeKey: 'logic_test',
         },
-        onLogic: (l) => (entityLogic = l),
+        onLogic: (l) => (relevantEntityFilterLogic = l),
     })
-
     initKeaTestLogic({
         logic: renameModalLogic,
         props: {
+            teamId: 77,
             filter: filtersJson.events[0] as EntityFilter,
             typeKey: 'logic_test',
         },
@@ -46,7 +47,7 @@ describe('entityFilterLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([entityLogic])
+            await expectLogic(logic).toMount([relevantEntityFilterLogic])
         })
 
         it('name', async () => {
@@ -66,8 +67,8 @@ describe('entityFilterLogic', () => {
         })
 
         it('set filter', async () => {
-            await expectLogic(entityLogic, () => {
-                entityLogic.actions.selectFilter({
+            await expectLogic(relevantEntityFilterLogic, () => {
+                relevantEntityFilterLogic.actions.selectFilter({
                     ...filtersJson.events[0],
                     custom_name: 'zesty_veggie_straws',
                 } as EntityFilter)

@@ -5,15 +5,15 @@ describe('keyForInsightLogicProps', () => {
 
     it('throws if no dashboardItemId', () => {
         expect(() => {
-            func({})
+            func({ teamId: 2 })
         }).toThrow('Must init with dashboardItemId, even if undefined')
     })
 
     const testCases = [
-        { in: { syncWithUrl: true, dashboardItemId: 123 }, expect: 'sceneKey' },
-        { in: { syncWithUrl: true, dashboardItemId: undefined }, expect: 'sceneKey' },
-        { in: { dashboardItemId: 123 }, expect: 123 },
-        { in: { dashboardItemId: undefined }, expect: 'defaultKey' },
+        { in: { teamId: 31, syncWithUrl: true, dashboardItemId: 123 }, expect: 'sceneKey' },
+        { in: { teamId: 32, syncWithUrl: true, dashboardItemId: undefined }, expect: 'sceneKey' },
+        { in: { teamId: 33, dashboardItemId: 123 }, expect: 123 },
+        { in: { teamId: 34, dashboardItemId: undefined }, expect: 'defaultKey' },
     ]
 
     testCases.forEach((testCase) => {

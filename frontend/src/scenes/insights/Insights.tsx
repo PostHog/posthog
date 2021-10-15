@@ -24,6 +24,7 @@ import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
 import { teamLogic } from '../teamLogic'
+import { ProjectBasedLogicProps } from '../../lib/utils/logics'
 
 dayjs.extend(relativeTime)
 
@@ -34,13 +35,15 @@ export function Insights(): JSX.Element {
     } = useValues(router)
 
     const { currentTeamId } = useValues(teamLogic)
-    const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
+    const projectBasedLogicProps: ProjectBasedLogicProps = { teamId: currentTeamId }
+
+    const logic = insightLogic({ teamId: currentTeamId, dashboardItemId: fromItem, syncWithUrl: true })
     const { insightProps, activeView, filters, controlsCollapsed, insight, insightMode } = useValues(logic)
     const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight } = useActions(logic)
     const { annotationsToCreate } = useValues(annotationsLogic({ teamId: currentTeamId, pageKey: fromItem }))
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
+    const { cohortModalVisible } = useValues(personsModalLogic(projectBasedLogicProps))
+    const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic(projectBasedLogicProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
@@ -255,7 +258,9 @@ export function Insights(): JSX.Element {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            {scene}
+            <BindLogic logic={personsModalLogic} props={projectBasedLogicProps}>
+                {scene}
+            </BindLogic>
         </BindLogic>
     )
 }

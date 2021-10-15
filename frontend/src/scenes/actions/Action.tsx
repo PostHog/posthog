@@ -10,8 +10,18 @@ import { EventsTable } from 'scenes/events'
 import dayjs from 'dayjs'
 import { urls } from 'scenes/urls'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { teamLogic } from '../teamLogic'
+import { ProjectBasedLogicProps } from '../../lib/utils/logics'
+import { ActionType } from '../../types'
 
-const actionLogic = kea({
+import { actionLogicType } from './ActionType'
+interface ActionLogicProps extends ProjectBasedLogicProps {
+    id?: ActionType['id']
+    onComplete: () => void
+}
+
+const actionLogic = kea<actionLogicType<ActionLogicProps>>({
+    props: {} as ActionLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({
         checkIsFinished: (action) => ({ action }),
@@ -20,13 +30,13 @@ const actionLogic = kea({
     }),
     reducers: () => ({
         pollTimeout: [
-            null,
+            null as number | null,
             {
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
         isComplete: [
-            false,
+            false as boolean,
             {
                 setIsComplete: (_, { isComplete }) => isComplete,
             },
@@ -36,7 +46,7 @@ const actionLogic = kea({
         action: {
             loadAction: async () => {
                 actions.setIsComplete(false)
-                let action = await api.get('api/action/' + props.id)
+                const action = await api.get(`api/projects/${teamLogic.values.currentTeamId}/actions/${props.id}`)
                 actions.checkIsFinished(action)
                 return action
             },
@@ -49,29 +59,28 @@ const actionLogic = kea({
             } else {
                 props.onComplete()
                 actions.setIsComplete(new Date())
-                clearTimeout(values.pollTimeout)
+                values.pollTimeout && clearTimeout(values.pollTimeout)
             }
         },
     }),
     events: ({ values, actions, props }) => ({
-        afterMount: async () => {
-            if (props.id) {
-                actions.loadAction()
-            }
+        afterMount: () => {
+            props.teamId && props.id && actions.loadAction()
         },
         beforeUnmount: () => {
-            clearTimeout(values.pollTimeout)
+            values.pollTimeout && clearTimeout(values.pollTimeout)
         },
     }),
 })
 
-export function Action({ id }) {
+export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
     const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
-    const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
-    const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
+    const { currentTeamId } = useValues(teamLogic)
+    const { isComplete, action } = useValues(actionLogic({ teamId: currentTeamId, id, onComplete: fetchEvents }))
+    const { loadAction } = useActions(actionLogic({ teamId: currentTeamId, id, onComplete: fetchEvents }))
     const { preflight } = useValues(preflightLogic)
     const isClickHouseEnabled = !!preflight?.is_clickhouse_enabled
 
@@ -79,8 +88,7 @@ export function Action({ id }) {
         <div>
             {(!id || action) && (
                 <ActionEdit
-                    apiURL=""
-                    actionId={id}
+                    id={id}
                     action={action}
                     onSave={(savedAction) => {
                         if (!id) {
@@ -118,7 +126,7 @@ export function Action({ id }) {
                             </p>{' '}
                         </>
                     ) : null}
-                    {id && <EventsTable key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />}
+                    {id && <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} />}
                 </div>
             )}
         </div>

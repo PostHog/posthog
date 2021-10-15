@@ -41,7 +41,7 @@ def api_not_found(request):
 router = DefaultRouterPlusPlus()
 
 # Legacy endpoints shared (to be removed eventually)
-router.register(r"annotation", annotation.LegacyAnnotationsViewSet)
+router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
 router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
@@ -110,7 +110,7 @@ if is_clickhouse_enabled():
     from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
 
     # Legacy endpoints CH (to be removed eventually)
-    router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")
+    router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")  # Should be completely unused now
     router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")
     router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")
     router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
@@ -131,7 +131,7 @@ if is_clickhouse_enabled():
 else:
     # Legacy endpoints PG (to be removed eventually)
     router.register(r"insight", insight.LegacyInsightViewSet)
-    router.register(r"action", action.LegacyActionViewSet)
+    router.register(r"action", action.LegacyActionViewSet)  # Should be completely unused now
     router.register(r"person", person.LegacyPersonViewSet)
     router.register(r"event", event.LegacyEventViewSet)
     router.register(r"paths", paths.LegacyPathsViewSet, basename="paths")

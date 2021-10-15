@@ -4,25 +4,22 @@ import { uuid } from 'lib/utils'
 import { toast } from 'react-toastify'
 import { actionsModel } from '~/models/actionsModel'
 import { actionEditLogicType } from './actionEditLogicType'
-import { ActionStepType, ActionType } from '~/types'
+import { ActionType } from '~/types'
+import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from 'lib/utils/logics'
 
-interface NewActionType {
-    name: string
-    steps: ActionStepType[]
-}
-
+type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
 type ActionEditType = ActionType | NewActionType
 
-interface Props {
-    id: string
+export interface ActionEditLogicProps extends ProjectBasedLogicProps {
+    id: number
     action: ActionEditType
-    temporaryToken: string
-    onSave: (action: ActionType, createNew: boolean) => void
+    temporaryToken?: string
+    onSave: (action: ActionType) => void
 }
 
-export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
-    props: {} as Props,
-    key: (props) => props.id || 'new',
+export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, ActionEditType>>({
+    props: {} as ActionEditLogicProps,
+    key: getProjectBasedLogicKeyBuilder((props) => props.id || 'new'),
     actions: () => ({
         saveAction: true,
         setAction: (action: ActionEditType) => ({ action }),
@@ -55,7 +52,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
     loaders: ({ props }) => ({
         actionCount: {
             loadActionCount: async () => {
-                return (await api.get('api/action/' + props.id + '/count')).count
+                return (await api.get(`api/projects/${props.teamId}/actions/${props.id}/count`)).count
             },
         },
     }),
@@ -71,12 +68,9 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
                   })
                 : []
             try {
-                const token = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
-                if (action.id) {
-                    action = await api.update('api/action/' + action.id + '/' + token, action)
-                } else {
-                    action = await api.create('api/action/' + token, action)
-                }
+                const queryString = props.temporaryToken ? `?temporary_token=${props.temporaryToken}` : ''
+                const pathEnding = action.id ? `${action.id}/` : ''
+                action = await api.update(`api/projects/${props.teamId}/actions/${pathEnding}${queryString}`, action)
             } catch (response) {
                 if (response.detail === 'action-exists') {
                     return actions.actionAlreadyExists(response.id)
@@ -86,17 +80,19 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
             }
 
             toast('Action saved')
-            props.onSave(action, values.createNew)
-            actionsModel.actions.loadActions() // reload actions so they are immediately available
+            props.onSave(action)
+            actionsModel({ teamId: props.teamId }).actions.loadActions() // reload actions so they are immediately available
         },
     }),
 
     events: ({ actions, props }) => ({
         afterMount: async () => {
-            if (props.id) {
-                actions.loadActionCount()
-            } else {
-                actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
+            if (props.teamId) {
+                if (props.id) {
+                    actions.loadActionCount()
+                } else {
+                    actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
+                }
             }
         },
     }),

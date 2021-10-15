@@ -20,7 +20,15 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType, FilterType } from '~/types'
+import {
+    DashboardItemType,
+    DashboardMode,
+    DashboardType,
+    ChartDisplayType,
+    ViewType,
+    FilterType,
+    InsightLogicProps,
+} from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -38,6 +46,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkButton } from 'lib/components/LinkButton'
 import { DiveIcon } from 'lib/components/icons'
+import { teamLogic } from '../teamLogic'
 
 dayjs.extend(relativeTime)
 
@@ -226,8 +235,10 @@ export function DashboardItem({
         exclude: 'table, table *',
     })
 
+    const { currentTeamId } = useValues(teamLogic)
     const filters = { ...item.filters, from_dashboard: item.id }
-    const logicProps = {
+    const logicProps: InsightLogicProps = {
+        teamId: currentTeamId,
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: (item as any).result,

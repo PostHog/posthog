@@ -25,11 +25,12 @@ import { SavedFunnels } from 'scenes/insights/SavedCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from '../../../teamLogic'
 
 export function FunnelTab(): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -37,6 +38,7 @@ export function FunnelTab(): JSX.Element {
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
+    useMountedLogic(funnelCommandLogic({ teamId: currentTeamId }))
 
     const closeModal = (): void => setSavingModal(false)
     const onSubmit = (input: string): void => {

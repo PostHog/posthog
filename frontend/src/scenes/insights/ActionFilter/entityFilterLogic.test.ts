@@ -13,7 +13,7 @@ import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 
 jest.mock('lib/api')
 
@@ -22,7 +22,7 @@ describe('entityFilterLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname === 'api/action/') {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/actions/`) {
             return {
                 results: filtersJson.actions,
             }
@@ -35,6 +35,7 @@ describe('entityFilterLogic', () => {
     initKeaTestLogic({
         logic: entityFilterLogic,
         props: {
+            teamId: 1,
             setFilters: jest.fn(),
             filters: filtersJson,
             typeKey: 'logic_test',
@@ -44,7 +45,7 @@ describe('entityFilterLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([actionsModel])
+            await expectLogic(logic).toMount([actionsModel({ teamId: 1 })])
         })
 
         it('localFilters', async () => {

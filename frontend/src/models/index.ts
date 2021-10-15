@@ -15,7 +15,7 @@ export const models = kea<modelsType>({
     props: {} as ProjectBasedLogicProps,
     key: getProjectBasedLogicKeyBuilder(),
     connect: (props: ProjectBasedLogicProps) => [
-        actionsModel,
+        actionsModel({ teamId: props.teamId }),
         annotationsModel({ teamId: props.teamId }),
         cohortsModel,
         dashboardsModel,

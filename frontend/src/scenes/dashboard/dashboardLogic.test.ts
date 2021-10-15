@@ -2,7 +2,7 @@ import { BuiltLogic } from 'kea'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import dashboardJson from './__mocks__/dashboard.json'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -12,7 +12,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 jest.mock('lib/api')
 
 describe('dashboardLogic', () => {
-    let logic: BuiltLogic<dashboardLogicType>
+    let logic: BuiltLogic<dashboardLogicType<DashboardLogicProps>>
 
     mockAPI(async (url) => {
         const { pathname } = url
@@ -28,6 +28,7 @@ describe('dashboardLogic', () => {
         initKeaTestLogic({
             logic: dashboardLogic,
             props: {
+                teamId: 9,
                 id: undefined as unknown as number,
             },
             onLogic: (l) => (logic = l),
@@ -42,6 +43,7 @@ describe('dashboardLogic', () => {
         initKeaTestLogic({
             logic: dashboardLogic,
             props: {
+                teamId: 12,
                 id: 5,
             },
             onLogic: (l) => (logic = l),

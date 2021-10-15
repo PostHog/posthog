@@ -17,6 +17,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
+import { ProjectBasedLogicProps } from './lib/utils/logics'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -189,6 +190,7 @@ export interface ActionType {
     last_calculated_at?: string
     name: string
     post_to_slack?: boolean
+    slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
 }
@@ -990,7 +992,7 @@ export interface ChartParams {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
-export interface InsightLogicProps {
+export interface InsightLogicProps extends ProjectBasedLogicProps {
     /** currently persisted insight */
     dashboardItemId?: number | null
     /** enable url handling for this insight */

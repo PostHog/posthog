@@ -30,7 +30,7 @@ function elementsToAction(elements) {
     }
 }
 
-export async function createActionFromEvent(event, increment, recurse = createActionFromEvent) {
+export async function createActionFromEvent(teamId, event, increment, recurse = createActionFromEvent) {
     let actionData = {
         steps: [
             {
@@ -62,7 +62,7 @@ export async function createActionFromEvent(event, increment, recurse = createAc
 
     let action = {}
     try {
-        action = await api.create('api/action', actionData)
+        action = await api.create(`api/projects/${teamId}/actions`, actionData)
     } catch (response) {
         if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
             return recurse(event, increment + 1, recurse)

@@ -3,9 +3,9 @@ import { Tabs, Tag } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
@@ -19,10 +19,13 @@ function TabTitle({
     groupType: TaxonomicFilterGroupType
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
 }): JSX.Element {
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
+    const { currentTeamId } = useValues(teamLogic)
+    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, teamId: currentTeamId, listGroupType: groupType })
+    const { groups } = useValues(taxonomicFilterLogic)
     const { totalCount } = useValues(logic)
 
     const group = groups.find((g) => g.type === groupType)
+
     return (
         <div data-attr={`taxonomic-tab-${groupType}`}>
             {group?.name} {totalCount != null && <Tag>{totalCount}</Tag>}
@@ -34,12 +37,16 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, groupTypes } = useValues(taxonomicFilterLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { activeTab, groups, groupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
 
     if (groupTypes.length === 1) {
         return (
-            <BindLogic logic={infiniteListLogic} props={{ ...taxonomicFilterLogicProps, listGroupType: groupTypes[0] }}>
+            <BindLogic
+                logic={infiniteListLogic}
+                props={{ ...taxonomicFilterLogicProps, teamId: currentTeamId, listGroupType: groupTypes[0] }}
+            >
                 <InfiniteList />
             </BindLogic>
         )
@@ -63,7 +70,7 @@ export function InfiniteSelectResults({
                     >
                         <BindLogic
                             logic={infiniteListLogic}
-                            props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
+                            props={{ ...taxonomicFilterLogicProps, teamId: currentTeamId, listGroupType: groupType }}
                         >
                             <InfiniteList />
                         </BindLogic>
