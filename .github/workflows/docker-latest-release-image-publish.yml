@@ -1,18 +1,23 @@
-# Generates the `posthog/posthog:latest-release` Docker image and pushes to Docker Hub
-name: Docker latest-release image
+# Generates the `posthog/posthog:latest-release` & `posthog/posthog:release-[version]` Docker images
+# and pushes to Docker Hub
+name: Docker release image
 
 on:
-    push:
-        tags:
-            - '*.**'
+    - pull_request
+      # push:
+      #     tags:
+      #         - '*.**'
 
 jobs:
-    build-release-push:
+    build-push:
         name: Build & push Docker release image
         runs-on: ubuntu-20.04
         steps:
             - name: Checkout default branch
               uses: actions/checkout@v2
+
+            - name: Get tag name
+              run: echo "TAG_NAME=$(echo ${GITHUB_REF#refs/tags/} | tr / -)" >> $GITHUB_ENV
 
             - name: Update git SHA
               run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
@@ -39,7 +44,9 @@ jobs:
               with:
                   context: .
                   push: true
-                  tags: posthog/posthog:latest-release
+                  tags: |
+                      posthog/posthog:test-test-unstable-latest-release
+                      posthog/posthog:test-test-unstable-release-${{ env.TAG_NAME  }}
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog'
