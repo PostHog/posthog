@@ -105,9 +105,9 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                 const startNodeColor =
                     c && d3.color(c)
                         ? d3.color(c)
-                        : color === 'white' // is this ever not white?
+                        : color === 'white' || color === 'black'
                         ? d3.color('#5375ff')
-                        : d3.color('#191919')
+                        : d3.color('white')
                 return startNodeColor
             })
             .on('mouseover', (data: PathNodeData) => {
@@ -151,8 +151,8 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'var(--item-lighter'))
-            .attr('opacity', 0.2)
+            .attr('stroke', () => (color === 'white' || color === 'black' ? 'var(--primary)' : 'white'))
+            .attr('opacity', 0.35)
 
         link.append('path')
             .attr('d', Sankey.sankeyLinkHorizontal())
@@ -196,7 +196,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                 )
             })
             .on('mouseleave', () => {
-                svg.selectAll('path').attr('stroke', 'var(--primary)')
+                svg.selectAll('path').attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'white'))
             })
 
         link.append('g')
