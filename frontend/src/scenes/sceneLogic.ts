@@ -53,6 +53,7 @@ export enum Scene {
     PreflightCheck = 'preflightCheck',
     Ingestion = 'ingestion',
     OnboardingSetup = 'onboardingSetup',
+    Personalization = 'personalization',
 }
 
 const preloadedScenes: Record<string, LoadedScene> = {
