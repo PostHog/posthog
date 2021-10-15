@@ -256,7 +256,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
         }, 0)
 
         const minWidth = canvas?.current?.offsetWidth
-            ? canvas.current.offsetWidth > 1000
+            ? canvas.current.offsetWidth > 1000 || maxLayer < 3
                 ? canvas.current.offsetWidth
                 : 1000
             : 1000
