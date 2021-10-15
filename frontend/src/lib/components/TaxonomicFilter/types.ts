@@ -19,7 +19,7 @@ export interface TaxonomicFilterProps {
 
 export type TaxonomicFilterValue = string | number
 
-export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
+export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps, ProjectBasedLogicProps {
     taxonomicFilterLogicKey: string
 }
 
@@ -49,7 +49,7 @@ export enum TaxonomicFilterGroupType {
     Wildcards = 'wildcard',
 }
 
-export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps, ProjectBasedLogicProps {
+export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
 }
 

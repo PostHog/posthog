@@ -9,6 +9,7 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 let uniqueMemoizedIndex = 0
 
@@ -34,7 +35,9 @@ export function TaxonomicFilter({
     const searchInputRef = useRef<Input | null>(null)
     const focusInput = (): void => searchInputRef.current?.focus()
 
+    const { currentTeamId } = useValues(teamLogic)
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
+        teamId: currentTeamId,
         taxonomicFilterLogicKey,
         groupType,
         value,

@@ -2,7 +2,7 @@ import { infiniteListLogic } from './infiniteListLogic'
 import { BuiltLogic } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
@@ -14,7 +14,7 @@ describe('infiniteListLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname, searchParams } = url
-        if (pathname === 'api/projects/@current/event_definitions') {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {
             const results = searchParams.search
                 ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
                 : mockEventDefinitions
@@ -29,7 +29,7 @@ describe('infiniteListLogic', () => {
     initKeaTestLogic({
         logic: infiniteListLogic,
         props: {
-            teamId: 97,
+            teamId: MOCK_TEAM_ID,
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Events,
         },

@@ -176,7 +176,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     const groups = (taxonomicFilterLogic(props) as taxonomicFilterLogicType).selectors.groups(state)
                     const group = groups.find((g) => g.type === props.listGroupType)
                     if (group?.logic && group?.value) {
-                        return group.logic({ teamId: props.teamId }).selectors[group.value]?.(state) || null
+                        return group.logic.selectors[group.value]?.(state) || null
                     }
                     if (group?.options) {
                         return group.options

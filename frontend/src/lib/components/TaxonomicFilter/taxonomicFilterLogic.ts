@@ -8,20 +8,15 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { teamLogic } from '../../../scenes/teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { propertyDefinitionsModel } from '../../../models/propertyDefinitionsModel'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
-    connect: {
-        values: [teamLogic, ['currentTeamId']],
-    },
     actions: () => ({
         moveUp: true,
         moveDown: true,
@@ -73,20 +68,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         groups: [
-            (selectors) => [selectors.currentTeamId],
-            (currentTeamId): TaxonomicFilterGroup[] => [
+            () => [(_, props) => props.teamId],
+            (teamId): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     type: TaxonomicFilterGroupType.Events,
-                    logic: eventDefinitionsModel,
-                    value: 'eventDefinitions',
+                    endpoint: `api/projects/${teamId}/event_definitions`,
                     getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
                     getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
                 },
                 {
                     name: 'Actions',
                     type: TaxonomicFilterGroupType.Actions,
-                    logic: actionsModel({ teamId: currentTeamId }) as any,
+                    logic: actionsModel({ teamId: teamId }) as any,
                     value: 'actions',
                     getName: (action: ActionType): string => action.name,
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
@@ -103,8 +97,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 {
                     name: 'Event properties',
                     type: TaxonomicFilterGroupType.EventProperties,
-                    logic: propertyDefinitionsModel,
-                    value: 'propertyDefinitions',
+                    endpoint: `api/projects/${teamId}/property_definitions`,
                     getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,
                 },
@@ -188,7 +181,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (values.activeTab) {
                 infiniteListLogic({
                     ...props,
-                    teamId: values.currentTeamId,
                     listGroupType: values.activeTab,
                 }).actions.moveUp()
             }
@@ -200,7 +192,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (values.activeTab) {
                 infiniteListLogic({
                     ...props,
-                    teamId: values.currentTeamId,
                     listGroupType: values.activeTab,
                 }).actions.moveDown()
             }
@@ -212,7 +203,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (values.activeTab) {
                 infiniteListLogic({
                     ...props,
-                    teamId: values.currentTeamId,
                     listGroupType: values.activeTab,
                 }).actions.selectSelected()
             }
