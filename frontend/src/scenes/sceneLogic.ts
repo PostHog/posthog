@@ -429,8 +429,8 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
 
             if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
-                // router.actions.replace(urls.login())
-                // return
+                router.actions.replace(urls.login())
+                return
             }
 
             if (user) {
