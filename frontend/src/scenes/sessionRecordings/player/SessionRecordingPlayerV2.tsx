@@ -7,9 +7,7 @@ import { PlayerController } from 'scenes/sessionRecordings/player/PlayerControll
 import { PlayerEvents } from 'scenes/sessionRecordings/player/PlayerEvents'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
-    const { test } = useValues(sessionRecordingPlayerLogic)
-
-    console.log('TEST', test)
+    const {} = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div className="session-player">
