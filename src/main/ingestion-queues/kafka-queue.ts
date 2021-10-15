@@ -2,8 +2,8 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
-import { Hub, Queue, WorkerMethods } from 'types'
 
+import { Hub, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
 import { ingestEvent } from './ingest-event'
@@ -33,6 +33,7 @@ export class KafkaQueue implements Queue {
             site_url: combinedEvent.site_url || null,
             ip: combinedEvent.ip || null,
         })
+
         await ingestEvent(this.pluginsServer, this.workerMethods, event)
     }
 

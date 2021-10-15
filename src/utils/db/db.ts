@@ -19,6 +19,7 @@ import {
     Cohort,
     CohortPeople,
     Database,
+    DeadLetterQueueEvent,
     Element,
     ElementGroup,
     Event,
@@ -819,6 +820,12 @@ export class DB {
             )
             return result.rows as Event[]
         }
+    }
+
+    public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
+        const result = await this.clickhouseQuery(`SELECT * FROM events_dead_letter_queue ORDER BY _timestamp ASC`)
+        const events = result.data as DeadLetterQueueEvent[]
+        return events
     }
 
     // SessionRecordingEvent

@@ -2,9 +2,10 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { Hub, IngestEventResponse } from '../../types'
+import { Hub, IngestEventResponse, TimestampFormat } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
+import { generateEventDeadLetterQueueMessage } from './utils'
 
 export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestEventResponse> {
     const timeout = timeoutGuard('Still ingesting event inside worker. Timeout warning after 30 sec!', {
@@ -23,6 +24,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             sent_at ? DateTime.fromISO(sent_at) : null,
             uuid! // it will throw if it's undefined
         )
+
         if (result) {
             const person = await hub.db.fetchPerson(team_id, distinctId)
             const actionMatches = await hub.actionMatcher.match(event, person, result.elements)
@@ -39,7 +41,18 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
         return { success: true }
     } catch (e) {
         status.info('🔔', e)
-        Sentry.captureException(e)
+        Sentry.captureException(e, { extra: { event } })
+
+        if (hub.db.kafkaProducer) {
+            try {
+                const message = generateEventDeadLetterQueueMessage(event, e)
+                await hub.db.kafkaProducer.queueMessage(message)
+                hub.statsd?.increment('events_added_to_dead_letter_queue')
+            } catch (dlqError) {
+                status.info('🔔', `Errored trying to add event ${event.event} to dead letter queue. Error: ${dlqError}`)
+                Sentry.captureException(e, { extra: { event } })
+            }
+        }
         return { error: e.message }
     } finally {
         clearTimeout(timeout)

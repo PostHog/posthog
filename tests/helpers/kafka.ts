@@ -11,6 +11,7 @@ import {
 } from '../../src/config/kafka-topics'
 import { PluginsServerConfig } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils/utils'
+import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
 
 /** Clear the kafka queue */
 export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>, delayMs = 2000): Promise<true> {
@@ -34,6 +35,7 @@ export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>
         KAFKA_PERSON,
         KAFKA_PERSON_UNIQUE_ID,
         KAFKA_PLUGIN_LOG_ENTRIES,
+        KAFKA_EVENTS_DEAD_LETTER_QUEUE,
     ])
 
     await new Promise<void>(async (resolve, reject) => {
