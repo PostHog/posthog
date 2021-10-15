@@ -244,6 +244,55 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             ],
         }
 
+        interval_2_trend = get_trends_ok(
+            client,
+            request=TrendsRequest(
+                date_from="2021-09-01",
+                date_to="2021-09-03",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraph",
+                smoothing_intervals=2,
+                events=json.dumps(
+                    [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "custom_name": None,
+                            "type": "events",
+                            "order": 0,
+                            "properties": [],
+                        }
+                    ]
+                ),
+            ),
+        )
+
+        assert interval_2_trend == {
+            "is_cached": False,
+            "last_refresh": "2021-09-20T16:00:00Z",
+            "next": None,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "math": None,
+                        "math_property": None,
+                        "properties": [],
+                    },
+                    "label": "$pageview",
+                    "count": 5.0,
+                    "data": [2.0, 1.0, 2.0],
+                    "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
+                    "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                }
+            ],
+        }
+
         interval_1_trend = get_trends_ok(
             client,
             request=TrendsRequest(
@@ -473,7 +522,6 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
                 }
             ],
         }
-
 
 @dataclasses.dataclass
 class TrendsRequest:
