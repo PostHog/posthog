@@ -142,13 +142,14 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_get_max_limit_of_snapshots(self):
             base_time = now()
+            num_snapshots = 1000
 
-            for s in range(RECORDINGS_NUM_SNAPSHOTS_LIMIT + 1):
+            for s in range(num_snapshots):
                 self.create_snapshot("user", "1", base_time)
 
             response = self.client.get("/api/projects/@current/session_recordings/1")
             response_data = response.json()
-            self.assertEqual(len(response_data["result"]["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
+            self.assertEqual(len(response_data["result"]["snapshots"]), num_snapshots)
 
         def test_get_single_chunked_session_recording(self):
             p = Person.objects.create(
@@ -156,8 +157,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             )
             chunked_session_id = "chunk_id"
             chunk_size = 5
-            expected_num_requests = 5
-            num_chunks = int(RECORDINGS_NUM_SNAPSHOTS_LIMIT / chunk_size) * expected_num_requests
+            expected_num_requests = 1
+            num_snapshots = 1000
+            num_chunks = int(num_snapshots / chunk_size) * expected_num_requests
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 start_time = now()
@@ -172,7 +174,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                     response = self.client.get(next_url)
                     response_data = response.json()
 
-                    self.assertEqual(len(response_data["result"]["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
+                    self.assertEqual(len(response_data["result"]["snapshots"]), num_snapshots)
                     self.assertEqual(response_data["result"]["duration"], (num_chunks - 1) * 1000)
 
                     if i == expected_num_requests - 1:
@@ -189,7 +191,8 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             chunked_session_id = "chunk_2"
             base_time = now()
             chunk_size = 5
-            num_chunks = int(RECORDINGS_NUM_SNAPSHOTS_LIMIT / chunk_size)
+            num_snapshots = 1000
+            num_chunks = int(num_snapshots / chunk_size)
 
             for s in range(num_chunks):
                 self.create_chunked_snapshot(
@@ -198,7 +201,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
             response = self.client.get(f"/api/projects/@current/session_recordings/{chunked_session_id}")
             response_data = response.json()
-            self.assertEqual(len(response_data["result"]["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
+            self.assertEqual(len(response_data["result"]["snapshots"]), num_snapshots)
 
         def test_single_session_recording_doesnt_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
