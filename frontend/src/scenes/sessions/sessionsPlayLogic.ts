@@ -3,26 +3,14 @@ import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
 import { errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
-import { PersonType, SessionType } from '~/types'
+import { SessionPlayerData, SessionRecordingId, SessionType } from '~/types'
 import dayjs from 'dayjs'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-
-type SessionRecordingId = string
-
-interface SessionPlayerData {
-    snapshots: eventWithTime[]
-    person: PersonType | null
-    start_time: string
-    next: string | null
-    duration: number
-}
-
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
+export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
     connect: {
         logic: [eventUsageLogic],
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
@@ -38,7 +26,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         goToPrevious: true,
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
-        reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
         appendToRecordingData: (nextSnapshots: eventWithTime[]) => ({ nextSnapshots }),
         loadRecording: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
     },
@@ -126,23 +113,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 actions.goToNext()
             }
         },
-        reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
-            await breakpoint()
-            const eventIndex = new EventIndex(recordingData?.snapshots || [])
-            const payload = {
-                load_time: loadTime,
-                duration: eventIndex.getDuration(),
-                start_time: recordingData?.start_time,
-                page_change_events_length: eventIndex.pageChangeEvents().length,
-                recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
-                user_is_identified: recordingData.person?.is_identified,
-                source: values.source,
-            }
-            eventUsageLogic.actions.reportRecordingViewed({ delay: 0, ...payload })
-            // tests will wait for all breakpoints to finish
-            await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecordingViewed({ delay: 10, ...payload })
-        },
         loadRecordingSuccess: async () => {
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
@@ -184,7 +154,11 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                     // Very first call
                     const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
                     response = await api.get(`api/event/session_recording?${params}`)
-                    actions.reportUsage(response.result, performance.now() - startTime)
+                    eventUsageLogic.actions.reportRecordingViewed(
+                        response.result,
+                        values.source,
+                        performance.now() - startTime
+                    )
                 }
 
                 const currData = values.sessionPlayerData

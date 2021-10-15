@@ -1,5 +1,5 @@
 import React from 'react'
 
-export function PlayerFrame(): JSX.Element {
-    return <div>Player Frame</div>
-}
+export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrameInner(props, ref): JSX.Element {
+    return <div ref={ref}>Player Frame</div>
+})

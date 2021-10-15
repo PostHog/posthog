@@ -1,5 +1,4 @@
-import { Row } from 'antd'
-import React from 'react'
+import React, { useRef } from 'react'
 import { useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
@@ -8,15 +7,15 @@ import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const {} = useValues(sessionRecordingPlayerLogic)
+    const frame = useRef<HTMLDivElement | null>(null)
+    const wrapper = useRef<HTMLDivElement | null>(null)
 
     return (
-        <div className="session-player">
-            <Row gutter={16} style={{ height: '100%' }}>
-                <h1>Session Player V2</h1>
-                <PlayerFrame />
-                <PlayerController />
-                <PlayerEvents />
-            </Row>
+        <div className="session-player" ref={wrapper}>
+            <h1>Session Player V2</h1>
+            <PlayerFrame ref={frame} />
+            <PlayerController />
+            <PlayerEvents />
         </div>
     )
 }
