@@ -39,8 +39,10 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()
 
-    def _get_session_recording(self, session_recording_id):
-        return SessionRecording(team=self.team, session_recording_id=session_recording_id).run()
+    def _get_session_recording(self, request, filter, session_recording_id):
+        return SessionRecording(
+            request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
+        ).run()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
@@ -86,8 +88,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
-        session_recording = self._get_session_recording(session_recording_id)
-        if len(session_recording.get("snapshots", [])) == 0:
+        filter = SessionRecordingsFilter(request=request)
+        session_recording = self._get_session_recording(request, filter, session_recording_id)
+
+        # Offset pagination allows session_recording api to return empty snapshots list to indicate that there is no
+        # next chunk.
+        if not filter.offset and len(session_recording.get("snapshots", [])) == 0:
             raise exceptions.NotFound()
 
         if request.GET.get("save_view"):

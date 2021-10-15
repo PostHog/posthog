@@ -18,7 +18,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             [] as CombinedFeatureFlagAndOverrideType[],
             {
                 getUserFlags: async (_, breakpoint) => {
-                    const response = await toolbarFetch('api/feature_flag/my_flags')
+                    const response = await toolbarFetch('/api/feature_flag/my_flags')
                     breakpoint()
                     if (!response.ok) {
                         return []
@@ -28,7 +28,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 },
                 setOverriddenUserFlag: async ({ flagId, overrideValue }, breakpoint) => {
                     const response = await toolbarFetch(
-                        'api/projects/@current/feature_flag_overrides/my_overrides',
+                        '/api/projects/@current/feature_flag_overrides/my_overrides',
                         'POST',
                         {
                             feature_flag: flagId,
@@ -50,7 +50,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 },
                 deleteOverriddenUserFlag: async ({ overrideId }, breakpoint) => {
                     const response = await toolbarFetch(
-                        `api/projects/@current/feature_flag_overrides/${overrideId}`,
+                        `/api/projects/@current/feature_flag_overrides/${overrideId}`,
                         'DELETE'
                     )
                     breakpoint()

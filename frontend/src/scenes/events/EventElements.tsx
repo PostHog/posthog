@@ -1,10 +1,11 @@
 import React from 'react'
+import { EventType } from '../../types'
 
-function indent(n) {
-    return Array(n).fill('    ')
+function indent(level: number): string {
+    return Array(level).fill('    ').join('')
 }
 
-export function EventElements({ event }) {
+export function EventElements({ event }: { event: EventType }): JSX.Element {
     let elements = [...(event.elements || [])].reverse()
     elements = elements.slice(Math.max(elements.length - 10, 1))
 
@@ -23,12 +24,9 @@ export function EventElements({ event }) {
                 >
                     {indent(index)}
                     &lt;{element.tag_name}
-                    {element.attr_id && ' id="' + element.attr_id + '"'}
+                    {element.attr_id && ` id="${element.attr_id}"`}
                     {Object.entries(element.attributes).map(([key, value]) => (
-                        <span key={key}>
-                            {' '}
-                            {key.replace('attr__', '')}="{value}"
-                        </span>
+                        <span key={key}>{` ${key.replace('attr__', '')}="${value}"`}</span>
                     ))}
                     &gt;{element.text}
                     {index === elements.length - 1 && <span>&lt;/{element.tag_name}&gt;</span>}

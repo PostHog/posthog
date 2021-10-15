@@ -3,11 +3,13 @@ import {
     PersonUUID,
     SessionRecordingId,
     DEFAULT_ENTITY_FILTERS,
+    DEFAULT_DURATION_FILTER,
 } from './sessionRecordingsTableLogic'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { BuiltLogic } from 'kea'
 import { mockAPI, defaultAPIMocks } from 'lib/api.mock'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -143,14 +145,9 @@ describe('sessionRecordingsTableLogic', () => {
             })
         })
         describe('duration filter', () => {
-            it('starts filtered by gt 1 min', () => {
+            it('starts filtered by default filter', () => {
                 expectLogic(logic).toMatchValues({
-                    durationFilter: {
-                        type: 'recording',
-                        key: 'duration',
-                        value: 60,
-                        operator: PropertyOperator.GreaterThan,
-                    },
+                    durationFilter: DEFAULT_DURATION_FILTER,
                 })
             })
             it('is set by setDurationFilter and fetches results from server and sets the url', async () => {

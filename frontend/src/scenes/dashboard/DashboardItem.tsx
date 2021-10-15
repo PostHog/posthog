@@ -565,7 +565,10 @@ export function DashboardItem({
                                                     data-attr={'dashboard-item-' + index + '-dropdown-delete'}
                                                     onClick={() =>
                                                         deleteWithUndo({
-                                                            object: item,
+                                                            object: {
+                                                                id: item.id,
+                                                                name: item.name,
+                                                            },
                                                             endpoint: 'insight',
                                                             callback: loadDashboardItems,
                                                         })

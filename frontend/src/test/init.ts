@@ -1,8 +1,7 @@
 import { BuiltLogic, Logic, LogicWrapper } from 'kea'
 import { initKea } from '~/initKea'
-import { testUtilsPlugin } from '~/test/kea-test-utils/plugin'
+import { testUtilsPlugin, expectLogic } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
-import { expectLogic } from '~/test/kea-test-utils/expect'
 import posthog from 'posthog-js'
 
 export function initKeaTestLogic<L extends Logic = Logic>({

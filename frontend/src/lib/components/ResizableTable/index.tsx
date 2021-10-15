@@ -4,7 +4,7 @@ import { ColumnType } from 'antd/lib/table'
 import { ResizableProps } from 'react-resizable'
 import ResizeObserver from 'resize-observer-polyfill'
 import { RenderedCell } from 'rc-table/lib/interface'
-import { getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from '../../utils/responsiveUtils'
+import { getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from 'lib/utils/responsiveUtils'
 import VirtualTableHeader from './VirtualTableHeader'
 import { TableConfig as _TableConfig } from './TableConfig'
 import { useBreakpoint } from 'lib/hooks/useBreakpoint'
@@ -175,7 +175,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         // Update render prop when parent columns change
         setColumns((cols) => {
             const lastIndex = cols.length
-            const nextColumns = cols.map((column, index) =>
+            return cols.map((column, index) =>
                 index === lastIndex
                     ? column
                     : {
@@ -183,7 +183,6 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                           render: initialColumns[index].render,
                       }
             )
-            return nextColumns
         })
     }, [initialColumns])
 
