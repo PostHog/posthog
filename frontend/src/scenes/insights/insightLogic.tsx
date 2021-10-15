@@ -174,7 +174,7 @@ export const insightLogic = kea<insightLogicType>({
                                 e.message
                             )
                         }
-                        return values.insight
+                        throw e
                     }
                     breakpoint()
                     cache.abortController = null
