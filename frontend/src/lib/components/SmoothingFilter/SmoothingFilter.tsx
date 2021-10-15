@@ -18,19 +18,23 @@ const useSmoothing = (): [string, Dispatch<SetStateAction<string>>] => {
 export function SmoothingFilter({ view, disabled }: SmoothingFilterProps): JSX.Element {
     const { interval } = useValues(intervalFilterLogic)
     const [smoothing, setSmoothing] = useSmoothing()
-    const options = Object.entries(smoothings).map(([key, { label }]) => ({
-        key,
-        value: key,
-        label:
-            key === smoothing ? (
-                <>
-                    <FundOutlined /> {label}
-                </>
-            ) : (
-                label
-            ),
-    }))
-    return interval === 'day' && view === ViewType.SESSIONS ? (
+    const options = interval
+        ? Object.entries(smoothings[interval]).map(([key, { label }]) => ({
+              key,
+              value: key,
+              label:
+                  key === smoothing ? (
+                      <>
+                          <FundOutlined /> {label}
+                      </>
+                  ) : (
+                      label
+                  ),
+          }))
+        : null
+
+    console.log(options)
+    return options && view === ViewType.TRENDS ? (
         <Select
             key={interval}
             bordered={false}
