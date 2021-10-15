@@ -1,4 +1,4 @@
-# Generates the `posthog/posthog:release-[version]` Docker image and pushes to Docker Hub
+# Generates the `posthog/posthog:release-[version]-unstable` Docker image and pushes to Docker Hub
 # when a branch that matches `release-[version]` is pushed. Image can be used for break the release sessions.
 name: Docker image for release
 
@@ -43,7 +43,7 @@ jobs:
               with:
                   context: .
                   push: true
-                  tags: posthog/posthog:${{ env.BRANCH_NAME  }}
+                  tags: posthog/posthog:${{ env.BRANCH_NAME  }}-unstable
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog'
