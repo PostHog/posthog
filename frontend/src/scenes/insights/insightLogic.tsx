@@ -19,6 +19,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys } from './utils'
+import * as Sentry from '@sentry/browser'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -516,7 +517,25 @@ export const insightLogic = kea<insightLogicType>({
                     // - not saved if we came from a dashboard --> there's a separate "save" button for that
                     !router.values.hashParams.fromDashboard
                 ) {
-                    actions.updateInsight({ filters: insight.filters })
+                    const filterLength = Object.keys(insight.filters).length
+                    if (filterLength === 0 || (filterLength === 1 && 'from_dashboard' in insight.filters)) {
+                        Sentry.captureException(
+                            new Error(
+                                filterLength === 0
+                                    ? 'Would save empty filters'
+                                    : `Would save filters with just "from_dashboard"`
+                            ),
+                            {
+                                extra: {
+                                    filters_to_save: JSON.stringify(insight.filters),
+                                    insight: JSON.stringify(insight),
+                                    filters: JSON.stringify(values.filters),
+                                },
+                            }
+                        )
+                    } else {
+                        actions.updateInsight({ filters: insight.filters })
+                    }
                 }
             }
         },
@@ -531,14 +550,14 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
-                if (hashParams.fromItem) {
+                if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
+                    if (values.insightMode !== ItemMode.Edit) {
+                        actions.setInsightMode(ItemMode.Edit, null)
+                    }
+                } else if (hashParams.fromItem) {
                     if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
                         // Do not load the result if missing, as setFilters below will do so anyway.
                         actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
-                    }
-                } else {
-                    if (values.insightMode !== ItemMode.Edit) {
-                        actions.setInsightMode(ItemMode.Edit, null)
                     }
                 }
 
