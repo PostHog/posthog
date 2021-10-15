@@ -251,6 +251,7 @@ export const FEATURE_FLAGS = {
     RENAME_FILTERS: '6063-rename-filters',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     CORRELATION_ANALYSIS: 'correlation-analysis',
+    NEW_SESSIONS_PLAYER: 'new-sessions-player',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
