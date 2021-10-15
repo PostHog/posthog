@@ -612,5 +612,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setPageTitle: ({ title }) => {
             document.title = title ? `${title} • PostHog` : 'PostHog'
         },
+        loadDashboardItemsSuccess: () => {
+            const unloadedItems = values.allItems?.items?.filter((i) => !i.result)
+            actions.refreshAllDashboardItems(unloadedItems)
+        },
     }),
 })
