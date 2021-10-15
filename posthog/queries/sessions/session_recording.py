@@ -53,7 +53,7 @@ SESSIONS_IN_RANGE_QUERY = """
     WHERE full_snapshots > 0 {filter_query}
 """
 
-RECORDINGS_NUM_SNAPSHOTS_LIMIT = 50
+RECORDINGS_NUM_SNAPSHOTS_LIMIT = 100
 
 
 class SessionRecording:
@@ -79,7 +79,7 @@ class SessionRecording:
             "timestamp"
         )
 
-    @cached_recording
+    # @cached_recording TODO: uncomment once it's determined safe to cache session recordings
     def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime], Snapshots]:
         events = self.query_recording_snapshots()
 

@@ -39,7 +39,7 @@ class SessionRecording:
             "timestamp"
         )
 
-    @cached_recording
+    # @cached_recording TODO: uncomment once it's determined safe to cache session recordings
     def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime], Snapshots]:
         events = self.query_recording_snapshots()
         if len(events) == 0:

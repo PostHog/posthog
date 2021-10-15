@@ -12,6 +12,7 @@ from rest_framework import authentication, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
+from sentry_sdk.api import capture_exception
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -247,6 +248,12 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
         return representation
+
+    def validate_filters(self, value):
+        # :KLUDGE: Debug code to track down the cause of blank dashboards
+        if len(value) == 0 or ("from_dashboard" in value and len(value) == 1):
+            capture_exception(Exception("Saving dashbord_item with blank filters"))
+        return value
 
 
 class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

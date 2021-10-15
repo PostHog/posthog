@@ -20,7 +20,6 @@ SINGLE_RECORDING_QUERY = """
 
 
 class ClickhouseSessionRecording(SessionRecording):
-    @cached_recording
     def query_recording_snapshots(self) -> List[SessionRecordingEvent]:
         response = sync_execute(
             SINGLE_RECORDING_QUERY, {"team_id": self._team.id, "session_id": self._session_recording_id,},
