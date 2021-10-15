@@ -398,6 +398,8 @@ export function DashboardItem({
                                                 <Menu.Item
                                                     data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
                                                     onClick={() => {
+                                                        // On dashboards we use custom reloading logic, which updates a
+                                                        // global "loading 1 out of n" label, and loads 4 items at a time
                                                         if (reload) {
                                                             reload()
                                                         } else {
