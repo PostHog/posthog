@@ -2,7 +2,7 @@ import React from 'react'
 
 import { Drawer } from 'lib/components/Drawer'
 import { SessionsPlay } from 'scenes/sessions/SessionsPlay'
-import { SessionRecordingPlayerV2 } from 'scenes/sessionRecordings/player/SessionRecordingPlayerV2'
+import { SessionRecordingPlayerV2 } from 'scenes/session-recordings/player/SessionRecordingPlayerV2'
 import { useValues } from 'kea'
 import { ArrowTopLeftOutlined } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

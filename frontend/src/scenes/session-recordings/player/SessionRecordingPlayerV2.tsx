@@ -2,9 +2,9 @@ import { Row } from 'antd'
 import React from 'react'
 import { useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { PlayerFrame } from 'scenes/sessionRecordings/player/PlayerFrame'
-import { PlayerController } from 'scenes/sessionRecordings/player/PlayerController'
-import { PlayerEvents } from 'scenes/sessionRecordings/player/PlayerEvents'
+import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
+import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
+import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const {} = useValues(sessionRecordingPlayerLogic)

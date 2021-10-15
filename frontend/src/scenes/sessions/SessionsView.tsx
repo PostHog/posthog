@@ -31,7 +31,7 @@ import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
-import { SessionPlayerDrawer } from 'scenes/sessionRecordings/SessionPlayerDrawer'
+import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)

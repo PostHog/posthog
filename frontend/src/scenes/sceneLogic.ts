@@ -80,7 +80,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     [Scene.SessionRecordings]: () =>
-        import(/* webpackChunkName: 'sessionRecordings' */ './sessionRecordings/SessionRecordings'),
+        import(/* webpackChunkName: 'sessionRecordings' */ './session-recordings/SessionRecordings'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
