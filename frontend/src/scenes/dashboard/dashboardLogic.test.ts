@@ -76,8 +76,6 @@ describe('dashboardLogic', () => {
                         items: truth((items) => items.length === 2),
                     })
             })
-
-            it('fetches unloaded results on mount')
         })
 
         describe('reload items', () => {
