@@ -245,6 +245,7 @@ export const FEATURE_FLAGS = {
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     CORRELATION_ANALYSIS: 'correlation-analysis',
     SIGMA_ANALYSIS: 'sigma-analysis',
+    NEW_SESSIONS_PLAYER: 'new-sessions-player',
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
