@@ -39,6 +39,7 @@ class TestPreflight(APIBaseTest):
                     "saml": False,
                 },
                 "can_create_org": False,
+                "email_service_available": False,
             },
         )
 
@@ -86,7 +87,7 @@ class TestPreflight(APIBaseTest):
 
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE):
+        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE, EMAIL_HOST="localhost"):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -108,6 +109,7 @@ class TestPreflight(APIBaseTest):
                         "saml": False,
                     },
                     "can_create_org": True,
+                    "email_service_available": True,
                 },
             )
 
@@ -231,6 +233,7 @@ class TestPreflight(APIBaseTest):
                         "saml": True,
                     },
                     "can_create_org": False,
+                    "email_service_available": False,
                 },
             )
 
