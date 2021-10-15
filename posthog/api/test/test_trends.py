@@ -236,7 +236,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                         "properties": [],
                     },
                     "label": "$pageview",
-                    "count": 3.0,
+                    "count": 5.5,
                     "data": [2.0, 1.5, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
@@ -285,7 +285,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                         "properties": [],
                     },
                     "label": "$pageview",
-                    "count": 3.0,
+                    "count": 6.0,
                     "data": [2.0, 1.0, 3.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
@@ -293,6 +293,9 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             ],
         }
 
+
+@pytest.mark.django_db
+@pytest.mark.ee
 def test_smoothing_intervals_copes_with_null_values(client: Client):
     """
     The Smoothing feature should allow specifying a number of intervals over
@@ -414,7 +417,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
                         "properties": [],
                     },
                     "label": "$pageview",
-                    "count": 3.0,
+                    "count": 6.5,
                     "data": [3.0, 1.5, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
@@ -463,7 +466,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
                         "properties": [],
                     },
                     "label": "$pageview",
-                    "count": 3.0,
+                    "count": 6.0,
                     "data": [3.0, 0.0, 3.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
