@@ -64,18 +64,4 @@ describe('retentionTableLogic', () => {
                 })
         })
     })
-
-    describe('dashboard item interface', () => {
-        initKeaTestLogic({
-            logic: retentionTableLogic,
-            props: { dashboardItemId: undefined },
-            onLogic: (l) => (logic = l),
-        })
-
-        it('can load directly', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadResults()
-            }).toDispatchActions(['loadResults'])
-        })
-    })
 })

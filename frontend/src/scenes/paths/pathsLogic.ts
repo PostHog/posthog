@@ -40,7 +40,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
 
     connect: (props: InsightLogicProps) => ({
         values: [insightLogic(props), ['filters as filter', 'insight', 'insightLoading']],
-        actions: [insightLogic(props), ['loadResultsSuccess', 'loadResults']],
+        actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
 
     actions: {

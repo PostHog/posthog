@@ -13,7 +13,7 @@ export const trendsLogic = kea<trendsLogicType>({
 
     connect: (props: InsightLogicProps) => ({
         values: [insightLogic(props), ['filters', 'insight', 'insightLoading']],
-        actions: [insightLogic(props), ['loadResultsSuccess', 'loadResults']],
+        actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
 
     actions: () => ({

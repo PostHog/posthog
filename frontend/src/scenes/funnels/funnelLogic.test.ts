@@ -227,18 +227,4 @@ describe('funnelLogic', () => {
                 })
         })
     })
-
-    describe('dashboard item interface', () => {
-        initKeaTestLogic({
-            logic: funnelLogic,
-            props: { dashboardItemId: undefined },
-            onLogic: (l) => (logic = l),
-        })
-
-        it('can load directly', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadResults()
-            }).toDispatchActions(['loadResults'])
-        })
-    })
 })

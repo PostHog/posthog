@@ -110,18 +110,4 @@ describe('trendsLogic', () => {
                 })
         })
     })
-
-    describe('dashboard item interface', () => {
-        initKeaTestLogic({
-            logic: trendsLogic,
-            props: { dashboardItemId: undefined },
-            onLogic: (l) => (logic = l),
-        })
-
-        it('can load directly', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadResults()
-            }).toDispatchActions(['loadResults'])
-        })
-    })
 })
