@@ -3,10 +3,9 @@
 name: Docker release image
 
 on:
-    - pull_request
-      # push:
-      #     tags:
-      #         - '*.**'
+    push:
+        tags:
+            - '*.**'
 
 jobs:
     build-push:
@@ -45,8 +44,8 @@ jobs:
                   context: .
                   push: true
                   tags: |
-                      posthog/posthog:test-test-unstable-latest-release
-                      posthog/posthog:test-test-unstable-release-${{ env.TAG_NAME  }}
+                      posthog/posthog:latest-release
+                      posthog/posthog:release-${{ env.TAG_NAME  }}
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog'

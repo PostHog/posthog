@@ -3,10 +3,9 @@
 name: Docker unstable image for code freeze
 
 on:
-    - pull_request
-      # push:
-      #     branches:
-      #         - 'release-*.*'
+    push:
+        branches:
+            - 'release-*.*'
 
 jobs:
     build-release-push:
@@ -44,7 +43,7 @@ jobs:
               with:
                   context: .
                   push: true
-                  tags: posthog/posthog:${{ env.BRANCH_NAME  }}-unstable-temp
+                  tags: posthog/posthog:${{ env.BRANCH_NAME  }}-unstable
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog'
