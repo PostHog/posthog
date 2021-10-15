@@ -517,9 +517,10 @@ export const insightLogic = kea<insightLogicType>({
                     // - not saved if we came from a dashboard --> there's a separate "save" button for that
                     !router.values.hashParams.fromDashboard
                 ) {
-                    if (Object.keys(insight.filters).length === 0 || 'from_dashboard' in insight.filters) {
+                    const filterLength = Object.keys(insight.filters).length
+                    if (filterLength === 0 || (filterLength === 1 && 'from_dashboard' in insight.filters)) {
                         Sentry.captureException(new Error(`Would save filters with "from_dashboard"`), {
-                            tags: {
+                            extra: {
                                 filters_to_save: JSON.stringify(insight.filters),
                                 insight: JSON.stringify(insight),
                                 filters: JSON.stringify(values.filters),
