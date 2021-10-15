@@ -573,7 +573,7 @@ export const insightLogic = kea<insightLogicType>({
             if (!props.cachedResults) {
                 if (props.dashboardItemId && !props.filters) {
                     actions.loadInsight(props.dashboardItemId)
-                } else {
+                } else if (!props.doNotLoad) {
                     actions.loadResults()
                 }
             }
