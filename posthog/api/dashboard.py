@@ -24,15 +24,6 @@ from posthog.tasks.update_cache import update_dashboard_item_cache, update_dashb
 from posthog.utils import get_safe_cache, render_template, str_to_bool
 
 
-def determine_creation_mode(use_template, use_dashboard):
-    if use_template:
-        return "template"
-    if use_dashboard:
-        return "dashboard"
-
-    return "default"
-
-
 class DashboardSerializer(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
