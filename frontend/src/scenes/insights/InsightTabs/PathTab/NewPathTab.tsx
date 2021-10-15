@@ -22,6 +22,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
+import { PayCard } from 'lib/components/PayCard/PayCard'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -474,6 +475,18 @@ export function NewPathTab(): JSX.Element {
                                     </Col>
                                 </Row>
                             </>
+                        )}
+                        {!hasAdvancedPaths && (
+                            <Row align="middle">
+                                <Col span={24}>
+                                    <PayCard
+                                        identifier={AvailableFeature.PATHS_ADVANCED}
+                                        title="Get a deeper understanding of your users"
+                                        caption="Advanced features such as interconnection with funnels, grouping &amp; wildcarding and exclusions can help you gain deeper insights."
+                                        docsLink="https://posthog.com/docs/user-guides/paths"
+                                    />
+                                </Col>
+                            </Row>
                         )}
                     </Col>
                 </Col>

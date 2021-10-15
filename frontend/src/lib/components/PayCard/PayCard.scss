@@ -1,0 +1,14 @@
+@import '~/vars';
+
+.pay-card {
+    @extend %mixin-elevated;
+    padding: $default_spacing;
+    border-radius: $radius;
+    border: 1px solid $warning;
+    margin-top: $default_spacing;
+    cursor: pointer;
+
+    h3 {
+        font-weight: $medium;
+    }
+}
