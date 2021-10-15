@@ -28,6 +28,7 @@ import { AvailableFeature, UserType } from '../../../types'
 import { TeamMembers } from './TeamMembers'
 import { teamMembersLogic } from './teamMembersLogic'
 import { AccessControl } from './AccessControl'
+import { PathCleaningFiltersConfig } from './PathCleaningFiltersConfig'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -182,6 +183,12 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                     you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
                 </p>
                 <TestAccountFiltersConfig />
+                <Divider />
+                <h2 className="subtitle" id="internal-users-filtering">
+                    Path Cleaning
+                </h2>
+                <p>Placeholder copy goes here</p>
+                <PathCleaningFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">
                     Permitted Domains/URLs
