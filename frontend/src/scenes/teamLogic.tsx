@@ -7,6 +7,7 @@ import { toast } from 'react-toastify'
 import React from 'react'
 import { identifierToHuman, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
+import { getAppContext } from '../lib/utils/getAppContext'
 
 export const teamLogic = kea<teamLogicType>({
     actions: {
@@ -114,6 +115,15 @@ export const teamLogic = kea<teamLogicType>({
         },
     }),
     events: ({ actions }) => ({
-        afterMount: actions.loadCurrentTeam,
+        afterMount: () => {
+            const appContext = getAppContext()
+            if (appContext) {
+                // If app context is available (it should be practically always) we can immediately know current_team
+                actions.loadCurrentTeamSuccess(appContext.current_team)
+            } else {
+                // If app context is not available, a traditional request is needed
+                actions.loadCurrentTeam()
+            }
+        },
     }),
 })
