@@ -165,12 +165,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlay: () => {
             actions.stopAnimation()
             values.replayer?.play(values.time.current)
-            if (values.meta.totalTime > 0) {
-                actions.updateAnimation()
-            }
+            console.log('ANIMATION META', values.meta)
+            actions.updateAnimation()
         },
         setPause: () => {
+            actions.stopAnimation()
             values.replayer?.pause()
+        },
+        setBuffer: () => {
+            actions.stopAnimation()
         },
         setSpeed: ({ speed }) => {
             values.replayer?.setConfig({ speed })

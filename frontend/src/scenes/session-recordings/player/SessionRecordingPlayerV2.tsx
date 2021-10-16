@@ -5,30 +5,29 @@ import { PLAYBACK_SPEEDS, sessionRecordingPlayerLogic } from './sessionRecording
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
+import './styles.scss'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, initReplayer, stopAnimation } =
         useActions(sessionRecordingPlayerLogic)
     const { snapshots, isPlayable } = useValues(sessionRecordingPlayerLogic)
     const frame = useRef<HTMLDivElement | null>(null)
-    const wrapper = useRef<HTMLDivElement | null>(null)
 
     console.log('RECORDING', snapshots.length)
 
     // Need useEffect to populate replayer on component paint
     useEffect(() => {
-        if (frame.current && wrapper.current && isPlayable) {
+        if (frame.current && isPlayable) {
             stopAnimation()
             initReplayer(frame)
-            wrapper.current.focus()
 
             return () => stopAnimation()
         }
-    }, [frame, wrapper, isPlayable])
+    }, [frame, isPlayable])
 
     const toggleFullScreen = (): void => {
-        if (screenfull.isEnabled && wrapper.current) {
-            screenfull.toggle(wrapper.current)
+        if (screenfull.isEnabled && frame.current) {
+            screenfull.toggle(frame.current)
         }
     }
 
@@ -55,7 +54,6 @@ export function SessionRecordingPlayerV2(): JSX.Element {
     return (
         <div
             className="session-player v2"
-            ref={wrapper}
             onKeyDown={handleKeyDown}
             tabIndex={0}
             style={{ height: '100%', width: '100%' }}
