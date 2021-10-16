@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
 import { errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
@@ -9,6 +8,7 @@ import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { eventWithTime } from 'rrweb/typings/types'
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
     connect: {
@@ -26,7 +26,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         goToPrevious: true,
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
-        appendToRecordingData: (nextSnapshots: eventWithTime[]) => ({ nextSnapshots }),
         loadRecording: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
     },
     reducers: {
@@ -34,13 +33,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             null as SessionRecordingId | null,
             {
                 loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
-            },
-        ],
-        sessionPlayerData: [
-            null as null | SessionPlayerData,
-            {
-                appendToRecordingData: (state, { nextSnapshots }) =>
-                    state ? { ...state, snapshots: [...state.snapshots, ...nextSnapshots] } : null,
             },
         ],
         addingTagShown: [
@@ -215,7 +207,8 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             (firstChunkLoaded, sessionPlayerDataLoading, sessionPlayerData) =>
                 (firstChunkLoaded || // If first chunk is ready
                     !sessionPlayerDataLoading) && // data isn't being fetched
-                !!sessionPlayerData?.snapshots?.find((s) => s.type === 2), // there's a full snapshot in the data that was loaded
+                sessionPlayerData?.snapshots.length >= 2 && // more than two snapshots needed to init Replayed
+                !!sessionPlayerData?.snapshots?.find((s: eventWithTime) => s.type === 2), // there's a full snapshot in the data that was loaded
         ],
         highlightedSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],

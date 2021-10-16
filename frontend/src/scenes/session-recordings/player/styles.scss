@@ -1,0 +1,90 @@
+.session-player.v2 {
+    .ph-rrweb-player {
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+
+        position: relative;
+
+        .replayer-wrapper {
+            transform-origin: top left;
+        }
+
+        iframe {
+            border: 0px;
+            background-color: white;
+        }
+    }
+
+    .ph-rrweb-overlay-container {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+
+        display: flex;
+        justify-content: center;
+        align-items: center;
+
+        z-index: 10;
+
+        .ph-rrweb-overlay {
+            position: absolute;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            height: 100%;
+            width: 100%;
+
+            background-color: #333;
+            opacity: 0.7;
+
+            font-size: 40px;
+            color: white;
+        }
+    }
+
+    .ph-rrweb-bottom {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 6px;
+
+        background-color: #333;
+        color: white;
+        align-self: flex-end;
+
+        .ph-rrweb-progress {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .ph-rrweb-controller {
+            display: flex;
+
+            > * {
+                flex: 1 0 0;
+                display: flex;
+                align-items: center;
+            }
+
+            .ph-rrweb-controller-icon {
+                margin-right: 8px;
+                font-size: 24px;
+                cursor: pointer;
+                display: flex;
+
+                &.ph-rrweb-controller-icon-play-pause {
+                    margin-right: 0px;
+                }
+            }
+        }
+
+        .ph-rrweb-speed-toggle {
+            cursor: pointer;
+            margin-right: 5px;
+        }
+    }
+}

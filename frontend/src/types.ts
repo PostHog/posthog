@@ -320,6 +320,18 @@ export interface SessionPlayerData {
     duration: number
 }
 
+export enum SessionPlayerState {
+    BUFFER = 'buffer',
+    PLAY = 'play',
+    PAUSE = 'pause',
+    SKIP = 'skip',
+}
+
+export interface SessionPlayerTime {
+    current: number
+    lastBuffered: number
+}
+
 /** Sync with plugin-server/src/types.ts */
 export type ActionStepProperties =
     | EventPropertyFilter
