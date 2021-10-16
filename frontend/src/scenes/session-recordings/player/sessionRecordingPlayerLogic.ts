@@ -17,7 +17,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logic: [eventUsageLogic],
         values: [
             sessionsPlayLogic,
-            ['sessionRecordingId', 'sessionPlayerData', 'sessionPlayerDataLoading', 'isPlayable'],
+            ['sessionRecordingId', 'sessionPlayerData', 'sessionPlayerDataLoading', 'isPlayable', 'chunkIndex'],
         ],
         actions: [sessionsPlayLogic, ['loadRecordingSuccess']],
     },
@@ -29,6 +29,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setBuffer: true,
         setSkip: true,
         setMeta: (meta: playerMetaData) => ({ meta }),
+        setMetaDuration: (duration: number) => ({ duration }),
         setCurrentTime: (time: number) => ({ time }),
         setLastBufferedTime: (time: number) => ({ time }),
         setSpeed: (speed: number) => ({ speed }),
@@ -72,6 +73,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             } as playerMetaData,
             {
                 setMeta: (_, { meta }) => meta,
+                setMetaDuration: (state, { duration }) => ({ ...state, endTime: duration, totalTime: duration }),
             },
         ],
         playingState: [
@@ -94,10 +96,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         currentPlayerState: [
             (selectors) => [selectors.playingState, selectors.loadingState],
             (playingState, loadingState) => loadingState ?? playingState,
-        ],
-        duration: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => sessionPlayerData?.duration ?? 0,
         ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
         snapshots: [
@@ -136,12 +134,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setReplayer: () => {
             actions.setPlay()
         },
-        loadRecordingSuccess: () => {
+        loadRecordingSuccess: ({ sessionPlayerData }) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.replayer?.service.state.context.events ?? []
             const eventsToAdd = values.snapshots.slice(currentEvents.length) ?? []
 
-            if (eventsToAdd.length < 1) {
+            if (eventsToAdd.length < 1 || !values.replayer) {
                 return
             }
 
@@ -156,16 +154,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.clearLoadingState()
             }
 
-            // If entire recording isn't finished loading, set meta timestamps
-            if (values.sessionPlayerDataLoading && values.replayer) {
-                const meta = values.replayer?.getMetaData()
+            // Only set meta timestamps when first chunk and last chunk loads. The first time
+            // is a guesstimate that's later corrected by the second time.
+            console.log('CHUNK INDEX', values.chunkIndex)
+            if (values.chunkIndex === 1) {
+                actions.setMetaDuration(sessionPlayerData?.duration ?? 0)
+            }
+            if (!values.sessionPlayerDataLoading) {
+                const meta = values.replayer.getMetaData()
                 actions.setMeta(meta)
             }
         },
         setPlay: () => {
             actions.stopAnimation()
             values.replayer?.play(values.time.current)
-            console.log('ANIMATION META', values.meta)
             actions.updateAnimation()
         },
         setPause: () => {
@@ -222,7 +224,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         updateAnimation: () => {
-            console.log('UPDATE ANIMATION', values.replayer?.getCurrentTime())
             const nextTime = getTime(values.replayer?.getCurrentTime() ?? 0, values.meta)
             actions.setCurrentTime(nextTime)
             cache.timer = requestAnimationFrame(actions.updateAnimation)

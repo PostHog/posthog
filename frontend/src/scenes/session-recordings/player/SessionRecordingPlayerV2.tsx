@@ -58,7 +58,6 @@ export function SessionRecordingPlayerV2(): JSX.Element {
             tabIndex={0}
             style={{ height: '100%', width: '100%' }}
         >
-            <h1>Session Player V2</h1>
             <PlayerFrame ref={frame} />
             <PlayerController toggleFullScreen={toggleFullScreen} />
             <PlayerEvents />

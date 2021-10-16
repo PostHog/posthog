@@ -17,8 +17,7 @@ interface PlayerControllerProps {
 
 export function PlayerController({ toggleFullScreen }: PlayerControllerProps): JSX.Element {
     const { togglePlayPause, seek, seekBackward, seekForward, setSpeed } = useActions(sessionRecordingPlayerLogic)
-    const { currentPlayerState, jumpTimeMs, meta, time, speed, sessionPlayerDataLoading } =
-        useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, jumpTimeMs, meta, time, speed } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div className="ph-rrweb-bottom">
@@ -59,8 +58,7 @@ export function PlayerController({ toggleFullScreen }: PlayerControllerProps): J
                         </span>
                     </Tooltip>
                     <span className="ph-rrweb-timestamp">
-                        {colonDelimitedDuration(time.current / 1000)} /{' '}
-                        {sessionPlayerDataLoading ? '--:--:--' : colonDelimitedDuration(meta.totalTime / 1000)}
+                        {colonDelimitedDuration(time.current / 1000)} / {colonDelimitedDuration(meta.totalTime / 1000)}
                     </span>
                 </div>
                 <div className="ph-rrweb-progress">

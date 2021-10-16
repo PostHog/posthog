@@ -55,8 +55,8 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 closeSessionPlayer: () => false,
             },
         ],
-        firstChunkLoaded: [
-            false,
+        chunkIndex: [
+            0,
             {
                 loadRecordingSuccess: () => true,
             },
@@ -152,7 +152,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                         performance.now() - startTime
                     )
                 }
-
                 const currData = values.sessionPlayerData
                 return {
                     ...response.result,
@@ -198,6 +197,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
             (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
         ],
+        firstChunkLoaded: [(selectors) => [selectors.chunkIndex], (chunkIndex) => chunkIndex > 0],
         isPlayable: [
             (selectors) => [
                 selectors.firstChunkLoaded,
