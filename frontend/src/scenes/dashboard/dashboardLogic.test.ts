@@ -1,9 +1,9 @@
 import { BuiltLogic } from 'kea'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic, truth } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import dashboardJson from './__mocks__/dashboard.json'
-import { truth } from '~/test/kea-test-utils/jest'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -67,8 +67,8 @@ describe('dashboardLogic', () => {
             })
         })
 
-        describe('reload all items', () => {
-            it('reloads when called', async () => {
+        describe('reload items', () => {
+            it('reloads all items', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.refreshAllDashboardItemsManual()
                 })
@@ -76,16 +76,20 @@ describe('dashboardLogic', () => {
                         // starts loading
                         'refreshAllDashboardItemsManual',
                         'refreshAllDashboardItems',
-                    ])
-                    .toDispatchActionsInAnyOrder([
                         // sets the "reloading" status
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, true),
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, true),
+                        logic.actionCreators.setRefreshStatuses(
+                            dashboardJson.items.map(({ id }) => id),
+                            true
+                        ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            172: { loading: true },
-                            175: { loading: true },
+                            [dashboardJson.items[0].id]: { loading: true },
+                            [dashboardJson.items[1].id]: { loading: true },
+                        },
+                        refreshMetrics: {
+                            completed: 0,
+                            total: 2,
                         },
                     })
                     .toDispatchActionsInAnyOrder([
@@ -100,6 +104,50 @@ describe('dashboardLogic', () => {
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, false),
                     ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [dashboardJson.items[0].id]: { refreshed: true },
+                            [dashboardJson.items[1].id]: { refreshed: true },
+                        },
+                        refreshMetrics: {
+                            completed: 2,
+                            total: 2,
+                        },
+                    })
+            })
+
+            it('reloads selected items', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.refreshAllDashboardItems([dashboardJson.items[0] as any])
+                })
+                    .toDispatchActions([
+                        'refreshAllDashboardItems',
+                        logic.actionCreators.setRefreshStatuses([dashboardJson.items[0].id], true),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [dashboardJson.items[0].id]: { loading: true },
+                        },
+                        refreshMetrics: {
+                            completed: 0,
+                            total: 1,
+                        },
+                    })
+                    .toDispatchActionsInAnyOrder([
+                        (a) =>
+                            a.type === dashboardsModel.actionTypes.updateDashboardItem &&
+                            a.payload.item.id === dashboardJson.items[0].id,
+                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [dashboardJson.items[0].id]: { refreshed: true },
+                        },
+                        refreshMetrics: {
+                            completed: 1,
+                            total: 1,
+                        },
+                    })
             })
         })
     })

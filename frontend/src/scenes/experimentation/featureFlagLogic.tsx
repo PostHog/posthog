@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 const NEW_FLAG = {
     id: null,
     key: '',

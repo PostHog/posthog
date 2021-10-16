@@ -242,24 +242,15 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                 </p>
                 <SessionRecording />
                 <Divider />
-                {featureFlags[FEATURE_FLAGS.PROJECT_BASED_PERMISSIONING] && (
-                    <>
-                        <RestrictedArea
-                            Component={AccessControl}
-                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                        />
-                        <Divider />
-                        {currentTeam?.access_control &&
-                            currentOrganization?.available_features.includes(
-                                AvailableFeature.PROJECT_BASED_PERMISSIONING
-                            ) && (
-                                <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
-                                    <TeamMembers user={user} team={currentTeam} />
-                                    <Divider />
-                                </BindLogic>
-                            )}
-                    </>
-                )}
+                <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
+                <Divider />
+                {currentTeam?.access_control &&
+                    currentOrganization?.available_features.includes(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
+                        <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
+                            <TeamMembers user={user} team={currentTeam} />
+                            <Divider />
+                        </BindLogic>
+                    )}
                 <RestrictedArea
                     Component={DangerZone}
                     minimumAccessLevel={OrganizationMembershipLevel.Admin}

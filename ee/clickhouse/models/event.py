@@ -63,32 +63,6 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if not settings.PLUGIN_SERVER_ACTION_MATCHING and (
-        team.slack_incoming_webhook
-        or (
-            team.organization.is_feature_available(AvailableFeature.ZAPIER)
-            and Hook.objects.filter(event="action_performed", team=team).exists()
-        )
-    ):
-        try:
-            statsd.incr("posthog_cloud_hooks_send_task")
-            celery.current_app.send_task(
-                "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
-                (
-                    {
-                        "event": event,
-                        "properties": properties,
-                        "distinct_id": distinct_id,
-                        "timestamp": timestamp,
-                        "elements_chain": elements_chain,
-                    },
-                    team.pk,
-                    site_url,
-                ),
-            )
-        except:
-            capture_exception()
-
     return str(event_uuid)
 
 
@@ -214,6 +188,33 @@ def get_event_count_for_team_and_period(
         AND timestamp between %(begin)s AND %(end)s
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
+    )[0][0]
+    return result
+
+
+def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id IN (%(team_id_clause)s)
+    """,
+        {"team_id_clause": team_ids},
+    )[0][0]
+    return result
+
+
+def get_agg_event_count_for_teams_and_period(
+    team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
+) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id IN (%(team_id_clause)s)
+        AND timestamp between %(begin)s AND %(end)s
+    """,
+        {"team_id_clause": team_ids, "begin": begin, "end": end},
     )[0][0]
     return result
 

@@ -4,7 +4,7 @@ import { personalizationLogicType } from './personalizationLogicType'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PersonalizationData } from '~/types'
 import { router } from 'kea-router'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export const personalizationLogic = kea<personalizationLogicType>({
     connect: {

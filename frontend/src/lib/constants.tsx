@@ -227,22 +227,16 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     PAPERCUPS_ENABLED: 'papercups-enabled',
     INGESTION_GRID: 'ingestion-grid-exp-3',
-    PROJECT_HOME: 'project-home-exp-5',
     TRAILING_WAU_MAU: '3638-trailing-wau-mau',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
     NPS_PROMPT: '4562-nps',
-    INGESTION_TAXONOMY: '4267-event-property-taxonomy',
-    PLUGIN_METRICS: '4871-plugin-metrics',
     SESSIONS_TABLE: '4964-sessions-table', // Expand/collapse all in sessions table (performance consideration)
-    INGESTION_HELP_BUTTON: '112-ingestion-help-button',
     SAVED_INSIGHTS: '3408-saved-insights',
     MULTIVARIATE_SUPPORT: '5440-multivariate-support',
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
-    PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
     NEW_PATHS_UI: 'new-paths-ui',
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights',
-    PROJECT_BASED_PERMISSIONING: 'project-based-permissioning',
     SPLIT_PERSON: '5898-split-persons',
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
     REMOVE_SESSIONS: '6050-remove-sessions',
@@ -250,6 +244,8 @@ export const FEATURE_FLAGS = {
     RENAME_FILTERS: '6063-rename-filters',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     CORRELATION_ANALYSIS: 'correlation-analysis',
+    SIGMA_ANALYSIS: 'sigma-analysis',
+    NEW_SESSIONS_PLAYER: 'new-sessions-player',
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

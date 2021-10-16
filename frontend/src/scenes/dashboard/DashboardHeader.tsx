@@ -25,7 +25,7 @@ import { HotkeyButton } from 'lib/components/HotkeyButton'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { dashboardsLogic } from './dashboardsLogic'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { Description } from 'lib/components/Description/Description'
 import { userLogic } from 'scenes/userLogic'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -35,7 +35,7 @@ export function DashboardHeader(): JSX.Element {
     const { addNewDashboard, triggerDashboardUpdate, setDashboardMode, addGraph, saveNewTag, deleteTag } =
         useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
-    const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
+    const { nameSortedDashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)
     const [newName, setNewName] = useState(dashboard?.name || null) // Used to update the input immediately, debouncing API calls
@@ -221,7 +221,7 @@ export function DashboardHeader(): JSX.Element {
                                     bordered={false}
                                     dropdownMatchSelectWidth={false}
                                 >
-                                    {dashboards.map((dash: DashboardType) => (
+                                    {nameSortedDashboards.map((dash: DashboardType) => (
                                         <Select.Option key={dash.id} value={dash.id}>
                                             {dash.name || <span style={{ color: 'var(--muted)' }}>Untitled</span>}
                                             {dash.is_shared && (

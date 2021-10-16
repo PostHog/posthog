@@ -1,5 +1,7 @@
+from unittest.case import skip
 from uuid import uuid4
 
+from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns import materialize
@@ -701,6 +703,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         )
 
     @test_with_materialized_columns(["key"])
+    @skip("Flaky funnel test")
     def test_funnel_with_actions_and_events(self):
 
         sign_up_action = _create_action(
@@ -722,36 +725,86 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             "funnel_window_days": 14,
         }
 
-        filter = Filter(data=filters)
-        funnel = ClickhouseFunnel(filter, self.team)
+        filter = Filter(data=filters, team=self.team)
 
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"})
-        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", timestamp="2021-05-01 00:00:00"
+        )
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", timestamp="2021-05-01 00:00:01"
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="stopped_after_signup1",
+            properties={"key": "val"},
+            timestamp="2021-05-01 00:00:02",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="stopped_after_signup1",
+            properties={"key": "val"},
+            timestamp="2021-05-01 00:00:03",
+        )
 
         person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup2")
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup2")
-        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup2", properties={"key": "val"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup2", timestamp="2021-05-01 00:00:04"
+        )
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup2", timestamp="2021-05-01 00:00:05"
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="stopped_after_signup2",
+            properties={"key": "val"},
+            timestamp="2021-05-01 00:00:06",
+        )
 
         person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="person3")
-        _create_event(team=self.team, event="sign up", distinct_id="person3", properties={"key": "val"})
-        _create_event(team=self.team, event="user signed up", distinct_id="person3")
-        _create_event(team=self.team, event="sign up", distinct_id="person3", properties={"key": "val"})
+        _create_event(team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 00:00:07")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            properties={"key": "val"},
+            timestamp="2021-05-01 00:00:08",
+        )
+        _create_event(team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 00:00:09")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            properties={"key": "val"},
+            timestamp="2021-05-01 00:00:10",
+        )
 
         person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="person4")
-        _create_event(team=self.team, event="sign up", distinct_id="person4", properties={"key": "val"})
-        _create_event(team=self.team, event="user signed up", distinct_id="person4")
+        _create_event(team=self.team, event="user signed up", distinct_id="person4", timestamp="2021-05-01 00:00:11")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person4",
+            properties={"key": "val"},
+            timestamp="2021-05-01 00:00:12",
+        )
+        _create_event(team=self.team, event="user signed up", distinct_id="person4", timestamp="2021-05-01 00:00:13")
 
         person5 = _create_person(distinct_ids=["person5"], team_id=self.team.pk)
-        _create_event(team=self.team, event="sign up", distinct_id="person5", properties={"key": "val"})
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person5",
+            properties={"key": "val"},
+            timestamp="2021-05-01 00:00:14",
+        )
 
-        result = funnel.run()
+        with freeze_time("2021-05-02"):
+            result = ClickhouseFunnel(filter, self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 4)

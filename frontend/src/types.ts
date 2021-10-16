@@ -30,8 +30,10 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
 }
 
+export type ColumnChoice = string[] | 'DEFAULT'
+
 export interface ColumnConfig {
-    active: string[] | 'DEFAULT'
+    active: ColumnChoice
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -79,6 +81,7 @@ export interface PersonalAPIKeyType {
 export interface OrganizationBasicType {
     id: string
     name: string
+    slug: string
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -204,7 +207,7 @@ export interface ActionStepType {
     href?: string | null
     id?: number
     name?: string
-    properties?: []
+    properties?: AnyPropertyFilter[]
     selector?: string | null
     tag_name?: string
     text?: string | null
@@ -318,6 +321,19 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     key: 'duration'
     value: number
     operator: PropertyOperator
+}
+
+export interface RecordingFilters {
+    date_from?: string | null
+    date_to?: string | null
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+    offset?: number
+    session_recording_duration?: RecordingDurationFilter
+}
+export interface SessionRecordingsResponse {
+    results: SessionRecordingType[]
+    has_next: boolean
 }
 
 interface RecordingNotViewedFilter extends BasePropertyFilter {
@@ -495,6 +511,7 @@ export interface SessionRecordingType {
     end_time: string
     distinct_id?: string
     email?: string
+    person?: PersonType
 }
 
 export interface BillingType {
@@ -938,6 +955,11 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
     rowKey?: number | string
+    significant?: {
+        fromPrevious: boolean
+        total: boolean
+        fromBasisStep: boolean // either fromPrevious or total, depending on FunnelStepReference
+    }
 }
 
 export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
@@ -957,6 +979,7 @@ export interface FlattenedFunnelStepByBreakdown {
         total: number
     }
     steps?: FunnelStepWithConversionMetrics[]
+    significant?: boolean
 }
 
 export interface ChartParams {
@@ -1067,7 +1090,7 @@ export interface PreflightStatus {
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
     posthog_version?: string
-    email_service_available?: boolean
+    email_service_available: boolean
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean

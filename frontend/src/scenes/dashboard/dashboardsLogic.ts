@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { dashboardsLogicType } from './dashboardsLogicType'
 import { DashboardType } from '~/types'
 import { uniqueBy } from 'lib/utils'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export const dashboardsLogic = kea<dashboardsLogicType>({
     actions: {
@@ -21,14 +21,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
     },
     selectors: {
         dashboards: [
-            () => [dashboardsModel.selectors.dashboards],
+            () => [dashboardsModel.selectors.nameSortedDashboards],
             (dashboards: DashboardType[]) =>
                 dashboards
                     .filter((d) => !d.deleted)
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')),
         ],
         dashboardTags: [
-            () => [dashboardsModel.selectors.dashboards],
+            () => [dashboardsModel.selectors.nameSortedDashboards],
             (dashboards: DashboardType[]): string[] =>
                 uniqueBy(
                     dashboards.flatMap(({ tags }) => tags),

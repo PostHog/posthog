@@ -77,6 +77,7 @@ export interface CodeSnippetProps {
     actions?: Action[]
     style?: React.CSSProperties
     copyDescription?: string
+    hideCopyButton?: boolean
 }
 
 export function CodeSnippet({
@@ -86,6 +87,7 @@ export function CodeSnippet({
     style = {},
     actions,
     copyDescription = 'code snippet',
+    hideCopyButton = false,
 }: CodeSnippetProps): JSX.Element {
     return (
         <div className="code-container" style={style}>
@@ -105,13 +107,15 @@ export function CodeSnippet({
                             </Popconfirm>
                         )
                     )}
-                <CopyOutlined
-                    className="action-icon"
-                    onClick={() => {
-                        children && copyToClipboard(children, copyDescription)
-                    }}
-                    title="Copy"
-                />
+                {!hideCopyButton && (
+                    <CopyOutlined
+                        className="action-icon"
+                        onClick={() => {
+                            children && copyToClipboard(children, copyDescription)
+                        }}
+                        title="Copy"
+                    />
+                )}
             </div>
             <SyntaxHighlighter
                 style={okaidia}

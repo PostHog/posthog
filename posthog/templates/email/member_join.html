@@ -1,16 +1,15 @@
-{% extends "email/base_personal.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block heading %}{{ invitee.first_name }} accepted their PostHog invitation{% endblock %}
-{% block section %}
+{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block section %}
+<p>
+    {{ invitee.first_name }} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{
+    organization.name }}.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri %}">View PostHog insights</a>
+</div>
+<div class="mt">
     <p>
-        {{ invitee.first_name }} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{ organization.name }}.
+        If the button above does not work, paste the following link into your browser:<br />
+        <a href="{% absolute_uri %}">{% absolute_uri %}</a>
     </p>
-    <div class="mb mt text-center">
-        <a class="button" href="{% absolute_uri %}">View PostHog insights</a>
-    </div>
-    <div class="mt">
-        <p>
-            If the button above does not work, paste the following link into your browser:<br />
-            <a href="{% absolute_uri %}">{% absolute_uri %}</a>
-        </p>
-    </div>
-{% endblock %}
+</div>
+{% endblock %}{% block heading %}{{ invitee.first_name }} accepted their PostHog invitation{% endblock %}

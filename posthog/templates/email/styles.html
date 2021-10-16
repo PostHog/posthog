@@ -4,12 +4,16 @@
     .main {
         width: 100%;
         font-size: 14px;
-        font-family: 'Helvetica Neue', helvetica, sans-serif;
+        font-family: 'MatterSQ', 'Helvetica Neue', helvetica, sans-serif;
         padding: 0;
         margin: 0;
-        background-color: #fff;
+        background-color: #eeefe9;
         color: #2d2d2d;
         line-height: 1.4;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
     }
 
     .main {
@@ -22,7 +26,8 @@
     .logo {
         /* Styling for alt text */
         font-weight: 600;
-        color: #35416b;
+        color: #5375ff;
+        padding-left: 16px;
     }
 
     /* General styles */
@@ -68,6 +73,10 @@
         line-height: 0;
     }
 
+    h1 {
+        font-size: 36px;
+    }
+
     h1,
     h2 {
         font-weight: 600;
@@ -88,32 +97,40 @@
         text-align: center;
     }
 
+    .danger {
+        color: #df4313;
+    }
+
     .button {
-        padding: 8px 16px;
-        height: 40px;
-        background-color: #5375ff;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        padding-left: 24px;
+        padding-right: 24px;
+        background-color: #000000;
+        font-weight: 500;
         color: #fff;
-        border-top-left-radius: 2px;
-        border-top-right-radius: 2px;
-        border-bottom-left-radius: 2px;
-        border-bottom-right-radius: 2px;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
+        text-decoration: none;
     }
 
     .mt {
-        margin-top: 16px;
+        margin-top: 24px;
     }
 
     .mb {
-        margin-bottom: 16px;
+        margin-bottom: 24px;
     }
 
     /* Header & Footer */
 
     .header {
         text-align: left;
-        border-bottom-color: #5375ff;
-        border-bottom-width: 5px;
-        border-bottom-style: solid;
+        border-bottom-color: #d9d9d9;
+        border-bottom-width: 1px;
+        border-bottom-style: dashed;
     }
 
     .mainTitle div,
@@ -134,9 +151,9 @@
     }
 
     .footer {
-        border-top-color: #a7b7be;
+        border-top-color: #d9d9d9;
         border-top-width: 1px;
-        border-top-style: solid;
+        border-top-style: dashed;
         padding-top: 32px;
         color: #a5a5a5;
         font-size: 12px;
@@ -145,6 +162,7 @@
 
     .footer a {
         color: #a5a5a5;
+        text-decoration: none;
     }
 
     .footer div:not(.socialLinks) a {

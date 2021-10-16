@@ -1,6 +1,6 @@
 import React from 'react'
 
-export default function stringWithWBR(text: string): JSX.Element {
+export default function stringWithWBR(text: string, splitAt = 30): JSX.Element {
     const addWBRAfter = [',', '.', '/', '\\']
     const naturalSplit = [' ', '-']
 
@@ -14,7 +14,7 @@ export default function stringWithWBR(text: string): JSX.Element {
     }
 
     text.split('').forEach((letter) => {
-        if (addWBRAfter.indexOf(letter) >= 0 || sinceSplit >= 30) {
+        if (addWBRAfter.indexOf(letter) >= 0 || sinceSplit >= splitAt) {
             sinceSplit = 0
             final += letter
             returnArray.push(<span key={i++}>{final}</span>)

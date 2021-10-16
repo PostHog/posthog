@@ -16,7 +16,7 @@ import { volcano, green, red, grey, blue } from '@ant-design/colors'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 interface PreflightItemInterface {
     name: string

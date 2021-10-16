@@ -37,8 +37,8 @@ class TestShouldUpdatePersonProp(BaseTest):
             cursor.execute(
                 f"""
                 SELECT 
-                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set'),
-                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set_once')
+                    should_update_person_prop({person.id}, 'a', now()::text, 'set'),
+                    should_update_person_prop({person.id}, 'b', now()::text, 'set_once')
             """
             )
 
@@ -64,8 +64,8 @@ class TestShouldUpdatePersonProp(BaseTest):
             cursor.execute(
                 f"""
                 SELECT 
-                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set'),
-                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set_once')
+                    should_update_person_prop({person.id}, 'a', now()::text, 'set'),
+                    should_update_person_prop({person.id}, 'b', now()::text, 'set_once')
             """
             )
 
