@@ -1,9 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Optional, Union
-
-from typing_extensions import TypedDict
+from typing import Dict, List, Optional, TypedDict, Union
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
 from posthog.models import Event, Team, User

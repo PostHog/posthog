@@ -154,7 +154,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
     },
 
     selectors: ({ selectors }) => ({
-        sortedDashboards: [
+        nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
                 return Object.values(rawDashboards).sort((a, b) =>
@@ -162,17 +162,25 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 )
             },
         ],
-        dashboards: [
-            () => [selectors.sortedDashboards],
-            (sortedDashboards) => {
-                return [...sortedDashboards.filter((d) => d.pinned), ...sortedDashboards.filter((d) => !d.pinned)]
+        /** Display dashboards are additionally sorted by pin status: pinned first. */
+        pinSortedDashboards: [
+            () => [selectors.nameSortedDashboards],
+            (nameSortedDashboards) => {
+                return nameSortedDashboards.sort(
+                    (a, b) =>
+                        (Number(b.pinned) - Number(a.pinned)) * 10 +
+                        (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
+                )
             },
         ],
         dashboardsLoading: [
             () => [selectors.rawDashboardsLoading, selectors.sharedDashboardsLoading],
             (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
         ],
-        pinnedDashboards: [() => [selectors.dashboards], (dashboards) => dashboards.filter((d) => d.pinned)],
+        pinnedDashboards: [
+            () => [selectors.nameSortedDashboards],
+            (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),
+        ],
     }),
 
     events: ({ actions }) => ({
@@ -209,9 +217,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             )
 
             const { id } = dashboard
-            const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(
-                (d) => d.id !== id && !d.deleted
-            )
+            const nextDashboard = values.pinSortedDashboards.find((d) => d.id !== id && !d.deleted)
 
             if (values.redirect) {
                 if (nextDashboard) {
