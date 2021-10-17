@@ -70,7 +70,7 @@ KAFKA_ENABLED = PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE and not TEST
 # Settings specific for materialized columns
 
 # Whether materialized columns should be created or used at query time
-MATERIALIZED_COLUMNS_ENABLED = get_from_env("MATERIALIZED_COLUMNS_ENABLED ", True, type_cast=str_to_bool)
+MATERIALIZED_COLUMNS_ENABLED = get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool)
 
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing
