@@ -120,7 +120,7 @@
                 },
                 {
                     "name": "MATERIALIZED_COLUMNS_ENABLED",
-                    "value": "0"
+                    "value": "1"
                 },
                 {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",
