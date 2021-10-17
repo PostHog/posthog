@@ -98,7 +98,7 @@
                 },
                 {
                     "name": "MATERIALIZED_COLUMNS_ENABLED",
-                    "value": "False"
+                    "value": "0"
                 },
                 {
                     "name": "PERSISTED_FEATURE_FLAGS",
