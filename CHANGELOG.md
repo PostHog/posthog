@@ -1,5 +1,9 @@
 # Changelog
 
+### 1.29.0 - Wednesday 20 October 2021
+
+Changelog coming soon.
+
 ### 1.28.1 - Monday 27 September 2021
 
 -   Bug fix. Fixes a bug where refreshing dashboards could cause a server overload (#5865).
