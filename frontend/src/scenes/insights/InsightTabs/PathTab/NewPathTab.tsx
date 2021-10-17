@@ -187,7 +187,7 @@ export function NewPathTab(): JSX.Element {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Pageview events
+                                    Pageviews
                                 </Checkbox>
                             </Col>
                             <Col
@@ -203,7 +203,7 @@ export function NewPathTab(): JSX.Element {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Screenview events
+                                    Screenviews
                                 </Checkbox>
                             </Col>
                             <Col
