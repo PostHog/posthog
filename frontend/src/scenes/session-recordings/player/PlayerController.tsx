@@ -11,7 +11,7 @@ import { Slider } from 'scenes/session-recordings/player/Slider'
 import { colonDelimitedDuration } from 'lib/utils'
 
 export function PlayerController(): JSX.Element {
-    const { togglePlayPause, seek, seekBackward, seekForward, setSpeed } = useActions(sessionRecordingPlayerLogic)
+    const { togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(sessionRecordingPlayerLogic)
     const { currentPlayerState, jumpTimeMs, meta, time, speed } = useValues(sessionRecordingPlayerLogic)
 
     return (
@@ -51,7 +51,7 @@ export function PlayerController(): JSX.Element {
                 {colonDelimitedDuration(time.current / 1000)} / {colonDelimitedDuration(meta.totalTime / 1000)}
             </div>
             <div className="rrweb-progress">
-                <Slider value={time.current} total={meta.totalTime} onChange={seek} />
+                <Slider /*value={time.current} total={meta.totalTime} onChange={seek}*/ />
             </div>
             <Select
                 onChange={(nextSpeed: number) => setSpeed(nextSpeed)}
@@ -63,14 +63,7 @@ export function PlayerController(): JSX.Element {
                 <Select.OptGroup label="Speed">
                     {PLAYBACK_SPEEDS.map((speedToggle) => (
                         <Select.Option key={speedToggle} value={speedToggle}>
-                            <span
-
-                            // style={{
-                            //     fontWeight: speedToggle === speed ? 'bold' : 'normal',
-                            // }}
-                            >
-                                {speedToggle}x
-                            </span>
+                            {speedToggle}x
                         </Select.Option>
                     ))}
                 </Select.OptGroup>
