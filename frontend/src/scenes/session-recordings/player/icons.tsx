@@ -1,6 +1,7 @@
 // Base icons from https://github.com/ant-design/ant-design
 
 import React from 'react'
+import { RedoOutlined, UndoOutlined } from '@ant-design/icons'
 
 function BaseIcon({
     children,
@@ -12,26 +13,46 @@ function BaseIcon({
     className?: string
 }): JSX.Element {
     return (
-        <span onClick={onClick} className={className || 'ph-rrweb-controller-icon'}>
+        <span onClick={onClick} className={className || 'rrweb-controller-icon'}>
             {children}
         </span>
     )
 }
 
-export function IconSeekBack({ onClick, className = '' }: { onClick: () => void; className?: string }): JSX.Element {
-    // TODO: Allow the number of seconds to be set dynamically
+export function IconSeekBack({
+    onClick,
+    time,
+    className = '',
+}: {
+    onClick: () => void
+    time: number
+    className?: string
+}): JSX.Element {
     return (
         <BaseIcon onClick={onClick} className={className}>
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                    d="M26.6812 6.91244H11.2101V4.28466C11.2101 4.04674 10.9312 3.91535 10.7428 4.06094L5.59783 8.03812C5.56318 8.0647 5.53516 8.09865 5.5159 8.13741C5.49663 8.17617 5.48661 8.21872 5.48661 8.26184C5.48661 8.30496 5.49663 8.34751 5.5159 8.38627C5.53516 8.42503 5.56318 8.45898 5.59783 8.48556L10.7428 12.4627C10.9312 12.6083 11.2101 12.4769 11.2101 12.239V9.61124H26.2464V26.3012H4.28986C4.13043 26.3012 4 26.429 4 26.5853V28.7159C4 28.8722 4.13043 29 4.28986 29H26.6812C27.9601 29 29 27.9808 29 26.7273V9.18511C29 7.93159 27.9601 6.91244 26.6812 6.91244Z"
-                    fill="currentColor"
-                />
-                <path
-                    d="M17.0234 20.082C17.0234 20.5697 17.1488 20.9479 17.3994 21.2168C17.6546 21.4857 18.0055 21.6201 18.4521 21.6201C18.8988 21.6201 19.2474 21.4857 19.498 21.2168C19.7533 20.9479 19.8809 20.5697 19.8809 20.082C19.8809 19.5762 19.751 19.1934 19.4912 18.9336C19.236 18.6693 18.8896 18.5371 18.4521 18.5371C18.0146 18.5371 17.666 18.6693 17.4062 18.9336C17.151 19.1934 17.0234 19.5762 17.0234 20.082ZM15 20.2119C15 19.6559 15.1253 19.1523 15.376 18.7012C15.6312 18.25 16.0026 17.9105 16.4902 17.6826C16.0117 17.3636 15.6995 17.0195 15.5537 16.6504C15.4124 16.2767 15.3418 15.9281 15.3418 15.6045C15.3418 14.8844 15.613 14.2715 16.1553 13.7656C16.6976 13.2552 17.4632 13 18.4521 13C19.4411 13 20.2067 13.2552 20.749 13.7656C21.2913 14.2715 21.5625 14.8844 21.5625 15.6045C21.5625 15.9281 21.4896 16.2767 21.3438 16.6504C21.2025 17.0195 20.8926 17.3408 20.4141 17.6143C20.9017 17.8877 21.2686 18.25 21.5146 18.7012C21.7607 19.1523 21.8838 19.6559 21.8838 20.2119C21.8838 21.0459 21.5739 21.7568 20.9541 22.3447C20.3389 22.9281 19.4775 23.2197 18.3701 23.2197C17.2627 23.2197 16.4242 22.9281 15.8545 22.3447C15.2848 21.7568 15 21.0459 15 20.2119ZM17.2012 15.8232C17.2012 16.1833 17.3105 16.4772 17.5293 16.7051C17.7526 16.9329 18.0602 17.0469 18.4521 17.0469C18.8486 17.0469 19.154 16.9329 19.3682 16.7051C19.5869 16.4772 19.6963 16.1833 19.6963 15.8232C19.6963 15.4313 19.5869 15.126 19.3682 14.9072C19.154 14.6839 18.8486 14.5723 18.4521 14.5723C18.0602 14.5723 17.7526 14.6839 17.5293 14.9072C17.3105 15.126 17.2012 15.4313 17.2012 15.8232Z"
-                    fill="currentColor"
-                />
-            </svg>
+            <>
+                <span>{time}</span>
+                <UndoOutlined rotate={90} />
+            </>
+        </BaseIcon>
+    )
+}
+
+export function IconSeekForward({
+    onClick,
+    time,
+    className = '',
+}: {
+    onClick: () => void
+    time: number
+    className?: string
+}): JSX.Element {
+    return (
+        <BaseIcon onClick={onClick} className={className}>
+            <>
+                <span>{time}</span>
+                <RedoOutlined rotate={270} />
+            </>
         </BaseIcon>
     )
 }
@@ -39,11 +60,8 @@ export function IconSeekBack({ onClick, className = '' }: { onClick: () => void;
 export function IconPlay({ onClick, className = '' }: { onClick?: () => void; className?: string }): JSX.Element {
     return (
         <BaseIcon onClick={onClick} className={className}>
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                    d="M9.36139 28.8202L24.1954 17.1629C24.2945 17.0841 24.3746 16.984 24.4297 16.87C24.4847 16.756 24.5133 16.6311 24.5133 16.5045C24.5133 16.3779 24.4847 16.2529 24.4297 16.1389C24.3746 16.0249 24.2945 15.9248 24.1954 15.8461L9.36139 4.18126C8.81088 3.74978 8 4.13663 8 4.83592V28.1581C8 28.8574 8.81088 29.2517 9.36139 28.8202Z"
-                    fill="currentColor"
-                />
+            <svg width="1em" height="1em" viewBox="0 0 13 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0 16L12.4444 8L0 0V16Z" fill="currentcolor" />
             </svg>
         </BaseIcon>
     )
@@ -52,11 +70,8 @@ export function IconPlay({ onClick, className = '' }: { onClick?: () => void; cl
 export function IconPause({ onClick, className = '' }: { onClick?: () => void; className?: string }): JSX.Element {
     return (
         <BaseIcon onClick={onClick} className={className}>
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                    d="M9.5 5.5H12V26.5H9.5V5.5ZM22.25 5.5H20.25C20.1125 5.5 20 5.6125 20 5.75V26.25C20 26.3875 20.1125 26.5 20.25 26.5H22.25C22.3875 26.5 22.5 26.3875 22.5 26.25V5.75C22.5 5.6125 22.3875 5.5 22.25 5.5Z"
-                    fill="currentColor"
-                />
+            <svg width="1em" height="1em" viewBox="0 0 12 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0 16H4V0H0V16ZM8 16H12V0H8V16Z" fill="currentcolor" />
             </svg>
         </BaseIcon>
     )

@@ -36,20 +36,24 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
 
         const scale = Math.min(width / replayDimensions.width, height / replayDimensions.height, 1)
 
+        console.log('DIMENSIONS', width, height, scale)
+        console.log('DIMENSIONS', replayDimensions.width, replayDimensions.height)
+
         replayer.wrapper.style.transform = `scale(${scale})`
         frameRef.current.style.paddingLeft = `${(width - replayDimensions.width * scale) / 2}px`
         frameRef.current.style.paddingTop = `${(height - replayDimensions.height * scale) / 2}px`
+        frameRef.current.style.marginBottom = `-${height - replayDimensions.height * scale}px`
     }
 
     return (
-        <div className="ph-rrweb-player" onClick={togglePlayPause}>
+        <div className="rrweb-player" onClick={togglePlayPause}>
             <div ref={ref} />
-            <div className="ph-rrweb-overlay-container">
+            <div className="rrweb-overlay-container">
                 {currentPlayerState === SessionPlayerState.SKIP && (
-                    <div className="ph-rrweb-overlay">Skipping inactivity...</div>
+                    <div className="rrweb-overlay">Skipping inactivity...</div>
                 )}
-                {currentPlayerState === SessionPlayerState.BUFFER && <div className="ph-rrweb-overlay">Buffering</div>}
-                {currentPlayerState === SessionPlayerState.PAUSE && <div className="ph-rrweb-overlay">Pause</div>}
+                {currentPlayerState === SessionPlayerState.BUFFER && <div className="rrweb-overlay">Buffering</div>}
+                {currentPlayerState === SessionPlayerState.PAUSE && <div className="rrweb-overlay">Pause</div>}
             </div>
         </div>
     )

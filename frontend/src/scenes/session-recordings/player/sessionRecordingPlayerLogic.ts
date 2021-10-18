@@ -185,16 +185,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
 
             const nextTime = getTime(time, values.meta)
-            if (forcePlay) {
-                values.replayer?.play(nextTime)
-            }
+            values.replayer?.play(nextTime)
+
             // If next time is greater than last buffered time, set to buffering
             if (nextTime >= values.time.lastBuffered) {
+                values.replayer?.pause()
                 actions.setBuffer()
             }
             // If seek position has already been loaded, resume last playing state
             else {
                 actions.clearLoadingState()
+
+                if (values.playingState === SessionPlayerState.PAUSE && !forcePlay) {
+                    values.replayer?.pause()
+                }
             }
 
             await breakpoint(10)

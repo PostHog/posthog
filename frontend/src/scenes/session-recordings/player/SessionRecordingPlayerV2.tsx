@@ -6,6 +6,7 @@ import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 import './styles.scss'
+import { Col, Row } from 'antd'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, initReplayer, stopAnimation } =
@@ -52,15 +53,20 @@ export function SessionRecordingPlayerV2(): JSX.Element {
     }
 
     return (
-        <div
-            className="session-player v2"
-            onKeyDown={handleKeyDown}
-            tabIndex={0}
-            style={{ height: '100%', width: '100%' }}
-        >
-            <PlayerFrame ref={frame} />
-            <PlayerController toggleFullScreen={toggleFullScreen} />
-            <PlayerEvents />
-        </div>
+        <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
+            <Row className="session-player-body" wrap={false}>
+                <Col className="player-container" span={18}>
+                    <span className="ph-no-capture">
+                        <PlayerFrame ref={frame} />
+                    </span>
+                </Col>
+                <Col span={6} flex={1}>
+                    <PlayerEvents />
+                </Col>
+            </Row>
+            <Row className="session-player-controller" align="middle">
+                <PlayerController toggleFullScreen={toggleFullScreen} />
+            </Row>
+        </Col>
     )
 }
