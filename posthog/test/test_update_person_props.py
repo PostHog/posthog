@@ -38,7 +38,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_person_props(
+                SELECT update_and_return_person_props(
 	                id, 
 	                properties,
 	                properties_last_updated_at, 
@@ -69,7 +69,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_person_props(
+                SELECT update_and_return_person_props(
 	                id, 
 	                properties,
 	                properties_last_updated_at, 
@@ -96,7 +96,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_person_props(
+                SELECT update_and_return_person_props(
 	                id, 
 	                properties,
 	                properties_last_updated_at, 
@@ -128,7 +128,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_person_props(
+                SELECT update_and_return_person_props(
 	                id, 
 	                properties,
 	                properties_last_updated_at, 
@@ -161,7 +161,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_person_props(
+                SELECT update_and_return_person_props(
 	                id, 
 	                properties,
 	                properties_last_updated_at, 
@@ -194,7 +194,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_person_props(
+                SELECT update_and_return_person_props(
 	                id, 
 	                properties,
 	                properties_last_updated_at, 
@@ -227,7 +227,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_person_props(
+                SELECT update_and_return_person_props(
 	                id, 
 	                properties,
 	                properties_last_updated_at, 
@@ -257,7 +257,7 @@ class TestShouldUpdatePersonProp(BaseTest):
     #     with connection.cursor() as cursor:
     #         cursor.execute(
     #             f"""
-    #             SELECT update_person_props(
+    #             SELECT update_and_return_person_props(
 
 
 #                 id,

@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL("DROP FUNCTION IF EXISTS should_update_person_props;"),
         migrations.RunSQL("DROP TYPE IF EXISTS person_property_update;"),
-        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;"),
+        migrations.RunSQL("DROP FUNCTION IF EXISTS update_and_return_person_props;"),
         migrations.RunSQL(
             """
         CREATE TYPE person_property_update AS (
@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             """
             -- not-null-ignore
-            CREATE FUNCTION update_person_props(
+            CREATE FUNCTION update_and_return_person_props(
                     person_id int,
                     properties jsonb,
                     properties_last_updated_at jsonb,
