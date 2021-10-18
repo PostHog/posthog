@@ -23,17 +23,27 @@ export const PropertyNamesSelect = ({
             <WarningFilled style={{ color: 'var(--warning)' }} /> Error loading properties!
         </div>
     ) : properties ? (
-        <SelectPropertiesProvider properties={properties} onChange={onChange}>
-            <PropertyNamesSelectBox />
+        <SelectPropertiesProvider properties={properties}>
+            <PropertyNamesSelectBox onBlur={onChange} />
         </SelectPropertiesProvider>
     ) : (
         <div className="property-names-select">Loading properties...</div>
     )
 }
 
-const PropertyNamesSelectBox = (): JSX.Element => {
+const PropertyNamesSelectBox = ({ onBlur }: { onBlur?: (selectedProperties: string[]) => void }): JSX.Element => {
     const { properties, selectedProperties, selectAll, clearAll, selectState } = useSelectedProperties()
-    const { isOpen: isSearchOpen, popoverProps, triggerProps } = usePopover()
+    const {
+        isOpen: isSearchOpen,
+        popoverProps,
+        triggerProps,
+    } = usePopover({
+        onHide: () => {
+            if (onBlur) {
+                onBlur(Array.from(selectedProperties))
+            }
+        },
+    })
 
     return (
         <div className="property-names-select-container" {...triggerProps}>
@@ -120,12 +130,24 @@ const PropertyNamesSearch = (): JSX.Element => {
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-const usePopover = () => {
+const usePopover = ({ onHide }: { onHide: () => void }) => {
     /* Logic for handling arbitrary popover state */
     const [isOpen, setIsOpen] = React.useState<boolean>(false)
-    const toggle = (): void => setIsOpen(!isOpen)
-    const hide = (): void => setIsOpen(false)
+
+    const hide = (): void => {
+        setIsOpen(false)
+        onHide()
+    }
+
     const open = (): void => setIsOpen(true)
+
+    const toggle = (): void => {
+        if (isOpen) {
+            hide()
+        } else {
+            open()
+        }
+    }
 
     // I use a ref to ensure we are able to close the popover when the user clicks outside of it.
     const triggerRef = React.useRef<HTMLDivElement>(null)
@@ -188,6 +210,8 @@ const useSelectedProperties = () => {
     /* Provides functions for handling selected properties state */
     const context = React.useContext(propertiesSelectionContext)
 
+    // make typing happy, i.e. rule out the undefined case so we don't have to
+    // check this everywhere
     if (context === undefined) {
         throw Error('No select React.Context found')
     }
