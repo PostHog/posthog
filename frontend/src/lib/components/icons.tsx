@@ -1,6 +1,6 @@
 // Loads custom icons (some icons may come from a third-party library)
 import React, { CSSProperties } from 'react'
-import { ArrowUpOutlined } from '@ant-design/icons'
+import { ArrowUpOutlined, ArrowRightOutlined } from '@ant-design/icons'
 
 import './icons.scss'
 
@@ -488,22 +488,11 @@ export function Infinity({ style }: { style?: CSSProperties }): JSX.Element {
 }
 
 export function PathsCompletedArrow(): JSX.Element {
-    return (
-        <svg width="16" height="8" viewBox="0 0 16 8" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M16 4L12 0V3H0V5H12V8L16 4Z" fill="#77B96C" />
-        </svg>
-    )
+    return <ArrowRightOutlined style={{ color: 'var(--success)' }} />
 }
 
 export function PathsDropoffArrow(): JSX.Element {
-    return (
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-                d="M14.6569 14.6568V8.99993L12.5356 11.1212L4.05031 2.63597L2.6361 4.05018L11.1214 12.5355L9.00006 14.6568H14.6569Z"
-                fill="#F96132"
-            />
-        </svg>
-    )
+    return <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
 }
 
 export function TrendUp({ style }: { style?: CSSProperties }): JSX.Element {
