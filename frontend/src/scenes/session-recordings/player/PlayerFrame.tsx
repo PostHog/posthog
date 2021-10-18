@@ -36,9 +36,6 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
 
         const scale = Math.min(width / replayDimensions.width, height / replayDimensions.height, 1)
 
-        console.log('DIMENSIONS', width, height, scale)
-        console.log('DIMENSIONS', replayDimensions.width, replayDimensions.height)
-
         replayer.wrapper.style.transform = `scale(${scale})`
         frameRef.current.style.paddingLeft = `${(width - replayDimensions.width * scale) / 2}px`
         frameRef.current.style.paddingTop = `${(height - replayDimensions.height * scale) / 2}px`

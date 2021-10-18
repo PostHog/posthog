@@ -11,10 +11,8 @@ import { Col, Row } from 'antd'
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, initReplayer, stopAnimation } =
         useActions(sessionRecordingPlayerLogic)
-    const { snapshots, isPlayable } = useValues(sessionRecordingPlayerLogic)
+    const { isPlayable } = useValues(sessionRecordingPlayerLogic)
     const frame = useRef<HTMLDivElement | null>(null)
-
-    console.log('RECORDING', snapshots.length)
 
     // Need useEffect to populate replayer on component paint
     useEffect(() => {

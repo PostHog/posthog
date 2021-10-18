@@ -105,8 +105,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     },
     listeners: ({ values, actions, cache }) => ({
         initReplayer: ({ frame }) => {
-            console.log('INIT REPLAYER', frame, values.snapshots)
-
             if (values.snapshots.length < 2) {
                 return
             }
