@@ -58,7 +58,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         chunkIndex: [
             0,
             {
-                loadRecordingSuccess: () => true,
+                loadRecordingSuccess: (state) => state + 1,
             },
         ],
         sessionPlayerDataLoading: [

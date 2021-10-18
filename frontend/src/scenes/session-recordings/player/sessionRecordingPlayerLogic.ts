@@ -139,6 +139,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentEvents = values.replayer?.service.state.context.events ?? []
             const eventsToAdd = values.snapshots.slice(currentEvents.length) ?? []
 
+            // Set meta timestamps when first chunk loads. The first time is a guesstimate that's later corrected by
+            // the time the whole chunk loads.
+            if (values.chunkIndex === 1) {
+                actions.setMetaDuration(sessionPlayerData?.duration ?? 0)
+            }
+
             if (eventsToAdd.length < 1 || !values.replayer) {
                 return
             }
@@ -154,12 +160,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.clearLoadingState()
             }
 
-            // Only set meta timestamps when first chunk and last chunk loads. The first time
-            // is a guesstimate that's later corrected by the second time.
-            console.log('CHUNK INDEX', values.chunkIndex)
-            if (values.chunkIndex === 1) {
-                actions.setMetaDuration(sessionPlayerData?.duration ?? 0)
-            }
+            // Set meta once whole session recording loads
             if (!values.sessionPlayerDataLoading) {
                 const meta = values.replayer.getMetaData()
                 actions.setMeta(meta)
