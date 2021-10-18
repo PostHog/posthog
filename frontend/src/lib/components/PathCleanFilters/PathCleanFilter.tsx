@@ -1,12 +1,17 @@
 import './PathClean.scss'
-import React from 'react'
+import React, { useState } from 'react'
 import { Col, Input, Divider, Button, Row } from 'antd'
 
 interface PathRegexPopupProps {
-    onComplete: () => void
+    onComplete: (newItem: Record<string, any>) => void
+    onClose: () => void
+    item: Record<string, any>
 }
 
-export function PathRegexPopup({ onComplete }: PathRegexPopupProps): JSX.Element {
+export function PathRegexPopup({ item, onComplete, onClose }: PathRegexPopupProps): JSX.Element {
+    const [alias, setAlias] = useState(item['alias'])
+    const [regex, setRegex] = useState(item['regex'])
+
     return (
         <div className="regex-popup">
             <Col>
@@ -14,7 +19,10 @@ export function PathRegexPopup({ onComplete }: PathRegexPopupProps): JSX.Element
                 <Divider style={{ marginTop: 10, marginBottom: 10 }} />
                 <span>Alias</span>
                 <Input
-                    defaultValue={''}
+                    defaultValue={alias}
+                    onChange={(e) => {
+                        setAlias(e.target.value)
+                    }}
                     onPressEnter={() => {
                         return false
                     }}
@@ -22,18 +30,26 @@ export function PathRegexPopup({ onComplete }: PathRegexPopupProps): JSX.Element
                 />
                 <span>Regex</span>
                 <Input
-                    defaultValue={''}
+                    defaultValue={regex}
+                    onChange={(e) => {
+                        setRegex(e.target.value)
+                    }}
                     onPressEnter={() => {
                         return false
                     }}
                     style={{ marginTop: 8 }}
                 />
                 <Row style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-                    <Button onClick={onComplete} type="link">
+                    <Button onClick={onClose} type="link">
                         {' '}
                         Cancel{' '}
                     </Button>
-                    <Button onClick={onComplete} type="primary">
+                    <Button
+                        onClick={() => {
+                            onComplete({ alias, regex })
+                        }}
+                        type="primary"
+                    >
                         {' '}
                         Save{' '}
                     </Button>

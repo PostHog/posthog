@@ -3,9 +3,9 @@ import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
 import { Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
-import PropertyFilterButton from './PropertyFilterButton'
+import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import 'scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
@@ -104,6 +104,10 @@ export const FilterRow = React.memo(function FilterRow({
                                             item={item}
                                             setRef={setRef}
                                         />
+                                    ) : isValidPathCleanFilter(item) ? (
+                                        <FilterButton onClick={() => setOpen(!open)} setRef={setRef}>
+                                            {item['alias'] + ' :: ' + item['regex']}
+                                        </FilterButton>
                                     ) : (
                                         <Button
                                             ref={setRef}

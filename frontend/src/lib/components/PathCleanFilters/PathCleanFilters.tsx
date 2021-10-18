@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
-    onChange?: null | ((filters: Record<string, any>[]) => void)
+    onChange: (filters: Record<string, any>[]) => void
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
@@ -23,6 +23,7 @@ interface PropertyFiltersProps {
 
 export function PathCleanFilters({
     pageKey,
+    onChange,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement = null,
@@ -30,9 +31,12 @@ export function PathCleanFilters({
     style = {},
     showNestedArrow = false,
 }: PropertyFiltersProps): JSX.Element {
-    const { path_cleaning_filters_with_new } = useValues(teamLogic)
+    const { path_cleaning_filters_with_new, currentTeam } = useValues(teamLogic)
 
-    const onRemove = (): void => {}
+    const onRemove = (index: number): void => {
+        const newState = (currentTeam?.path_cleaning_filters || []).filter((_, i) => i !== index)
+        onChange(newState)
+    }
 
     return (
         <div className="mb" style={style}>
@@ -54,7 +58,16 @@ export function PathCleanFilters({
                             label={'Add rule'}
                             onRemove={onRemove}
                             filterComponent={(onComplete) => {
-                                return <PathRegexPopup onComplete={onComplete} />
+                                return (
+                                    <PathRegexPopup
+                                        item={item}
+                                        onClose={onComplete}
+                                        onComplete={(newItem) => {
+                                            onChange([...(currentTeam?.path_cleaning_filters || []), newItem])
+                                            onComplete()
+                                        }}
+                                    />
+                                )
                             }}
                         />
                     )
