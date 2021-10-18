@@ -64,14 +64,15 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { sceneConfig } = useValues(sceneLogic)
 
     if (showApp) {
-        return currentTeamId ? (
+        return (
             <>
-                {user ? <Models /> : null}
-                <AppScene />
+                {user && currentTeamId ? <Models /> : null}
+                {(!sceneConfig.projectBased || currentTeamId) && <AppScene />}
             </>
-        ) : null
+        )
     }
 
     return showingDelayedSpinner ? <SceneLoading /> : null
