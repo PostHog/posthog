@@ -1,4 +1,4 @@
-import { Button, Col, Row } from 'antd'
+import { Button, Col, Row, Space } from 'antd'
 import React from 'react'
 import { ControlOutlined, LockOutlined, PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
@@ -111,21 +111,19 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
             onCancel={hideModal}
             footer={
                 <Row>
-                    <Col flex={1}>
-                        <Button className={'text-blue'} onClick={() => resetColumns(defaultColumns)}>
+                    <Space style={{ flexGrow: 1 }} align="start">
+                        <Button className="text-blue" onClick={() => resetColumns(defaultColumns)}>
                             Reset to default
                         </Button>
-                    </Col>
-                    <Col flex={0}>
-                        <Button className={'text-blue'} type="text" onClick={hideModal}>
+                    </Space>
+                    <Space>
+                        <Button className="text-blue" type="text" onClick={hideModal}>
                             Cancel
                         </Button>
-                    </Col>
-                    <Col flex={0}>
                         <Button type="primary" onClick={save}>
                             Save
                         </Button>
-                    </Col>
+                    </Space>
                 </Row>
             }
         >
