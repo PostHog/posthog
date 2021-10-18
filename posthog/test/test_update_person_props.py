@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 
 from django.db import connection
 
@@ -246,38 +246,39 @@ class TestShouldUpdatePersonProp(BaseTest):
         self.assertEqual(updated_person.properties, {"a": 0, "b": 0})
 
     # # tests cases 11-14 from the table
-    # def test_equal_timestamps(self):
-    #     timestamp = datetime(2000, 1, 1, 1, 1, 1).isoformat()
-    #     person = Person.objects.create(
-    #         team=self.team,
-    #         properties={"a": 0, "b": 0},
-    #         properties_last_updated_at={"a": timestamp, "b": timestamp,},
-    #         properties_last_operation={"a": "set", "b": "set_once"},
-    #     )
-    #     with connection.cursor() as cursor:
-    #         cursor.execute(
-    #             f"""
-    #             SELECT update_and_return_person_props(
+    def test_equal_timestamps(self):
+        # "2021-10-18 15:03:07.911639+01"
+        timestamp = datetime(2000, 1, 1, 1, 1, 1).isoformat()
+        person = Person.objects.create(
+            team=self.team,
+            properties={"a": 0, "b": 0, "c": 0, "d": 0},
+            properties_last_updated_at={"a": timestamp, "b": timestamp, "c": timestamp, "d": timestamp},
+            properties_last_operation={"a": "set", "b": "set", "c": "set_once", "d": "set_once"},
+        )
 
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT update_and_return_person_props(
+	                id, 
+	                properties,
+	                properties_last_updated_at, 
+	                properties_last_operation, 
+	                '{timestamp}', 
+	                array[
+                        row('set', 'a', '1'::jsonb)::person_property_update, 
+                        row('set_once', 'b', '1'::jsonb)::person_property_update,
+                        row('set', 'c', '1'::jsonb)::person_property_update,
+                        row('set_once', 'd', '1'::jsonb)::person_property_update
+                    ]
+                ) 
+                FROM posthog_person 
+                WHERE id={person.id}
+                FOR UPDATE
+            """
+            )
 
-#                 id,
-#                 properties,
-#                 properties_last_updated_at,
-#                 properties_last_operation,
-#                 now()::text,
-#                 array[
-#                     row('a', 'set_once', '{UPDATE_A}'::jsonb)::person_property_update,
-#                     row('b', 'set', '{UPDATE_B}'::jsonb)::person_property_update,
-#                     row('b', 'set_once', '{UPDATE_C}'::jsonb)::person_property_update,
-#                     row('b', 'set', '{UPDATE_D}'::jsonb)::person_property_update
-#                 ])
-#             FROM posthog_person
-#             WHERE id={person.id}
-#         """
-#         )
+        updated_person = Person.objects.get(id=person.id)
 
-
-#     updated_person = Person.objects.get(id=person.id)
-
-#     # b updated
-#     self.assertEqual(updated_person.properties, {"a": 0, "b": 0, "c": 0, "d": 0, })
+        # neither updated
+        self.assertEqual(updated_person.properties, {"a": 0, "b": 0, "c": 0, "d": 0})
