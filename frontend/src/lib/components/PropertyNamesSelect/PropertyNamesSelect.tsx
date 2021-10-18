@@ -1,6 +1,11 @@
-import { Select } from 'antd'
+import CaretDownFilled from '@ant-design/icons/lib/icons/CaretDownFilled'
+import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
+import WarningFilled from '@ant-design/icons/lib/icons/WarningFilled'
+import { Checkbox, Input } from 'antd'
 import { usePersonProperies } from 'lib/api/person-properties'
 import React from 'react'
+import { PersonProperty } from '~/types'
+import './styles.scss'
 
 export const PropertyNamesSelect = ({
     onChange,
@@ -9,30 +14,244 @@ export const PropertyNamesSelect = ({
 }): JSX.Element => {
     /*
         Provides a super simple multiselect box for selecting property names.
-
-        NOTE: this handles it's own state rather than a logic to avoid
-        complexity
     */
 
     const { properties, error } = usePersonProperies()
 
+    return error ? (
+        <div className="property-names-select">
+            <WarningFilled style={{ color: 'var(--warning)' }} /> Error loading properties!
+        </div>
+    ) : properties ? (
+        <SelectPropertiesProvider properties={properties} onChange={onChange}>
+            <PropertyNamesSelectBox />
+        </SelectPropertiesProvider>
+    ) : (
+        <div className="property-names-select">Loading properties...</div>
+    )
+}
+
+const PropertyNamesSelectBox = (): JSX.Element => {
+    const { properties, selectedProperties, selectAll, clearAll, selectState } = useSelectedProperties()
+    const { isOpen: isSearchOpen, popoverProps, triggerProps } = usePopover()
+
     return (
-        <Select
-            mode="multiple"
-            loading={!properties && !error}
-            defaultValue={['$all']}
-            placeholder={
-                error ? 'Failed to load properties!' : !properties ? 'Loading properties...' : 'Select property names'
+        <div className="property-names-select-container" {...triggerProps}>
+            <div className="property-names-select">
+                {properties ? (
+                    <>
+                        {selectState === 'all' ? (
+                            <Checkbox
+                                checked={true}
+                                onClick={(evt) => {
+                                    clearAll()
+                                    evt.stopPropagation()
+                                }}
+                            />
+                        ) : selectState === 'none' ? (
+                            <Checkbox
+                                checked={false}
+                                onClick={(evt) => {
+                                    selectAll()
+                                    evt.stopPropagation()
+                                }}
+                            />
+                        ) : (
+                            <Checkbox
+                                indeterminate={true}
+                                onClick={(evt) => {
+                                    selectAll()
+                                    evt.stopPropagation()
+                                }}
+                            />
+                        )}
+
+                        <div className="selection-status-text">
+                            {selectedProperties.size} or {properties.length} selected
+                        </div>
+
+                        <CaretDownFilled />
+                    </>
+                ) : (
+                    'Loading properties'
+                )}
+            </div>
+            {isSearchOpen ? (
+                <div className="popover" {...popoverProps}>
+                    <PropertyNamesSearch />
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+const PropertyNamesSearch = (): JSX.Element => {
+    const { properties, selectedProperties, toggleProperty } = useSelectedProperties()
+    const { filteredProperties, setQuery } = usePropertySearch(properties)
+
+    return (
+        <>
+            <Input
+                onChange={({ target: { value } }) => setQuery(value)}
+                className="search-box"
+                placeholder="Search for properties"
+                prefix={<SearchOutlined />}
+            />
+            <div className="checkbox-group">
+                {filteredProperties.map((property) => (
+                    <Checkbox
+                        key={property.name}
+                        className="checkbox"
+                        checked={selectedProperties.has(property.name)}
+                        onChange={() => toggleProperty(property.name)}
+                    >
+                        {property.name}
+                    </Checkbox>
+                ))}
+            </div>
+        </>
+    )
+}
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const usePopover = () => {
+    /* Logic for handling arbitrary popover state */
+    const [isOpen, setIsOpen] = React.useState<boolean>(false)
+    const toggle = (): void => setIsOpen(!isOpen)
+    const hide = (): void => setIsOpen(false)
+    const open = (): void => setIsOpen(true)
+
+    // I use a ref to ensure we are able to close the popover when the user clicks outside of it.
+    const triggerRef = React.useRef<HTMLDivElement>(null)
+
+    React.useEffect(() => {
+        const checkIfClickedOutside = (event: MouseEvent): void => {
+            if (
+                isOpen &&
+                triggerRef.current &&
+                event.target instanceof Node &&
+                !triggerRef.current.contains(event.target)
+            ) {
+                hide()
             }
-            style={{ width: '100%', minWidth: '200px' }}
-            onChange={onChange}
+        }
+
+        document.addEventListener('mousedown', checkIfClickedOutside)
+
+        return () => {
+            // Cleanup the event listener
+            document.removeEventListener('mousedown', checkIfClickedOutside)
+        }
+    }, [isOpen])
+
+    return {
+        isOpen,
+        open,
+        hide,
+        toggle,
+        // Return props that should be on the actual popover. This is so we can
+        // position things correctly
+        popoverProps: {
+            onClick(event: React.MouseEvent): void {
+                // Avoid the click propogating to the trigger element. We need
+                // to do this in order to prevent popover clicks also triggering
+                // anything on containing elements
+                event.stopPropagation()
+            },
+        },
+        // Return propse that should be on the trigger. This is so we can attach
+        // any show, hide handlers etc.
+        triggerProps: { ref: triggerRef, onClick: toggle },
+    }
+}
+
+const usePropertySearch = (
+    properties: PersonProperty[]
+): { filteredProperties: PersonProperty[]; setQuery: (query: string) => void } => {
+    /* Basic case insensitive substring search functionality for person property selection */
+    const [query, setQuery] = React.useState<string>('')
+    const filteredProperties = React.useMemo(() => {
+        return properties.filter((property) => property.name.toLowerCase().includes(query.toLowerCase()))
+    }, [query, properties])
+
+    return { filteredProperties, setQuery }
+}
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const useSelectedProperties = () => {
+    /* Provides functions for handling selected properties state */
+    const context = React.useContext(propertiesSelectionContext)
+
+    if (context === undefined) {
+        throw Error('No select React.Context found')
+    }
+
+    return context
+}
+
+/* 
+A propertiesSelectionContext provides:
+
+    - selectedProperties: a set of selected property names
+    - state manipulation functions for modifying the set of selected properties
+*/
+const propertiesSelectionContext = React.createContext<
+    | {
+          properties: PersonProperty[]
+          selectState: 'all' | 'none' | 'some'
+          selectedProperties: Set<string>
+          toggleProperty: (propertyName: string) => void
+          clearAll: () => void
+          selectAll: () => void
+      }
+    | undefined
+>(undefined)
+
+const SelectPropertiesProvider = ({
+    properties,
+    onChange,
+    children,
+}: {
+    properties: PersonProperty[]
+    children: React.ReactNode
+    onChange?: (selectedProperties: string[]) => void
+}): JSX.Element => {
+    const [selectedProperties, setSelectedProperties] = React.useState<Set<string>>(
+        new Set(properties.map((property) => property.name))
+    )
+
+    const setAndNotify = (newSelectedProperties: Set<string>): void => {
+        setSelectedProperties(newSelectedProperties)
+
+        if (onChange) {
+            onChange(Array.from(newSelectedProperties))
+        }
+    }
+
+    const toggleProperty = (property: string): void => {
+        setAndNotify(
+            selectedProperties.has(property)
+                ? new Set(Array.from(selectedProperties).filter((p) => p !== property))
+                : new Set([...Array.from(selectedProperties), property])
+        )
+    }
+
+    const clearAll = (): void => {
+        setAndNotify(new Set())
+    }
+
+    const selectAll = (): void => {
+        setAndNotify(new Set(properties.map((property) => property.name)))
+    }
+
+    const selectState: 'all' | 'none' | 'some' =
+        selectedProperties.size === properties.length ? 'all' : selectedProperties.size === 0 ? 'none' : 'some'
+
+    return (
+        <propertiesSelectionContext.Provider
+            value={{ properties, selectedProperties, toggleProperty, clearAll, selectAll, selectState }}
         >
-            <Select.Option value="$all">All</Select.Option>
-            {properties?.map((property) => (
-                <Select.Option key={property.name} value={property.name}>
-                    {property.name}
-                </Select.Option>
-            ))}
-        </Select>
+            {children}
+        </propertiesSelectionContext.Provider>
     )
 }
