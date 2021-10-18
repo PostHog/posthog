@@ -112,6 +112,7 @@ class Team(UUIDClassicModel):
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
     test_account_filters: models.JSONField = models.JSONField(default=list)
+    path_cleaning_filters: models.JSONField = models.JSONField(default=list, null=True, blank=True)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
 
