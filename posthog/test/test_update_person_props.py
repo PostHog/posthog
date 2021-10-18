@@ -247,7 +247,6 @@ class TestShouldUpdatePersonProp(BaseTest):
 
     # # tests cases 11-14 from the table
     def test_equal_timestamps(self):
-        # "2021-10-18 15:03:07.911639+01"
         timestamp = datetime(2000, 1, 1, 1, 1, 1).isoformat()
         person = Person.objects.create(
             team=self.team,
