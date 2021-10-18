@@ -6,7 +6,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Dashboard, DashboardItem, Filter, User
+from posthog.models import Dashboard, DashboardItem, Filter, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key
@@ -381,6 +381,12 @@ class TestDashboard(APIBaseTest):
     def test_invalid_dashboard_duplication(self):
         # pass a random number (non-existent dashboard id) as use_dashboard
         response = self.client.post("/api/dashboard/", {"name": "another", "use_dashboard": 12345})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_duplication_fail_for_different_team(self):
+        another_team = Team.objects.create(organization=self.organization)
+        another_team_dashboard = Dashboard.objects.create(team=another_team, name="Another Team's Dashboard")
+        response = self.client.post("/api/dashboard/", {"name": "another", "use_dashboard": another_team_dashboard.id,})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_return_cached_results_dashboard_has_filters(self):

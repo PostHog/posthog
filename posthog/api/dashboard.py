@@ -70,13 +70,12 @@ class DashboardSerializer(serializers.ModelSerializer):
             try:
                 from posthog.api.insight import InsightSerializer
 
-                existing_dashboard = Dashboard.objects.get(id=use_dashboard)
+                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
                 existing_dashboard_items = existing_dashboard.items.all()
                 for dashboard_item in existing_dashboard_items:
                     override_dashboard_item_data = {
                         "id": None,  # to create a new DashboardItem
                         "dashboard": dashboard.pk,
-                        "team": team.pk,
                         "last_refresh": now(),
                     }
                     insight_serializer = InsightSerializer(
