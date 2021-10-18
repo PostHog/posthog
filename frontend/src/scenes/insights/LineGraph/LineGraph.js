@@ -208,7 +208,7 @@ export function LineGraph({
                     return processDataset(datasetCopy, index)
                 }),
             ]
-            if (visibilityMap) {
+            if (visibilityMap && Object.keys(visibilityMap).length > 0) {
                 datasets = datasets.filter((data) => visibilityMap[data.id])
             }
         } else {

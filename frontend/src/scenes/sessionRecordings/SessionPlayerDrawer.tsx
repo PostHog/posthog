@@ -2,6 +2,7 @@ import React from 'react'
 
 import { Drawer } from 'lib/components/Drawer'
 import { SessionsPlay } from 'scenes/sessions/SessionsPlay'
+import { SessionRecordingPlayerV2 } from 'scenes/sessionRecordings/player/SessionRecordingPlayerV2'
 import { useValues } from 'kea'
 import { ArrowTopLeftOutlined } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,7 +28,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                         ? 'sessions recordings'
                         : 'sessions'}
                 </Button>
-                <SessionsPlay />
+                {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER] ? <SessionRecordingPlayerV2 /> : <SessionsPlay />}
             </>
         </Drawer>
     )

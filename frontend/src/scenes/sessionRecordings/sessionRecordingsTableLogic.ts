@@ -13,6 +13,7 @@ import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicTy
 import { router } from 'kea-router'
 import dayjs from 'dayjs'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import equal from 'fast-deep-equal'
 
 export type SessionRecordingId = string
 export type PersonUUID = string
@@ -23,6 +24,13 @@ interface Params {
 }
 
 const LIMIT = 50
+
+export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
+    type: 'recording',
+    key: 'duration',
+    value: 60,
+    operator: PropertyOperator.GreaterThan,
+}
 
 export const DEFAULT_ENTITY_FILTERS = {
     events: [],
@@ -130,12 +138,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             },
         ],
         durationFilter: [
-            {
-                type: 'recording',
-                key: 'duration',
-                value: 60,
-                operator: PropertyOperator.GreaterThan,
-            } as RecordingDurationFilter,
+            DEFAULT_DURATION_FILTER as RecordingDurationFilter,
             {
                 setDurationFilter: (_, { durationFilter }) => durationFilter,
             },
@@ -245,20 +248,23 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
 
             const filters = params.filters
             if (filters) {
-                if ((filters.actions && filters.actions.length > 0) || (filters.events && filters.events.length > 0)) {
+                if (
+                    !equal(filters.actions, values.entityFilters.actions) ||
+                    !equal(filters.events, values.entityFilters.events)
+                ) {
                     actions.setEntityFilters({
                         events: filters.events || [],
                         actions: filters.actions || [],
                     })
                 }
-                if (filters.date_from || filters.date_to) {
+                if (filters.date_from !== values.fromDate || filters.date_to !== values.toDate) {
                     actions.setDateRange(filters.date_from ?? undefined, filters.date_to ?? undefined)
                 }
-                if (filters.offset) {
-                    actions.setOffset(filters.offset)
+                if (filters.offset !== values.offset) {
+                    actions.setOffset(filters.offset ?? 0)
                 }
-                if (filters.session_recording_duration) {
-                    actions.setDurationFilter(filters.session_recording_duration)
+                if (!equal(filters.session_recording_duration, values.durationFilter)) {
+                    actions.setDurationFilter(filters.session_recording_duration ?? DEFAULT_DURATION_FILTER)
                 }
             }
         }

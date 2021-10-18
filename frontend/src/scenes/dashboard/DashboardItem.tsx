@@ -15,12 +15,19 @@ import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { getLogicFromInsight } from 'scenes/insights/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType, FilterType } from '~/types'
+import {
+    DashboardItemType,
+    DashboardMode,
+    DashboardType,
+    ChartDisplayType,
+    ViewType,
+    FilterType,
+    InsightLogicProps,
+} from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -49,6 +56,7 @@ interface Props {
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     isReloading?: boolean
+    reload?: () => void
     dashboardMode: DashboardMode | null
     isOnEditMode: boolean
     setEditMode?: () => void
@@ -56,11 +64,11 @@ interface Props {
     layout?: any
     footer?: JSX.Element
     onClick?: () => void
-    preventLoading?: boolean
     moveDashboardItem?: (it: DashboardItemType, dashboardId: number) => void
     saveDashboardItem?: (it: DashboardItemType) => void
     duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
     isHighlighted?: boolean
+    doNotLoad?: boolean
 }
 
 export type DisplayedType = ChartDisplayType | 'RetentionContainer'
@@ -177,6 +185,7 @@ export function DashboardItem({
     loadDashboardItems,
     isDraggingRef,
     isReloading,
+    reload,
     dashboardMode,
     isOnEditMode,
     setEditMode,
@@ -184,15 +193,15 @@ export function DashboardItem({
     layout,
     footer,
     onClick,
-    preventLoading,
     moveDashboardItem,
     saveDashboardItem,
     duplicateDashboardItem,
     isHighlighted = false,
+    doNotLoad = false,
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
-    const { dashboards } = useValues(dashboardsModel)
+    const { nameSortedDashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -216,8 +225,8 @@ export function DashboardItem({
     const viewText = displayMap[_type].viewText
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
-    const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
-    const getDashboard = (id: number): DashboardType | undefined => dashboards.find((d) => d.id === id)
+    const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboardId)
+    const getDashboard = (id: number): DashboardType | undefined => nameSortedDashboards.find((d) => d.id === id)
 
     const longPressProps = useLongPress(setEditMode, {
         ms: 500,
@@ -227,28 +236,28 @@ export function DashboardItem({
     })
 
     const filters = { ...item.filters, from_dashboard: item.id }
-    const logicProps = {
+    const logicProps: InsightLogicProps = {
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: (item as any).result,
-        preventLoading,
+        doNotLoad,
     }
-    const { insightProps, showTimeoutMessage, showErrorMessage } = useValues(insightLogic(logicProps))
+    const { insightProps, showTimeoutMessage, showErrorMessage, insight, insightLoading, isLoading } = useValues(
+        insightLogic(logicProps)
+    )
+    const { loadResults } = useActions(insightLogic(logicProps))
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const activeInsightLogic = getLogicFromInsight(item.filters.insight, insightProps)
-    const { loadResults } = useActions(activeInsightLogic)
-    const { results, resultsLoading, isLoading } = useValues(activeInsightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
-    const previousLoading = usePrevious(resultsLoading)
+    const previousLoading = usePrevious(insightLoading)
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
-        if (previousLoading && !resultsLoading && !initialLoaded) {
+        if (previousLoading && !insightLoading && !initialLoaded) {
             setInitialLoaded(true)
         }
-    }, [resultsLoading])
+    }, [insightLoading])
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -260,7 +269,7 @@ export function DashboardItem({
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionFiltersEmptyState />
             }
-            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+            if (!isValidFunnel && !(insightLoading || isLoading)) {
                 return <FunnelEmptyState />
             }
         }
@@ -278,7 +287,7 @@ export function DashboardItem({
 
     // Empty states that can coexist with the graph (e.g. Loading)
     const CoexistingEmptyState = (() => {
-        if (isLoading || resultsLoading) {
+        if (isLoading || insightLoading) {
             return <Loading />
         }
         return null
@@ -397,7 +406,13 @@ export function DashboardItem({
                                                 <Menu.Item
                                                     data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
                                                     onClick={() => {
-                                                        loadResults(true)
+                                                        // On dashboards we use custom reloading logic, which updates a
+                                                        // global "loading 1 out of n" label, and loads 4 items at a time
+                                                        if (reload) {
+                                                            reload()
+                                                        } else {
+                                                            loadResults(true)
+                                                        }
                                                         reportDashboardItemRefreshed(item)
                                                     }}
                                                 >
@@ -565,7 +580,10 @@ export function DashboardItem({
                                                     data-attr={'dashboard-item-' + index + '-dropdown-delete'}
                                                     onClick={() =>
                                                         deleteWithUndo({
-                                                            object: item,
+                                                            object: {
+                                                                id: item.id,
+                                                                name: item.name,
+                                                            },
                                                             endpoint: 'insight',
                                                             callback: loadDashboardItems,
                                                         })
@@ -599,7 +617,7 @@ export function DashboardItem({
                         BlockingEmptyState
                     ) : (
                         <Alert.ErrorBoundary message="Error rendering graph!">
-                            {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
+                            {dashboardMode === DashboardMode.Public && !insight.result && !item.result ? (
                                 <Skeleton />
                             ) : (
                                 <Element
