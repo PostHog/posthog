@@ -68,6 +68,7 @@ interface Props {
     saveDashboardItem?: (it: DashboardItemType) => void
     duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
     isHighlighted?: boolean
+    doNotLoad?: boolean
 }
 
 export type DisplayedType = ChartDisplayType | 'RetentionContainer'
@@ -196,6 +197,7 @@ export function DashboardItem({
     saveDashboardItem,
     duplicateDashboardItem,
     isHighlighted = false,
+    doNotLoad = false,
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
@@ -238,7 +240,7 @@ export function DashboardItem({
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: (item as any).result,
-        doNotLoad: true,
+        doNotLoad,
     }
     const { insightProps, showTimeoutMessage, showErrorMessage, insight, insightLoading, isLoading } = useValues(
         insightLogic(logicProps)
