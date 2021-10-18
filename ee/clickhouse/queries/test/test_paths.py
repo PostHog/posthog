@@ -386,6 +386,27 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             "date_to": "2021-05-07 00:00:00",
         }
         path_filter = PathFilter(data=data)
+        response_no_flag = ClickhousePaths(team=self.team, filter=path_filter).run()
+
+        self.assertNotEqual(
+            response_no_flag,
+            [
+                {
+                    "source": "1_test.com/step1",
+                    "target": "2_test.com/step2",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "2_test.com/step2",
+                    "target": "3_test.com/step3?<param>",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+            ],
+        )
+
+        data.update({"path_replacements": True})
         response = ClickhousePaths(team=self.team, filter=path_filter).run()
 
         self.assertEqual(
@@ -487,6 +508,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             "include_event_types": ["$pageview"],
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
+            "path_replacements": True,
         }
         path_filter = PathFilter(data=data)
         response = ClickhousePaths(team=self.team, filter=path_filter).run()

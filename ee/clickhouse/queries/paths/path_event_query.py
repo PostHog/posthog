@@ -102,7 +102,7 @@ class PathEventQuery(ClickhouseEventQuery):
 
         team: Team = Team.objects.get(pk=self._team_id)
 
-        if team.path_cleaning_filters and len(team.path_cleaning_filters) > 0:
+        if self._filter.path_replacements and team.path_cleaning_filters and len(team.path_cleaning_filters) > 0:
             replacements = team.path_cleaning_filters
             for idx, replacement in enumerate(replacements):
                 alias = replacement["alias"]
