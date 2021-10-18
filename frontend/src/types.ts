@@ -29,6 +29,7 @@ export enum AvailableFeature {
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
+    PATHS_ADVANCED = 'paths_advanced',
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'

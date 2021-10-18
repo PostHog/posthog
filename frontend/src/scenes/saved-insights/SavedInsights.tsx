@@ -77,7 +77,7 @@ export function SavedInsights(): JSX.Element {
         searchTerm,
         dates: { dateFrom, dateTo },
     } = useValues(savedInsightsLogic)
-    const { dashboards } = useValues(dashboardsModel)
+    const { nameSortedDashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { members } = useValues(membersLogic)
     const insightTypes: InsightType[] = [
@@ -178,13 +178,13 @@ export function SavedInsights(): JSX.Element {
                             overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
                             overlay={
                                 <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
-                                    {dashboards.filter((d) => d.id !== item.id).length > 0 ? (
+                                    {nameSortedDashboards.filter((d) => d.id !== item.id).length > 0 ? (
                                         <Menu.SubMenu
                                             data-attr={'insight-' + item.id + '-dropdown-move'}
                                             key="move"
                                             title="Add to dashboard"
                                         >
-                                            {dashboards
+                                            {nameSortedDashboards
                                                 .filter((d) => d.id !== item.id)
                                                 .map((dashboard, moveIndex) => (
                                                     <Menu.Item
