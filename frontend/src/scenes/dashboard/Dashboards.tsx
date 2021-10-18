@@ -111,6 +111,7 @@ export function Dashboards(): JSX.Element {
                 return (
                     <span>
                         <span
+                            title={'Delete'}
                             style={{ cursor: 'pointer' }}
                             onClick={() => deleteDashboard({ id, redirect: false })}
                             className="text-danger"
@@ -118,6 +119,7 @@ export function Dashboards(): JSX.Element {
                             <DeleteOutlined />
                         </span>
                         <span
+                            title={'Duplicate'}
                             style={{
                                 cursor: 'pointer',
                                 marginLeft: 8,
