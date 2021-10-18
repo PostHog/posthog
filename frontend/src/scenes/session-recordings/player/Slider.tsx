@@ -37,7 +37,7 @@ export function Slider({}: /*value, total, onChange, buffered = 0, sections = []
         const end = sliderRef.current.offsetWidth
         newX = Math.max(Math.min(newX, end), 0)
         const newPercentage = getPercentage(newX, end)
-        thumbRef.current.style.left = `calc(${newPercentage}%)`
+        thumbRef.current.style.left = `calc(${newPercentage}% - 6px)`
     }
 
     const handleMouseUp = (): void => {
@@ -50,7 +50,7 @@ export function Slider({}: /*value, total, onChange, buffered = 0, sections = []
             return
         }
 
-        diff.current = event.clientX - thumbRef.current.getBoundingClientRect().left
+        diff.current = event.clientX - thumbRef.current.getBoundingClientRect().left - 6
 
         document.addEventListener('mousemove', handleMouseMove)
         document.addEventListener('mouseup', handleMouseUp)
@@ -72,43 +72,11 @@ export function Slider({}: /*value, total, onChange, buffered = 0, sections = []
     // const bufferPercent = Math.max(buffered, value) / total
 
     return (
-        <div
-            className="slider"
-            ref={sliderRef}
-            onClick={handleClick}
-            style={{
-                width: '100%',
-                height: 12,
-                position: 'relative',
-            }}
-        >
-            <div
-                className="filled-slider"
-                style={{
-                    backgroundColor: 'green',
-                    width: '100%',
-                    top: 5,
-                    height: 2,
-                    borderRadius: 4,
-                    position: 'relative',
-                }}
-            />
-            <div
-                className="thumb"
-                ref={thumbRef}
-                style={{
-                    top: -2,
-                    position: 'relative',
-                    borderRadius: '50%',
-                    width: 12,
-                    height: 12,
-                    border: '2px solid #0F0F0F',
-                    backgroundColor: 'transparent',
-                }}
-                onMouseDown={handleMouseDown}
-            />
-            <div className="current-bar" style={{ position: 'relative' }} />
-            <div className="buffer-bar" style={{ position: 'relative' }} />
+        <div className="rrweb-controller-slider" ref={sliderRef} onClick={handleClick}>
+            <div className="slider" />
+            <div className="thumb" ref={thumbRef} onMouseDown={handleMouseDown} />
+            <div className="current-bar" />
+            <div className="buffer-bar" />
         </div>
     )
 }

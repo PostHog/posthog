@@ -78,14 +78,15 @@ $player_bg: #797973;
     }
 
     .rrweb-timestamp {
+        white-space: nowrap;
         font-size: 14px;
+        margin-right: $default_spacing;
     }
 
     .rrweb-progress {
-        display: flex;
-        flex: 1;
         width: 100%;
         cursor: pointer;
+        margin-right: $default_spacing;
     }
 
     .rrweb-controller {
@@ -101,6 +102,10 @@ $player_bg: #797973;
         box-sizing: border-box;
         height: 40px;
         color: black;
+
+        > * {
+            user-select: none;
+        }
 
         .rrweb-controller-icon {
             margin-right: $default_spacing;
@@ -131,7 +136,19 @@ $player_bg: #797973;
 
     .rrweb-speed-toggle {
         cursor: pointer;
-        margin-right: 5px;
+        margin-right: $default_spacing;
+    }
+
+    .rrweb-inactivity-toggle {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        white-space: nowrap;
+
+        .inactivity-label {
+            font-size: 14px;
+            margin-right: $default_spacing / 2;
+        }
     }
 }
 
