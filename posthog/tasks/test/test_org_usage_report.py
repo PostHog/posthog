@@ -49,7 +49,6 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                         "new_user1", "$event2", "$mobile", now() - relativedelta(days=1, hours=1), team=self.team
                     )
                     _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=self.team)
-
                     all_reports = send_all_org_usage_reports(dry_run=True)
                     org_report = all_reports[0]
 
@@ -62,39 +61,34 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                         self.assertEqual(org_report["team_count"], 1)
 
                     _test_org_report()
-
-                    # Create usage in a different org.
-                    team_in_other_org = self.create_new_org_and_team(org_owner_email="other@example.com")
+                    team_in_other_org = self.create_new_org_and_team(
+                        org_owner_email="other@example.com"
+                    )  # Create usage in a different org.
                     _create_person("new_user1", team=team_in_other_org)
                     _create_person("new_user2", team=team_in_other_org)
                     _create_event(
                         "new_user1", "$event1", "$web", now() - relativedelta(days=1, hours=2), team=team_in_other_org
                     )
-
-                    # Make sure the original team report is unchanged
-                    _test_org_report()
-
-                    # Create an event before and after this current period
+                    _test_org_report()  # Make sure the original team report is unchanged
                     _create_event(
-                        "new_user1", "$eventAfter", "$web", now() + relativedelta(days=2, hours=2), team=self.team
+                        "new_user1",
+                        "$eventAfter",
+                        "$web",
+                        now() + relativedelta(days=2, hours=2),
+                        team=self.team,  # Create an event before and after this current period
                     )
                     _create_event(
                         "new_user1", "$eventBefore", "$web", now() - relativedelta(days=2, hours=2), team=self.team
                     )
-
-                    updated_org_report = send_all_org_usage_reports(dry_run=True)[0]
-
-                    # Check event totals are updated
+                    updated_org_report = send_all_org_usage_reports(dry_run=True)[0]  # Check event totals are updated
                     self.assertEqual(
                         updated_org_report["event_count_lifetime"], org_report["event_count_lifetime"] + 2,
                     )
-
-                    # Check event usage in current period is unchanged
-                    self.assertEqual(updated_org_report["event_count_in_period"], org_report["event_count_in_period"])
-
-                    # Create an internal metrics org
+                    self.assertEqual(
+                        updated_org_report["event_count_in_period"], org_report["event_count_in_period"]
+                    )  # Check event usage in current period is unchanged
                     internal_metrics_team = self.create_new_org_and_team(
-                        for_internal_metrics=True, org_owner_email="hey@posthog.com"
+                        for_internal_metrics=True, org_owner_email="hey@posthog.com"  # Create an internal metrics org
                     )
                     _create_person("new_user1", team=internal_metrics_team)
                     _create_event(
@@ -118,9 +112,10 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                         now() - relativedelta(days=1, hours=2),
                         team=internal_metrics_team,
                     )
-                    # Verify that internal metrics events are not counted
                     self.assertEqual(
-                        send_all_org_usage_reports(dry_run=True)[0]["event_count_lifetime"],
+                        send_all_org_usage_reports(dry_run=True)[0][
+                            "event_count_lifetime"
+                        ],  # Verify that internal metrics events are not counted
                         updated_org_report["event_count_lifetime"],
                     )
 
