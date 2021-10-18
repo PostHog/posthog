@@ -582,22 +582,6 @@ export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Erro
     }
 }
 
-export function filterIncrementProperties(incrementProperties: unknown): Record<string, number> {
-    if (typeof incrementProperties !== 'object') {
-        return {} as Record<string, number>
-    }
-
-    const filteredIncrementProperties: Record<string, number> = {}
-
-    for (const [key, val] of Object.entries(incrementProperties || {})) {
-        if (typeof val === 'number' && Number.isInteger(val) && val !== 0) {
-            filteredIncrementProperties[key] = val
-        }
-    }
-
-    return filteredIncrementProperties
-}
-
 export function groupBy<T extends Record<string, any>, K extends keyof T>(
     objects: T[],
     key: K,
