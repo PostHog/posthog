@@ -523,6 +523,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             ],
         }
 
+
 @dataclasses.dataclass
 class TrendsRequest:
     date_from: str
