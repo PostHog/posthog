@@ -173,6 +173,7 @@ class TestDashboard(APIBaseTest):
                 ).to_dict(),
                 team=self.team,
                 last_refresh=now(),
+                order=0,
             )
             item_sessions: DashboardItem = DashboardItem.objects.create(
                 dashboard=dashboard,
@@ -189,6 +190,7 @@ class TestDashboard(APIBaseTest):
                 ).to_dict(),
                 team=self.team,
                 last_refresh=now(),
+                order=1,
             )
 
         with freeze_time("2020-01-20T13:00:01Z"):
