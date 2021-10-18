@@ -12,7 +12,7 @@ import { colonDelimitedDuration } from 'lib/utils'
 
 export function PlayerController(): JSX.Element {
     const { togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(sessionRecordingPlayerLogic)
-    const { currentPlayerState, jumpTimeMs, meta, time, speed } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, jumpTimeMs, meta, zeroOffsetTime, speed } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div className="rrweb-controller">
@@ -48,10 +48,11 @@ export function PlayerController(): JSX.Element {
                 </span>
             </Tooltip>
             <div className="rrweb-timestamp">
-                {colonDelimitedDuration(time.current / 1000)} / {colonDelimitedDuration(meta.totalTime / 1000)}
+                {colonDelimitedDuration(zeroOffsetTime.current / 1000)} /{' '}
+                {colonDelimitedDuration(meta.totalTime / 1000)}
             </div>
             <div className="rrweb-progress">
-                <Slider /*value={time.current} total={meta.totalTime} onChange={seek}*/ />
+                <Slider />
             </div>
             <Select
                 onChange={(nextSpeed: number) => setSpeed(nextSpeed)}

@@ -42,16 +42,23 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
         frameRef.current.style.marginBottom = `-${height - replayDimensions.height * scale}px`
     }
 
+    const renderPlayerState = (): JSX.Element | null => {
+        if (currentPlayerState === SessionPlayerState.SKIP) {
+            return <div className="rrweb-overlay">Skipping inactivity...</div>
+        }
+        if (currentPlayerState === SessionPlayerState.BUFFER) {
+            return <div className="rrweb-overlay">Buffering...</div>
+        }
+        if (currentPlayerState === SessionPlayerState.PAUSE) {
+            return <div className="rrweb-overlay">Pause</div>
+        }
+        return null
+    }
+
     return (
         <div className="rrweb-player" onClick={togglePlayPause}>
             <div ref={ref} />
-            <div className="rrweb-overlay-container">
-                {currentPlayerState === SessionPlayerState.SKIP && (
-                    <div className="rrweb-overlay">Skipping inactivity...</div>
-                )}
-                {currentPlayerState === SessionPlayerState.BUFFER && <div className="rrweb-overlay">Buffering</div>}
-                {currentPlayerState === SessionPlayerState.PAUSE && <div className="rrweb-overlay">Pause</div>}
-            </div>
+            <div className="rrweb-overlay-container">{renderPlayerState()}</div>
         </div>
     )
 })

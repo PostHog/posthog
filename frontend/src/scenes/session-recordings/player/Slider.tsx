@@ -1,5 +1,9 @@
-import React, { useRef } from 'react'
 import './Slider.scss'
+import React, { useEffect, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce/lib'
+import { clamp } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 // enum SectionType {
 //     INACTIVE = 'inactive',
@@ -11,37 +15,51 @@ import './Slider.scss'
 //     end: number
 //     type: SectionType
 // }
-
+//
 // interface SliderProps {
-//     value: number
-//     total: number
-//     onChange: (value: number) => void
-//     buffered?: number
 //     sections?: RangeSection[]
 // }
 
-const getPercentage = (current: number, max: number): number => (100 * current) / max
+const convertXToValue = (xPos: number, containerWidth: number, start: number, end: number): number => {
+    return (xPos / containerWidth) * (end - start) + start
+}
 
-export function Slider(/* {value, total, onChange, buffered = 0, sections = [] }: SliderProps */): JSX.Element {
+export function Slider(): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-
+    const [thumbLeftPos, setThumbPos] = useState<number>(-6) // half of thumb width
     const diff = useRef<number>()
 
-    const handleMouseMove = (event: MouseEvent): void => {
-        if (!diff.current || !sliderRef.current || !thumbRef.current) {
+    const { zeroOffsetTime, meta, time, currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+    const { setScrub, clearLoadingState, seek } = useActions(sessionRecordingPlayerLogic)
+
+    // Debounce seeking so that scrubbing doesn't sent a bajillion requests.
+    const seekDebounced = useDebouncedCallback((nextTime) => seek(nextTime), 500)
+
+    useEffect(() => {
+        if (!sliderRef.current) {
             return
         }
+        const nextTime = convertXToValue(thumbLeftPos + 6, sliderRef.current.offsetWidth, meta.startTime, meta.endTime)
+        seekDebounced(nextTime)
+    }, [thumbLeftPos])
 
-        let newX = event.clientX - diff.current - sliderRef.current.getBoundingClientRect().left
+    const handleSeek = (_newX: number): void => {
+        const end = sliderRef.current?.offsetWidth ?? 0
+        const newX = clamp(_newX, 0, end)
+        setThumbPos(newX - 6)
+    }
 
-        const end = sliderRef.current.offsetWidth
-        newX = Math.max(Math.min(newX, end), 0)
-        const newPercentage = getPercentage(newX, end)
-        thumbRef.current.style.left = `calc(${newPercentage}% - 6px)`
+    const handleMouseMove = (event: MouseEvent): void => {
+        if (!diff.current || !sliderRef.current) {
+            return
+        }
+        const newX = event.clientX - diff.current - sliderRef.current.getBoundingClientRect().left
+        handleSeek(newX)
     }
 
     const handleMouseUp = (): void => {
+        clearLoadingState()
         document.removeEventListener('mouseup', handleMouseUp)
         document.removeEventListener('mousemove', handleMouseMove)
     }
@@ -50,7 +68,7 @@ export function Slider(/* {value, total, onChange, buffered = 0, sections = [] }
         if (!thumbRef.current) {
             return
         }
-
+        setScrub()
         diff.current = event.clientX - thumbRef.current.getBoundingClientRect().left - 6
 
         document.addEventListener('mousemove', handleMouseMove)
@@ -58,26 +76,25 @@ export function Slider(/* {value, total, onChange, buffered = 0, sections = [] }
     }
 
     const handleClick = (event: React.MouseEvent<HTMLDivElement, MouseEvent>): void => {
-        if (!thumbRef.current || !sliderRef.current) {
+        if (!sliderRef.current) {
             return
         }
         // jump thumb to click position
-        let newX = event.clientX - sliderRef.current.getBoundingClientRect().left
-        const end = sliderRef.current.offsetWidth
-        newX = Math.max(Math.min(newX, end), 0)
-        const newPercentage = getPercentage(newX, end)
-        thumbRef.current.style.left = `calc(${newPercentage}% - 6px)`
+        const newX = event.clientX - sliderRef.current.getBoundingClientRect().left
+        handleSeek(newX)
     }
 
-    // const currentPercent = value / total
-    // const bufferPercent = Math.max(buffered, value) / total
+    const bufferPercent = (Math.max(zeroOffsetTime.lastBuffered, zeroOffsetTime.current) * 100) / meta.totalTime
+
+    console.log('CURRENT STATE', currentPlayerState)
+    console.log('PROPS', time, zeroOffsetTime, meta)
 
     return (
         <div className="rrweb-controller-slider" ref={sliderRef} onClick={handleClick}>
             <div className="slider" />
-            <div className="thumb" ref={thumbRef} onMouseDown={handleMouseDown} />
-            <div className="current-bar" />
-            <div className="buffer-bar" />
+            <div className="thumb" ref={thumbRef} onMouseDown={handleMouseDown} style={{ left: thumbLeftPos }} />
+            <div className="current-bar" style={{ width: `${thumbLeftPos}px` }} />
+            <div className="buffer-bar" style={{ width: `${bufferPercent}%` }} />
         </div>
     )
 }

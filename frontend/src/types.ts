@@ -326,6 +326,7 @@ export enum SessionPlayerState {
     PLAY = 'play',
     PAUSE = 'pause',
     SKIP = 'skip',
+    SCRUB = 'scrub',
 }
 
 export interface SessionPlayerTime {

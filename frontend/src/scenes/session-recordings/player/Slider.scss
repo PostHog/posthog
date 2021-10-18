@@ -1,35 +1,63 @@
 @import '~/vars';
 
-.rrweb-controller {
+$buffer_bg: #faaf8c;
+
+.rrweb-controller-slider {
     width: 100%;
     height: 12px;
     position: relative;
 
-    .slider {
-        background-color: green;
-        width: 100%;
-        top: 5px;
-        height: 2px;
-        border-radius: 4px;
-        position: relative;
+    .thumb {
+        z-index: 4;
+        top: 0;
+        left: -6px;
+        position: absolute;
+        border-radius: 50%;
+        width: 14px;
+        height: 14px;
+        border: 2px solid $bg_light;
+        background-color: $brand_red;
+        transition: transform 200ms;
+        transform-origin: center;
+
+        &:hover {
+            transform: scale(1.2);
+        }
     }
 
-    .thumb {
-        top: -2px;
-        left: -6px;
-        position: relative;
-        border-radius: 50%;
-        width: 12px;
-        height: 12px;
-        border: 2px solid $bg_depth;
-        background-color: transparent;
+    .slider,
+    .current-bar,
+    .buffer-bar {
+        width: 100%;
+        border-radius: 4px;
+        position: absolute;
+    }
+
+    .slider {
+        z-index: 1;
+        background-color: $border;
+        height: 4px;
+        top: 5px;
     }
 
     .current-bar {
-        position: relative;
+        z-index: 3;
+        background-color: $brand_red;
+        position: absolute;
+        height: 2px;
+        top: 6px;
+        left: 1px;
+        width: 0; // starting point
     }
 
     .buffer-bar {
-        position: relative;
+        z-index: 2;
+        transition: width 200ms;
+        background-color: $buffer_bg;
+        position: absolute;
+        height: 2px;
+        top: 6px;
+        left: 1px;
+        width: 0; // starting point
     }
 }

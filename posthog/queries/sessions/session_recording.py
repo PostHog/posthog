@@ -54,7 +54,7 @@ SESSIONS_IN_RANGE_QUERY = """
 """
 
 # Arbitrarily large number that acts as an FF for chunked session recording loading
-RECORDINGS_NUM_SNAPSHOTS_LIMIT = 1000000000
+RECORDINGS_NUM_SNAPSHOTS_LIMIT = 50
 
 
 class SessionRecording:
