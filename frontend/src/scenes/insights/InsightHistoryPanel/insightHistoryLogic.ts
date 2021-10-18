@@ -1,3 +1,4 @@
+// DEPRECATED; this feature will be removed soon
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'

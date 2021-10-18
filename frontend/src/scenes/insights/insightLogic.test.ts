@@ -168,6 +168,36 @@ describe('insightLogic', () => {
             })
         })
 
+        describe('props with filters, no cached results, respects doNotLoad', () => {
+            initKeaTestLogic({
+                logic: insightLogic,
+                props: {
+                    dashboardItemId: 42,
+                    cachedResults: undefined,
+                    filters: {
+                        insight: ViewType.TRENDS,
+                        events: [{ id: 3, throw: true }],
+                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                    },
+                    doNotLoad: true,
+                },
+                onLogic: (l) => (logic = l),
+            })
+
+            it('does not make a query', async () => {
+                await expectLogic(logic)
+                    .toMatchValues({
+                        insight: expect.objectContaining({ id: 42, result: null }),
+                        filters: expect.objectContaining({
+                            events: [expect.objectContaining({ id: 3 })],
+                            properties: [expect.objectContaining({ value: 'a' })],
+                        }),
+                    })
+                    .delay(1)
+                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+            })
+        })
+
         describe('props with no filters, no cached results, results from API', () => {
             initKeaTestLogic({
                 logic: insightLogic,

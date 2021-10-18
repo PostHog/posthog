@@ -142,7 +142,7 @@ export function Signup(): JSX.Element | null {
                                         signupResponse?.errorAttribute === 'password' ? (
                                             signupResponse.errorDetail
                                         ) : (
-                                            <span style={{ paddingBottom: 24 }}>
+                                            <span style={{ paddingBottom: 16 }}>
                                                 <ExclamationCircleFilled style={{ marginRight: 4 }} />
                                                 Passwords must be at least 8 characters
                                             </span>
