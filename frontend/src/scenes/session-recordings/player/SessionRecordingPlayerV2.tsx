@@ -63,7 +63,7 @@ export function SessionRecordingPlayerV2(): JSX.Element {
                 {/*</Col>*/}
             </Row>
             <Row className="session-player-controller" align="middle">
-                <PlayerController toggleFullScreen={toggleFullScreen} />
+                <PlayerController />
             </Row>
         </Col>
     )
