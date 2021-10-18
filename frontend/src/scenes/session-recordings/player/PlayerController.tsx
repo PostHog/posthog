@@ -10,11 +10,7 @@ import { IconPause, IconPlay, IconSeekBack, IconSeekForward } from 'scenes/sessi
 import { Slider } from 'scenes/session-recordings/player/Slider'
 import { colonDelimitedDuration } from 'lib/utils'
 
-interface PlayerControllerProps {
-    toggleFullScreen: () => void
-}
-
-export function PlayerController({}: PlayerControllerProps): JSX.Element {
+export function PlayerController(): JSX.Element {
     const { togglePlayPause, seek, seekBackward, seekForward, setSpeed } = useActions(sessionRecordingPlayerLogic)
     const { currentPlayerState, jumpTimeMs, meta, time, speed } = useValues(sessionRecordingPlayerLogic)
 

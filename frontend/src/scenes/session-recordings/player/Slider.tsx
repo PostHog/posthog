@@ -1,28 +1,28 @@
 import React, { useRef } from 'react'
 import './Slider.scss'
 
-enum SectionType {
-    INACTIVE = 'inactive',
-    DEFAULT = 'default',
-}
+// enum SectionType {
+//     INACTIVE = 'inactive',
+//     DEFAULT = 'default',
+// }
 
-interface RangeSection {
-    start: number
-    end: number
-    type: SectionType
-}
+// interface RangeSection {
+//     start: number
+//     end: number
+//     type: SectionType
+// }
 
-interface SliderProps {
-    value: number
-    total: number
-    onChange: (value: number) => void
-    buffered?: number
-    sections?: RangeSection[]
-}
+// interface SliderProps {
+//     value: number
+//     total: number
+//     onChange: (value: number) => void
+//     buffered?: number
+//     sections?: RangeSection[]
+// }
 
 const getPercentage = (current: number, max: number): number => (100 * current) / max
 
-export function Slider({}: /*value, total, onChange, buffered = 0, sections = [] */ SliderProps): JSX.Element {
+export function Slider(/* {value, total, onChange, buffered = 0, sections = [] }: SliderProps */): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
 
