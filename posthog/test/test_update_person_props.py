@@ -78,6 +78,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
+                FOR UPDATE
             """
             )
 
@@ -104,6 +105,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
+                FOR UPDATE
             """
             )
 
@@ -135,6 +137,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
+                FOR UPDATE
             """
             )
 
@@ -167,6 +170,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
+                FOR UPDATE
             """
             )
 
@@ -199,6 +203,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                array[row('set_once', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
+                FOR UPDATE
             """
             )
 
@@ -231,6 +236,7 @@ class TestShouldUpdatePersonProp(BaseTest):
 	                array[row('set_once', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
                 FROM posthog_person 
                 WHERE id={person.id}
+                FOR UPDATE
             """
             )
 
