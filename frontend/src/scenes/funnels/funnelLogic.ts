@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { sum } from 'lib/utils'
+import { average, sum } from 'lib/utils'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -27,6 +27,7 @@ import {
     FunnelCorrelationType,
     FunnelStepReference,
     FunnelAPIResponse,
+    TrendResult,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -306,6 +307,15 @@ export const funnelLogic = kea<funnelLogicType>({
                         averageTime: timeConversionResults?.average_conversion_time ?? 0,
                         stepRate: 0,
                         totalRate: 0,
+                    }
+                }
+
+                // Handle metrics for trends
+                if (loadedFilters.funnel_viz_type === FunnelVizType.Trends) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: average((stepsWithCount?.[0] as unknown as TrendResult)?.data ?? []) / 100,
                     }
                 }
 
