@@ -17,6 +17,7 @@ import {
     ViewType,
     InsightType,
     PropertyFilter,
+    AvailableFeature,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -252,6 +253,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
         reportRecordingViewed: (payload: RecordingViewedProps) => ({ payload }),
+        reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
+        reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -595,6 +598,12 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportRecordingViewed: ({ payload }) => {
             const { delay, ...props } = payload
             posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, props)
+        },
+        reportPayGateShown: (props) => {
+            posthog.capture('pay gate shown', props)
+        },
+        reportPayGateDismissed: (props) => {
+            posthog.capture('pay gate dismissed', props)
         },
     },
 })

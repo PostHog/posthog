@@ -6,24 +6,27 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { userLogic } from 'scenes/userLogic'
+import { AvailableFeature } from '~/types'
 
 interface StepOption {
     label: string
     value: number
 }
 
-const MIN = 2,
-    MAX = 20
-
-const options: StepOption[] = Array.from(Array.from(Array.from(Array(MAX + 1).keys()).slice(MIN)), (v) => ({
-    label: `${v} Steps`,
-    value: v,
-}))
-
 export function PathStepPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
+    const { user } = useValues(userLogic)
+
+    const MIN = 2,
+        MAX = user?.organization?.available_features.includes(AvailableFeature.PATHS_ADVANCED) ? 20 : 5
+
+    const options: StepOption[] = Array.from(Array.from(Array.from(Array(MAX + 1).keys()).slice(MIN)), (v) => ({
+        label: `${v} Steps`,
+        value: v,
+    }))
 
     return (
         <Select
