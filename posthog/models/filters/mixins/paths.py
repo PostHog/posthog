@@ -12,7 +12,6 @@ from posthog.constants import (
     PATH_GROUPINGS,
     PATH_MAX_EDGE_WEIGHT,
     PATH_MIN_EDGE_WEIGHT,
-    PATH_REPLACEMENTS,
     PATH_START_KEY,
     PATH_TYPE,
     PATHS_EXCLUDE_EVENTS,
@@ -177,20 +176,6 @@ class PathGroupingMixin(BaseParamMixin):
     @include_dict
     def path_groupings_to_dict(self):
         return {PATH_GROUPINGS: self.path_groupings} if self.path_groupings else {}
-
-
-class PathReplacementMixin(BaseParamMixin):
-    @cached_property
-    def path_replacements(self) -> Optional[List[Dict[str, str]]]:
-        path_replacements = self._data.get(PATH_REPLACEMENTS, None)
-        if isinstance(path_replacements, str):
-            return json.loads(path_replacements)
-
-        return path_replacements
-
-    @include_dict
-    def path_replacements_to_dict(self):
-        return {PATH_REPLACEMENTS: self.path_replacements} if self.path_replacements else {}
 
 
 class PathPersonsMixin(BaseParamMixin):

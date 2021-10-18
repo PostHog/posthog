@@ -13,7 +13,7 @@ import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
 
 interface FilterRowProps {
-    item: AnyPropertyFilter
+    item: Record<string, any>
     index: number
     filters: AnyPropertyFilter[]
     pageKey: string

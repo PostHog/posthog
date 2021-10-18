@@ -10,6 +10,7 @@ from posthog.constants import (
     SCREEN_EVENT,
 )
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.team import Team
 
 
 class PathEventQuery(ClickhouseEventQuery):
@@ -99,25 +100,28 @@ class PathEventQuery(ClickhouseEventQuery):
         _fields = []
         params = {}
 
-        if self._filter.path_replacements and len(self._filter.path_replacements) > 0:
-            for idx, replacement in enumerate(self._filter.path_replacements):
-                # should only be one
-                for alias, regex in replacement.items():
-                    if idx == 0:
-                        name = "path_item" if idx == len(self._filter.path_replacements) - 1 else f"path_item_{idx}"
-                        _fields.append(
-                            f"replaceRegexpAll(path_item_ungrouped, %(regex_replacement_{idx})s, %(alias_{idx})s) as {name}"
-                        )
-                    elif idx == len(self._filter.path_replacements) - 1:
-                        _fields.append(
-                            f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item"
-                        )
-                    else:
-                        _fields.append(
-                            f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item_{idx}"
-                        )
-                    params[f"regex_replacement_{idx}"] = regex
-                    params[f"alias_{idx}"] = alias
+        team: Team = Team.objects.get(pk=self._team_id)
+
+        if team.path_cleaning_filters and len(team.path_cleaning_filters) > 0:
+            replacements = team.path_cleaning_filters
+            for idx, replacement in enumerate(replacements):
+                alias = replacement["alias"]
+                regex = replacement["regex"]
+                if idx == 0:
+                    name = "path_item" if idx == len(replacements) - 1 else f"path_item_{idx}"
+                    _fields.append(
+                        f"replaceRegexpAll(path_item_ungrouped, %(regex_replacement_{idx})s, %(alias_{idx})s) as {name}"
+                    )
+                elif idx == len(replacements) - 1:
+                    _fields.append(
+                        f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item"
+                    )
+                else:
+                    _fields.append(
+                        f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item_{idx}"
+                    )
+                params[f"regex_replacement_{idx}"] = regex
+                params[f"alias_{idx}"] = alias
 
         else:
             _fields.append("multiMatchAnyIndex(path_item_ungrouped, %(regex_groupings)s) AS group_index")

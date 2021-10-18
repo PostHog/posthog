@@ -376,12 +376,14 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             properties={"$current_url": "test.com/step3?key=value3"},
         )
 
+        self.team.path_cleaning_filters = [{"alias": "?<param>", "regex": "\\?(.*)"}]
+        self.team.save()
+
         data = {
             "insight": INSIGHT_FUNNELS,
             "include_event_types": ["$pageview"],
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "path_replacements": [{"?<param>": "\\?(.*)"}],  # noqa: W605
         }
         path_filter = PathFilter(data=data)
         response = ClickhousePaths(team=self.team, filter=path_filter).run()
@@ -474,12 +476,17 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             properties={"$current_url": "test.com/step2/5?key=value3"},
         )
 
+        self.team.path_cleaning_filters = [
+            {"alias": "?<param>", "regex": "\\?(.*)"},
+            {"alias": "/<id>", "regex": "/\\d+(/|\\?)?"},
+        ]
+        self.team.save()
+
         data = {
             "insight": INSIGHT_FUNNELS,
             "include_event_types": ["$pageview"],
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "path_replacements": [{"?<param>": "\\?(.*)"}, {"/<id>": "/\\d+(/|\\?)?"}],
         }
         path_filter = PathFilter(data=data)
         response = ClickhousePaths(team=self.team, filter=path_filter).run()
