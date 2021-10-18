@@ -8,5 +8,6 @@ SELECT groupArray(day_start) as date, groupArray(count) as data FROM (
     ) 
     group by day_start 
     order by day_start
+SET allow_experimental_window_functions = 1 
 )
 """
