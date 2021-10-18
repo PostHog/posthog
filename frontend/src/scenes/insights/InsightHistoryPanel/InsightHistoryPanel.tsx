@@ -1,3 +1,4 @@
+// DEPRECATED; this feature will be removed soon
 import React, { useEffect, useState } from 'react'
 import { Tabs, Col, Row, Button, Spin } from 'antd'
 import { Loading } from 'lib/utils'
