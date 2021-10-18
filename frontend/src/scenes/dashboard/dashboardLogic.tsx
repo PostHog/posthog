@@ -616,7 +616,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
             // Initial load of actual data for dashboard items after general dashboard is fetched
             const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
             actions.refreshAllDashboardItems(notYetLoadedItems)
-            actions.refreshAllDashboardItems(unloadedItems)
         },
     }),
 })
