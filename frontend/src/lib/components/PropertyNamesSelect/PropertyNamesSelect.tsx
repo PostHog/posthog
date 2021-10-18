@@ -173,7 +173,7 @@ const usePopover = () => {
 
 const usePropertySearch = (
     properties: PersonProperty[]
-): { filteredProperties: PersonProperty[]; setQuery: (query: string) => void } => {
+): { filteredProperties: PersonProperty[]; setQuery: (query: string) => void; query: string } => {
     /* Basic case insensitive substring search functionality for person property selection */
     const [query, setQuery] = React.useState<string>('')
     const filteredProperties = React.useMemo(() => {
