@@ -420,7 +420,6 @@ export function SavedInsights(): JSX.Element {
                                                     window.open(displayMap[_type].link(insight))
                                                 }
                                             }}
-                                            preventLoading={true}
                                             index={index}
                                             isOnEditMode={false}
                                             footer={

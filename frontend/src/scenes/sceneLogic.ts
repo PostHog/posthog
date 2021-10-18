@@ -13,7 +13,6 @@ import { afterLoginRedirect } from './authentication/loginLogic'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { organizationLogic } from './organizationLogic'
 import { urls } from 'scenes/urls'
 
 export enum Scene {
@@ -393,16 +392,15 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         },
         guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
             const { preflight } = preflightLogic.values
-            const { currentOrganization } = organizationLogic.values
             let featureAvailable: boolean
-            if (!preflight || !currentOrganization) {
+            if (!preflight) {
                 featureAvailable = false
             } else if (!guardOn.cloud && preflight.cloud) {
                 featureAvailable = true
             } else if (!guardOn.selfHosted && !preflight.cloud) {
                 featureAvailable = true
             } else {
-                featureAvailable = !!currentOrganization?.available_features.includes(featureKey)
+                featureAvailable = userLogic.values.hasAvailableFeature(featureKey)
             }
             if (featureAvailable) {
                 featureAvailableCallback?.()

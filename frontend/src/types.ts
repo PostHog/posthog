@@ -1025,10 +1025,10 @@ export interface InsightLogicProps {
     cachedResults?: any
     /** cached filters, avoid making a request */
     filters?: Partial<FilterType> | null
-    /** not sure about this one */
-    preventLoading?: boolean
     /** enable this to make unsaved queries */
     doNotPersist?: boolean
+    /** enable this to avoid API requests */
+    doNotLoad?: boolean
 }
 
 export interface FeatureFlagGroupType {
