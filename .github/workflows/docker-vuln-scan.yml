@@ -36,6 +36,8 @@ jobs:
               if: github.repository == 'PostHog/posthog'
               with:
                   image-ref: 'posthog/posthog:vuln-scan-${{ github.sha }}'
+                  vuln-type: 'os,library'
+                  severity: 'CRITICAL,HIGH'
                   format: 'template'
                   template: '@/contrib/sarif.tpl'
                   output: 'trivy-results.sarif'
