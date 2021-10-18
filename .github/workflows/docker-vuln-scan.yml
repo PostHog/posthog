@@ -36,8 +36,12 @@ jobs:
               if: github.repository == 'PostHog/posthog'
               with:
                   image-ref: 'posthog/posthog:vuln-scan-${{ github.sha }}'
-                  format: 'table'
-                  exit-code: '1'
-                  ignore-unfixed: true
-                  vuln-type: 'os,library'
-                  severity: 'CRITICAL,HIGH'
+                  format: 'template'
+                  template: '@/contrib/sarif.tpl'
+                  output: 'trivy-results.sarif'
+
+            - name: Upload Trivy scan results to GitHub Security tab
+              uses: github/codeql-action/upload-sarif@v1
+              if: github.repository == 'PostHog/posthog'
+              with:
+                  sarif_file: 'trivy-results.sarif'
