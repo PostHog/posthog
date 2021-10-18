@@ -28,7 +28,8 @@ function getPersistedFeatureFlags(): FeatureFlagsSet {
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
-    const combinedFlags = { ...featureFlags, ...getPersistedFeatureFlags() }
+    const persistedFlags = getPersistedFeatureFlags()
+    const availableFlags = Object.keys(persistedFlags).length ? persistedFlags : featureFlags
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
@@ -36,10 +37,10 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             {
                 get(_, flag) {
                     if (flag === 'toJSON') {
-                        return () => combinedFlags
+                        return () => availableFlags
                     }
                     const flagString = flag.toString()
-                    const flagState = combinedFlags[flagString]
+                    const flagState = availableFlags[flagString]
                     notifyFlagIfNeeded(flagString, flagState)
                     return flagState
                 },
@@ -48,11 +49,11 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     } else {
         // Fallback for IE11. Won't track "false" results. ¯\_(ツ)_/¯
         const flags: FeatureFlagsSet = {}
-        for (const flag of Object.keys(combinedFlags)) {
+        for (const flag of Object.keys(availableFlags)) {
             Object.defineProperty(flags, flag, {
                 get: function () {
                     if (flag === 'toJSON') {
-                        return () => combinedFlags
+                        return () => availableFlags
                     }
                     notifyFlagIfNeeded(flag, true)
                     return true

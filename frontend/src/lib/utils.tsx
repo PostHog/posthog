@@ -189,6 +189,26 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
     )
 }
 
+export function successToast(title?: string, message?: string): void {
+    /**
+     * Shows a standardized success message.
+     * @param title Title message of the toast
+     * @param message Body message on the toast
+     */
+    setTimeout(
+        () =>
+            toast.success(
+                <div data-attr="success-toast">
+                    <h1>
+                        <ExclamationCircleOutlined /> {title || 'Success!'}
+                    </h1>
+                    <p>{message || 'Your action was completed successfully.'}</p>
+                </div>
+            ),
+        100
+    )
+}
+
 export function Loading(props: Record<string, any>): JSX.Element {
     return (
         <div className="loading-overlay" style={props.style}>
