@@ -28,6 +28,7 @@ export enum AvailableFeature {
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
+    PATHS_ADVANCED = 'paths_advanced',
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -1001,10 +1002,10 @@ export interface InsightLogicProps {
     cachedResults?: any
     /** cached filters, avoid making a request */
     filters?: Partial<FilterType> | null
-    /** not sure about this one */
-    preventLoading?: boolean
     /** enable this to make unsaved queries */
     doNotPersist?: boolean
+    /** enable this to avoid API requests */
+    doNotLoad?: boolean
 }
 
 export interface FeatureFlagGroupType {

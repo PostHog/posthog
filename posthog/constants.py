@@ -3,6 +3,7 @@ from enum import Enum
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
 
+# N.B. Keep this in sync with frontend enum (types.ts)
 class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
@@ -11,6 +12,7 @@ class AvailableFeature(str, Enum):
     SAML = "saml"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
+    PATHS_ADVANCED = "paths_advanced"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
