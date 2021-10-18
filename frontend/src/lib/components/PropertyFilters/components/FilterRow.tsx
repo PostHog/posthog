@@ -1,11 +1,9 @@
 import React, { useState } from 'react'
 import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
-import { useActions } from 'kea'
 import { Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton from './PropertyFilterButton'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -27,6 +25,7 @@ interface FilterRowProps {
     showNestedArrow?: boolean
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
+    onRemove: (index: number) => void
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -41,15 +40,15 @@ export const FilterRow = React.memo(function FilterRow({
     showNestedArrow = false,
     filterComponent,
     label,
+    onRemove,
 }: FilterRowProps) {
-    const { remove } = useActions(propertyFilterLogic)
     const [open, setOpen] = useState(false)
 
     const { key } = item
 
     const handleVisibleChange = (visible: boolean): void => {
         if (!visible && isValidPropertyFilter(item) && !item.key) {
-            remove(index)
+            onRemove(index)
         }
         setOpen(visible)
     }
@@ -71,7 +70,7 @@ export const FilterRow = React.memo(function FilterRow({
                     {filterComponent(() => setOpen(false))}
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
-                            onClick={() => remove(index)}
+                            onClick={() => onRemove(index)}
                             style={{
                                 cursor: 'pointer',
                                 float: 'none',
@@ -125,7 +124,7 @@ export const FilterRow = React.memo(function FilterRow({
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
                             className="ml-1"
-                            onClick={() => remove(index)}
+                            onClick={() => onRemove(index)}
                             style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                         />
                     )}

@@ -2,7 +2,11 @@ import './PathClean.scss'
 import React from 'react'
 import { Col, Input, Divider, Button, Row } from 'antd'
 
-export function PathRegexPopup(): JSX.Element {
+interface PathRegexPopupProps {
+    onComplete: () => void
+}
+
+export function PathRegexPopup({ onComplete }: PathRegexPopupProps): JSX.Element {
     return (
         <div className="regex-popup">
             <Col>
@@ -25,8 +29,14 @@ export function PathRegexPopup(): JSX.Element {
                     style={{ marginTop: 8 }}
                 />
                 <Row style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-                    <Button type="link"> Cancel </Button>
-                    <Button type="primary"> Save </Button>
+                    <Button onClick={onComplete} type="link">
+                        {' '}
+                        Cancel{' '}
+                    </Button>
+                    <Button onClick={onComplete} type="primary">
+                        {' '}
+                        Save{' '}
+                    </Button>
                 </Row>
             </Col>
         </div>

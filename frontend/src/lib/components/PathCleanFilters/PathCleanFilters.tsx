@@ -1,18 +1,16 @@
 import React, { CSSProperties } from 'react'
-import { useValues, BindLogic } from 'kea'
+import { useValues } from 'kea'
 import 'scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
-import { propertyFilterLogic } from '../PropertyFilters/propertyFilterLogic'
 import { FilterRow } from '../PropertyFilters/components/FilterRow'
 import { PathRegexPopup } from './PathCleanFilter'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
-    propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    onChange?: null | ((filters: Record<string, any>[]) => void)
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
@@ -24,8 +22,6 @@ interface PropertyFiltersProps {
 }
 
 export function PathCleanFilters({
-    propertyFilters = null,
-    onChange = null,
     pageKey,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
@@ -34,38 +30,35 @@ export function PathCleanFilters({
     style = {},
     showNestedArrow = false,
 }: PropertyFiltersProps): JSX.Element {
-    const logicProps = { propertyFilters, onChange, pageKey }
-    const { filters } = useValues(propertyFilterLogic(logicProps))
+    const { path_cleaning_filters_with_new } = useValues(teamLogic)
 
-    // const { updateCurrentTeam } = useActions(teamLogic)
-    // const { currentTeam } = useValues(teamLogic)
+    const onRemove = (): void => {}
 
     return (
         <div className="mb" style={style}>
-            <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                {filters?.length &&
-                    filters?.map((item, index) => {
-                        return (
-                            <FilterRow
-                                key={index}
-                                item={item}
-                                index={index}
-                                totalCount={filters.length - 1} // empty state
-                                filters={filters}
-                                pageKey={pageKey}
-                                showConditionBadge={showConditionBadge}
-                                disablePopover={disablePopover}
-                                popoverPlacement={popoverPlacement}
-                                taxonomicPopoverPlacement={taxonomicPopoverPlacement}
-                                showNestedArrow={showNestedArrow}
-                                label={'Add rule'}
-                                filterComponent={() => {
-                                    return <PathRegexPopup />
-                                }}
-                            />
-                        )
-                    })}
-            </BindLogic>
+            {path_cleaning_filters_with_new.length &&
+                path_cleaning_filters_with_new.map((item, index) => {
+                    return (
+                        <FilterRow
+                            key={index}
+                            item={item}
+                            index={index}
+                            totalCount={path_cleaning_filters_with_new.length - 1} // empty state
+                            filters={path_cleaning_filters_with_new}
+                            pageKey={pageKey}
+                            showConditionBadge={showConditionBadge}
+                            disablePopover={disablePopover}
+                            popoverPlacement={popoverPlacement}
+                            taxonomicPopoverPlacement={taxonomicPopoverPlacement}
+                            showNestedArrow={showNestedArrow}
+                            label={'Add rule'}
+                            onRemove={onRemove}
+                            filterComponent={(onComplete) => {
+                                return <PathRegexPopup onComplete={onComplete} />
+                            }}
+                        />
+                    )
+                })}
         </div>
     )
 }

@@ -1,5 +1,5 @@
 import React, { CSSProperties } from 'react'
-import { useValues, BindLogic } from 'kea'
+import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
 import 'scenes/actions/Actions.scss'
@@ -37,6 +37,7 @@ export function PropertyFilters({
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
+    const { remove } = useActions(propertyFilterLogic(logicProps))
 
     return (
         <div className="mb" style={style}>
@@ -57,6 +58,7 @@ export function PropertyFilters({
                                 taxonomicPopoverPlacement={taxonomicPopoverPlacement}
                                 showNestedArrow={showNestedArrow}
                                 label={'Add filter'}
+                                onRemove={remove}
                                 filterComponent={(onComplete) => {
                                     const propertyFilterCommonProps = {
                                         key: index,
