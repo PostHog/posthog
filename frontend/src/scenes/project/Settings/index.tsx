@@ -22,13 +22,13 @@ import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constan
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
-import { organizationLogic } from '../../organizationLogic'
 import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
 import { AvailableFeature, UserType } from '../../../types'
 import { TeamMembers } from './TeamMembers'
 import { teamMembersLogic } from './teamMembersLogic'
 import { AccessControl } from './AccessControl'
 import { PathCleaningFiltersConfig } from './PathCleaningFiltersConfig'
+import { userLogic } from 'scenes/userLogic'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -71,10 +71,10 @@ function DisplayName(): JSX.Element {
 
 export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     useAnchor(location.hash)
 
@@ -251,13 +251,12 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                 <Divider />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
-                {currentTeam?.access_control &&
-                    currentOrganization?.available_features.includes(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
-                        <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
-                            <TeamMembers user={user} team={currentTeam} />
-                            <Divider />
-                        </BindLogic>
-                    )}
+                {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
+                    <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
+                        <TeamMembers user={user} team={currentTeam} />
+                        <Divider />
+                    </BindLogic>
+                )}
                 <RestrictedArea
                     Component={DangerZone}
                     minimumAccessLevel={OrganizationMembershipLevel.Admin}

@@ -6,6 +6,8 @@ import { HotKeys, ViewType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -16,6 +18,7 @@ function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
 export function InsightsNav(): JSX.Element {
     const { activeView } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <Row justify="space-between" align="middle" className="top-bar">
@@ -27,21 +30,25 @@ export function InsightsNav(): JSX.Element {
                 className="top-bar"
                 onChange={(key) => setActiveView(key as ViewType)}
                 animated={false}
-                tabBarExtraContent={{
-                    right: (
-                        <Button
-                            type="link"
-                            data-attr="insight-history-button"
-                            className={`insight-history-button${
-                                (activeView as ViewType) === ViewType.HISTORY ? ' active' : ''
-                            }`}
-                            onClick={() => setActiveView(ViewType.HISTORY)}
-                            icon={<ClockCircleOutlined />}
-                        >
-                            History
-                        </Button>
-                    ),
-                }}
+                tabBarExtraContent={
+                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                        ? undefined
+                        : {
+                              right: (
+                                  <Button
+                                      type="link"
+                                      data-attr="insight-history-button"
+                                      className={`insight-history-button${
+                                          (activeView as ViewType) === ViewType.HISTORY ? ' active' : ''
+                                      }`}
+                                      onClick={() => setActiveView(ViewType.HISTORY)}
+                                      icon={<ClockCircleOutlined />}
+                                  >
+                                      History
+                                  </Button>
+                              ),
+                          }
+                }
             >
                 <TabPane
                     tab={

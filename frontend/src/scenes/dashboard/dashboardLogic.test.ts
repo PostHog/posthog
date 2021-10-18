@@ -8,6 +8,7 @@ import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardItemType } from '~/types'
 
 jest.mock('lib/api')
 
@@ -18,6 +19,16 @@ describe('dashboardLogic', () => {
         const { pathname } = url
         if (pathname === 'api/dashboard/5/') {
             return dashboardJson
+        } else if (pathname === 'api/dashboard/6/') {
+            return {
+                ...dashboardJson,
+                items: [
+                    { ...dashboardJson.items[0], result: null },
+                    { ...dashboardJson.items[1], result: null },
+                    { ...dashboardJson.items[0], id: 666 },
+                    { ...dashboardJson.items[1], id: 999 },
+                ],
+            }
         } else if (pathname.startsWith('api/dashboard_item/')) {
             return dashboardJson.items.find(({ id }) => id === parseInt(pathname.split('/')[2]))
         }
@@ -47,7 +58,7 @@ describe('dashboardLogic', () => {
             onLogic: (l) => (logic = l),
         })
 
-        describe('core assumptions', () => {
+        describe('on load', () => {
             it('mounts other logics', async () => {
                 await expectLogic(logic).toMount([dashboardsModel, dashboardItemsModel, eventUsageLogic])
             })
@@ -149,6 +160,47 @@ describe('dashboardLogic', () => {
                         },
                     })
             })
+        })
+    })
+
+    describe('with a half-cached dashboard', () => {
+        initKeaTestLogic({
+            logic: dashboardLogic,
+            props: {
+                id: 6,
+            },
+            onLogic: (l) => (logic = l),
+        })
+
+        it('fetches dashboard items on mount', async () => {
+            await expectLogic(logic)
+                .toDispatchActions(['loadDashboardItemsSuccess'])
+                .toMatchValues({
+                    allItems: truth(
+                        ({ items }) => items.filter((i: DashboardItemType) => i.result === null).length === 2
+                    ),
+                    items: truth((items) => items.length === 4),
+                })
+                .toDispatchActions(['refreshAllDashboardItems', 'setRefreshStatuses'])
+                .toMatchValues({
+                    refreshMetrics: {
+                        completed: 0,
+                        total: 2,
+                    },
+                })
+                .toDispatchActions(['setRefreshStatus', 'setRefreshStatus'])
+                .toMatchValues({
+                    refreshMetrics: {
+                        completed: 2,
+                        total: 2,
+                    },
+                })
+                .toMatchValues({
+                    allItems: truth(
+                        ({ items }) => items.filter((i: DashboardItemType) => i.result === null).length === 0
+                    ),
+                    items: truth((items) => items.length === 4),
+                })
         })
     })
 })

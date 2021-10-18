@@ -98,6 +98,7 @@ export function DashboardItems(): JSX.Element {
                 <div key={item.id} className="dashboard-item-wrapper">
                     <DashboardItem
                         key={item.id}
+                        doNotLoad
                         dashboardId={dashboard?.id}
                         item={item}
                         layout={
