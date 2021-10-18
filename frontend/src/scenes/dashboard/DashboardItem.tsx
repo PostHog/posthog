@@ -19,7 +19,15 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType, FilterType } from '~/types'
+import {
+    DashboardItemType,
+    DashboardMode,
+    DashboardType,
+    ChartDisplayType,
+    ViewType,
+    FilterType,
+    InsightLogicProps,
+} from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -56,11 +64,11 @@ interface Props {
     layout?: any
     footer?: JSX.Element
     onClick?: () => void
-    preventLoading?: boolean
     moveDashboardItem?: (it: DashboardItemType, dashboardId: number) => void
     saveDashboardItem?: (it: DashboardItemType) => void
     duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
     isHighlighted?: boolean
+    doNotLoad?: boolean
 }
 
 export type DisplayedType = ChartDisplayType | 'RetentionContainer'
@@ -185,11 +193,11 @@ export function DashboardItem({
     layout,
     footer,
     onClick,
-    preventLoading,
     moveDashboardItem,
     saveDashboardItem,
     duplicateDashboardItem,
     isHighlighted = false,
+    doNotLoad = false,
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
@@ -228,11 +236,11 @@ export function DashboardItem({
     })
 
     const filters = { ...item.filters, from_dashboard: item.id }
-    const logicProps = {
+    const logicProps: InsightLogicProps = {
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: (item as any).result,
-        preventLoading,
+        doNotLoad,
     }
     const { insightProps, showTimeoutMessage, showErrorMessage, insight, insightLoading, isLoading } = useValues(
         insightLogic(logicProps)
@@ -609,9 +617,7 @@ export function DashboardItem({
                         BlockingEmptyState
                     ) : (
                         <Alert.ErrorBoundary message="Error rendering graph!">
-                            {(dashboardMode === DashboardMode.Public || preventLoading) &&
-                            !insight.result &&
-                            !item.result ? (
+                            {dashboardMode === DashboardMode.Public && !insight.result && !item.result ? (
                                 <Skeleton />
                             ) : (
                                 <Element
