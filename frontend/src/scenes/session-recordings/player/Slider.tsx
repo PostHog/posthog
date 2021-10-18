@@ -1,4 +1,5 @@
 import React, { useRef } from 'react'
+import './Slider.scss'
 
 enum SectionType {
     INACTIVE = 'inactive',
