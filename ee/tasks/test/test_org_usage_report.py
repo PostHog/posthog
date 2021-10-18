@@ -10,6 +10,7 @@ from ee.clickhouse.models.event import create_event
 from ee.tasks.org_usage_report import send_all_org_usage_reports
 from posthog.constants import AnalyticsDBMS
 from posthog.models import Organization, Person, Team, User
+from posthog.tasks.org_usage_report import OrgReport
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -37,6 +38,14 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
             self.assertIsNotNone(all_reports[0]["product"])
 
         def test_event_counts(self) -> None:
+            def _test_org_report(org_report: OrgReport) -> None:
+                self.assertEqual(org_report["event_count_lifetime"], 5)
+                self.assertEqual(org_report["event_count_in_period"], 3)
+                self.assertEqual(org_report["event_count_in_month"], 4)
+                self.assertIsNotNone(org_report["organization_id"])
+                self.assertIsNotNone(org_report["organization_name"])
+                self.assertEqual(org_report["team_count"], 1)
+
             with self.settings(**{"EE_AVAILABLE": True, "PRIMARY_DB": AnalyticsDBMS.CLICKHOUSE}):
                 with freeze_time("2020-11-02"):
                     _create_person("old_user1", team=self.team)
@@ -54,16 +63,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                     _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=self.team)
                     all_reports = send_all_org_usage_reports(dry_run=True)
                     org_report = all_reports[0]
-
-                    def _test_org_report() -> None:
-                        self.assertEqual(org_report["event_count_lifetime"], 5)
-                        self.assertEqual(org_report["event_count_in_period"], 3)
-                        self.assertEqual(org_report["event_count_in_month"], 4)
-                        self.assertIsNotNone(org_report["organization_id"])
-                        self.assertIsNotNone(org_report["organization_name"])
-                        self.assertEqual(org_report["team_count"], 1)
-
-                    _test_org_report()
+                    _test_org_report(org_report)
                     team_in_other_org = self.create_new_org_and_team(
                         org_owner_email="other@example.com"
                     )  # Create usage in a different org.
@@ -72,7 +72,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                     _create_event(
                         "new_user1", "$event1", "$web", now() - relativedelta(days=1, hours=2), team=team_in_other_org
                     )
-                    _test_org_report()  # Make sure the original team report is unchanged
+                    _test_org_report(org_report)  # Make sure the original team report is unchanged
                     _create_event(
                         "new_user1",
                         "$eventAfter",
