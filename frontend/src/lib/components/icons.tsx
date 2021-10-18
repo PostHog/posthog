@@ -428,66 +428,32 @@ export function DiveIcon({ style }: { style?: CSSProperties }): JSX.Element {
         <svg width="1em" height="1em" viewBox="0 0 17 18" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
                 d="M16.5 18C16.1484 18 15.829 17.9195 15.5306 17.7832C15.2223 17.6385 14.8759 17 14.5145 17C14.1505 17 13.806 17.6385 13.4956 17.7832C13.195 17.9195 12.8443 18 12.4928 18C12.1415 18 11.8218 17.9195 11.5236 17.7832C11.2108 17.6385 10.8696 17 10.506 17C10.142 17 9.79468 17.6385 9.48834 17.7832C9.18778 17.9195 8.83707 18 8.48551 18C8.13446 18 7.81451 17.9195 7.51225 17.7832C7.20574 17.6385 6.85955 17 6.5 17C6.1362 17 5.78743 17.6385 5.48092 17.7832C5.1807 17.9195 4.82983 18 4.48048 18C4.12909 18 3.80948 17.9195 3.50688 17.7832C3.20037 17.6385 2.85418 17 2.4948 17C2.131 17 1.78223 17.6385 1.47606 17.7832C1.1755 17.9195 0.820894 18 0.468994 18V16.5042C0.820894 16.5042 1.1755 16.4237 1.47606 16.2855C1.78223 16.145 2.131 15.5063 2.4948 15.5063C2.85435 15.5063 3.20054 16.145 3.50688 16.2855C3.80948 16.4237 4.12909 16.5042 4.48048 16.5042C4.82983 16.5042 5.1807 16.4237 5.48075 16.2855C5.78726 16.145 6.13603 15.5064 6.49983 15.5064C6.85938 15.5064 7.20557 16.145 7.51208 16.2855C7.81434 16.4237 8.13429 16.5042 8.48534 16.5042C8.8369 16.5042 9.18761 16.4237 9.48817 16.2855C9.79468 16.145 10.142 15.5064 10.5058 15.5064C10.8696 15.5064 11.2106 16.145 11.5234 16.2855C11.8216 16.4237 12.1414 16.5042 12.4926 16.5042C12.8441 16.5042 13.1948 16.4237 13.4954 16.2855C13.8058 16.145 14.1505 15.5064 14.5143 15.5064C14.8757 15.5064 15.2221 16.145 15.5305 16.2855C15.8288 16.4237 16.1483 16.5042 16.4998 16.5042L16.5 18Z"
-                fill="currentcolor"
+                fill="currentColor"
             />
             <path
                 d="M4.35065 9.73315C5.09678 9.73315 5.70368 9.11962 5.70368 8.36346C5.70368 7.60951 5.09678 7.00006 4.35065 7.00006C3.6069 7.00006 3 7.60934 3 8.36346C3 9.11962 3.60707 9.73315 4.35065 9.73315Z"
-                fill="currentcolor"
+                fill="currentColor"
             />
             <path
                 d="M5.21321 14.3911C5.00071 14.7566 4.53508 14.8826 4.17315 14.6634C3.80935 14.4509 3.68661 13.9778 3.89724 13.6123L7.03374 8.15225C7.14815 7.9457 7.3156 7.77621 7.51603 7.66469L11.5481 5.19391L14.2841 0.481854C14.5437 0.0230238 15.1235 -0.135926 15.5776 0.126554C16.029 0.393114 16.1845 0.977574 15.9251 1.43402L12.6453 7.07989C12.5331 7.28457 12.3655 7.45423 12.1608 7.56745L7.40383 10.5566L5.21321 14.3911Z"
-                fill="currentcolor"
+                fill="currentColor"
             />
         </svg>
     )
 }
 
-// Antd arrows rotated at convenient angles
-
-export function ArrowTopLeftOutlined({ style }: { style?: CSSProperties }): JSX.Element {
-    return (
-        <span className="anticon anticon-wraper-arrow topLeft">
-            <ArrowUpOutlined style={style} />
-        </span>
-    )
-}
-
-export function ArrowTopRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
-    return (
-        <span className="anticon anticon-wraper-arrow topRight">
-            <ArrowUpOutlined style={style} />
-        </span>
-    )
-}
-
-export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
-    return (
-        <span className="anticon anticon-wraper-arrow bottomRight">
-            <ArrowUpOutlined style={style} />
-        </span>
-    )
-}
-
-export function ArrowBottomLeftOutlined({ style }: { style?: CSSProperties }): JSX.Element {
-    return (
-        <span className="anticon anticon-wraper-arrow bottomLeft">
-            <ArrowUpOutlined style={style} />
-        </span>
-    )
-}
-
-export function Infinity({ style }: { style?: CSSProperties }): JSX.Element {
+export function IconInfinity({ style }: { style?: CSSProperties }): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 14 6" fill="none" style={style} xmlns="http://www.w3.org/2000/svg">
             <path
                 d="M10.6817 0C9.87877 0 9.12041 0.312268 8.57952 0.85316L4.65944 4.33271C4.30256 4.68959 3.82859 4.88476 3.32115 4.88476C2.2784 4.88476 1.43082 4.04275 1.43082 3C1.43082 1.95725 2.2784 1.11524 3.32115 1.11524C3.82859 1.11524 4.30256 1.31041 4.68175 1.68959L5.31186 2.24721L6.15386 1.5L5.45126 0.881041C4.88249 0.312268 4.12412 0 3.32115 0C1.65944 0 0.309998 1.34944 0.309998 3C0.309998 4.65056 1.65944 6 3.32115 6C4.12412 6 4.88249 5.68773 5.42338 5.14684L9.34346 1.66729C9.70033 1.31041 10.1743 1.11524 10.6817 1.11524C11.7245 1.11524 12.5721 1.95725 12.5721 3C12.5721 4.04275 11.7245 4.88476 10.6817 4.88476C10.1799 4.88476 9.70033 4.68959 9.32115 4.31041L8.68546 3.74721L7.84346 4.49442L8.55163 5.11896C9.12041 5.68216 9.8732 5.99442 10.6817 5.99442C12.3435 5.99442 13.6929 4.65056 13.6929 2.99442C13.6929 1.33829 12.3435 0 10.6817 0Z"
-                fill="currentcolor"
+                fill="currentColor"
             />
         </svg>
     )
 }
 
-export function PathsCompletedArrow(): JSX.Element {
+export function IconPathsCompletedArrow(): JSX.Element {
     return (
         <svg width="16" height="8" viewBox="0 0 16 8" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M16 4L12 0V3H0V5H12V8L16 4Z" fill="#77B96C" />
@@ -495,7 +461,7 @@ export function PathsCompletedArrow(): JSX.Element {
     )
 }
 
-export function PathsDropoffArrow(): JSX.Element {
+export function IconPathsDropoffArrow(): JSX.Element {
     return (
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
@@ -506,13 +472,42 @@ export function PathsDropoffArrow(): JSX.Element {
     )
 }
 
-export function TrendUp({ style }: { style?: CSSProperties }): JSX.Element {
+export function IconTrendUp({ style }: { style?: CSSProperties }): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 81 60" fill="none" style={style} xmlns="http://www.w3.org/2000/svg">
             <path
                 d="M78.4688 50H10.125V2.5C10.125 1.11875 8.99227 0 7.59375 0H2.53125C1.13273 0 0 1.11875 0 2.5V55C0 57.7609 2.26705 60 5.0625 60H78.4688C79.8673 60 81 58.8812 81 57.5V52.5C81 51.1188 79.8673 50 78.4688 50ZM73.4062 5H54.7288C51.3464 5 49.6521 9.03906 52.0441 11.4016L57.1699 16.4641L45.5625 27.9297L33.9551 16.4656C31.9776 14.5125 28.7724 14.5125 26.7964 16.4656L15.9295 27.1984C14.9407 28.175 14.9407 29.7578 15.9295 30.7344L19.508 34.2688C20.4968 35.2453 22.0994 35.2453 23.0882 34.2688L30.375 27.0703L41.9824 38.5344C43.9599 40.4875 47.1651 40.4875 49.1411 38.5344L64.3286 23.5344L69.4543 28.5969C71.8464 30.9594 75.9359 29.2859 75.9359 25.9453V7.5C75.9375 6.11875 74.8048 5 73.4062 5Z"
-                fill="currentcolor"
+                fill="currentColor"
             />
         </svg>
+    )
+}
+
+export function IconFeedbackWarning({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" style={style} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M26.6667 2.66663H5.33341C3.86675 2.66663 2.68008 3.86663 2.68008 5.33329L2.66675 29.3333L8.00008 24H26.6667C28.1334 24 29.3334 22.8 29.3334 21.3333V5.33329C29.3334 3.86663 28.1334 2.66663 26.6667 2.66663ZM26.6667 21.3333H6.89341L6.10675 22.12L5.33341 22.8933V5.33329H26.6667V21.3333ZM14.6667 16H17.3334V18.6666H14.6667V16ZM14.6667 7.99996H17.3334V13.3333H14.6667V7.99996Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+// AntD arrows rotated at convenient angles
+
+export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow bottomRight">
+            <ArrowUpOutlined style={style} />
+        </span>
+    )
+}
+
+export function ArrowTopRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow topRight">
+            <ArrowUpOutlined style={style} />
+        </span>
     )
 }

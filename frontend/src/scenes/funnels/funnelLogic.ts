@@ -100,6 +100,7 @@ export const funnelLogic = kea<funnelLogicType>({
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        hideSkewWarning: true,
     }),
 
     loaders: ({ values }) => ({
@@ -197,6 +198,12 @@ export const funnelLogic = kea<funnelLogicType>({
             [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
             {
                 setPropertyCorrelationTypes: (_, { types }) => types,
+            },
+        ],
+        skewWarningHidden: [
+            false,
+            {
+                hideSkewWarning: () => true,
             },
         ],
     }),
@@ -334,9 +341,9 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         isSkewed: [
-            () => [selectors.conversionMetrics],
-            (conversionMetrics: FunnelTimeConversionMetrics) => {
-                return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
+            (s) => [s.conversionMetrics, s.skewWarningHidden],
+            (conversionMetrics, skewWarningHidden): boolean => {
+                return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
         ],
         apiParams: [
