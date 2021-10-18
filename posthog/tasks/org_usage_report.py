@@ -3,6 +3,8 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional, TypedDict, Union
 
+from sentry_sdk import capture_exception
+
 from posthog.event_usage import report_org_usage, report_org_usage_failure
 from posthog.models import Event, Team, User
 from posthog.tasks.status_report import get_instance_licenses
@@ -91,7 +93,12 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
             }
 
     for id, org in org_data.items():
-        distinct_id = User.objects.filter(current_team_id__in=org["teams"]).first().distinct_id  # type: ignore
+        org_first_user = User.objects.filter(current_team_id__in=org["teams"]).first()
+        if not org_first_user:
+            name = org["name"]
+            capture_exception(Exception(f"No user found for org '{name}' ({id})"))
+            continue
+        distinct_id = org_first_user.distinct_id
         try:
             month_start = period_start.replace(day=1)
             usage = get_org_usage(
