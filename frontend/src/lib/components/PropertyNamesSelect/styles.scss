@@ -73,7 +73,7 @@
             }
         }
 
-        .checkbox-group {
+        .search-results {
             width: 100%;
             max-height: 310px;
             overflow-y: auto;
@@ -88,6 +88,15 @@
 
                 background: #eef2ff;
                 border-radius: 4px;
+            }
+
+            .no-results-message {
+                padding: 8px;
+                text-align: center;
+                font-size: 14px;
+                line-height: 24px;
+                color: #2d2d2d;
+                margin: 1em 4px;
             }
         }
     }

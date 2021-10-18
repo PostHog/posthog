@@ -87,7 +87,7 @@ const PropertyNamesSelectBox = (): JSX.Element => {
 
 const PropertyNamesSearch = (): JSX.Element => {
     const { properties, selectedProperties, toggleProperty } = useSelectedProperties()
-    const { filteredProperties, setQuery } = usePropertySearch(properties)
+    const { filteredProperties, query, setQuery } = usePropertySearch(properties)
 
     return (
         <>
@@ -97,17 +97,23 @@ const PropertyNamesSearch = (): JSX.Element => {
                 placeholder="Search for properties"
                 prefix={<SearchOutlined />}
             />
-            <div className="checkbox-group">
-                {filteredProperties.map((property) => (
-                    <Checkbox
-                        key={property.name}
-                        className="checkbox"
-                        checked={selectedProperties.has(property.name)}
-                        onChange={() => toggleProperty(property.name)}
-                    >
-                        {property.name}
-                    </Checkbox>
-                ))}
+            <div className="search-results">
+                {filteredProperties.length ? (
+                    filteredProperties.map((property) => (
+                        <Checkbox
+                            key={property.name}
+                            className="checkbox"
+                            checked={selectedProperties.has(property.name)}
+                            onChange={() => toggleProperty(property.name)}
+                        >
+                            {property.name}
+                        </Checkbox>
+                    ))
+                ) : (
+                    <p className="no-results-message">
+                        No properties match “{query}”. Refine your search to try again.
+                    </p>
+                )}
             </div>
         </>
     )
@@ -174,7 +180,7 @@ const usePropertySearch = (
         return properties.filter((property) => property.name.toLowerCase().includes(query.toLowerCase()))
     }, [query, properties])
 
-    return { filteredProperties, setQuery }
+    return { filteredProperties, setQuery, query }
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
