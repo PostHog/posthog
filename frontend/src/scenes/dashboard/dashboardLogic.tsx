@@ -613,7 +613,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
             document.title = title ? `${title} • PostHog` : 'PostHog'
         },
         loadDashboardItemsSuccess: () => {
-            const unloadedItems = values.allItems?.items?.filter((i) => !i.result)
+            // Initial load of actual data for dashboard items after general dashboard is fetched
+            const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
+            actions.refreshAllDashboardItems(notYetLoadedItems)
             actions.refreshAllDashboardItems(unloadedItems)
         },
     }),
