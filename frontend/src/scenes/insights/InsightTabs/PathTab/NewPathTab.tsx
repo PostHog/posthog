@@ -23,6 +23,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
+import { PathCleanFilter } from './PathCleanFilter'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -251,10 +252,12 @@ export function NewPathTab(): JSX.Element {
                                         value={filter.path_groupings || []}
                                     />
                                 </Row>
+                                <div style={{ marginTop: 5 }}>
+                                    <PathCleanFilter filters={filter} onChange={setFilter} />
+                                </div>
                                 <hr />
                             </>
                         )}
-
                         <Row align="middle">
                             <Col span={9}>
                                 <b>Starting at</b>

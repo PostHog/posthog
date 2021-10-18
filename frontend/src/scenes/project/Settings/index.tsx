@@ -184,7 +184,7 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />
-                <h2 className="subtitle" id="internal-users-filtering">
+                <h2 className="subtitle" id="path_cleaning_filtering">
                     Path Cleaning
                 </h2>
                 <p>Placeholder copy goes here</p>

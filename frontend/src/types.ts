@@ -784,6 +784,7 @@ export interface FilterType {
     path_start_key?: string // Paths People Start Key
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
+    path_replacements?: boolean
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
