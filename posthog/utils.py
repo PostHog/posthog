@@ -258,7 +258,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         if request.user.pk:
             user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
             posthog_app_context["current_user"] = user_serialized.data
-            team = cast(User, request.user.team)
+            team = cast(User, request.user).team
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
                 posthog_app_context["current_team"] = team_serialized.data
