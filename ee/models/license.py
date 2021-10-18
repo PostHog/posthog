@@ -60,6 +60,7 @@ class License(models.Model):
         AvailableFeature.GOOGLE_LOGIN,
         AvailableFeature.DASHBOARD_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
+        AvailableFeature.PATHS_ADVANCED,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
