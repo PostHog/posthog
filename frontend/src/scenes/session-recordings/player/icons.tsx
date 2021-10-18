@@ -13,26 +13,25 @@ function BaseIcon({
     className?: string
 }): JSX.Element {
     return (
-        <span onClick={onClick} className={className || 'rrweb-controller-icon'}>
+        <div onClick={onClick} className={`rrweb-controller-icon ${className}`}>
             {children}
-        </span>
+        </div>
     )
 }
 
 export function IconSeekBack({
     onClick,
     time,
-    className = '',
 }: {
     onClick: () => void
     time: number
     className?: string
 }): JSX.Element {
     return (
-        <BaseIcon onClick={onClick} className={className}>
+        <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek">
             <>
-                <span>{time}</span>
-                <UndoOutlined rotate={90} />
+                <span className="seek-seconds">{time}</span>
+                <UndoOutlined className="seek-icon" rotate={90} />
             </>
         </BaseIcon>
     )
@@ -41,17 +40,16 @@ export function IconSeekBack({
 export function IconSeekForward({
     onClick,
     time,
-    className = '',
 }: {
     onClick: () => void
     time: number
     className?: string
 }): JSX.Element {
     return (
-        <BaseIcon onClick={onClick} className={className}>
+        <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek">
             <>
-                <span>{time}</span>
-                <RedoOutlined rotate={270} />
+                <span className="seek-seconds">{time}</span>
+                <RedoOutlined className="seek-icon" rotate={270} />
             </>
         </BaseIcon>
     )

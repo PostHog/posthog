@@ -4,7 +4,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Tooltip } from 'antd'
+import { Select, Tooltip } from 'antd'
 import { SessionPlayerState } from '~/types'
 import { IconPause, IconPlay, IconSeekBack, IconSeekForward } from 'scenes/session-recordings/player/icons'
 import { Slider } from 'scenes/session-recordings/player/Slider'
@@ -21,22 +21,20 @@ export function PlayerController({}: PlayerControllerProps): JSX.Element {
     return (
         <div className="rrweb-controller">
             <div>
-                <Tooltip placement="top" overlayInnerStyle={{ minHeight: 'auto' }} overlay="Play/pause (space)">
-                    <span>
-                        {currentPlayerState === SessionPlayerState.PLAY ||
-                        currentPlayerState === SessionPlayerState.SKIP ? (
-                            <IconPause
-                                onClick={togglePlayPause}
-                                className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                            />
-                        ) : (
-                            <IconPlay
-                                onClick={togglePlayPause}
-                                className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                            />
-                        )}
-                    </span>
-                </Tooltip>
+                <span>
+                    {currentPlayerState === SessionPlayerState.PLAY ||
+                    currentPlayerState === SessionPlayerState.SKIP ? (
+                        <IconPause
+                            onClick={togglePlayPause}
+                            className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
+                        />
+                    ) : (
+                        <IconPlay
+                            onClick={togglePlayPause}
+                            className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
+                        />
+                    )}
+                </span>
                 <Tooltip
                     placement="top"
                     overlayInnerStyle={{ minHeight: 'auto' }}
@@ -55,33 +53,35 @@ export function PlayerController({}: PlayerControllerProps): JSX.Element {
                         <IconSeekForward onClick={seekForward} time={jumpTimeMs / 1000} />
                     </span>
                 </Tooltip>
-                <span className="rrweb-timestamp">
+                <div className="rrweb-timestamp">
                     {colonDelimitedDuration(time.current / 1000)} / {colonDelimitedDuration(meta.totalTime / 1000)}
-                </span>
+                </div>
             </div>
             <div className="rrweb-progress">
                 <Slider value={time.current} total={meta.totalTime} onChange={seek} />
             </div>
             <div style={{ justifyContent: 'flex-end' }}>
-                {PLAYBACK_SPEEDS.map((speedToggle, index) => (
-                    <React.Fragment key={speedToggle}>
-                        <Tooltip
-                            placement="top"
-                            overlayInnerStyle={{ minHeight: 'auto' }}
-                            overlay={`${speedToggle}x speed (${index + 1})`}
-                        >
-                            <span
-                                className="rrweb-speed-toggle"
-                                style={{
-                                    fontWeight: speedToggle === speed ? 'bold' : 'normal',
-                                }}
-                                onClick={() => setSpeed(speedToggle)}
-                            >
-                                {speedToggle}x
-                            </span>
-                        </Tooltip>
-                    </React.Fragment>
-                ))}
+                <Select
+                    onChange={(nextSpeed: number) => setSpeed(nextSpeed)}
+                    value={speed}
+                    dropdownMatchSelectWidth={false}
+                    size="small"
+                >
+                    <Select.OptGroup label="Speed">
+                        {PLAYBACK_SPEEDS.map((speedToggle) => (
+                            <Select.Option key={speedToggle} value={speedToggle}>
+                                <span
+                                    className="rrweb-speed-toggle"
+                                    // style={{
+                                    //     fontWeight: speedToggle === speed ? 'bold' : 'normal',
+                                    // }}
+                                >
+                                    {speedToggle}x
+                                </span>
+                            </Select.Option>
+                        ))}
+                    </Select.OptGroup>
+                </Select>
             </div>
         </div>
     )

@@ -77,7 +77,13 @@ $player_bg: #797973;
         }
     }
 
+    .rrweb-timestamp {
+        font-size: 14px;
+    }
+
     .rrweb-progress {
+        display: flex;
+        flex: 1;
         width: 100%;
         cursor: pointer;
     }
@@ -88,7 +94,7 @@ $player_bg: #797973;
         background-color: $bg_light;
         border-radius: $radius;
         border: 1px solid $player_bg;
-        padding: 0 $default_spacing / 2;
+        padding: 0 $default_spacing;
         flex-direction: row;
         align-items: center;
         justify-content: space-around;
@@ -96,20 +102,29 @@ $player_bg: #797973;
         height: 40px;
         color: black;
 
-        > * {
-            flex: 1 0 0;
-            display: flex;
-            align-items: center;
-        }
-
         .rrweb-controller-icon {
-            margin-right: 8px;
-            font-size: 24px;
+            margin-right: $default_spacing;
             cursor: pointer;
             display: flex;
+            justify-content: center;
+            align-items: center;
 
             &.rrweb-controller-icon-play-pause {
                 margin-right: 0px;
+            }
+
+            &.rrweb-controller-icon-seek {
+                height: 18px;
+                width: 18px;
+
+                span.seek-seconds {
+                    position: absolute;
+                    font-size: 6px;
+                }
+                .seek-icon {
+                    position: absolute;
+                    font-size: 18px;
+                }
             }
         }
     }

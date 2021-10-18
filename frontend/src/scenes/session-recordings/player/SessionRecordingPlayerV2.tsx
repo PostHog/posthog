@@ -1,11 +1,11 @@
+import './styles.scss'
 import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import screenfull from 'screenfull'
 import { PLAYBACK_SPEEDS, sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
-import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
-import './styles.scss'
+// import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 import { Col, Row } from 'antd'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
@@ -55,14 +55,14 @@ export function SessionRecordingPlayerV2(): JSX.Element {
     return (
         <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
             <Row className="session-player-body" wrap={false}>
-                <Col className="player-container" span={18}>
+                <Col className="player-container" span={24}>
                     <span className="ph-no-capture">
                         <PlayerFrame ref={frame} />
                     </span>
                 </Col>
-                <Col span={6} flex={1}>
-                    <PlayerEvents />
-                </Col>
+                {/*<Col span={6} flex={1}>*/}
+                {/*    <PlayerEvents />*/}
+                {/*</Col>*/}
             </Row>
             <Row className="session-player-controller" align="middle">
                 <PlayerController toggleFullScreen={toggleFullScreen} />
