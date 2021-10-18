@@ -68,7 +68,7 @@
             box-sizing: border-box;
             border-radius: 4px;
 
-            &:hover {
+            &:focus-within {
                 border-color: var(--primary);
             }
         }
