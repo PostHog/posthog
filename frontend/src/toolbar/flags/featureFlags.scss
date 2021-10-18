@@ -9,6 +9,10 @@
         margin-bottom: 5px;
         padding: 0 8px 0 8px;
 
+        &.hidden {
+            display: none;
+        }
+
         .feature-flag-row-header {
             background-color: #fafafa;
             border-radius: 4px;

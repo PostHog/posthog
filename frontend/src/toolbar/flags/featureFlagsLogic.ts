@@ -4,6 +4,7 @@ import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { PostHog } from 'posthog-js'
 import { toolbarFetch } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import Fuse from 'fuse.js'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     actions: {
@@ -11,6 +12,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         setOverriddenUserFlag: (flagId: number, overrideValue: string | boolean) => ({ flagId, overrideValue }),
         deleteOverriddenUserFlag: (overrideId: number) => ({ overrideId }),
         setShowLocalFeatureFlagWarning: (showWarning: boolean) => ({ showWarning }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
 
     loaders: ({ values }) => ({
@@ -23,8 +25,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     if (!response.ok) {
                         return []
                     }
-                    const results = await response.json()
-                    return results
+                    return await response.json()
                 },
                 setOverriddenUserFlag: async ({ flagId, overrideValue }, breakpoint) => {
                     const response = await toolbarFetch(
@@ -67,6 +68,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         ],
     }),
     reducers: {
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
         showLocalFeatureFlagWarning: [
             false,
             {
@@ -92,12 +99,23 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 })
             },
         ],
-        countFlagsOverridden: [
-            (s) => [s.userFlags],
-            (userFlags) => {
-                return userFlags.filter((flag) => !!flag.override).length
-            },
+        flagNames: [(s) => [s.userFlags], (userFlags) => userFlags.map((uf) => uf.feature_flag.name)],
+        searchMatches: [
+            (s) => [s.searchTerm, s.flagNames],
+            (searchTerm, flagNames) =>
+                searchTerm
+                    ? new Fuse(flagNames, {
+                          threshold: 0.3,
+                      })
+                          .search(searchTerm)
+                          .map(({ item }) => item)
+                    : flagNames,
         ],
+        isHiddenBySearch: [
+            (s) => [s.searchMatches],
+            (searchMatches) => (featureFlagName: string) => !searchMatches.includes(featureFlagName),
+        ],
+        countFlagsOverridden: [(s) => [s.userFlags], (userFlags) => userFlags.filter((flag) => !!flag.override).length],
     },
     events: ({ actions }) => ({
         afterMount: () => {
