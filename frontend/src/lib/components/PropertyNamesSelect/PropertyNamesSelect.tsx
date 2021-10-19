@@ -194,9 +194,8 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
     }
 }
 
-const usePropertySearch = (
-    properties: PersonProperty[]
-): { filteredProperties: PersonProperty[]; setQuery: (query: string) => void; query: string } => {
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const usePropertySearch = (properties: PersonProperty[]) => {
     /* 
         Basic case insensitive substring search functionality for person property
         selection. It's pretty much this stackoverflow answer:
