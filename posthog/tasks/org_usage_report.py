@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, TypedDict, Union
 
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, configure_scope
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
 from posthog.models import Event, Team, User
@@ -105,8 +105,10 @@ def send_all_reports(
     for id, org in org_data.items():
         org_first_user = User.objects.filter(current_team_id__in=org["teams"]).first()
         if not org_first_user:
-            name = org["name"]
-            capture_exception(Exception(f"No user found for org '{name}' ({id})"))
+            with configure_scope() as scope:
+                scope.set_context("org", org)
+                name = org["name"]
+                capture_exception(Exception(f"No user found for org '{name}' ({id})"))
             continue
         distinct_id = org_first_user.distinct_id
         try:
