@@ -151,6 +151,7 @@ class FunnelVizType(str, Enum):
 class FunnelCorrelationType(str, Enum):
     EVENTS = "events"
     PROPERTIES = "properties"
+    EVENT_WITH_PROPERTIES = "event_with_properties"
 
 
 RETENTION_RECURRING = "retention_recurring"
