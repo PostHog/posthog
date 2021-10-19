@@ -71,8 +71,8 @@ function MergePerson(): JSX.Element {
             >
                 {persons.results &&
                     persons.results
-                        .filter((p) => p.uuid !== person.uuid)
-                        .map((p) =>
+                        .filter((p: PersonType) => p.uuid !== person.uuid)
+                        .map((p: PersonType) =>
                             p.id ? (
                                 <Select.Option value={p.id} key={p.id}>
                                     {p.name}

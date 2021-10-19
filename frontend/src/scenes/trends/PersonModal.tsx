@@ -189,7 +189,7 @@ export function PersonRow({ person }: PersonRowProps): JSX.Element {
                 <ExpandIcon {...expandProps} />
                 <div className="person-ids">
                     <strong>
-                        <PersonHeader person={person} noIcon />
+                        <PersonHeader person={person} withIcon={false} />
                     </strong>
                     <CopyToClipboardInline
                         explicitValue={person.distinct_ids[0]}
