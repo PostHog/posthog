@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { sum } from 'lib/utils'
+import { average, sum } from 'lib/utils'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -27,6 +27,7 @@ import {
     FunnelCorrelationType,
     FunnelStepReference,
     FunnelAPIResponse,
+    TrendResult,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -100,6 +101,7 @@ export const funnelLogic = kea<funnelLogicType>({
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        hideSkewWarning: true,
     }),
 
     loaders: ({ values }) => ({
@@ -197,6 +199,12 @@ export const funnelLogic = kea<funnelLogicType>({
             [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
             {
                 setPropertyCorrelationTypes: (_, { types }) => types,
+            },
+        ],
+        skewWarningHidden: [
+            false,
+            {
+                hideSkewWarning: () => true,
             },
         ],
     }),
@@ -309,6 +317,15 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
 
+                // Handle metrics for trends
+                if (loadedFilters.funnel_viz_type === FunnelVizType.Trends) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: average((stepsWithCount?.[0] as unknown as TrendResult)?.data ?? []) / 100,
+                    }
+                }
+
                 // Handle metrics for steps and trends
                 if (stepsWithCount.length <= 1) {
                     return {
@@ -334,9 +351,9 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         isSkewed: [
-            () => [selectors.conversionMetrics],
-            (conversionMetrics: FunnelTimeConversionMetrics) => {
-                return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
+            (s) => [s.conversionMetrics, s.skewWarningHidden],
+            (conversionMetrics, skewWarningHidden): boolean => {
+                return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
         ],
         apiParams: [

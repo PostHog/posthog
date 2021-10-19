@@ -63,12 +63,12 @@ if E2E_TESTING:
         ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
     )
 
-# These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
+# These flags will be force-enabled on the frontend **and OVERRIDE all** flags from `/decide`
 # The features here are released, but the flags are just not yet removed from the code.
 # To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
 env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
 PERSISTED_FEATURE_FLAGS = []
-if env_feature_flags != "0" and env_feature_flags.lower() != "false":
+if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEBUG:
     PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
         # Add hard-coded feature flags for static releases here
         "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
@@ -83,7 +83,7 @@ SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
 
-SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234/")
@@ -340,7 +340,7 @@ SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
-AUTHENTICATION_BACKENDS = [
+AUTHENTICATION_BACKENDS: List[str] = [
     "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
