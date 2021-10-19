@@ -334,6 +334,33 @@ class FunnelCorrelationTest(BaseTest):
             ],
         )
 
+    def test_correlation_endpoint_request_with_no_steps_doesnt_fail(self):
+        """
+        This just checks that we get an empty result, this mimics what happens
+        with other insight endpoints. It's questionable that perhaps this whould
+        be a 400 instead.
+        """
+        self.client.force_login(self.user)
+
+        with freeze_time("2020-01-01"):
+            response = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([]),
+                    date_to="2020-01-14",
+                    date_from="2020-01-01",
+                    funnel_correlation_type=FunnelCorrelationType.PROPERTIES,
+                    funnel_correlation_names=json.dumps(["$browser"]),
+                ),
+            )
+
+        assert response == {
+            "is_cached": False,
+            "last_refresh": "2020-01-01T00:00:00Z",
+            "result": {"events": [], "skewed": False},
+        }
+
 
 @pytest.fixture(autouse=True)
 def clear_django_cache():
