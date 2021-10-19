@@ -1,9 +1,8 @@
-from unittest.mock import patch
 from datetime import datetime
+from unittest.mock import patch
 
-import pytz
 import pytest
-
+import pytz
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
