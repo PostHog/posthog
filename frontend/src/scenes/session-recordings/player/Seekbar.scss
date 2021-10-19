@@ -1,6 +1,7 @@
 @import '~/vars';
 
 $buffer_bg: #faaf8c;
+$thumb_size: 14px;
 
 .rrweb-controller-slider {
     width: 100%;
@@ -10,11 +11,11 @@ $buffer_bg: #faaf8c;
     .thumb {
         z-index: 4;
         top: 0;
-        left: -6px;
+        left: -$thumb_size / 2;
         position: absolute;
         border-radius: 50%;
-        width: 14px;
-        height: 14px;
+        width: $thumb_size;
+        height: $thumb_size;
         border: 2px solid $bg_light;
         background-color: $brand_red;
         transition: transform 200ms;

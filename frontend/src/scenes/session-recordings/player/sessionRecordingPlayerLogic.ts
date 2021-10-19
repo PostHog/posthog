@@ -63,6 +63,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setLastBufferedTime: (state, { time }) => ({ ...state, lastBuffered: time }),
             },
         ],
+        realTime: [
+            {
+                current: 0,
+                lastBuffered: 0,
+            } as SessionPlayerTime,
+            {
+                seek: (state, { time }) => ({ ...state, current: time }),
+                setCurrentTime: (state, { time }) => ({ ...state, current: time }),
+            },
+        ],
         speed: [
             1,
             {
@@ -112,9 +122,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (sessionPlayerData) => sessionPlayerData?.snapshots ?? [],
         ],
         zeroOffsetTime: [
-            (selectors) => [selectors.time, selectors.meta],
-            (time, meta) => ({
-                current: getZeroOffsetTime(time.current, meta),
+            (selectors) => [selectors.time, selectors.realTime, selectors.meta],
+            (time, realTime, meta) => ({
+                current: getZeroOffsetTime(realTime.current, meta),
                 lastBuffered: getZeroOffsetTime(time.lastBuffered, meta),
             }),
         ],
@@ -148,7 +158,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setReplayer: () => {
             actions.setPlay()
         },
-        loadRecordingSuccess: ({ sessionPlayerData }) => {
+        loadRecordingSuccess: async ({ sessionPlayerData }, breakpoint) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.replayer?.service.state.context.events ?? []
             const eventsToAdd = values.snapshots.slice(currentEvents.length) ?? []
@@ -157,7 +167,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // the time the whole chunk loads.
             console.log('CHUNK INDEX', values.chunkIndex)
             if (values.chunkIndex === 1) {
-                const startOffset = eventsToAdd?.[0]?.timestamp ?? 0
+                console.log('CHUNK IN', sessionPlayerData, currentEvents, eventsToAdd)
+                const startOffset = eventsToAdd?.[0]?.timestamp ?? currentEvents?.[0]?.timestamp ?? 0
                 const duration = sessionPlayerData?.duration ?? 0
                 actions.setMeta({
                     startTime: startOffset,
@@ -172,7 +183,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             const lastEvent = eventsToAdd[eventsToAdd.length - 1]
 
-            eventsToAdd.forEach((event: eventWithTime) => values.replayer?.addEvent(event))
+            eventsToAdd.forEach((event: eventWithTime) => {
+                console.log('ADDING EVENT', event)
+                values.replayer?.addEvent(event)
+            })
 
             // Update last buffered point
             console.log('BLAH', lastEvent.timestamp)
@@ -185,10 +199,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             // Set meta once whole session recording loads
+            console.log('LOADING!', values.sessionPlayerDataLoading)
             if (!values.sessionPlayerDataLoading) {
                 const meta = values.replayer.getMetaData()
-                actions.setMeta(meta)
+                // Sometimes replayer doesn't update with events we recently added.
+                const endTime = Math.max(
+                    meta.endTime,
+                    eventsToAdd.length ? eventsToAdd[eventsToAdd.length - 1]?.timestamp : 0
+                )
+                const finalMeta = {
+                    ...meta,
+                    endTime,
+                    totalTime: endTime - meta.startTime,
+                }
+                actions.setMeta(finalMeta)
             }
+
+            breakpoint()
         },
         setPlay: () => {
             actions.stopAnimation()
@@ -206,11 +233,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             values.replayer?.setConfig({ speed })
         },
         seek: async ({ time, forcePlay }, breakpoint) => {
+            // Real seeking is debounced so as not to overload rrweb.
             await breakpoint(100)
 
             // Time passed into seek function must be timestamp offset time.
             const nextTime = getZeroOffsetTime(time ?? 0, values.meta)
             values.replayer?.play(nextTime)
+            actions.setCurrentTime(time ?? 0)
 
             console.log('SEEK TIME', time, nextTime)
 
@@ -256,7 +285,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         updateAnimation: () => {
-            const nextTime = getOffsetTime(values.replayer?.getCurrentTime() ?? 0, values.meta)
+            const nextTime = getOffsetTime(values.replayer?.getCurrentTime() || 0, values.meta)
             console.log('GET TIME', values.replayer?.getCurrentTime(), nextTime)
             actions.setCurrentTime(nextTime)
             cache.timer = requestAnimationFrame(actions.updateAnimation)
