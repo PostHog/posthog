@@ -1,4 +1,4 @@
-import './Slider.scss'
+import './Seekbar.scss'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce/lib'
 import { clamp } from 'lib/utils'
@@ -24,7 +24,7 @@ const convertXToValue = (xPos: number, containerWidth: number, start: number, en
     return (xPos / containerWidth) * (end - start) + start
 }
 
-export function Slider(): JSX.Element {
+export function Seekbar(): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
     const [thumbLeftPos, setThumbPos] = useState<number>(-6) // half of thumb width

@@ -7,7 +7,7 @@ import {
 import { Select, Switch, Tooltip } from 'antd'
 import { SessionPlayerState } from '~/types'
 import { IconPause, IconPlay, IconSeekBack, IconSeekForward } from 'scenes/session-recordings/player/icons'
-import { Slider } from 'scenes/session-recordings/player/Slider'
+import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { colonDelimitedDuration } from 'lib/utils'
 
 export function PlayerController(): JSX.Element {
@@ -52,7 +52,7 @@ export function PlayerController(): JSX.Element {
                 {colonDelimitedDuration(meta.totalTime / 1000)}
             </div>
             <div className="rrweb-progress">
-                <Slider />
+                <Seekbar />
             </div>
             <Select
                 onChange={(nextSpeed: number) => setSpeed(nextSpeed)}
