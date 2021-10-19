@@ -237,7 +237,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': '/insights',
-    '/dashboards': '/dashboard', // TODO: For consistency this should be the default, but we should make sure /dashboard keeps working
+    '/dashboards': '/dashboard',
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
     '/organization/members': '/organization/settings',

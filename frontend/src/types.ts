@@ -376,6 +376,12 @@ export enum EntityTypes {
     NEW_ENTITY = 'new_entity',
 }
 
+export enum DefaultFirstStep {
+    ID = '$pageview',
+    TYPE = 'events',
+    NAME = '$pageview',
+}
+
 export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null

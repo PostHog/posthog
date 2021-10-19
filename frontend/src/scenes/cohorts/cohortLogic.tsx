@@ -73,7 +73,7 @@ export const cohortLogic = kea<cohortLogicType>({
                     if (newGroup.matchType) {
                         cohort.groups[index] = {
                             id: cohort.groups[index].id,
-                            matchType: ENTITY_MATCH_TYPE, // default
+                            matchType: ENTITY_MATCH_TYPE,
                             ...newGroup,
                         }
                     } else {

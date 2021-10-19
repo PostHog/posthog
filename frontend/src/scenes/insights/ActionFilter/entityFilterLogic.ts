@@ -1,6 +1,15 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
+import {
+    EntityTypes,
+    FilterType,
+    Entity,
+    EntityType,
+    ActionFilter,
+    EntityFilter,
+    AnyPropertyFilter,
+    DefaultFirstStep,
+} from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -205,7 +214,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             if (values.localFilters.length > 0) {
                 const lastFilter: LocalFilter = {
                     ...values.localFilters[previousLength - 1],
-                    custom_name: undefined, // Remove custom name
+                    custom_name: undefined,
                 }
                 const order = lastFilter.order + 1
                 actions.setFilters([...values.localFilters, { ...lastFilter, order }])
@@ -213,10 +222,10 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             } else {
                 actions.setFilters([
                     {
-                        id: null,
-                        type: EntityTypes.NEW_ENTITY,
+                        id: DefaultFirstStep.ID,
+                        type: DefaultFirstStep.TYPE,
                         order: 0,
-                        name: null,
+                        name: DefaultFirstStep.NAME,
                         ...props.addFilterDefaultOptions,
                     },
                 ])

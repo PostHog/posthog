@@ -78,7 +78,14 @@ export const insightLogic = kea<insightLogicType>({
         updateInsightFilters: (filters: FilterType) => ({ filters }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
-        loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
+        loadInsight: (
+            id: number,
+            {
+                doNotLoadResults,
+            }: {
+                doNotLoadResults?: boolean
+            } = {}
+        ) => ({
             id,
             doNotLoadResults,
         }),
