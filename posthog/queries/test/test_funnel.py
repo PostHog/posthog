@@ -2,6 +2,7 @@ from unittest.mock import patch
 from datetime import datetime
 
 import pytz
+import pytest
 
 from freezegun import freeze_time
 
@@ -12,6 +13,7 @@ from posthog.queries.funnel import Funnel
 from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.utils import is_clickhouse_enabled
 
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
@@ -413,6 +415,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(result[0]["count"], 2)
 
+        @pytest.mark.skipif(is_clickhouse_enabled(), reason="This test is specifically for postgres backend")
         def test_funnel_with_display_set_to_trends_linear(self):
             """
             This is a limited regression test to ensure that the issue
