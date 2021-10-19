@@ -14,7 +14,7 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
+// import relativeTime from 'dayjs/plugin/relativeTime'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
@@ -46,7 +46,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkButton } from 'lib/components/LinkButton'
 import { DiveIcon } from 'lib/components/icons'
 
-dayjs.extend(relativeTime)
+// dayjs.extend(relativeTime)
 
 interface Props {
     item: DashboardItemType
@@ -162,15 +162,13 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
 }
 
 export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
-    return (
-        filters.insight === ViewType.RETENTION
-            ? 'RetentionContainer'
-            : filters.insight === ViewType.PATHS
-            ? 'PathsViz'
-            : filters.insight === ViewType.FUNNELS
-            ? 'FunnelViz'
-            : filters.display || 'ActionsLineGraph'
-    ) as DisplayedType
+    return (filters.insight === ViewType.RETENTION
+        ? 'RetentionContainer'
+        : filters.insight === ViewType.PATHS
+        ? 'PathsViz'
+        : filters.insight === ViewType.FUNNELS
+        ? 'FunnelViz'
+        : filters.display || 'ActionsLineGraph') as DisplayedType
 }
 
 const dashboardDiveLink = (dive_dashboard: number, dive_source_id: number): string => {

@@ -1,8 +1,8 @@
 import React, { useRef } from 'react'
 import { Button } from 'antd'
 import { combineUrl } from 'kea-router'
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
+// import dayjs from 'dayjs'
+// import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -14,7 +14,7 @@ import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 
-dayjs.extend(relativeTime)
+// dayjs.extend(relativeTime)
 
 interface PersonsTableType {
     people: PersonType[]

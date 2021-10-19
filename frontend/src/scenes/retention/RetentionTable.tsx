@@ -13,8 +13,8 @@ import {
 
 import './RetentionTable.scss'
 import dayjs from 'dayjs'
-import utc from 'dayjs/plugin/utc'
-dayjs.extend(utc)
+// import utc from 'dayjs/plugin/utc'
+// dayjs.extend(utc)
 
 import { ColumnsType } from 'antd/es/table'
 import clsx from 'clsx'

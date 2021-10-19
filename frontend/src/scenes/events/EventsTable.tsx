@@ -11,8 +11,8 @@ import { eventToName, toParams } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import relativeTime from 'dayjs/plugin/relativeTime'
-import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+// import relativeTime from 'dayjs/plugin/relativeTime'
+// import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
@@ -28,8 +28,8 @@ import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 
-dayjs.extend(LocalizedFormat)
-dayjs.extend(relativeTime)
+// dayjs.extend(LocalizedFormat)
+// dayjs.extend(relativeTime)
 
 export interface FixedFilters {
     person_id?: string | number
