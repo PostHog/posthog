@@ -1,8 +1,8 @@
 import './Insights.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-// import dayjs from 'dayjs'
-// import relativeTime from 'dayjs/plugin/relativeTime'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
 import { Row, Col, Card, Button, Popconfirm, Tooltip } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
@@ -24,7 +24,7 @@ import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
 
-// dayjs.extend(relativeTime)
+dayjs.extend(relativeTime)
 
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)

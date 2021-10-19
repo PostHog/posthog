@@ -15,12 +15,12 @@ import './Cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { Tooltip } from 'lib/components/Tooltip'
-// import relativeTime from 'dayjs/plugin/relativeTime'
+import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 
-// dayjs.extend(relativeTime)
+dayjs.extend(relativeTime)
 
 const NEW_COHORT: CohortType = {
     id: 'new',
