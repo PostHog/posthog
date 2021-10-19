@@ -7,10 +7,12 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { EditorProps } from '~/types'
 import { Slide, ToastContainer } from 'react-toastify'
 
+type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
+
 export function ToolbarApp(props: EditorProps = {}): JSX.Element {
     useMountedLogic(toolbarLogic(props))
 
-    const shadowRef = useRef(null as null | { shadowRoot: ShadowRoot })
+    const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
 
     // this runs after the shadow root has been added to the dom
     const didRender = useSecondRender(() => {

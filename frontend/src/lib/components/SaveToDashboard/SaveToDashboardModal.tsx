@@ -35,7 +35,7 @@ export function SaveToDashboardModal({
     annotations,
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({ fromDashboard })
-    const { dashboards } = useValues(dashboardsModel)
+    const { nameSortedDashboards } = useValues(dashboardsModel)
     const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
     const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
@@ -43,7 +43,7 @@ export function SaveToDashboardModal({
     const [visible, setVisible] = useState(true)
     const [newItem, setNewItem] = useState(!fromItem)
     const fromDashboardName =
-        (fromDashboard ? dashboards.find((d) => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
+        (fromDashboard ? nameSortedDashboards.find((d) => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
 
     async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
@@ -119,7 +119,7 @@ export function SaveToDashboardModal({
                             onChange={(id) => (id === 'new' ? addNewDashboard() : setDashboardId(id))}
                             style={{ width: '100%' }}
                         >
-                            {dashboards.map((dashboard) => (
+                            {nameSortedDashboards.map((dashboard) => (
                                 <Select.Option key={dashboard.id} value={dashboard.id}>
                                     {dashboard.name}
                                 </Select.Option>

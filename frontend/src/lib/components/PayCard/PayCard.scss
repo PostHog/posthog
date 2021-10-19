@@ -1,0 +1,22 @@
+@import '~/vars';
+
+.pay-card {
+    @extend %mixin-elevated;
+    padding: $default_spacing;
+    border-radius: $radius;
+    border: 1px solid $warning;
+    margin-top: $default_spacing;
+    cursor: pointer;
+    position: relative;
+
+    h3 {
+        font-weight: $medium;
+    }
+
+    .close-button {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        color: $text_muted;
+    }
+}

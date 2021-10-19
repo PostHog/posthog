@@ -1,6 +1,6 @@
-import { Button, Card, Col, Input, Row, Space } from 'antd'
-import React, { useEffect, useState } from 'react'
-import { SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
+import { Button, Col, Row, Space } from 'antd'
+import React from 'react'
+import { ControlOutlined, LockOutlined, PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
@@ -8,148 +8,88 @@ import Modal from 'antd/lib/modal/Modal'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
 import { AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
-import Fuse from 'fuse.js'
+import clsx from 'clsx'
+import { Tooltip } from 'lib/components/Tooltip'
+import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
+import Search from 'antd/lib/input/Search'
 
-interface TableConfigInterface {
-    exportUrl?: string
-    selectedColumns?: string[] // Allows column visibility customization
-    availableColumns?: string[] // List of all available columns (should include selectedColumns too for simplicity)
-    immutableColumns?: string[] // List of columns that cannot be removed
-    defaultColumns?: string[] // To enable resetting to default
-    onColumnUpdate?: (selectedColumns: string[]) => void
-    saving?: boolean // Whether the saving routine is in process (i.e. loading indicators should be shown)
+interface TableConfigProps {
+    availableColumns: string[] //the full set of column titles in the table's data
+    immutableColumns?: string[] //the titles of the columns that are always displayed
+    defaultColumns: string[] // the titles of the set of columns to show when there is no user choice
 }
 
-export function TableConfig({
-    selectedColumns,
-    availableColumns,
-    onColumnUpdate,
-    ...props
-}: TableConfigInterface): JSX.Element {
-    const { state } = useValues(tableConfigLogic)
-    const { setState } = useActions(tableConfigLogic)
-    const columnConfiguratorEnabled = false // to be resolved by issue #1534
+/**
+ * A scene that contains a ResizableTable with many possible columns
+ * can use this to let the user choose which columns they see
+ */
+export function TableConfig(props: TableConfigProps): JSX.Element {
+    const { showModal } = useActions(tableConfigLogic)
+
     return (
         <>
-            <div className="table-options">
-                <div className="rhs-actions">
-                    <Space align="baseline">
-                        {columnConfiguratorEnabled && selectedColumns && availableColumns && onColumnUpdate && (
-                            <>
-                                <Button
-                                    data-attr="events-table-column-selector"
-                                    onClick={() => setState('columnConfig')}
-                                    icon={<SettingOutlined />}
-                                />
-                                {state === 'columnConfig' && (
-                                    <ColumnConfigurator
-                                        allColumns={availableColumns}
-                                        currentSelection={selectedColumns}
-                                        onClose={() => setState(null)}
-                                        onColumnUpdate={onColumnUpdate}
-                                        {...props}
-                                    />
-                                )}
-                            </>
-                        )}
-                    </Space>
-                </div>
-            </div>
+            <Button data-attr="events-table-column-selector" onClick={showModal} icon={<ControlOutlined rotate={90} />}>
+                Customize columns
+            </Button>
+            <ColumnConfigurator
+                immutableColumns={props.immutableColumns}
+                availableColumns={props.availableColumns}
+                defaultColumns={props.defaultColumns}
+            />
         </>
     )
 }
 
-interface ColumnConfiguratorInterface {
-    currentSelection: string[] // List of currently selected columns
-    allColumns: string[] // List of all possible columns
-    immutableColumns?: string[]
-    onClose: () => void
-    onColumnUpdate: (selectedColumns: string[]) => void
-    saving?: boolean
-    defaultColumns?: string[]
-}
+function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns }: TableConfigProps): JSX.Element {
+    // the virtualised list doesn't support gaps between items in the list
+    // setting the container to be larger than we need
+    // and adding a container with a smaller height to each row item
+    // allows the new row item to set a margin around itself
+    const rowContainerHeight = 36
+    const rowItemHeight = 32
 
-function ColumnConfigurator({
-    currentSelection,
-    allColumns,
-    immutableColumns,
-    onClose,
-    onColumnUpdate,
-    saving,
-    defaultColumns,
-}: ColumnConfiguratorInterface): JSX.Element {
-    const [selectableColumns, setSelectableColumns] = useState([] as string[]) // Stores the actual state of columns that could be selected
-    const [selectedColumns, setSelectedColumns] = useState([] as string[]) // Stores the actual state of columns that **are** selected
-    const [scrollSelectedToIndex, setScrollSelectedToIndex] = useState(0)
-    const [searchTerm, setSearchTerm] = useState('')
+    const { selectedColumns, modalVisible } = useValues(tableConfigLogic)
+    const { hideModal } = useActions(tableConfigLogic)
 
-    const selectedColumnsDisplay = searchTerm
-        ? new Fuse(selectedColumns, {
-              threshold: 0.3,
-          })
-              .search(searchTerm)
-              .map(({ item }) => item)
-        : selectedColumns
+    const logic = columnConfiguratorLogic({
+        availableColumns,
+        selectedColumns: selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns,
+    })
+    const { selectColumn, unselectColumn, resetColumns, save, setColumnFilter } = useActions(logic)
+    const { visibleColumns, hiddenColumns, scrollIndex, columnFilter, filteredVisibleColumns, filteredHiddenColumns } =
+        useValues(logic)
 
-    const selectableColumnsDisplay = searchTerm
-        ? new Fuse(selectableColumns, {
-              threshold: 0.3,
-          })
-              .search(searchTerm)
-              .map(({ item }) => item)
-        : selectableColumns
-
-    useEffect(() => {
-        setSelectedColumns(currentSelection)
-        setSelectableColumns(allColumns.filter((column) => !currentSelection.includes(column)))
-    }, [currentSelection, allColumns])
-
-    const selectColumn = (column: string): void => {
-        setSelectedColumns([...selectedColumns, column])
-        setSelectableColumns(selectableColumns.filter((item) => item != column))
-        setScrollSelectedToIndex(selectedColumns.length)
-    }
-
-    const unSelectColumn = (column: string): void => {
-        setSelectedColumns(selectedColumns.filter((item) => item != column))
-        setSelectableColumns([...selectableColumns, column])
-    }
-
-    const resetColumns = (): void => {
-        if (defaultColumns) {
-            setSelectedColumns(defaultColumns)
-            setSelectableColumns(allColumns.filter((column) => !currentSelection.includes(column)))
-        }
-    }
-
-    function RenderAvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = saving
+    function AvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
         return (
-            <div
-                className={`column-display-item${disabled ? ' disabled' : ''}`}
-                style={style}
-                key={key}
-                onClick={() => !disabled && selectColumn(selectableColumnsDisplay[index])}
-            >
-                <Checkbox style={{ marginRight: 8 }} checked={false} disabled={disabled} />
-                {<PropertyKeyInfo value={selectableColumnsDisplay[index]} />}
+            <div style={style} key={key} onClick={() => selectColumn(filteredHiddenColumns[index])}>
+                <div className="column-display-item" style={{ height: `${rowItemHeight}px` }}>
+                    <PropertyKeyInfo value={filteredHiddenColumns[index]} />
+                    <div className="text-right" style={{ flex: 1 }}>
+                        <Tooltip title="Add">
+                            <PlusOutlined style={{ color: 'var(--success)' }} />
+                        </Tooltip>
+                    </div>
+                </div>
             </div>
         )
     }
 
-    function RenderSelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = immutableColumns?.includes(selectedColumnsDisplay[index]) || saving
+    function SelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
+        const disabled = immutableColumns?.includes(filteredVisibleColumns[index])
 
         return (
-            <div
-                className={`column-display-item${disabled ? ' disabled' : ''}`}
-                style={style}
-                key={key}
-                onClick={() => !disabled && unSelectColumn(selectedColumnsDisplay[index])}
-            >
-                <Checkbox style={{ marginRight: 8 }} checked disabled={disabled} />
-                {<PropertyKeyInfo value={selectedColumnsDisplay[index]} />}
+            <div style={style} key={key} onClick={() => !disabled && unselectColumn(filteredVisibleColumns[index])}>
+                <div
+                    className={clsx(['column-display-item', { selected: !disabled, disabled: disabled }])}
+                    style={{ height: `${rowItemHeight}px` }}
+                >
+                    <PropertyKeyInfo value={filteredVisibleColumns[index]} />
+                    <div className="text-right" style={{ flex: 1 }}>
+                        <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
+                            {disabled ? <LockOutlined /> : <CloseOutlined style={{ color: 'var(--danger)' }} />}
+                        </Tooltip>
+                    </div>
+                </div>
             </div>
         )
     }
@@ -157,78 +97,81 @@ function ColumnConfigurator({
     return (
         <Modal
             centered
-            visible
-            title="Toggle column visibility"
-            confirmLoading={saving}
-            onOk={() => onColumnUpdate(selectedColumns)}
+            visible={modalVisible}
+            title="Customize columns"
+            onOk={save}
             width={700}
+            bodyStyle={{ padding: '16px 16px 0 16px' }}
             className="column-configurator-modal"
             okButtonProps={{
                 // @ts-ignore
                 'data-attr': 'items-selector-confirm',
-                loading: saving,
-                icon: <SaveOutlined />,
             }}
-            okText="Save preferences"
-            onCancel={onClose}
+            okText="Save"
+            onCancel={hideModal}
+            footer={
+                <Row>
+                    <Space style={{ flexGrow: 1 }} align="start">
+                        <Button className="text-blue" onClick={() => resetColumns(defaultColumns)}>
+                            Reset to default
+                        </Button>
+                    </Space>
+                    <Space>
+                        <Button className="text-blue" type="text" onClick={hideModal}>
+                            Cancel
+                        </Button>
+                        <Button type="primary" onClick={save}>
+                            Save
+                        </Button>
+                    </Space>
+                </Row>
+            }
         >
-            {defaultColumns && (
-                <div className="text-right mb">
-                    <Button type="link" icon={<ClearOutlined />} style={{ paddingRight: 0 }} onClick={resetColumns}>
-                        Reset to default
-                    </Button>
-                </div>
-            )}
-            <Input
+            <Search
                 allowClear
                 autoFocus
-                placeholder="Search for a column ..."
-                addonAfter={<SearchOutlined />}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search"
+                type="search"
+                value={columnFilter}
+                onChange={(e) => setColumnFilter(e.target.value)}
             />
             <Row gutter={16} className="mt">
-                <Col sm={11}>
-                    <Card>
-                        <h3 className="l3">Available columns</h3>
-                        <div style={{ height: 320 }}>
-                            <AutoSizer>
-                                {({ height, width }: { height: number; width: number }) => {
-                                    return (
-                                        <VirtualizedList
-                                            height={height}
-                                            rowCount={selectableColumnsDisplay.length}
-                                            rowRenderer={RenderAvailableColumn}
-                                            rowHeight={32}
-                                            width={width}
-                                        />
-                                    )
-                                }}
-                            </AutoSizer>
-                        </div>
-                    </Card>
+                <Col xs={24} sm={12}>
+                    <h3 className="l3">Hidden columns ({hiddenColumns.length})</h3>
+                    <div style={{ height: 320 }}>
+                        <AutoSizer>
+                            {({ height, width }: { height: number; width: number }) => {
+                                return (
+                                    <VirtualizedList
+                                        height={height}
+                                        rowCount={filteredHiddenColumns.length}
+                                        rowRenderer={AvailableColumn}
+                                        rowHeight={rowContainerHeight}
+                                        width={width}
+                                    />
+                                )
+                            }}
+                        </AutoSizer>
+                    </div>
                 </Col>
-                <Col sm={2} />
-                <Col sm={11}>
-                    <Card>
-                        <h3 className="l3">Visible columns</h3>
-                        <div style={{ height: 320 }}>
-                            <AutoSizer>
-                                {({ height, width }: { height: number; width: number }) => {
-                                    return (
-                                        <VirtualizedList
-                                            height={height}
-                                            rowCount={selectedColumnsDisplay.length}
-                                            rowRenderer={RenderSelectedColumn}
-                                            rowHeight={32}
-                                            width={width}
-                                            scrollToIndex={scrollSelectedToIndex}
-                                        />
-                                    )
-                                }}
-                            </AutoSizer>
-                        </div>
-                    </Card>
+                <Col xs={24} sm={12}>
+                    <h3 className="l3">Visible columns ({visibleColumns.length})</h3>
+                    <div style={{ height: 320 }}>
+                        <AutoSizer>
+                            {({ height, width }: { height: number; width: number }) => {
+                                return (
+                                    <VirtualizedList
+                                        height={height}
+                                        rowCount={filteredVisibleColumns.length}
+                                        rowRenderer={SelectedColumn}
+                                        rowHeight={rowContainerHeight}
+                                        width={width}
+                                        scrollToIndex={scrollIndex}
+                                    />
+                                )
+                            }}
+                        </AutoSizer>
+                    </div>
                 </Col>
             </Row>
         </Modal>

@@ -6,7 +6,7 @@ import { Button, Col, Divider, Row, Spin } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { AvailableFeature, CohortType } from '~/types'
 import { COHORT_DYNAMIC, COHORT_STATIC } from 'lib/constants'
-import { InboxOutlined, DeleteOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
+import { InboxOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
@@ -16,13 +16,14 @@ import { UploadFile } from 'antd/lib/upload/interface'
 import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { Tooltip } from 'antd'
-import { organizationLogic } from '../organizationLogic'
+import { userLogic } from 'scenes/userLogic'
+import 'antd/lib/dropdown/style/css'
 
 export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort } = useActions(logic)
     const { cohort, submitted } = useValues(logic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const onDescriptionChange = (description: string): void => {
         setCohort({
@@ -102,7 +103,7 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                     )}
                 </Col>
             </Row>
-            {currentOrganization?.available_features.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
+            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
                 <Row gutter={16} className="mt">
                     <Col span={24}>
                         <CohortDescriptionInput description={cohort.description} onChange={onDescriptionChange} />
@@ -167,9 +168,6 @@ export function CohortFooter(props: { cohort: CohortType }): JSX.Element {
 
     return (
         <Row style={{ display: 'flex' }}>
-            <Button type="link" danger icon={<DeleteOutlined />}>
-                Delete cohort
-            </Button>
             <div style={{ flexGrow: 1, textAlign: 'right' }}>
                 <Button
                     disabled={!cohort.name}

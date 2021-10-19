@@ -129,3 +129,16 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
+
+    def test_reset_token(self):
+        self.team.api_token = "xyz"
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/reset_token/")
+        response_data = response.json()
+
+        self.team.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotEqual(response_data["api_token"], "xyz")
+        self.assertEqual(response_data["api_token"], self.team.api_token)
+        self.assertTrue(response_data["api_token"].startswith("phc_"))

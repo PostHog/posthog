@@ -1,3 +1,4 @@
+// DEPRECATED; this feature will be removed soon
 import React, { useEffect, useState } from 'react'
 import { Tabs, Col, Row, Button, Spin } from 'antd'
 import { Loading } from 'lib/utils'
@@ -86,7 +87,6 @@ function InsightPane({
                                       }
                                     : undefined
                             }
-                            preventLoading={true}
                             footer={<div className="dashboard-item-footer">{footer(insight)}</div>}
                             index={index}
                             isOnEditMode={false}

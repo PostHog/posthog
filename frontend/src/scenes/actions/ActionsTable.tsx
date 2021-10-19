@@ -223,7 +223,7 @@ export function ActionsTable(): JSX.Element {
                         <div>
                             <div className="title">Retroactive</div>
                             <div className="description">
-                                We'll retroactive update your actions to match any past events.
+                                We'll retroactively update your actions to match any past events.
                             </div>
                         </div>
                     </div>

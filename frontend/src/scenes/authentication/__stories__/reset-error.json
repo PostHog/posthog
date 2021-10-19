@@ -1,0 +1,76 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/reset",
+                "search": "",
+                "hash": ""
+            },
+            "searchParams": {},
+            "hashParams": {}
+        }
+    },
+    "scenes": {
+        "userLogic": {
+            "user": null,
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "logic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": true,
+                    "celery": false,
+                    "db": true,
+                    "initiated": true,
+                    "cloud": false,
+                    "realm": "hosted",
+                    "available_social_auth_providers": {
+                        "github": true,
+                        "gitlab": true,
+                        "google-oauth2": true,
+                        "saml": false
+                    },
+                    "can_create_org": true,
+                    "email_service_available": true
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "passwordReset",
+            "params": {},
+            "loadedScenes": {
+                "404": {},
+                "4xx": {},
+                "passwordReset": {}
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null
+        },
+        "authentication": {
+            "passwordResetLogic": {
+                "resetResponse": {
+                    "success": false,
+                    "errorCode": "limit_exceeded",
+                    "errorDetail": "You have reached the maximum number of requests for password resets. Please try again in 15 minutes."
+                },
+                "resetResponseLoading": false
+            }
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "featureFlags": {},
+                "receivedFeatureFlags": true
+            }
+        }
+    }
+}

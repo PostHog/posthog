@@ -88,6 +88,8 @@ jobs:
                   OPT_OUT_CAPTURE: 1
                   SELF_CAPTURE: 0
                   E2E_TESTING: 1
+                  EMAIL_HOST: 'email.test.posthog.net' # used to test password resets
+                  SITE_URL: 'test.posthog.net' # used to test password resets
               run: |
                   python manage.py collectstatic --noinput &
                   ./bin/docker-migrate & wait

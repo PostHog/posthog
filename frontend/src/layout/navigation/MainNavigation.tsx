@@ -4,7 +4,6 @@ import {
     ApiFilled,
     ClockCircleFilled,
     DownOutlined,
-    HomeOutlined,
     MessageOutlined,
     PlusOutlined,
     ProjectFilled,
@@ -147,12 +146,12 @@ const MenuItem = ({
 }
 
 function PinnedDashboards(): JSX.Element {
-    const { pinnedDashboards, dashboards } = useValues(dashboardsModel)
+    const { pinnedDashboards, pinSortedDashboards } = useValues(dashboardsModel)
     const { setPinnedDashboardsVisible } = useActions(navigationLogic)
 
     return (
         <Menu className="pinned-dashboards">
-            {dashboards.length ? (
+            {pinSortedDashboards.length ? (
                 <>
                     {pinnedDashboards.length && (
                         <Menu.ItemGroup title="Pinned dashboards" key="pinned">
@@ -169,9 +168,9 @@ function PinnedDashboards(): JSX.Element {
                             ))}
                         </Menu.ItemGroup>
                     )}
-                    {dashboards.length > pinnedDashboards.length && (
+                    {pinSortedDashboards.length > pinnedDashboards.length && (
                         <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
-                            {dashboards
+                            {pinSortedDashboards
                                 .filter((item: DashboardType) => !item.pinned)
                                 .map((item: DashboardType) => (
                                     <Menu.Item key={`dashboard-${item.id}`} style={{ margin: 0 }}>
@@ -223,9 +222,6 @@ function MenuItems(): JSX.Element {
                     to={urls.onboardingSetup()}
                     hotkey="u"
                 />
-            )}
-            {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
-                <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to={urls.home()} />
             )}
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <MenuItem
