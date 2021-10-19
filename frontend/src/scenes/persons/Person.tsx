@@ -110,6 +110,7 @@ export function Person(): JSX.Element {
                                 <EventsTable
                                     pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                     fixedFilters={{ person_id: person.id }}
+                                    hidePersonColumn
                                 />
                             )}
                         </div>

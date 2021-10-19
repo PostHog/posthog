@@ -40,9 +40,15 @@ interface EventsTable {
     fixedFilters?: FixedFilters
     filtersEnabled?: boolean
     pageKey?: string
+    hidePersonColumn?: boolean
 }
 
-export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: EventsTable): JSX.Element {
+export function EventsTable({
+    fixedFilters,
+    filtersEnabled = true,
+    pageKey,
+    hidePersonColumn,
+}: EventsTable): JSX.Element {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
 
     const {
@@ -79,166 +85,169 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             },
         }
     }
-    const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(
-        () =>
-            [
-                {
-                    title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
-                    key: 'event',
-                    span: 4,
-                    render: function render(item: EventsTableRowItem) {
-                        if (!item.event) {
-                            return newEventsRender(item, tableWidth)
-                        }
-                        const { event } = item
-                        return <PropertyKeyInfo value={eventToName(event)} />
-                    },
-                    ellipsis: true,
-                },
-                {
-                    title: 'Person',
-                    key: 'person',
-                    ellipsis: true,
-                    span: 4,
-                    render: function renderPerson({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        return showLinkToPerson && event.person?.distinct_ids?.length ? (
-                            <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
-                                <PersonHeader person={event.person} />
-                            </Link>
-                        ) : (
-                            <PersonHeader person={event.person} />
-                        )
-                    },
-                },
-                {
-                    title: 'URL / Screen',
-                    key: 'url',
-                    eventProperties: ['$current_url', '$screen_name'],
-                    span: 4,
-                    render: function renderURL({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                        if (filtersEnabled) {
-                            return (
-                                <FilterPropertyLink
-                                    className="ph-no-capture"
-                                    property={param}
-                                    value={event.properties[param] as string}
-                                    filters={{ properties }}
-                                />
-                            )
-                        }
-                        return <Property value={event.properties[param]} />
-                    },
-                    ellipsis: true,
-                },
-                {
-                    title: 'Source',
-                    key: 'source',
-                    eventProperties: ['$lib'],
-                    span: 2,
-                    render: function renderSource({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        if (filtersEnabled) {
-                            return (
-                                <FilterPropertyLink
-                                    property="$lib"
-                                    value={event.properties['$lib'] as string}
-                                    filters={{ properties }}
-                                />
-                            )
-                        }
-                        return <Property value={event.properties['$lib']} />
-                    },
-                },
-                {
-                    title: 'When',
-                    key: 'when',
-                    span: 3,
-                    render: function renderWhen({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        return <TZLabel time={event.timestamp} showSeconds />
-                    },
-                    ellipsis: true,
-                },
-                {
-                    title: 'Usage',
-                    key: 'usage',
-                    span: 2,
-                    render: function renderWhen({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
+    const personColumn = {
+        title: 'Person',
+        key: 'person',
+        ellipsis: true,
+        span: 4,
+        render: function renderPerson({ event }: EventsTableRowItem) {
+            if (!event) {
+                return { props: { colSpan: 0 } }
+            }
+            return showLinkToPerson && event.person?.distinct_ids?.length ? (
+                <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
+                    <PersonHeader person={event.person} />
+                </Link>
+            ) : (
+                <PersonHeader person={event.person} />
+            )
+        },
+    }
 
-                        if (event.event === '$autocapture') {
-                            return <></>
-                        }
-
-                        let params
-                        if (event.event === '$pageview') {
-                            params = {
-                                insight: ViewType.TRENDS,
-                                interval: 'day',
-                                display: 'ActionsLineGraph',
-                                actions: [],
-                                events: [
-                                    {
-                                        id: '$pageview',
-                                        name: '$pageview',
-                                        type: 'events',
-                                        order: 0,
-                                        properties: [
-                                            {
-                                                key: '$current_url',
-                                                value: event.properties.$current_url,
-                                                type: 'event',
-                                            },
-                                        ],
-                                    },
-                                ],
-                            }
-                        } else {
-                            params = {
-                                insight: ViewType.TRENDS,
-                                interval: 'day',
-                                display: 'ActionsLineGraph',
-                                actions: [],
-                                events: [
-                                    {
-                                        id: event.event,
-                                        name: event.event,
-                                        type: 'events',
-                                        order: 0,
-                                        properties: [],
-                                    },
-                                ],
-                            }
-                        }
-                        const encodedParams = toParams(params)
-                        const eventLink = `/insights?${encodedParams}`
-
+    const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(() => {
+        const _localColumns = [
+            {
+                title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
+                key: 'event',
+                span: 4,
+                render: function render(item: EventsTableRowItem) {
+                    if (!item.event) {
+                        return newEventsRender(item, tableWidth)
+                    }
+                    const { event } = item
+                    return <PropertyKeyInfo value={eventToName(event)} />
+                },
+                ellipsis: true,
+            },
+            {
+                title: 'URL / Screen',
+                key: 'url',
+                eventProperties: ['$current_url', '$screen_name'],
+                span: 4,
+                render: function renderURL({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
+                    if (filtersEnabled) {
                         return (
-                            <Link
-                                to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
-                                data-attr="events-table-usage"
-                            >
-                                Insights <ExportOutlined />
-                            </Link>
+                            <FilterPropertyLink
+                                className="ph-no-capture"
+                                property={param}
+                                value={event.properties[param] as string}
+                                filters={{ properties }}
+                            />
                         )
-                    },
+                    }
+                    return <Property value={event.properties[param]} />
                 },
-            ] as ResizableColumnType<EventsTableRowItem>[],
-        [eventFilter, tableWidth]
-    )
+                ellipsis: true,
+            },
+            {
+                title: 'Source',
+                key: 'source',
+                eventProperties: ['$lib'],
+                span: 2,
+                render: function renderSource({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    if (filtersEnabled) {
+                        return (
+                            <FilterPropertyLink
+                                property="$lib"
+                                value={event.properties['$lib'] as string}
+                                filters={{ properties }}
+                            />
+                        )
+                    }
+                    return <Property value={event.properties['$lib']} />
+                },
+            },
+            {
+                title: 'When',
+                key: 'when',
+                span: 3,
+                render: function renderWhen({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    return <TZLabel time={event.timestamp} showSeconds />
+                },
+                ellipsis: true,
+            },
+            {
+                title: 'Usage',
+                key: 'usage',
+                span: 2,
+                render: function renderWhen({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+
+                    if (event.event === '$autocapture') {
+                        return <></>
+                    }
+
+                    let params
+                    if (event.event === '$pageview') {
+                        params = {
+                            insight: ViewType.TRENDS,
+                            interval: 'day',
+                            display: 'ActionsLineGraph',
+                            actions: [],
+                            events: [
+                                {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [
+                                        {
+                                            key: '$current_url',
+                                            value: event.properties.$current_url,
+                                            type: 'event',
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    } else {
+                        params = {
+                            insight: ViewType.TRENDS,
+                            interval: 'day',
+                            display: 'ActionsLineGraph',
+                            actions: [],
+                            events: [
+                                {
+                                    id: event.event,
+                                    name: event.event,
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [],
+                                },
+                            ],
+                        }
+                    }
+                    const encodedParams = toParams(params)
+                    const eventLink = `/insights?${encodedParams}`
+
+                    return (
+                        <Link
+                            to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
+                            data-attr="events-table-usage"
+                        >
+                            Insights <ExportOutlined />
+                        </Link>
+                    )
+                },
+            },
+        ] as ResizableColumnType<EventsTableRowItem>[]
+        if (!hidePersonColumn) {
+            _localColumns.splice(1, 0, personColumn)
+        }
+        return _localColumns
+    }, [eventFilter, tableWidth, hidePersonColumn])
 
     const columns = useMemo(
         () =>
