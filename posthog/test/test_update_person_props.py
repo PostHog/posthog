@@ -19,7 +19,7 @@ from posthog.test.base import BaseTest
 # 10| set_once | yes           | after                      | set_once    | no
 # 11| set      | yes           | equal                      | set         | no
 # 12| set_once | yes           | equal                      | set         | no
-# 13| set      | yes           | equal                      | set_once    | no
+# 13| set      | yes           | equal                      | set_once    | yes
 # 14| set_once | yes           | equal                      | set_once    | no
 
 # Refers to migration 0176_update_person_props_function
@@ -260,5 +260,5 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         updated_person = Person.objects.get(id=person.id)
 
-        # neither updated
-        self.assertEqual(updated_person.properties, {"a": 0, "b": 0, "c": 0, "d": 0})
+        # update if current op is set and last op is set_once i.e. "c"
+        self.assertEqual(updated_person.properties, {"a": 0, "b": 0, "c": 1, "d": 0})

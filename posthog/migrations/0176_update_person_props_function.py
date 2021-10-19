@@ -46,8 +46,11 @@ class Migration(migrations.Migration):
                             OR stored_timestamp IS NULL
                             OR last_operation IS NULL
                             OR (
-                                property_update.update_op = 'set'
-                                AND event_timestamp > stored_timestamp
+                                property_update.update_op = 'set' AND 
+                                (
+                                    event_timestamp > stored_timestamp OR
+                                    (event_timestamp=stored_timestamp AND last_operation = 'set_once')
+                                )
                             )
                             OR (
                                 last_operation = 'set_once'
