@@ -13,8 +13,10 @@ import { CloseOutlined } from '@ant-design/icons'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
-    const { isSkewed, stepsWithCount } = useValues(funnelLogic(insightProps))
-    const { sendCorrelationAnalysisFeedback, hideSkewWarning } = useActions(funnelLogic(insightProps))
+    const { isSkewed, stepsWithCount, correlationFeedbackHidden } = useValues(funnelLogic(insightProps))
+    const { sendCorrelationAnalysisFeedback, hideSkewWarning, hideCorrelationAnalysisFeedback } = useActions(
+        funnelLogic(insightProps)
+    )
 
     const [modalVisible, setModalVisible] = useState(false)
     const [rating, setRating] = useState(0)
@@ -47,86 +49,96 @@ export const FunnelCorrelation = (): JSX.Element | null => {
             )}
 
             {/* Feedback Form */}
-            <Card style={{ marginTop: '1em', alignItems: 'center', borderRadius: 4 }}>
-                <div style={{ fontWeight: 600, fontSize: '14px' }}>
-                    <Row>
-                        <Col span={16}>
-                            <CommentOutlined style={{ paddingRight: 8 }} />
-                            Is the new feature, Corrrelation analysis, working well for you?
-                        </Col>
-                        <Col span={8} style={{ alignContent: 'right' }}>
-                            <Button
-                                style={rating === 1 ? { background: '#5375FF' } : {}}
-                                onClick={() => {
-                                    setRating(1)
-                                    setModalVisible(true)
-                                }}
-                            >
-                                😍
-                            </Button>
-                            <Button
-                                style={rating === 2 ? { background: '#5375FF' } : {}}
-                                onClick={() => {
-                                    setRating(2)
-                                    setModalVisible(true)
-                                }}
-                            >
-                                😀
-                            </Button>
-                            <Button
-                                style={rating === 3 ? { background: '#5375FF' } : {}}
-                                onClick={() => {
-                                    setRating(3)
-                                    setModalVisible(true)
-                                }}
-                            >
-                                😴
-                            </Button>
-                            <Button
-                                style={rating === 4 ? { background: '#5375FF' } : {}}
-                                onClick={() => {
-                                    setRating(4)
-                                    setModalVisible(true)
-                                }}
-                            >
-                                👎
-                            </Button>
-                            <Button
-                                style={rating === 5 ? { background: '#5375FF' } : {}}
-                                onClick={() => {
-                                    setRating(5)
-                                    setModalVisible(true)
-                                }}
-                            >
-                                👍
-                            </Button>
-                        </Col>
-                    </Row>
-                </div>
-                <div style={{ display: modalVisible ? undefined : 'None' }}>
-                    <hr />
-                    Tell us more <i>(optional)</i>
-                    <TextArea onBlur={(e) => setDetailedFeedback(e.target.value)} />
-                    <Button
-                        onClick={() => {
-                            setModalVisible(false)
-                            setRating(0)
-                        }}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        type="primary"
-                        onClick={() => {
-                            sendCorrelationAnalysisFeedback(rating, detailedFeedback)
-                            setModalVisible(false)
-                            setRating(0)
-                        }}
-                    >
-                        Share Feedback
-                    </Button>
-                </div>
-            </Card>
+            {!correlationFeedbackHidden && (
+                <Card className="correlation-feedback">
+                    <h4>
+                        <CloseOutlined className="close-button" onClick={hideCorrelationAnalysisFeedback} />
+                        <Row>
+                            <Col span={16}>
+                                <CommentOutlined style={{ paddingRight: 8 }} />
+                                Is the new feature, Corrrelation analysis, working well for you?
+                            </Col>
+                            <Col span={8} style={{ alignContent: 'right' }}>
+                                <Button
+                                    className="emoji-button"
+                                    style={rating === 1 ? { background: '#5375FF' } : {}}
+                                    onClick={() => {
+                                        setRating(1)
+                                        setModalVisible(true)
+                                    }}
+                                >
+                                    😍
+                                </Button>
+                                <Button
+                                    className="emoji-button"
+                                    style={rating === 2 ? { background: '#5375FF' } : {}}
+                                    onClick={() => {
+                                        setRating(2)
+                                        setModalVisible(true)
+                                    }}
+                                >
+                                    😀
+                                </Button>
+                                <Button
+                                    className="emoji-button"
+                                    style={rating === 3 ? { background: '#5375FF' } : {}}
+                                    onClick={() => {
+                                        setRating(3)
+                                        setModalVisible(true)
+                                    }}
+                                >
+                                    😴
+                                </Button>
+                                <Button
+                                    className="emoji-button"
+                                    style={rating === 4 ? { background: '#5375FF' } : {}}
+                                    onClick={() => {
+                                        setRating(4)
+                                        setModalVisible(true)
+                                    }}
+                                >
+                                    👎
+                                </Button>
+                                <Button
+                                    className="emoji-button"
+                                    style={rating === 5 ? { background: '#5375FF' } : {}}
+                                    onClick={() => {
+                                        setRating(5)
+                                        setModalVisible(true)
+                                    }}
+                                >
+                                    👍
+                                </Button>
+                            </Col>
+                        </Row>
+                    </h4>
+                    <div style={{ display: modalVisible ? undefined : 'None' }}>
+                        <hr />
+                        Tell us more <i>(optional)</i>
+                        <TextArea onBlur={(e) => setDetailedFeedback(e.target.value)} />
+                        <Button
+                            className="feedback-button"
+                            onClick={() => {
+                                setModalVisible(false)
+                                setRating(0)
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            className="feedback-button"
+                            type="primary"
+                            onClick={() => {
+                                sendCorrelationAnalysisFeedback(rating, detailedFeedback)
+                                setModalVisible(false)
+                                setRating(0)
+                            }}
+                        >
+                            Share Feedback
+                        </Button>
+                    </div>
+                </Card>
+            )}
 
             <FunnelCorrelationTable />
             <FunnelPropertyCorrelationTable />

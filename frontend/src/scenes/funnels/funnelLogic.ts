@@ -104,6 +104,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         sendCorrelationAnalysisFeedback: (rating: number, comment?: string) => ({ rating, comment }),
         hideSkewWarning: true,
+        hideCorrelationAnalysisFeedback: true,
     }),
 
     loaders: ({ values }) => ({
@@ -207,6 +208,14 @@ export const funnelLogic = kea<funnelLogicType>({
             false,
             {
                 hideSkewWarning: () => true,
+            },
+        ],
+        correlationFeedbackHidden: [
+            false,
+            { persist: true },
+            {
+                sendCorrelationAnalysisFeedback: () => true,
+                hideCorrelationAnalysisFeedback: () => true,
             },
         ],
     }),

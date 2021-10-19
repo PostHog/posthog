@@ -359,6 +359,12 @@ class FunnelCorrelation:
 
         """
 
+        if not self._filter.entities:
+            return {
+                "events": [],
+                "skewed": False,
+            }
+
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
 
         if not success_total or not failure_total:
