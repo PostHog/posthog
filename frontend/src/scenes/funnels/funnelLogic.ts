@@ -135,7 +135,9 @@ export const funnelLogic = kea<funnelLogicType>({
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
                             // Name is comma separated list of property names
-                            funnel_correlation_names: propertyNames.map((name: string) => name.trim()),
+                            funnel_correlation_names: propertyNames.length
+                                ? propertyNames.map((name: string) => name.trim())
+                                : ['$all'],
                         })
                     ).result
                 },
