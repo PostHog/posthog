@@ -9,6 +9,7 @@ from posthog.constants import (
     DISPLAY,
     DROP_OFF,
     ENTRANCE_PERIOD_START,
+    FUNNEL_CORRELATION_EVENT_NAMES,
     FUNNEL_CORRELATION_NAMES,
     FUNNEL_CORRELATION_TYPE,
     FUNNEL_FROM_STEP,
@@ -237,6 +238,13 @@ class FunnelCorrelationMixin(BaseParamMixin):
             return json.loads(property_names)
         return property_names
 
+    @cached_property
+    def correlation_event_names(self) -> Optional[List[str]]:
+        event_names = self._data.get(FUNNEL_CORRELATION_EVENT_NAMES, [])
+        if isinstance(event_names, str):
+            return json.loads(event_names)
+        return event_names
+
     @include_dict
     def funnel_correlation_to_dict(self):
         result_dict: Dict = {}
@@ -244,4 +252,6 @@ class FunnelCorrelationMixin(BaseParamMixin):
             result_dict[FUNNEL_CORRELATION_TYPE] = self.correlation_type
         if self.correlation_property_names:
             result_dict[FUNNEL_CORRELATION_NAMES] = self.correlation_property_names
+        if self.correlation_event_names:
+            result_dict[FUNNEL_CORRELATION_EVENT_NAMES] = self.correlation_event_names
         return result_dict
