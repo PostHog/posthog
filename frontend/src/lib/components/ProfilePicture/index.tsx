@@ -1,6 +1,8 @@
-import md5 from 'md5.js'
+// import md5 from 'md5.js'
 import React, { useState } from 'react'
 import './ProfilePicture.scss'
+
+const md5 = (a: string): string => `hello ${a}`
 
 export interface ProfilePictureProps {
     name?: string
