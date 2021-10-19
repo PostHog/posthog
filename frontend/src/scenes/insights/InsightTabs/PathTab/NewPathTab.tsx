@@ -256,30 +256,6 @@ export function NewPathTab(): JSX.Element {
                                 <hr />
                             </>
                         )}
-                        {hasAdvancedPaths && (
-                            <>
-                                <Row align="middle" justify="space-between">
-                                    <Col>
-                                        <b>Path Cleaning Rules: (optional)</b>
-                                        <Tooltip
-                                            title={
-                                                <>
-                                                    Cleaning rules are an advanced feature that uses regex to normalize
-                                                    URLS for paths visualization. Rules can be set for all insights in
-                                                    the project settings, or they can be defined specifically for an
-                                                    insight.
-                                                </>
-                                            }
-                                        >
-                                            <InfoCircleOutlined className="info-indicator" />
-                                        </Tooltip>
-                                    </Col>
-                                    <Link to="/project/settings#path_cleaning_filtering">Configure Project Rules</Link>
-                                </Row>
-                                <PathCleanFilterInput />
-                                <hr />
-                            </>
-                        )}
                         <Row align="middle">
                             <Col span={9}>
                                 <b>Starting at</b>
@@ -494,6 +470,29 @@ export function NewPathTab(): JSX.Element {
                                                             />
                                                         </Col>
                                                     </Row>
+                                                    <hr />
+                                                    <Row align="middle" justify="space-between">
+                                                        <Col>
+                                                            <b>Path Cleaning Rules: (optional)</b>
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        Cleaning rules are an advanced feature that uses
+                                                                        regex to normalize URLS for paths visualization.
+                                                                        Rules can be set for all insights in the project
+                                                                        settings, or they can be defined specifically
+                                                                        for an insight.
+                                                                    </>
+                                                                }
+                                                            >
+                                                                <InfoCircleOutlined className="info-indicator" />
+                                                            </Tooltip>
+                                                        </Col>
+                                                        <Link to="/project/settings#path_cleaning_filtering">
+                                                            Configure Project Rules
+                                                        </Link>
+                                                    </Row>
+                                                    <PathCleanFilterInput />
                                                 </Col>
                                             </Collapse.Panel>
                                         </Collapse>
