@@ -584,7 +584,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
             "funnel_correlation_type": "event_with_properties",
-            "funnel_correlation_names": ["positively_related", "negatively_related"],
+            "funnel_correlation_event_names": ["positively_related", "negatively_related"],
         }
 
         filter = Filter(data=filters)

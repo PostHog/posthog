@@ -169,7 +169,6 @@ class FunnelCorrelation:
             UNION ALL
 
             SELECT
-                -- Use null as a special marker for the WITH TOTALS equivelant.
                 -- We're not using WITH TOTALS because the resulting queries are
                 -- not runnable in Metabase
                 '{self.TOTAL_IDENTIFIER}' as name,
@@ -194,6 +193,9 @@ class FunnelCorrelation:
         return query, params
 
     def get_event_property_query(self) -> Tuple[str, Dict[str, Any]]:
+
+        if not self._filter.correlation_event_names:
+            raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
@@ -246,7 +248,8 @@ class FunnelCorrelation:
             HAVING (success_count + failure_count) > 2
 
             UNION ALL
-
+            -- To get the total success/failure numbers, we do an aggregation on
+            -- the funnel people CTE and count distinct person_ids
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
 
@@ -265,14 +268,14 @@ class FunnelCorrelation:
             **funnel_persons_params,
             "funnel_step_names": [entity.id for entity in self._filter.events],
             "target_step": len(self._filter.entities),
-            "event_names": self._filter.correlation_names,
+            "event_names": self._filter.correlation_event_names,
         }
 
         return query, params
 
     def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
 
-        if not self._filter.correlation_names:
+        if not self._filter.correlation_property_names:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
@@ -339,14 +342,14 @@ class FunnelCorrelation:
             **person_prop_params,
             **person_query_params,
             "target_step": len(self._filter.entities),
-            "property_names": self._filter.correlation_names,
+            "property_names": self._filter.correlation_property_names,
         }
 
         return query, params
 
     def _get_properties_prop_clause(self):
 
-        if "$all" in cast(list, self._filter.correlation_names):
+        if "$all" in cast(list, self._filter.correlation_property_names):
             return (
                 f"""
             arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw({ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS})) as person_prop_keys,
@@ -362,7 +365,7 @@ class FunnelCorrelation:
         else:
             person_property_expressions = []
             person_property_params = {}
-            for index, property_name in enumerate(cast(list, self._filter.correlation_names)):
+            for index, property_name in enumerate(cast(list, self._filter.correlation_property_names)):
                 param_name = f"property_name_{index}"
                 expression, _ = get_property_string_expr(
                     "person", property_name, f"%({param_name})s", ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
