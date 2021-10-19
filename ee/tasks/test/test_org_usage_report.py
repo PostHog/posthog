@@ -24,5 +24,5 @@ def create_event_clickhouse(distinct_id: str, event: str, lib: str, created_at: 
     )
 
 
-class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_clickhouse, send_all_org_usage_reports, {"EE_AVAILABLE": True, "PRIMARY_DB": AnalyticsDBMS.CLICKHOUSE})):  # type: ignore
+class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_clickhouse, send_all_org_usage_reports, {"EE_AVAILABLE": True, "USE_TZ": False, "PRIMARY_DB": AnalyticsDBMS.CLICKHOUSE})):  # type: ignore
     pass
