@@ -102,18 +102,21 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         flagNames: [(s) => [s.userFlags], (userFlags) => userFlags.map((uf) => uf.feature_flag.name)],
         searchMatches: [
             (s) => [s.searchTerm, s.flagNames],
-            (searchTerm, flagNames) =>
-                searchTerm
+            (searchTerm, flagNames) => {
+                const filteredNames = searchTerm
                     ? new Fuse(flagNames, {
                           threshold: 0.3,
                       })
                           .search(searchTerm)
                           .map(({ item }) => item)
-                    : flagNames,
+                    : flagNames
+                return new Set(filteredNames)
+            },
         ],
-        isHiddenBySearch: [
-            (s) => [s.searchMatches],
-            (searchMatches) => (featureFlagName: string) => !searchMatches.includes(featureFlagName),
+        filteredFlags: [
+            (s) => [s.searchMatches, s.userFlagsWithCalculatedInfo],
+            (searchMatches, userFlagsWithCalculatedInfo) =>
+                userFlagsWithCalculatedInfo.filter((uf) => searchMatches.has(uf.feature_flag.name)),
         ],
         countFlagsOverridden: [(s) => [s.userFlags], (userFlags) => userFlags.filter((flag) => !!flag.override).length],
     },

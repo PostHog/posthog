@@ -9,11 +9,9 @@ import { PostHog } from 'posthog-js'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/urls'
 import { IconExternalLinkBold } from 'lib/components/icons'
-import clsx from 'clsx'
 
 export function FeatureFlags(): JSX.Element {
-    const { userFlagsWithCalculatedInfo, showLocalFeatureFlagWarning, searchTerm, isHiddenBySearch } =
-        useValues(featureFlagsLogic)
+    const { showLocalFeatureFlagWarning, searchTerm, filteredFlags } = useValues(featureFlagsLogic)
     const { setOverriddenUserFlag, deleteOverriddenUserFlag, setShowLocalFeatureFlagWarning, setSearchTerm } =
         useActions(featureFlagsLogic)
     const { apiURL } = useValues(toolbarLogic)
@@ -52,7 +50,7 @@ export function FeatureFlags(): JSX.Element {
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                     <List
-                        dataSource={userFlagsWithCalculatedInfo}
+                        dataSource={filteredFlags}
                         renderItem={({
                             feature_flag,
                             value_for_user_without_override,
@@ -61,12 +59,7 @@ export function FeatureFlags(): JSX.Element {
                             currentValue,
                         }) => {
                             return (
-                                <div
-                                    className={clsx([
-                                        'feature-flag-row',
-                                        { hidden: isHiddenBySearch(feature_flag.name) },
-                                    ])}
-                                >
+                                <div className={'feature-flag-row'}>
                                     <Row
                                         className={
                                             override ? 'feature-flag-row-header overridden' : 'feature-flag-row-header'
