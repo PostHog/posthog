@@ -56,7 +56,7 @@ class Migration(migrations.Migration):
                             )
                             OR (
                                 last_operation = 'set_once'
-                                AND COALESCE(event_timestamp, '0') < stored_timestamp
+                                AND event_timestamp < COALESCE(stored_timestamp, '0')
                             )
                         FROM (
                                 SELECT 
