@@ -99,7 +99,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             style={{ marginTop: '1rem' }}
             expandable={{
                 expandedRowRender: (record) => renderNestedTable(record.event),
-                rowExpandable: (record) => record.event && eventHasPropertyCorrelations(record.event),
+                rowExpandable: (record) => !!record.event && eventHasPropertyCorrelations(record.event),
             }}
             title={() => (
                 <>
@@ -155,7 +155,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 title="Property correlations"
                 key="operation"
                 render={(_, record: FunnelCorrelation) => (
-                    <a onClick={() => loadEventWithPropertyCorrelations(record.event)}>Run</a>
+                    <a onClick={() => record.event && loadEventWithPropertyCorrelations(record.event)}>Run</a>
                 )}
             />
         </Table>
