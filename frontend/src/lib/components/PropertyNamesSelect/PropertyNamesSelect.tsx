@@ -103,6 +103,7 @@ const PropertyNamesSearch = (): JSX.Element => {
         <>
             <Input
                 onChange={({ target: { value } }) => setQuery(value)}
+                allowClear
                 className="search-box"
                 placeholder="Search for properties"
                 prefix={<SearchOutlined />}
