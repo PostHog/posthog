@@ -99,7 +99,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             style={{ marginTop: '1rem' }}
             expandable={{
                 expandedRowRender: (record) => renderNestedTable(record.event),
-                rowExpandable: (record) => eventHasPropertyCorrelations(record.event),
+                rowExpandable: (record) => record.event && eventHasPropertyCorrelations(record.event),
             }}
             title={() => (
                 <>
