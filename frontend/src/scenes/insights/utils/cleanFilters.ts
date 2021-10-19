@@ -91,6 +91,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
     } else if (filters.insight === ViewType.PATHS) {
         return {
             insight: ViewType.PATHS,
+            properties: filters.properties || [],
             start_point: filters.start_point || undefined,
             end_point: filters.end_point || undefined,
             step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
