@@ -358,6 +358,8 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
+        if not self._filter.entities:
+            return FunnelCorrelationResponse(events=[], skewed=False)
 
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
 
