@@ -41,6 +41,8 @@ export function NewPathTab(): JSX.Element {
     const { user } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
+    const [open, setOpen] = useState(false)
+
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
         edge_limit: filter.edge_limit,
         min_edge_weight: filter.min_edge_weight,
