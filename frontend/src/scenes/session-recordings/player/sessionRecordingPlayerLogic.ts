@@ -206,7 +206,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             values.replayer?.setConfig({ speed })
         },
         seek: async ({ time, forcePlay }, breakpoint) => {
-            breakpoint()
+            await breakpoint(100)
 
             // Time passed into seek function must be timestamp offset time.
             const nextTime = getZeroOffsetTime(time ?? 0, values.meta)
@@ -228,7 +228,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            await breakpoint(10)
+            breakpoint()
         },
         seekForward: () => {
             actions.seek(values.time.current + values.jumpTimeMs)

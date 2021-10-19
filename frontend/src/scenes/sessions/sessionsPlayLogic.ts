@@ -9,6 +9,7 @@ import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from 'rrweb/typings/types'
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
     connect: {
@@ -26,6 +27,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         goToPrevious: true,
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
+        reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
         loadRecording: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
     },
     reducers: {
@@ -119,6 +121,12 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 error
             )
         },
+        recordUsage: async ({ recordingData, loadTime }, breakpoint) => {
+            await breakpoint()
+            eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 0)
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+            eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 10)
+        },
     }),
     loaders: ({ values, actions }) => ({
         tags: [
@@ -146,11 +154,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                     // Very first call
                     const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
                     response = await api.get(`api/event/session_recording?${params}`)
-                    eventUsageLogic.actions.reportRecordingViewed(
-                        response.result,
-                        values.source,
-                        performance.now() - startTime
-                    )
+                    actions.reportUsage(response.result, performance.now() - startTime)
                 }
                 const currData = values.sessionPlayerData
                 return {
