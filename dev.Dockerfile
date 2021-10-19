@@ -1,3 +1,4 @@
+# This Dockerfile is used for self-hosted development builds.
 FROM python:3.8-alpine3.14
 
 ENV PYTHONUNBUFFERED 1
@@ -15,9 +16,7 @@ RUN apk --update --no-cache add \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
     "libxml2-dev~=2.9" \
-    && npm install -g yarn@1 \
-    && yarn config set network-timeout 300000 \
-    && yarn --frozen-lockfile
+    && npm install -g yarn@1
 
 # Compile and install Python dependencies.
 # Note: we need few additional OS packages for this. Let's install
@@ -40,8 +39,11 @@ RUN apk --update --no-cache --virtual .build-deps add \
     apk del .build-deps
 
 # Generate Django's static files
-RUN mkdir -p frontend/dist && \
-    DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+
+# Install JS (yarn) dependencies
+RUN yarn config set network-timeout 300000 \
+    && yarn --frozen-lockfile
 
 # Compile and install frontend dependencies.
 # Note: like above, we need few additional OS packages for this. Let's
@@ -60,4 +62,4 @@ RUN apk --update --no-cache --virtual .build-deps add \
 # Expose container port and run entry point script
 EXPOSE 8000
 EXPOSE 8234
-CMD ["./bin/docker-dev"]
+ENTRYPOINT ["sh", "./bin/docker-dev"]
