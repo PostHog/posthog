@@ -2404,18 +2404,6 @@
   resolved "https://registry.yarnpkg.com/@open-draft/until/-/until-1.0.3.tgz#db9cc719191a62e7d9200f6e7bab21c5b848adca"
   integrity sha512-Aq58f5HiWdyDlFffbbSjAlv596h/cOnt2DO1w3DOC7OJ5EHs0hd/nycJfiu9RJbT6Yk6F1knnRRXNSpxoIVZ9Q==
 
-"@papercups-io/chat-widget@^1.1.10":
-  version "1.1.10"
-  resolved "https://registry.yarnpkg.com/@papercups-io/chat-widget/-/chat-widget-1.1.10.tgz#6fae6ded9e0b832310612ac4a9a841c938aceb82"
-  integrity sha512-bXmOUWWO0fOuJl0CipzXrdjvkP0elusu6H9OTw+k4H+oHtCCrYQH3Do7x66x77d2apWbaFfDvZWMul4l2NGyhw==
-  dependencies:
-    framer-motion "^2.0.1"
-    phoenix "^1.5.3"
-    query-string "^6.13.1"
-    superagent "^5.3.1"
-    theme-ui "^0.3.1"
-    tinycolor2 "^1.4.1"
-
 "@pmmmwh/react-refresh-webpack-plugin@^0.4.3":
   version "0.4.3"
   resolved "https://registry.yarnpkg.com/@pmmmwh/react-refresh-webpack-plugin/-/react-refresh-webpack-plugin-0.4.3.tgz#1eec460596d200c0236bf195b078a5d1df89b766"
