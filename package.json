@@ -129,6 +129,7 @@
         "@snowpack/plugin-dotenv": "^2.2.0",
         "@snowpack/plugin-postcss": "^1.4.3",
         "@snowpack/plugin-react-refresh": "^2.5.0",
+        "@snowpack/plugin-sass": "^1.4.0",
         "@snowpack/plugin-typescript": "^1.2.1",
         "@storybook/addon-actions": "^6.3.11",
         "@storybook/addon-essentials": "^6.3.11",
