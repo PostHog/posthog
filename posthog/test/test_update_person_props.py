@@ -56,6 +56,8 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         # dont update set_once call
         self.assertEqual(updated_person.properties, {"a": 1, "b": 0})
+        self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set_once"})
+        self.assertIsNotNone(updated_person.properties_last_updated_at["a"])
 
     def test_update_without_properties_last_operation(self):
         person = Person.objects.create(
