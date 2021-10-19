@@ -1246,6 +1246,10 @@ export interface FunnelCorrelation {
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
 }
 
+// export interface FunnelNestedCorrelation extends FunnelCorrelation {
+//     properties: FunnelCorrelation[]
+// }
+
 export enum FunnelCorrelationType {
     Success = 'success',
     Failure = 'failure',
