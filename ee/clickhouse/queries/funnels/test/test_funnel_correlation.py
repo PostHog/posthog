@@ -574,6 +574,90 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_funnel_correlation_with_event_properties(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "event_with_properties",
+            "funnel_correlation_event_names": ["positively_related", "negatively_related"],
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="positively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                    properties={"signup_source": "facebook" if i % 4 == 0 else "email", "blah": "value_bleh"},
+                )
+                # source: email occurs only twice, so would be discarded from result set
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        for i in range(10, 20):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                    properties={"signup_source": "shazam" if i % 6 == 0 else "email"},
+                )
+                # source: shazam occurs only once, so would be discarded from result set
+
+        result = correlation.run()["events"]
+
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        expected_odds_ratios = [11, 5.5, 2 / 11]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positively_related::blah::value_bleh",
+                    "success_count": 5,
+                    "failure_count": 0,
+                    # "odds_ratio": 11.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "positively_related::signup_source::facebook",
+                    "success_count": 3,
+                    "failure_count": 0,
+                    # "odds_ratio": 5.5,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "negatively_related::signup_source::email",
+                    "success_count": 0,
+                    "failure_count": 3,
+                    # "odds_ratio": 0.18181818181818182,
+                    "correlation_type": "failure",
+                },
+            ],
+        )
+
 
 class TestCorrelationFunctions(unittest.TestCase):
     def test_are_results_insignificant(self):
