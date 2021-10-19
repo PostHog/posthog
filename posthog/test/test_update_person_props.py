@@ -51,8 +51,8 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         updated_person = Person.objects.get(id=person.id)
 
-        # both updated
-        self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
+        # dont update set_once call
+        self.assertEqual(updated_person.properties, {"a": 1, "b": 0})
 
     def test_update_without_properties_last_operation(self):
         person = Person.objects.create(
@@ -81,8 +81,8 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         updated_person = Person.objects.get(id=person.id)
 
-        # both updated
-        self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
+        # dont update set_once call
+        self.assertEqual(updated_person.properties, {"a": 1, "b": 0})
 
     # # tests cases 1 and 2 from the table
     def test_update_non_existent_prop(self):

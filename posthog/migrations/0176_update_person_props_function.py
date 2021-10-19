@@ -43,18 +43,20 @@ class Migration(migrations.Migration):
                 FOREACH property_update IN ARRAY property_updates LOOP 
                     IF TRUE= 
                         (SELECT NOT property_exists
-                            OR stored_timestamp IS NULL
-                            OR last_operation IS NULL
                             OR (
                                 property_update.update_op = 'set' AND 
                                 (
-                                    event_timestamp > stored_timestamp OR
-                                    (event_timestamp=stored_timestamp AND last_operation = 'set_once')
+                                    stored_timestamp IS NULL OR
+                                    last_operation IS NULL OR
+                                    (
+                                        event_timestamp > stored_timestamp OR
+                                        (event_timestamp=stored_timestamp AND last_operation = 'set_once')
+                                    )
                                 )
                             )
                             OR (
                                 last_operation = 'set_once'
-                                AND event_timestamp < stored_timestamp
+                                AND COALESCE(event_timestamp, '0') < stored_timestamp
                             )
                         FROM (
                                 SELECT 
