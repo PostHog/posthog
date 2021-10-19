@@ -23,12 +23,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
-import { PathCleanFilterToggle } from './PathCleanFilterToggle'
-import { PlusCircleOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
-import { Popup } from 'lib/components/Popup/Popup'
-import { PathRegexPopup } from 'lib/components/PathCleanFilters/PathCleanFilter'
+import { PathCleanFilterInput } from './PathCleanFilterInput'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -40,8 +36,6 @@ export function NewPathTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
-
-    const [open, setOpen] = useState(false)
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
         edge_limit: filter.edge_limit,
@@ -282,69 +276,7 @@ export function NewPathTab(): JSX.Element {
                                     </Col>
                                     <Link to="/project/settings#path_cleaning_filtering">Configure Project Rules</Link>
                                 </Row>
-                                <Row>
-                                    <PathCleanFilters
-                                        style={{ display: 'block' }}
-                                        pageKey="pathcleanfilters-local"
-                                        pathCleaningFilters={filter.local_path_cleaning_filters || []}
-                                        onChange={(newItem) => {
-                                            setFilter({
-                                                local_path_cleaning_filters: [
-                                                    ...(filter.local_path_cleaning_filters || []),
-                                                    newItem,
-                                                ],
-                                            })
-                                        }}
-                                        onRemove={(index) => {
-                                            const newState = (filter.local_path_cleaning_filters || []).filter(
-                                                (_, i) => i !== index
-                                            )
-                                            setFilter({ local_path_cleaning_filters: newState })
-                                        }}
-                                    />
-                                </Row>
-                                <Row align="middle" justify="space-between">
-                                    <Popup
-                                        visible={open}
-                                        placement={'bottom-end'}
-                                        fallbackPlacements={['bottom-start']}
-                                        onClickOutside={() => setOpen(false)}
-                                        overlay={
-                                            <PathRegexPopup
-                                                item={{}}
-                                                onClose={() => setOpen(false)}
-                                                onComplete={(newItem) => {
-                                                    setFilter({
-                                                        local_path_cleaning_filters: [
-                                                            ...(filter.local_path_cleaning_filters || []),
-                                                            newItem,
-                                                        ],
-                                                    })
-                                                    setOpen(false)
-                                                }}
-                                            />
-                                        }
-                                    >
-                                        {({ setRef }) => {
-                                            return (
-                                                <>
-                                                    <Button
-                                                        ref={setRef}
-                                                        onClick={() => setOpen(!open)}
-                                                        className="new-prop-filter"
-                                                        data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}
-                                                        type="link"
-                                                        style={{ paddingLeft: 0 }}
-                                                        icon={<PlusCircleOutlined />}
-                                                    >
-                                                        {'Add Rule'}
-                                                    </Button>
-                                                </>
-                                            )
-                                        }}
-                                    </Popup>
-                                    <PathCleanFilterToggle filters={filter} onChange={setFilter} />
-                                </Row>
+                                <PathCleanFilterInput />
                                 <hr />
                             </>
                         )}
