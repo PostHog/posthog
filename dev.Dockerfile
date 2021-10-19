@@ -35,8 +35,7 @@ RUN apk --update --no-cache add \
 #
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
-COPY requirements.txt .
-COPY requirements-dev.txt .
+COPY requirements.txt requirements-dev.txt ./
 RUN apk --update --no-cache --virtual .build-deps add \
     "linux-headers~=5.10" \
     "musl-dev~=1.2" \
@@ -60,8 +59,7 @@ RUN apk --update --no-cache --virtual .build-deps add \
 #
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
-COPY package.json .
-COPY plugins/ .
+COPY package.json yarn.lock plugins/package.json plugins/yarn.lock ./
 RUN apk --update --no-cache --virtual .build-deps add \
     "gcc~=10.3" \
     && \
