@@ -12,7 +12,6 @@ import { TrendPeople } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
-import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from '../../lib/utils/logics'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -76,8 +75,6 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 }
 
 export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
-    props: {} as ProjectBasedLogicProps,
-    key: getProjectBasedLogicKeyBuilder(),
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),

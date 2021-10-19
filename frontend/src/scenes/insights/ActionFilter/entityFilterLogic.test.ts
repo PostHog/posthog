@@ -35,7 +35,6 @@ describe('entityFilterLogic', () => {
     initKeaTestLogic({
         logic: entityFilterLogic,
         props: {
-            teamId: 1,
             setFilters: jest.fn(),
             filters: filtersJson,
             typeKey: 'logic_test',
@@ -45,7 +44,7 @@ describe('entityFilterLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([actionsModel({ teamId: 1 })])
+            await expectLogic(logic).toMount([actionsModel])
         })
 
         it('localFilters', async () => {

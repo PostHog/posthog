@@ -9,7 +9,6 @@ import Fuse from 'fuse.js'
 import { InfiniteListLogicProps, ListFuse, ListStorage, LoaderOptions } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
-import { getProjectBasedLogicKeyBuilder } from '../../utils/logics'
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -37,12 +36,12 @@ const apiCacheTimers: Record<string, number> = {}
 export const infiniteListLogic = kea<infiniteListLogicType>({
     props: {} as InfiniteListLogicProps,
 
-    key: getProjectBasedLogicKeyBuilder((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
+    key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
-    connect: (props: InfiniteListLogicProps) => ({
-        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'groups']],
-        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem']],
-    }),
+    connect: {
+        values: [taxonomicFilterLogic, ['searchQuery', 'value', 'groupType', 'groups']],
+        actions: [taxonomicFilterLogic, ['setSearchQuery', 'selectItem']],
+    },
 
     actions: {
         selectSelected: true,
@@ -239,13 +238,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
     events: ({ actions, values, props }) => ({
         afterMount: () => {
-            if (props.teamId) {
-                if (values.isRemoteDataSource) {
-                    actions.loadRemoteItems({ offset: 0, limit: values.limit })
-                } else if (values.groupType === props.listGroupType) {
-                    const { value, group, results } = values
-                    actions.setIndex(results.findIndex((r) => group?.getValue?.(r) === value))
-                }
+            if (values.isRemoteDataSource) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            } else if (values.groupType === props.listGroupType) {
+                const { value, group, results } = values
+                actions.setIndex(results.findIndex((r) => group?.getValue?.(r) === value))
             }
         },
     }),

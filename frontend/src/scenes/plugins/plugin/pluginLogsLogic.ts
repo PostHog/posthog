@@ -4,7 +4,6 @@ import { PluginLogEntry } from '~/types'
 import { pluginLogsLogicType } from './pluginLogsLogicType'
 
 export interface PluginLogsProps {
-    teamId: number
     pluginConfigId: number
 }
 

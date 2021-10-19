@@ -6,8 +6,21 @@ import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 jest.mock('lib/api')
+let windowSpy: any
+
+beforeEach(() => {
+    windowSpy = jest.spyOn(window, 'window', 'get')
+    windowSpy.mockImplementation(() => ({
+        POSTHOG_APP_CONTEXT: { current_team: { id: MOCK_TEAM_ID } },
+    }))
+})
+
+afterEach(() => {
+    windowSpy.mockRestore()
+})
 
 describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>
@@ -27,9 +40,12 @@ describe('infiniteListLogic', () => {
     })
 
     initKeaTestLogic({
+        logic: teamLogic,
+    })
+
+    initKeaTestLogic({
         logic: infiniteListLogic,
         props: {
-            teamId: MOCK_TEAM_ID,
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Events,
         },
@@ -124,7 +140,6 @@ describe('infiniteListLogic with optionsFromProp', () => {
     initKeaTestLogic({
         logic: infiniteListLogic,
         props: {
-            teamId: 98,
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Wildcards,
             optionsFromProp: {

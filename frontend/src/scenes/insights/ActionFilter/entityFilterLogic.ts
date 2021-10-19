@@ -4,7 +4,6 @@ import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from '../../../lib/utils/logics'
 
 export type LocalFilter = EntityFilter & {
     order: number
@@ -35,7 +34,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     } as FilterType
 }
 
-export interface EntityFilterProps extends ProjectBasedLogicProps {
+export interface EntityFilterProps {
     setFilters: (filters: FilterType) => void
     filters: Record<string, any>
     typeKey: string
@@ -45,10 +44,10 @@ export interface EntityFilterProps extends ProjectBasedLogicProps {
 
 export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
     props: {} as EntityFilterProps,
-    key: getProjectBasedLogicKeyBuilder((props) => props.typeKey),
-    connect: (props: EntityFilterProps) => ({
-        values: [actionsModel({ teamId: props.teamId }), ['actions']],
-    }),
+    key: (props) => props.typeKey,
+    connect: {
+        values: [actionsModel, ['actions']],
+    },
     actions: () => ({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
         updateFilterMath: (
@@ -233,7 +232,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
     }),
     events: ({ actions, props, values }) => ({
         afterMount: () => {
-            if (props.teamId && props.singleMode) {
+            if (props.singleMode) {
                 const filter = { id: null, name: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length }
                 actions.setLocalFilters({ [`${EntityTypes.NEW_ENTITY}`]: [filter] })
                 actions.selectFilter({ ...filter, index: 0 })

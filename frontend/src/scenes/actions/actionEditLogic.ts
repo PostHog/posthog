@@ -5,12 +5,12 @@ import { toast } from 'react-toastify'
 import { actionsModel } from '~/models/actionsModel'
 import { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
-import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from 'lib/utils/logics'
+import { teamLogic } from '../teamLogic'
 
 type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
 type ActionEditType = ActionType | NewActionType
 
-export interface ActionEditLogicProps extends ProjectBasedLogicProps {
+export interface ActionEditLogicProps {
     id: number
     action: ActionEditType
     temporaryToken?: string
@@ -19,7 +19,7 @@ export interface ActionEditLogicProps extends ProjectBasedLogicProps {
 
 export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, ActionEditType>>({
     props: {} as ActionEditLogicProps,
-    key: getProjectBasedLogicKeyBuilder((props) => props.id || 'new'),
+    key: (props) => props.id || 'new',
     actions: () => ({
         saveAction: true,
         setAction: (action: ActionEditType) => ({ action }),
@@ -52,7 +52,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
     loaders: ({ props }) => ({
         actionCount: {
             loadActionCount: async () => {
-                return (await api.get(`api/projects/${props.teamId}/actions/${props.id}/count`)).count
+                return (await api.get(`api/projects/${teamLogic.values.currentTeamId}/actions/${props.id}/count`)).count
             },
         },
     }),
@@ -70,7 +70,10 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
             try {
                 const queryString = props.temporaryToken ? `?temporary_token=${props.temporaryToken}` : ''
                 const pathEnding = action.id ? `${action.id}/` : ''
-                action = await api.update(`api/projects/${props.teamId}/actions/${pathEnding}${queryString}`, action)
+                action = await api.update(
+                    `api/projects/${teamLogic.values.currentTeamId}/actions/${pathEnding}${queryString}`,
+                    action
+                )
             } catch (response) {
                 if (response.code === 'unique') {
                     // Below works because `detail` in the format:
@@ -84,18 +87,16 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
 
             toast('Action saved')
             props.onSave(action)
-            actionsModel({ teamId: props.teamId }).actions.loadActions() // reload actions so they are immediately available
+            actionsModel.actions.loadActions() // reload actions so they are immediately available
         },
     }),
 
     events: ({ actions, props }) => ({
         afterMount: async () => {
-            if (props.teamId) {
-                if (props.id) {
-                    actions.loadActionCount()
-                } else {
-                    actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
-                }
+            if (props.id) {
+                actions.loadActionCount()
+            } else {
+                actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
             }
         },
     }),

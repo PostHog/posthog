@@ -39,7 +39,6 @@ describe('dashboardLogic', () => {
         initKeaTestLogic({
             logic: dashboardLogic,
             props: {
-                teamId: 9,
                 id: undefined as unknown as number,
             },
             onLogic: (l) => (logic = l),
@@ -54,7 +53,6 @@ describe('dashboardLogic', () => {
         initKeaTestLogic({
             logic: dashboardLogic,
             props: {
-                teamId: 12,
                 id: 5,
             },
             onLogic: (l) => (logic = l),

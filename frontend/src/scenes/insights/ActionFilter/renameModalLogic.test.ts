@@ -28,7 +28,6 @@ describe('renameModalLogic', () => {
     initKeaTestLogic({
         logic: entityFilterLogic,
         props: {
-            teamId: 77,
             setFilters: jest.fn(),
             filters: filtersJson,
             typeKey: 'logic_test',
@@ -38,7 +37,6 @@ describe('renameModalLogic', () => {
     initKeaTestLogic({
         logic: renameModalLogic,
         props: {
-            teamId: 77,
             filter: filtersJson.events[0] as EntityFilter,
             typeKey: 'logic_test',
         },

@@ -11,11 +11,10 @@ import dayjs from 'dayjs'
 import { urls } from 'scenes/urls'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { teamLogic } from '../teamLogic'
-import { ProjectBasedLogicProps } from '../../lib/utils/logics'
 import { ActionType } from '../../types'
 
 import { actionLogicType } from './ActionType'
-interface ActionLogicProps extends ProjectBasedLogicProps {
+interface ActionLogicProps {
     id?: ActionType['id']
     onComplete: () => void
 }
@@ -65,7 +64,7 @@ const actionLogic = kea<actionLogicType<ActionLogicProps>>({
     }),
     events: ({ values, actions, props }) => ({
         afterMount: () => {
-            props.teamId && props.id && actions.loadAction()
+            props.id && actions.loadAction()
         },
         beforeUnmount: () => {
             values.pollTimeout && clearTimeout(values.pollTimeout)
@@ -78,9 +77,8 @@ export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
 
     const { push } = useActions(router)
     const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
-    const { currentTeamId } = useValues(teamLogic)
-    const { isComplete, action } = useValues(actionLogic({ teamId: currentTeamId, id, onComplete: fetchEvents }))
-    const { loadAction } = useActions(actionLogic({ teamId: currentTeamId, id, onComplete: fetchEvents }))
+    const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
+    const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
     const { preflight } = useValues(preflightLogic)
     const isClickHouseEnabled = !!preflight?.is_clickhouse_enabled
 

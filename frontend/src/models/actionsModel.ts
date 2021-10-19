@@ -1,22 +1,21 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ActionType } from '~/types'
-import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from '../lib/utils/logics'
+import { teamLogic } from '../scenes/teamLogic'
 import { actionsModelType } from './actionsModelType'
 
-interface ActionsModelProps extends ProjectBasedLogicProps {
+interface ActionsModelProps {
     params?: string
 }
 
 export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
     props: {} as ActionsModelProps,
-    key: getProjectBasedLogicKeyBuilder(),
     loaders: ({ props }) => ({
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
                 const response = await api.get(
-                    `api/projects/${props.teamId}/actions/?${props.params ? props.params : ''}`
+                    `api/projects/${teamLogic.values.currentTeamId}/actions/?${props.params ? props.params : ''}`
                 )
                 return response.results
             },
@@ -38,7 +37,7 @@ export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
         ],
     }),
 
-    events: ({ actions, props }) => ({
-        afterMount: () => props.teamId && actions.loadActions(),
+    events: ({ actions }) => ({
+        afterMount: () => actions.loadActions(),
     }),
 })

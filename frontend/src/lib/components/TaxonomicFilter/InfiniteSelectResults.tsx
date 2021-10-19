@@ -19,8 +19,7 @@ function TabTitle({
     groupType: TaxonomicFilterGroupType
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
 }): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, teamId: currentTeamId, listGroupType: groupType })
+    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { groups } = useValues(taxonomicFilterLogic)
     const { totalCount } = useValues(logic)
 
@@ -43,10 +42,7 @@ export function InfiniteSelectResults({
 
     if (groupTypes.length === 1) {
         return (
-            <BindLogic
-                logic={infiniteListLogic}
-                props={{ ...taxonomicFilterLogicProps, teamId: currentTeamId, listGroupType: groupTypes[0] }}
-            >
+            <BindLogic logic={infiniteListLogic} props={{ ...taxonomicFilterLogicProps, listGroupType: groupTypes[0] }}>
                 <InfiniteList />
             </BindLogic>
         )

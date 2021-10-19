@@ -420,7 +420,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
-            if (props.teamId && props.id) {
+            if (props.id) {
                 // When the scene is initially loaded, the dashboard ID is undefined
                 actions.loadDashboardItems({
                     refresh: props.internal,
@@ -527,7 +527,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     // reload the cached results inside the insight's logic
                     if (dashboardItem.filters.insight) {
                         const itemResultLogic = insightLogic({
-                            teamId: props.teamId,
                             dashboardItemId: dashboardItem.id,
                             filters: dashboardItem.filters,
                             cachedResults: refreshedDashboardItem.result,

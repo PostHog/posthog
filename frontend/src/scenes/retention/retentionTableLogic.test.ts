@@ -20,7 +20,7 @@ describe('retentionTableLogic', () => {
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { teamId: 85, dashboardItemId: 123 }
+        const props = { dashboardItemId: 123 }
         initKeaTestLogic({
             logic: retentionTableLogic,
             props,

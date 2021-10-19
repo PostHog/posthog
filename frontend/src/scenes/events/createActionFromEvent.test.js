@@ -113,7 +113,7 @@ describe('createActionFromEvent()', () => {
         it('recurses with increment + 1', async () => {
             await given.subject()
 
-            expect(given.recurse).toHaveBeenCalledWith(given.event, 1, given.recurse)
+            expect(given.recurse).toHaveBeenCalledWith(given.teamId, given.event, 1, given.recurse)
             expect(toast).not.toHaveBeenCalled()
         })
 

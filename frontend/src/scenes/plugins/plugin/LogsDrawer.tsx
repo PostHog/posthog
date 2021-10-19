@@ -19,7 +19,6 @@ export function LogsDrawer(): JSX.Element {
         >
             {!!lastShownLogsPlugin && (
                 <PluginLogs
-                    teamId={lastShownLogsPlugin.pluginConfig.team_id}
                     pluginConfigId={lastShownLogsPlugin.pluginConfig.id!} // eslint-disable-line
                 />
             )}

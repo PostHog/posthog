@@ -5,7 +5,7 @@ describe('keyForInsightLogicProps', () => {
 
     it('throws if no dashboardItemId', () => {
         expect(() => {
-            func({ teamId: 2 })
+            func({})
         }).toThrow('Must init with dashboardItemId, even if undefined')
     })
 

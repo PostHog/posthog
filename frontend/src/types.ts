@@ -17,7 +17,6 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
-import { ProjectBasedLogicProps } from './lib/utils/logics'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -995,7 +994,7 @@ export interface ChartParams {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
-export interface InsightLogicProps extends ProjectBasedLogicProps {
+export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: number | null
     /** enable url handling for this insight */

@@ -80,7 +80,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 {
                     name: 'Actions',
                     type: TaxonomicFilterGroupType.Actions,
-                    logic: actionsModel({ teamId: teamId }) as any,
+                    logic: actionsModel as any,
                     value: 'actions',
                     getName: (action: ActionType): string => action.name,
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
