@@ -62,10 +62,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": FUTURE_TIMESTAMP,
-                "b": FUTURE_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
             properties_last_operation={},
         )
 
@@ -123,10 +120,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": FUTURE_TIMESTAMP,
-                "b": FUTURE_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
         with connection.cursor() as cursor:
@@ -156,10 +150,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": PAST_TIMESTAMP,
-                "b": PAST_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": PAST_TIMESTAMP, "b": PAST_TIMESTAMP,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
 
@@ -190,10 +181,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": FUTURE_TIMESTAMP,
-                "b": FUTURE_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
 
@@ -224,10 +212,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": PAST_TIMESTAMP,
-                "b": PAST_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": PAST_TIMESTAMP, "b": PAST_TIMESTAMP,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
 
