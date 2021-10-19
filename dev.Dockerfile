@@ -62,4 +62,4 @@ RUN apk --update --no-cache --virtual .build-deps add \
 # Expose container port and run entry point script
 EXPOSE 8000
 EXPOSE 8234
-ENTRYPOINT ["sh", "./bin/docker-dev"]
+CMD ["./bin/docker-dev"]
