@@ -22,13 +22,12 @@ from posthog.test.base import BaseTest
 # 13| set      | yes           | equal                      | set_once    | yes
 # 14| set_once | yes           | equal                      | set_once    | no
 
-# Refers to migration 0176_update_person_props_function
-# This is a Postgres function we use in the plugin server
 
 FUTURE_TIMESTAMP = datetime(2050, 1, 1, 1, 1, 1).isoformat()
 PAST_TIMESTAMP = datetime(2000, 1, 1, 1, 1, 1).isoformat()
 
-
+# Refers to migration 0176_update_person_props_function
+# This is a Postgres function we use in the plugin server
 class TestShouldUpdatePersonProp(BaseTest):
     def test_update_without_properties_last_updated_at(self):
         person = Person.objects.create(
