@@ -23,16 +23,15 @@ export function FunnelCanvasLabel(): JSX.Element | null {
     }
 
     const labels = [
-        ...(filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+        ...(filters.funnel_viz_type === FunnelVizType.Steps
             ? [
                   <>
                       <span className="text-muted-alt">
                           <Tooltip title="Overall conversion rate for all users on the entire funnel.">
                               <InfoCircleOutlined className="info-indicator left" />
                           </Tooltip>
-                          Total conversion rate{' '}
+                          Total conversion rate
                       </span>
-                      {filters.funnel_viz_type === FunnelVizType.Trends && <FunnelStepsPicker />}
                       <span className="text-muted-alt mr-025">:</span>
                       <span className="l4">{formatDisplayPercentage(conversionMetrics.totalRate)}%</span>
                   </>,
