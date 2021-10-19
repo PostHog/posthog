@@ -5,11 +5,9 @@ import dayjs, { Dayjs } from 'dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
 import { AnnotationScope, AnnotationType } from '~/types'
-import { ProjectBasedLogicProps, getProjectBasedLogicKeyBuilder } from 'lib/utils/logics'
+import { teamLogic } from '../scenes/teamLogic'
 
 export const annotationsModel = kea<annotationsModelType>({
-    props: {} as ProjectBasedLogicProps,
-    key: getProjectBasedLogicKeyBuilder(),
     actions: {
         createGlobalAnnotation: (content: string, date_marker: string, dashboard_item?: number) => ({
             content,
@@ -19,12 +17,12 @@ export const annotationsModel = kea<annotationsModelType>({
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
     },
-    loaders: ({ values, props }) => ({
+    loaders: ({ values }) => ({
         globalAnnotations: {
             __default: [] as AnnotationType[],
             loadGlobalAnnotations: async () => {
                 const response = await api.get(
-                    `api/projects/${props.teamId}/annotations/?${toParams({
+                    `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams({
                         scope: 'organization',
                         deleted: false,
                     })}`
@@ -32,7 +30,7 @@ export const annotationsModel = kea<annotationsModelType>({
                 return response.results
             },
             createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
-                await api.create(`api/projects/${props.teamId}/annotations`, {
+                await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                     content,
                     date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
                     created_at,
@@ -70,17 +68,17 @@ export const annotationsModel = kea<annotationsModelType>({
             },
         ],
     },
-    listeners: ({ actions, props }) => ({
+    listeners: ({ actions }) => ({
         deleteGlobalAnnotation: ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
-                    endpoint: `projects/${props.teamId}/annotations`,
+                    endpoint: `projects/${teamLogic.values.currentTeamId}/annotations`,
                     object: { name: 'Annotation', id },
                     callback: () => actions.loadGlobalAnnotations(),
                 })
         },
     }),
-    events: ({ actions, props }) => ({
-        afterMount: () => props.teamId && actions.loadGlobalAnnotations(),
+    events: ({ actions }) => ({
+        afterMount: () => actions.loadGlobalAnnotations(),
     }),
 })

@@ -12,7 +12,10 @@ describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
     mockAPI(async (url) => {
-        const { pathname } = url
+        const { pathname, searchParams } = url
+        const throwAPIError = (): void => {
+            throw { status: 0, statusText: 'error from the API' }
+        }
         if (['api/insight/42', 'api/insight/43'].includes(pathname)) {
             return {
                 result: pathname === 'api/insight/42' ? ['result from api'] : null,
@@ -23,9 +26,14 @@ describe('insightLogic', () => {
                     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                 },
             }
+        } else if (['api/insight/44'].includes(pathname)) {
+            throwAPIError()
         } else if (
             ['api/insight', 'api/insight/session/', 'api/insight/trend/', 'api/insight/funnel/'].includes(pathname)
         ) {
+            if (searchParams?.events?.[0]?.throw) {
+                throwAPIError()
+            }
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
@@ -133,6 +141,66 @@ describe('insightLogic', () => {
             })
         })
 
+        describe('props with filters, no cached results, error from API', () => {
+            initKeaTestLogic({
+                logic: insightLogic,
+                props: {
+                    dashboardItemId: 42,
+                    cachedResults: undefined,
+                    filters: {
+                        insight: ViewType.TRENDS,
+                        events: [{ id: 3, throw: true }],
+                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                    },
+                },
+                onLogic: (l) => (logic = l),
+            })
+
+            it('makes a query to load the results', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadResults', 'loadResultsFailure'])
+                    .toMatchValues({
+                        insight: expect.objectContaining({ id: 42, result: null }),
+                        filters: expect.objectContaining({
+                            events: [expect.objectContaining({ id: 3 })],
+                            properties: [expect.objectContaining({ value: 'a' })],
+                        }),
+                    })
+                    .delay(1)
+                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+            })
+        })
+
+        describe('props with filters, no cached results, respects doNotLoad', () => {
+            initKeaTestLogic({
+                logic: insightLogic,
+                props: {
+                    dashboardItemId: 42,
+                    cachedResults: undefined,
+                    filters: {
+                        insight: ViewType.TRENDS,
+                        events: [{ id: 3, throw: true }],
+                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                    },
+                    doNotLoad: true,
+                },
+                onLogic: (l) => (logic = l),
+            })
+
+            it('does not make a query', async () => {
+                await expectLogic(logic)
+                    .toMatchValues({
+                        insight: expect.objectContaining({ id: 42, result: null }),
+                        filters: expect.objectContaining({
+                            events: [expect.objectContaining({ id: 3 })],
+                            properties: [expect.objectContaining({ value: 'a' })],
+                        }),
+                    })
+                    .delay(1)
+                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+            })
+        })
+
         describe('props with no filters, no cached results, results from API', () => {
             initKeaTestLogic({
                 logic: insightLogic,
@@ -189,6 +257,29 @@ describe('insightLogic', () => {
                             properties: [expect.objectContaining({ value: 'a' })],
                         }),
                     })
+            })
+        })
+
+        describe('props with no filters, no cached results, API throws', () => {
+            initKeaTestLogic({
+                logic: insightLogic,
+                props: {
+                    dashboardItemId: 44, // 44 --> result: throws
+                    cachedResults: undefined,
+                    filters: undefined,
+                },
+                onLogic: (l) => (logic = l),
+            })
+
+            it('makes a query to load the results', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadInsight', 'loadInsightFailure'])
+                    .toMatchValues({
+                        insight: expect.objectContaining({ id: 44, result: null, filters: {} }),
+                        filters: {},
+                    })
+                    .delay(1)
+                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
             })
         })
     })

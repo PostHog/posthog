@@ -5,7 +5,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Collapse, InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathType, ViewType, FunnelPathType, PathEdgeParameters } from '~/types'
+import { PathType, ViewType, FunnelPathType, PathEdgeParameters, AvailableFeature } from '~/types'
 import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -21,6 +21,8 @@ import { combineUrl, encodeParams, router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { userLogic } from 'scenes/userLogic'
+import { PayCard } from 'lib/components/PayCard/PayCard'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -30,6 +32,8 @@ export function NewPathTab(): JSX.Element {
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
+    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
         edge_limit: filter.edge_limit,
@@ -183,7 +187,7 @@ export function NewPathTab(): JSX.Element {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Pageview events
+                                    Pageviews
                                 </Checkbox>
                             </Col>
                             <Col
@@ -199,7 +203,7 @@ export function NewPathTab(): JSX.Element {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Screenview events
+                                    Screenviews
                                 </Checkbox>
                             </Col>
                             <Col
@@ -220,31 +224,37 @@ export function NewPathTab(): JSX.Element {
                             </Col>
                         </Row>
                         <hr />
-                        <Row align="middle">
-                            <Col>
-                                <b>Wildcard groups: (optional)</b>
-                                <Tooltip
-                                    title={
-                                        <>
-                                            Use wildcard matching to group events by unique values in path item names.
-                                            Use an asterisk (*) in place of unique values. For example, instead of
-                                            /merchant/1234/payment, replace the unique value with an asterisk
-                                            /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
-                                        </>
-                                    }
-                                >
-                                    <InfoCircleOutlined className="info-indicator" />
-                                </Tooltip>
-                            </Col>
-                            <Select
-                                mode="tags"
-                                style={{ width: '100%', marginTop: 5 }}
-                                onChange={(path_groupings) => setFilter({ path_groupings })}
-                                tokenSeparators={[',']}
-                                value={filter.path_groupings || []}
-                            />
-                        </Row>
-                        <hr />
+                        {hasAdvancedPaths && (
+                            <>
+                                <Row align="middle">
+                                    <Col>
+                                        <b>Wildcard groups: (optional)</b>
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    Use wildcard matching to group events by unique values in path item
+                                                    names. Use an asterisk (*) in place of unique values. For example,
+                                                    instead of /merchant/1234/payment, replace the unique value with an
+                                                    asterisk /merchant/*/payment.{' '}
+                                                    <b>Use a comma to separate multiple wildcards.</b>
+                                                </>
+                                            }
+                                        >
+                                            <InfoCircleOutlined className="info-indicator" />
+                                        </Tooltip>
+                                    </Col>
+                                    <Select
+                                        mode="tags"
+                                        style={{ width: '100%', marginTop: 5 }}
+                                        onChange={(path_groupings) => setFilter({ path_groupings })}
+                                        tokenSeparators={[',']}
+                                        value={filter.path_groupings || []}
+                                    />
+                                </Row>
+                                <hr />
+                            </>
+                        )}
+
                         <Row align="middle">
                             <Col span={9}>
                                 <b>Starting at</b>
@@ -310,73 +320,77 @@ export function NewPathTab(): JSX.Element {
                                 </PathItemSelector>
                             </Col>
                         </Row>
-                        <hr />
-                        <Row align="middle">
-                            <Col span={9}>
-                                <b>Ending at</b>
-                            </Col>
-                            <Col span={15}>
-                                <PathItemSelector
-                                    pathItem={filter.end_point}
-                                    index={1}
-                                    onChange={(pathItem) =>
-                                        setFilter({
-                                            end_point: pathItem,
-                                        })
-                                    }
-                                    groupTypes={groupTypes}
-                                    disabled={overrideEndInput || overrideStartInput}
-                                    wildcardOptions={wildcards}
-                                >
-                                    <Button
-                                        data-attr={'new-prop-filter-' + 0}
-                                        block={true}
-                                        className="paths-endpoint-field"
-                                        style={{
-                                            textAlign: 'left',
-                                            backgroundColor:
-                                                overrideStartInput || overrideEndInput
-                                                    ? 'var(--border-light)'
-                                                    : 'white',
-                                        }}
-                                        disabled={overrideStartInput && !overrideEndInput}
-                                        onClick={
-                                            filter.funnel_filter && overrideEndInput
-                                                ? () => {
-                                                      router.actions.push(
-                                                          combineUrl(
-                                                              '/insights',
-                                                              encodeParams(
-                                                                  filter.funnel_filter as Record<string, any>,
-                                                                  '?'
+                        {hasAdvancedPaths && (
+                            <>
+                                <hr />
+                                <Row align="middle">
+                                    <Col span={9}>
+                                        <b>Ending at</b>
+                                    </Col>
+                                    <Col span={15}>
+                                        <PathItemSelector
+                                            pathItem={filter.end_point}
+                                            index={1}
+                                            onChange={(pathItem) =>
+                                                setFilter({
+                                                    end_point: pathItem,
+                                                })
+                                            }
+                                            groupTypes={groupTypes}
+                                            disabled={overrideEndInput || overrideStartInput}
+                                            wildcardOptions={wildcards}
+                                        >
+                                            <Button
+                                                data-attr={'new-prop-filter-' + 0}
+                                                block={true}
+                                                className="paths-endpoint-field"
+                                                style={{
+                                                    textAlign: 'left',
+                                                    backgroundColor:
+                                                        overrideStartInput || overrideEndInput
+                                                            ? 'var(--border-light)'
+                                                            : 'white',
+                                                }}
+                                                disabled={overrideStartInput && !overrideEndInput}
+                                                onClick={
+                                                    filter.funnel_filter && overrideEndInput
+                                                        ? () => {
+                                                              router.actions.push(
+                                                                  combineUrl(
+                                                                      '/insights',
+                                                                      encodeParams(
+                                                                          filter.funnel_filter as Record<string, any>,
+                                                                          '?'
+                                                                      )
+                                                                  ).url
                                                               )
-                                                          ).url
-                                                      )
-                                                  }
-                                                : () => {}
-                                        }
-                                    >
-                                        <div className="label-container">
-                                            {getEndPointLabel()}
-                                            {filter.end_point || overrideEndInput ? (
-                                                <CloseButton
-                                                    onClick={(e: Event) => {
-                                                        setFilter({
-                                                            end_point: undefined,
-                                                            funnel_filter: undefined,
-                                                            funnel_paths: undefined,
-                                                        })
-                                                        e.stopPropagation()
-                                                    }}
-                                                    className="close-button"
-                                                />
-                                            ) : null}
-                                        </div>
-                                    </Button>
-                                </PathItemSelector>
-                            </Col>
-                        </Row>
-                        {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI_EDGE_WEIGHTS] && (
+                                                          }
+                                                        : () => {}
+                                                }
+                                            >
+                                                <div className="label-container">
+                                                    {getEndPointLabel()}
+                                                    {filter.end_point || overrideEndInput ? (
+                                                        <CloseButton
+                                                            onClick={(e: Event) => {
+                                                                setFilter({
+                                                                    end_point: undefined,
+                                                                    funnel_filter: undefined,
+                                                                    funnel_paths: undefined,
+                                                                })
+                                                                e.stopPropagation()
+                                                            }}
+                                                            className="close-button"
+                                                        />
+                                                    ) : null}
+                                                </div>
+                                            </Button>
+                                        </PathItemSelector>
+                                    </Col>
+                                </Row>
+                            </>
+                        )}
+                        {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI_EDGE_WEIGHTS] && hasAdvancedPaths && (
                             <>
                                 <hr />
                                 <Row align="middle">
@@ -462,44 +476,60 @@ export function NewPathTab(): JSX.Element {
                                 </Row>
                             </>
                         )}
+                        {!hasAdvancedPaths && (
+                            <Row align="middle">
+                                <Col span={24}>
+                                    <PayCard
+                                        identifier={AvailableFeature.PATHS_ADVANCED}
+                                        title="Get a deeper understanding of your users"
+                                        caption="Advanced features such as interconnection with funnels, grouping &amp; wildcarding and exclusions can help you gain deeper insights."
+                                        docsLink="https://posthog.com/docs/user-guides/paths"
+                                    />
+                                </Col>
+                            </Row>
+                        )}
                     </Col>
                 </Col>
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
                     <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
                     <PropertyFilters pageKey="insight-path" />
                     <TestAccountFilter filters={filter} onChange={setFilter} />
-                    <hr />
-                    <h4 className="secondary">
-                        Exclusions
-                        <Tooltip
-                            title={
-                                <>
-                                    Exclude events from Paths visualisation. You can use wildcard groups in exclusions
-                                    as well.
-                                </>
-                            }
-                        >
-                            <InfoCircleOutlined className="info-indicator" />
-                        </Tooltip>
-                    </h4>
-                    <PathItemFilters
-                        groupTypes={groupTypes}
-                        pageKey={'exclusion'}
-                        propertyFilters={
-                            filter.exclude_events &&
-                            filter.exclude_events.map((name) => ({
-                                key: name,
-                                value: name,
-                                operator: null,
-                                type: 'event',
-                            }))
-                        }
-                        onChange={(values) => {
-                            const exclusion = values.length > 0 ? values.map((v) => v.value) : values
-                            updateExclusions(exclusion as string[])
-                        }}
-                        wildcardOptions={wildcards}
-                    />
+                    {hasAdvancedPaths && (
+                        <>
+                            <hr />
+                            <h4 className="secondary">
+                                Exclusions
+                                <Tooltip
+                                    title={
+                                        <>
+                                            Exclude events from Paths visualisation. You can use wildcard groups in
+                                            exclusions as well.
+                                        </>
+                                    }
+                                >
+                                    <InfoCircleOutlined className="info-indicator" />
+                                </Tooltip>
+                            </h4>
+                            <PathItemFilters
+                                groupTypes={groupTypes}
+                                pageKey={'exclusion'}
+                                propertyFilters={
+                                    filter.exclude_events &&
+                                    filter.exclude_events.map((name) => ({
+                                        key: name,
+                                        value: name,
+                                        operator: null,
+                                        type: 'event',
+                                    }))
+                                }
+                                onChange={(values) => {
+                                    const exclusion = values.length > 0 ? values.map((v) => v.value) : values
+                                    updateExclusions(exclusion as string[])
+                                }}
+                                wildcardOptions={wildcards}
+                            />
+                        </>
+                    )}
                 </Col>
             </Row>
         </>

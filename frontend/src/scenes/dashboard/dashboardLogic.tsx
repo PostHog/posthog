@@ -8,14 +8,13 @@ import { clearDOMTextSelection, editingToast, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType } from '~/types'
+import { DashboardItemType, DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from '../../lib/utils/logics'
 
-export interface DashboardLogicProps extends ProjectBasedLogicProps {
+export interface DashboardLogicProps {
     id?: number
     shareToken?: string
     internal?: boolean
@@ -28,7 +27,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
 
     props: {} as DashboardLogicProps,
 
-    key: getProjectBasedLogicKeyBuilder((props) => props.id || 'dashboardLogic'),
+    key: (props) => props.id || 'dashboardLogic',
 
     actions: {
         addNewDashboard: true,
@@ -51,7 +50,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         saveLayouts: true,
         updateItemColor: (id: number, color: string) => ({ id, color }),
         setDiveDashboard: (id: number, dive_dashboard: number | null) => ({ id, dive_dashboard }),
-        refreshAllDashboardItems: true,
+        refreshAllDashboardItems: (items?: DashboardItemType[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
@@ -64,7 +63,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (id: number, loading = false) => ({ id, loading }),
+        setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
+        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }), // id represents dashboardItem id's
         setRefreshError: (id: number) => ({ id }),
         setPageTitle: (title: string) => ({ title }),
     },
@@ -219,6 +219,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     ...state,
                     [id]: loading ? { loading: true } : { refreshed: true },
                 }),
+                setRefreshStatuses: (_, { ids, loading }) =>
+                    Object.fromEntries(
+                        ids.map((id) => [id, loading ? { loading: true } : { refreshed: true }])
+                    ) as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
                 setRefreshError: (state, { id }) => ({
                     ...state,
                     [id]: { error: true },
@@ -293,7 +297,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.dashboards],
+            () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.nameSortedDashboards],
             (sharedDashboards, dashboards): DashboardType | null => {
                 if (sharedDashboards && props.id && !!sharedDashboards[props.id]) {
                     return sharedDashboards[props.id]
@@ -404,9 +408,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         refreshMetrics: [
-            (s) => [s.refreshStatus, s.items],
-            (refreshStatus, items) => {
-                const total = items?.length ?? 0
+            (s) => [s.refreshStatus],
+            (refreshStatus) => {
+                const total = Object.keys(refreshStatus).length ?? 0
                 return {
                     completed: total - (Object.values(refreshStatus).filter((s) => s.loading).length ?? 0),
                     total,
@@ -494,19 +498,22 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             actions.resetInterval()
             actions.refreshAllDashboardItems()
         },
-        refreshAllDashboardItems: async (_, breakpoint) => {
+        refreshAllDashboardItems: async ({ items: _items }, breakpoint) => {
+            const items = _items || values.items || []
+
             // Don't do anything if there's nothing to refresh
-            if (!values?.items || values?.items.length === 0) {
+            if (items.length === 0) {
                 return
             }
 
             let breakpointTriggered = false
-            for (const dashboardItem of values.items) {
-                actions.setRefreshStatus(dashboardItem.id, true)
-            }
+            actions.setRefreshStatuses(
+                items.map((item) => item.id),
+                true
+            )
 
             // array of functions that reload each item
-            const fetchItemFunctions = values.items.map((dashboardItem) => async () => {
+            const fetchItemFunctions = items.map((dashboardItem) => async () => {
                 try {
                     breakpoint()
                     const refreshedDashboardItem = await api.get(
@@ -630,6 +637,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         setPageTitle: ({ title }) => {
             document.title = title ? `${title} • PostHog` : 'PostHog'
+        },
+        loadDashboardItemsSuccess: () => {
+            // Initial load of actual data for dashboard items after general dashboard is fetched
+            const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
+            actions.refreshAllDashboardItems(notYetLoadedItems)
         },
     }),
 })

@@ -72,8 +72,11 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                 const pathEnding = action.id ? `${action.id}/` : ''
                 action = await api.update(`api/projects/${props.teamId}/actions/${pathEnding}${queryString}`, action)
             } catch (response) {
-                if (response.detail === 'action-exists') {
-                    return actions.actionAlreadyExists(response.id)
+                if (response.code === 'unique') {
+                    // Below works because `detail` in the format:
+                    // `This project already has an action with this name, ID ${errorActionId}`
+                    actions.actionAlreadyExists(response.detail.split(' ').pop())
+                    return
                 } else {
                     throw response
                 }

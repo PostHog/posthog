@@ -71,13 +71,19 @@ PERSISTED_FEATURE_FLAGS = []
 if env_feature_flags != "0" and env_feature_flags.lower() != "false":
     PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
         # Add hard-coded feature flags for static releases here
+        "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
+        "5440-multivariate-support",
+        "6063-rename-filters",
+        "4141-event-columns",
+        "new-paths-ui",
+        "new-paths-ui-edge-weights",
     ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
 
-SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234/")
@@ -334,7 +340,7 @@ SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
-AUTHENTICATION_BACKENDS = [
+AUTHENTICATION_BACKENDS: List[str] = [
     "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
@@ -471,6 +477,7 @@ REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
+SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relatively short because cached result is used throughout the duration a session recording loads.
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -478,6 +485,8 @@ TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached r
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
+
+PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
 # shell_plus settings
 # https://django-extensions.readthedocs.io/en/latest/shell_plus.html

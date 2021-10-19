@@ -55,8 +55,7 @@ def factory_test_action_api(event_factory):
             )
 
         def test_cant_create_action_with_the_same_name(self, *args):
-
-            Action.objects.create(name="user signed up", team=self.team)
+            original_action = Action.objects.create(name="user signed up", team=self.team)
             user2 = self._create_user("tim2")
             self.client.force_login(user2)
 
@@ -71,7 +70,7 @@ def factory_test_action_api(event_factory):
                 {
                     "type": "validation_error",
                     "code": "unique",
-                    "detail": "This project already has an action with that name.",
+                    "detail": f"This project already has an action with this name, ID {original_action.id}",
                     "attr": "name",
                 },
             )

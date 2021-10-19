@@ -8,15 +8,12 @@ import { personPropertiesModel } from './personPropertiesModel'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
 import { modelsType } from './indexType'
-import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from 'lib/utils/logics'
 
 /** "Models" are logics that are persistently mounted (start with app) */
 export const models = kea<modelsType>({
-    props: {} as ProjectBasedLogicProps,
-    key: getProjectBasedLogicKeyBuilder(),
-    connect: (props: ProjectBasedLogicProps) => [
-        actionsModel({ teamId: props.teamId }),
-        annotationsModel({ teamId: props.teamId }),
+    connect: [
+        actionsModel,
+        annotationsModel,
         cohortsModel,
         dashboardsModel,
         eventDefinitionsModel,

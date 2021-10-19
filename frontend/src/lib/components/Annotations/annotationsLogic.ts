@@ -6,21 +6,19 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
-import { getProjectBasedLogicKeyBuilder, ProjectBasedLogicProps } from '../../utils/logics'
+import { teamLogic } from '../../../scenes/teamLogic'
 
-interface AnnotationsLogicProps extends ProjectBasedLogicProps {
+interface AnnotationsLogicProps {
     pageKey?: string | number | null
 }
 
 export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
     props: {} as AnnotationsLogicProps,
-    key: getProjectBasedLogicKeyBuilder((props) =>
-        props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'
-    ),
-    connect: (props: AnnotationsLogicProps) => ({
-        actions: [annotationsModel({ teamId: props.teamId }), ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
-        values: [annotationsModel({ teamId: props.teamId }), ['activeGlobalAnnotations']],
-    }),
+    key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
+    connect: {
+        actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
+        values: [annotationsModel, ['activeGlobalAnnotations']],
+    },
     actions: () => ({
         createAnnotation: (
             content: string,
@@ -56,7 +54,9 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                     scope: AnnotationScope.DashboardItem,
                     deleted: false,
                 }
-                const response = await api.get(`api/projects/${props.teamId}/annotations/?${toParams(params)}`)
+                const response = await api.get(
+                    `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams(params)}`
+                )
                 return response.results
             },
         },
@@ -134,7 +134,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     }),
     listeners: ({ actions, props }) => ({
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
-            await api.create(`api/projects/${props.teamId}/annotations`, {
+            await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                 content,
                 date_marker: dayjs(date_marker),
                 created_at,
@@ -146,7 +146,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         deleteAnnotation: async ({ id }) => {
             parseInt(id) >= 0 &&
                 deleteWithUndo({
-                    endpoint: `projects/${props.teamId}/annotations`,
+                    endpoint: `projects/${teamLogic.values.currentTeamId}/annotations`,
                     object: { name: 'Annotation', id },
                     callback: () => actions.loadAnnotations(),
                 })
@@ -156,6 +156,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         },
     }),
     events: ({ actions, props }) => ({
-        afterMount: () => props.teamId && props.pageKey && actions.loadAnnotations(),
+        afterMount: () => props.pageKey && actions.loadAnnotations(),
     }),
 })

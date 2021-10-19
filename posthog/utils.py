@@ -22,6 +22,7 @@ from typing import (
     Sequence,
     Tuple,
     Union,
+    cast,
 )
 from urllib.parse import urljoin, urlparse
 
@@ -242,19 +243,25 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.user import UserSerializer
+        from posthog.api.team import TeamSerializer
+        from posthog.api.user import User, UserSerializer
         from posthog.views import preflight_check
 
-        posthog_app_context: Dict = {
+        posthog_app_context: Dict[str, Any] = {
             "current_user": None,
+            "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
             "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         }
 
         if request.user.pk:
-            user = UserSerializer(request.user, context={"request": request}, many=False)
-            posthog_app_context["current_user"] = user.data
+            user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
+            posthog_app_context["current_user"] = user_serialized.data
+            team = cast(User, request.user).team
+            if team:
+                team_serialized = TeamSerializer(team, context={"request": request}, many=False)
+                posthog_app_context["current_team"] = team_serialized.data
 
         context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
     else:
@@ -818,3 +825,32 @@ def get_helm_info_env() -> dict:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
     except Exception:
         return {}
+
+
+OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
+LIMIT_REGEX = re.compile(r"([&?]limit=)(\d+)")
+
+
+def format_query_params_absolute_url(request: Request, offset: Optional[int] = None, limit: Optional[int] = None):
+    url_to_format = request.get_raw_uri()
+
+    if not url_to_format:
+        return None
+
+    if offset:
+        if OFFSET_REGEX.search(url_to_format):
+            url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+        else:
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"offset={offset}"
+
+    if limit:
+        if LIMIT_REGEX.search(url_to_format):
+            url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
+        else:
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"limit={limit}"
+
+    return url_to_format
+
+
+def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
+    return abs(int((d1 - d2).total_seconds() * 1000))

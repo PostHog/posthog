@@ -29,10 +29,13 @@ export enum AvailableFeature {
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
+    PATHS_ADVANCED = 'paths_advanced',
 }
 
+export type ColumnChoice = string[] | 'DEFAULT'
+
 export interface ColumnConfig {
-    active: string[] | 'DEFAULT'
+    active: ColumnChoice
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -207,7 +210,7 @@ export interface ActionStepType {
     href?: string | null
     id?: number
     name?: string
-    properties?: []
+    properties?: AnyPropertyFilter[]
     selector?: string | null
     tag_name?: string
     text?: string | null
@@ -1001,10 +1004,10 @@ export interface InsightLogicProps extends ProjectBasedLogicProps {
     cachedResults?: any
     /** cached filters, avoid making a request */
     filters?: Partial<FilterType> | null
-    /** not sure about this one */
-    preventLoading?: boolean
     /** enable this to make unsaved queries */
     doNotPersist?: boolean
+    /** enable this to avoid API requests */
+    doNotLoad?: boolean
 }
 
 export interface FeatureFlagGroupType {
@@ -1090,7 +1093,7 @@ export interface PreflightStatus {
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
     posthog_version?: string
-    email_service_available?: boolean
+    email_service_available: boolean
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
@@ -1223,6 +1226,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
+    current_team: TeamType | null
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]

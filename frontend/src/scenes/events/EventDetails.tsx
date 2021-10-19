@@ -7,18 +7,22 @@ import { Tabs, Button } from 'antd'
 import { createActionFromEvent } from './createActionFromEvent'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { EventJSON } from 'scenes/events/EventJSON'
+import { EventType } from '../../types'
+import { Properties } from '@posthog/plugin-scaffold'
 import { useValues } from 'kea'
 import { teamLogic } from '../teamLogic'
+
 const { TabPane } = Tabs
 
-export function EventDetails({ event }) {
+export function EventDetails({ event }: { event: EventType }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
-    let displayedEventProperties = {}
-    let visibleHiddenProperties = {}
+    const displayedEventProperties: Properties = {}
+    const visibleHiddenProperties: Properties = {}
     let hiddenPropsCount = 0
-    for (let key of Object.keys(event.properties)) {
+    for (const key of Object.keys(event.properties)) {
         if (keyMapping.event[key] && keyMapping.event[key].hide) {
             hiddenPropsCount += 1
             if (showHiddenProps) {
@@ -32,13 +36,15 @@ export function EventDetails({ event }) {
 
     return (
         <>
-            <Button
-                onClick={() => createActionFromEvent(currentTeamId, event, 0)}
-                style={{ float: 'right', zIndex: 1 }}
-                type="primary"
-            >
-                Create action from event
-            </Button>
+            {currentTeamId && (
+                <Button
+                    onClick={() => createActionFromEvent(currentTeamId, event, 0)}
+                    style={{ float: 'right', zIndex: 1 }}
+                    type="primary"
+                >
+                    Create action from event
+                </Button>
+            )}
 
             <Tabs
                 style={{ float: 'left', width: '100%', marginTop: -40 }}

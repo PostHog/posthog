@@ -16,7 +16,6 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { teamLogic } from 'scenes/teamLogic'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -54,13 +53,12 @@ export function LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { currentTeamId } = useValues(teamLogic)
     const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ teamId: currentTeamId, pageKey: dashboardItemId || null }))
+        ? useActions(annotationsLogic({ pageKey: dashboardItemId || null }))
         : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ teamId: currentTeamId, pageKey: dashboardItemId || null }))
+        ? useValues(annotationsLogic({ pageKey: dashboardItemId || null }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
@@ -210,7 +208,7 @@ export function LineGraph({
                     return processDataset(datasetCopy, index)
                 }),
             ]
-            if (visibilityMap) {
+            if (visibilityMap && Object.keys(visibilityMap).length > 0) {
                 datasets = datasets.filter((data) => visibilityMap[data.id])
             }
         } else {
