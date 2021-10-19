@@ -1,28 +1,8 @@
 #!/bin/bash
 set -e
 
-if ! command -v nodemon &> /dev/null
-then
-    echo "Please install nodemon (npm install -g nodemon) to automatically run tests."
-    exit
-fi
+echo "bin/tests is deprecated"
+echo "use bin/posthog-tests to run the posthog tests"
+echo "or bin/ee-tests to run the ee tests"
 
-
-if [ $# -eq 0 ]; then
-    echo "Are you sure you want to run all backend tests? You can run specific tests by doing:"
-    echo " "
-    echo "bin/tests posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user"
-    echo " "
-    read -r -p "Run all tests? [y/N] " response
-    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
-    then
-        echo "OK!"
-    else
-        exit
-    fi
-fi
-
-export REDIS_URL='redis:///'
-export TEST=1
-psql posthog -c "drop database if exists test_posthog"
-nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db -s $*; mypy posthog ee"
+exit 1

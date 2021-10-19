@@ -1,0 +1,40 @@
+#!/bin/bash
+set -e
+
+if ! command -v nodemon &> /dev/null
+then
+    echo "Please install nodemon (npm install -g nodemon) to automatically run tests."
+    exit
+fi
+
+pytest_args=$*
+
+if [ $# -eq 0 ]; then
+    echo "Are you sure you want to run all backend tests? You can run specific tests by doing:"
+    echo " "
+    echo "bin/posthog-tests posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user"
+    echo " "
+    read -r -p "Run all tests? [y/N] " response
+    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+        echo "OK!"
+        pytest_args="posthog"
+    else
+        exit
+    fi
+fi
+
+for ((i=1; i<=$#; i++))
+do
+  if [[ "${!i}" != posthog* ]]
+  then
+    echo "${!i} is not a posthog test. Did you mean to run ./bin/ee-tests"
+    exit 1
+  fi
+done
+
+export REDIS_URL='redis:///'
+export TEST=1
+export DEBUG=1
+psql posthog -c "drop database if exists test_posthog"
+nodemon -w ./posthog --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db -s $pytest_args; mypy posthog"
