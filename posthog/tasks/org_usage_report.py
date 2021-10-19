@@ -1,7 +1,16 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Literal, Optional, TypedDict, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    cast,
+)
 
 from sentry_sdk import capture_exception, configure_scope
 
@@ -106,7 +115,7 @@ def send_all_reports(
         org_first_user = User.objects.filter(current_team_id__in=org["teams"]).first()
         if not org_first_user:
             with configure_scope() as scope:
-                scope.set_context("org", org)
+                scope.set_context("org", cast(Dict[str, Any], org))
                 name = org["name"]
                 capture_exception(Exception(f"No user found for org '{name}' ({id})"))
             continue
