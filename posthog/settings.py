@@ -167,7 +167,14 @@ CLICKHOUSE_TEST_DB = os.getenv("CLICKHOUSE_TEST_DB", "posthog_test")
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
-CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
+
+
+def CLICKHOUSE_DATABASE():
+    if os.environ.get("WORKER_ID") and os.environ.get("WORKER_ID") != "master":
+        return os.environ["WORKER_ID"]
+    return CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
+
+
 CLICKHOUSE_CLUSTER = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_CA = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)

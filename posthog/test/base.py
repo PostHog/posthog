@@ -1,10 +1,12 @@
 import inspect
 from typing import Any, Dict, Optional
+from unittest.mock import patch
 
 import pytest
 from django.test import TestCase
 from rest_framework.test import APITestCase as DRFTestCase
 
+from ee.clickhouse.client import sync_execute
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
@@ -166,13 +168,15 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
             for prop in person_properties:
                 materialize("person", prop)
 
-            with self.capture_select_queries() as sqls:
+            # original_sync_execute
+            with patch("ee.clickhouse.client.sync_execute", wraps=sync_execute) as sqls:
                 fn(self, *args, **kwargs)
 
             if verify_no_jsonextract:
-                for sql in sqls:
-                    self.assertNotIn("JSONExtract", sql)
-                    self.assertNotIn("properties", sql)
+                for sql in sqls.call_args_list:
+                    if sql[0][0].startswith("SELECT"):
+                        self.assertNotIn("JSONExtract", sql[0][0])
+                        self.assertNotIn("properties", sql[0][0])
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore

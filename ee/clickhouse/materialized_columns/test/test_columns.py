@@ -152,7 +152,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
               AND database = %(database)s
               AND column = %(column)s
         """,
-            {"database": CLICKHOUSE_DATABASE, "column": column},
+            {"database": CLICKHOUSE_DATABASE(), "column": column},
         )[0][0]
 
     def _get_count_of_mutations_running(self) -> int:
@@ -171,5 +171,5 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
             FROM system.columns
             WHERE database = %(database)s AND table = %(table)s AND name = %(column)s
             """,
-            {"table": table, "database": CLICKHOUSE_DATABASE, "column": column},
+            {"table": table, "database": CLICKHOUSE_DATABASE(), "column": column},
         )[0]

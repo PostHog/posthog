@@ -51,7 +51,7 @@ _request_information: Optional[Dict] = None
 def make_ch_pool(**overrides) -> ChPool:
     kwargs = {
         "host": CLICKHOUSE_HOST,
-        "database": CLICKHOUSE_DATABASE,
+        "database": CLICKHOUSE_DATABASE(),
         "secure": CLICKHOUSE_SECURE,
         "user": CLICKHOUSE_USER,
         "password": CLICKHOUSE_PASSWORD,
@@ -87,7 +87,7 @@ else:
     if not TEST and CLICKHOUSE_ASYNC:
         ch_client = Client(
             host=CLICKHOUSE_HOST,
-            database=CLICKHOUSE_DATABASE,
+            database=CLICKHOUSE_DATABASE(),
             secure=CLICKHOUSE_SECURE,
             user=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
@@ -109,7 +109,7 @@ else:
         # if this is a test use the sync client
         ch_client = SyncClient(
             host=CLICKHOUSE_HOST,
-            database=CLICKHOUSE_DATABASE,
+            database=CLICKHOUSE_DATABASE(),
             secure=CLICKHOUSE_SECURE,
             user=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,

@@ -50,24 +50,9 @@ def reset_clickhouse_tables(pool=None, worker_id=None):
         (DROP_SESSION_RECORDING_EVENTS_TABLE_SQL, SESSION_RECORDING_EVENTS_TABLE_SQL),
         (DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL, PLUGIN_LOG_ENTRIES_TABLE_SQL),
         (DROP_COHORTPEOPLE_TABLE_SQL, CREATE_COHORTPEOPLE_TABLE_SQL),
-        (
-            DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
-            KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL.replace("default", worker_id or "default").replace(
-                "posthog_test", worker_id or "default"
-            ),
-        ),
-        (
-            DROP_DEAD_LETTER_QUEUE_TABLE_SQL,
-            DEAD_LETTER_QUEUE_TABLE_SQL.replace("default", worker_id or "default").replace(
-                "posthog_test", worker_id or "default"
-            ),
-        ),
-        (
-            DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-            DEAD_LETTER_QUEUE_TABLE_MV_SQL.replace("default", worker_id or "default").replace(
-                "posthog_test", worker_id or "default"
-            ),
-        ),
+        (DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL, KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL),
+        (DROP_DEAD_LETTER_QUEUE_TABLE_SQL, DEAD_LETTER_QUEUE_TABLE_SQL),
+        (DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL, DEAD_LETTER_QUEUE_TABLE_MV_SQL),
     ]
     for item in TABLES_TO_CREATE_DROP:
         sync_execute(item[0], pool=pool)
@@ -79,12 +64,12 @@ if is_clickhouse_enabled():
     @pytest.fixture(scope="package")
     def django_db_setup(django_db_setup, django_db_keepdb):
         # If it is parallel, we set up a database for each worker in setup_db_env_var below
-        if not os.environ.get("IS_PARALLEL"):
+        if os.environ.get("IS_PARALLEL"):
             yield
             return
 
         database = Database(
-            CLICKHOUSE_DATABASE,
+            CLICKHOUSE_DATABASE(),
             db_url=CLICKHOUSE_HTTP_URL,
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
@@ -116,7 +101,10 @@ multi_workers_pool = {}
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db_env_var(worker_id):
+    if worker_id == "master":
+        return
     os.environ["IS_PARALLEL"] = "1"
+    os.environ["WORKER_ID"] = worker_id
     database = Database(
         worker_id,
         db_url=CLICKHOUSE_HTTP_URL,

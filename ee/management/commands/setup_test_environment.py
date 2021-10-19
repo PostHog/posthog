@@ -26,7 +26,7 @@ class Command(BaseCommand):
             )
 
             database = Database(
-                CLICKHOUSE_DATABASE,
+                CLICKHOUSE_DATABASE(),
                 db_url=CLICKHOUSE_HTTP_URL,
                 username=CLICKHOUSE_USER,
                 password=CLICKHOUSE_PASSWORD,

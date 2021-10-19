@@ -31,8 +31,9 @@ def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, C
           AND table = %(table)s
           AND comment LIKE '%%column_materializer::%%'
     """,
-        {"database": CLICKHOUSE_DATABASE, "table": table},
+        {"database": CLICKHOUSE_DATABASE(), "table": table},
     )
+
     if rows and MATERIALIZED_COLUMNS_ENABLED:
         return {extract_property(comment): column_name for comment, column_name in rows}
     else:

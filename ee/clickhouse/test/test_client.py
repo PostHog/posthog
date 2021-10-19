@@ -5,7 +5,7 @@ from django.test import TestCase
 from freezegun import freeze_time
 
 from ee.clickhouse import client
-from ee.clickhouse.client import CACHE_TTL, _deserialize, _key_hash, cache_sync_execute, sync_execute
+from ee.clickhouse.client import CACHE_TTL, _deserialize, _key_hash, _prepare_query, cache_sync_execute, ch_client
 from ee.clickhouse.util import ClickhouseTestMixin
 
 
@@ -59,19 +59,18 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         """
         # First add in the request information that should be added to the sql.
         # We check this to make sure it is not removed by the comment stripping
-        with self.capture_select_queries() as sqls:
-            client._request_information = {"kind": "request", "id": "1"}
-            sync_execute(
-                query="""
-                    -- this request returns 1
-                    SELECT 1
-                """
-            )
-            self.assertEqual(len(sqls), 1)
-            first_query = sqls[0]
-            self.assertIn(f"SELECT 1", first_query)
-            self.assertNotIn("this request returns", first_query)
+        client._request_information = {"kind": "request", "id": "1"}
+        sql, _, _ = _prepare_query(
+            ch_client,
+            """
+                -- this request returns 1
+                SELECT 1
+            """,
+            args={},
+        )
+        self.assertIn(f"SELECT 1", sql)
+        self.assertNotIn("this request returns", sql)
 
-            # Make sure it still includes the "annotation" comment that includes
-            # request routing information for debugging purposes
-            self.assertIn("/* request:1 */", first_query)
+        # Make sure it still includes the "annotation" comment that includes
+        # request routing information for debugging purposes
+        self.assertIn("/* request:1 */", sql)

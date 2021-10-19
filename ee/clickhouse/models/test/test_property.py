@@ -10,7 +10,7 @@ from ee.clickhouse.models.property import parse_prop_clauses, prop_filter_json_e
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
@@ -329,7 +329,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(self._run_query(filter)), 3)
 
 
-class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
+class TestPropDenormalized(ClickhouseDestroyTablesMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> List:

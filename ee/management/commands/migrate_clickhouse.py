@@ -39,7 +39,7 @@ class Command(BaseCommand):
 
     def migrate(self, host, options):
         database = Database(
-            CLICKHOUSE_DATABASE,
+            CLICKHOUSE_DATABASE(),
             db_url=host,
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
