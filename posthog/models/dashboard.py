@@ -8,7 +8,7 @@ class Dashboard(models.Model):
     CREATION_MODE_CHOICES = (
         ("default", "Default"),
         ("template", "Template"),  # dashboard was created from a predefined template
-        ("duplicate", "Duplicate"),  # dashboard was duplicated from another dashboard (NOT YET SUPPORTED)
+        ("duplicate", "Duplicate"),  # dashboard was duplicated from another dashboard
     )
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
