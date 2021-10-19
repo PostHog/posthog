@@ -6412,8 +6412,7 @@
                     "3408-saved-insights": true,
                     "save-cohort-on-modal": true,
                     "4267-event-property-taxonomy": true,
-                    "4156-tooltips-legends": true,
-                    "project-home-exp-5": true
+                    "4156-tooltips-legends": true
                 },
                 "receivedFeatureFlags": true
             }

@@ -9,6 +9,7 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from sentry_sdk.api import capture_exception
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -126,6 +127,12 @@ class InsightSerializer(InsightBasicSerializer):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("data")
+
+    def validate_filters(self, value):
+        # :KLUDGE: Debug code to track down the cause of blank dashboards
+        if len(value) == 0 or ("from_dashboard" in value and len(value) == 1):
+            capture_exception(Exception("Saving dashbord_item with blank filters"))
+        return value
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

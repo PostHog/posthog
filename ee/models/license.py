@@ -52,17 +52,22 @@ class License(models.Model):
     key: models.CharField = models.CharField(max_length=200)
     max_users: models.IntegerField = models.IntegerField(default=None, null=True)  # None = no restriction
 
-    ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = [
+    SCALE_PLAN = "scale"
+    SCALE_FEATURES = [
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
         AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.GOOGLE_LOGIN,
-        AvailableFeature.SAML,
         AvailableFeature.DASHBOARD_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
-    ]  # Base premium features
-    PLANS = {ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
+        AvailableFeature.PATHS_ADVANCED,
+    ]
+
+    ENTERPRISE_PLAN = "enterprise"
+    ENTERPRISE_FEATURES = SCALE_FEATURES + [
+        AvailableFeature.SAML,
+    ]
+    PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
 
     @property
     def available_features(self) -> List[AvailableFeature]:

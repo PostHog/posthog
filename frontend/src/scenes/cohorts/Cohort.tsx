@@ -16,13 +16,13 @@ import { UploadFile } from 'antd/lib/upload/interface'
 import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { Tooltip } from 'antd'
-import { organizationLogic } from '../organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort } = useActions(logic)
     const { cohort, submitted } = useValues(logic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const onDescriptionChange = (description: string): void => {
         setCohort({
@@ -102,7 +102,7 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                     )}
                 </Col>
             </Row>
-            {currentOrganization?.available_features.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
+            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
                 <Row gutter={16} className="mt">
                     <Col span={24}>
                         <CohortDescriptionInput description={cohort.description} onChange={onDescriptionChange} />

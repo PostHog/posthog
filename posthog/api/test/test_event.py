@@ -20,6 +20,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.cohort import Cohort
 from posthog.queries.sessions.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
@@ -115,6 +116,40 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertDictEqual(
                 response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
             )
+
+        def test_filter_events_by_precalculated_cohort(self):
+            p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z",
+            )
+
+            p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:00:00Z",
+            )
+
+            p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-02T12:00:00Z",
+            )
+
+            cohort1 = Cohort.objects.create(
+                team=self.team,
+                name="cohort_1",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+
+            cohort1.calculate_people()
+            cohort1.calculate_people_ch()
+
+            with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
+                with freeze_time("2020-01-04T13:01:01Z"):
+                    response = self.client.get(
+                        "/api/event/?properties=%s"
+                        % (json.dumps([{"key": "id", "value": cohort1.id, "type": "cohort"}]))
+                    ).json()
+
+            self.assertEqual(len(response["results"]), 2)
 
         def test_filter_by_person(self):
             person = person_factory(
@@ -391,7 +426,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 f"/api/event/sessions/?filters={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
             ).json()
 
-            self.assertEqual(response_nonexistent_property, response_nonexistent_cohort)  # Both caes just empty
+            self.assertEqual(response_nonexistent_property, response_nonexistent_cohort)  # Both cases just empty
 
         def test_event_sessions_by_id(self):
             another_team = Team.objects.create(organization=self.organization)

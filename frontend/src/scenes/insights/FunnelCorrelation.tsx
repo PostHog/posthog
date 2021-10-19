@@ -1,37 +1,50 @@
 import { Button, Card, Row, Col } from 'antd'
+import { CommentOutlined } from '@ant-design/icons'
+import TextArea from 'antd/lib/input/TextArea'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
-import { CommentOutlined, WarningOutlined } from '@ant-design/icons'
-
+import './FunnelCorrelation.scss'
 import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
-import TextArea from 'antd/lib/input/TextArea'
+import { IconFeedbackWarning } from 'lib/components/icons'
+import { CloseOutlined } from '@ant-design/icons'
 
-export const FunnelCorrelation = (): JSX.Element => {
+export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
     const { isSkewed, stepsWithCount } = useValues(funnelLogic(insightProps))
-    const { sendCorrelationAnalysisFeedback } = useActions(funnelLogic(insightProps))
+    const { sendCorrelationAnalysisFeedback, hideSkewWarning } = useActions(funnelLogic(insightProps))
 
     const [modalVisible, setModalVisible] = useState(false)
     const [rating, setRating] = useState(0)
     const [detailedFeedback, setDetailedFeedback] = useState('')
 
-    return stepsWithCount.length > 1 ? (
-        <>
-            {isSkewed ? (
-                <Card style={{ marginTop: '1em' }}>
-                    <div style={{ alignItems: 'center' }}>
-                        <WarningOutlined className="text-warning" style={{ paddingRight: 8 }} />
-                        <b>Funnel skewed!</b>
-                        <br />
-                        Your funnel has a large skew to either successes or failures. With such funnels it's hard to get
-                        meaningful odds for events and property correlations. Try adjusting your funnel to have a more
-                        balanced success/failure ratio.
+    if (stepsWithCount.length <= 1) {
+        return null
+    }
+
+    return (
+        <div className="funnel-correlation">
+            {isSkewed && (
+                <Card className="skew-warning">
+                    <h4>
+                        <IconFeedbackWarning style={{ fontSize: 24, marginRight: 4, color: 'var(--warning)' }} /> Adjust
+                        your funnel definition to improve correlation analysis
+                        <CloseOutlined className="close-button" onClick={hideSkewWarning} />
+                    </h4>
+                    <div>
+                        <b>Tips for adjusting your funnel:</b>
+                        <ol>
+                            <li>
+                                Adjust your first funnel step to be more specific. For example, choose a page or an
+                                event that occurs less frequently.
+                            </li>
+                            <li>Choose an event that happens more frequently for subsequent funnels steps.</li>
+                        </ol>
                     </div>
                 </Card>
-            ) : null}
+            )}
 
             {/* Feedback Form */}
             <Card style={{ marginTop: '1em', alignItems: 'center', borderRadius: 4 }}>
@@ -52,7 +65,7 @@ export const FunnelCorrelation = (): JSX.Element => {
                                 😍
                             </Button>
                             <Button
-                                className={rating === 2 ? 'emoji-button-selected' : ''}
+                                style={rating === 2 ? { background: '#5375FF' } : {}}
                                 onClick={() => {
                                     setRating(2)
                                     setModalVisible(true)
@@ -61,7 +74,7 @@ export const FunnelCorrelation = (): JSX.Element => {
                                 😀
                             </Button>
                             <Button
-                                className={rating === 3 ? 'emoji-button-selected' : ''}
+                                style={rating === 3 ? { background: '#5375FF' } : {}}
                                 onClick={() => {
                                     setRating(3)
                                     setModalVisible(true)
@@ -70,7 +83,7 @@ export const FunnelCorrelation = (): JSX.Element => {
                                 😴
                             </Button>
                             <Button
-                                className={rating === 4 ? 'emoji-button-selected' : ''}
+                                style={rating === 4 ? { background: '#5375FF' } : {}}
                                 onClick={() => {
                                     setRating(4)
                                     setModalVisible(true)
@@ -79,7 +92,7 @@ export const FunnelCorrelation = (): JSX.Element => {
                                 👎
                             </Button>
                             <Button
-                                className={rating === 5 ? 'emoji-button-selected' : ''}
+                                style={rating === 5 ? { background: '#5375FF' } : {}}
                                 onClick={() => {
                                     setRating(5)
                                     setModalVisible(true)
@@ -117,8 +130,6 @@ export const FunnelCorrelation = (): JSX.Element => {
 
             <FunnelCorrelationTable />
             <FunnelPropertyCorrelationTable />
-        </>
-    ) : (
-        <></>
+        </div>
     )
 }

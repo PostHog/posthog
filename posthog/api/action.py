@@ -102,9 +102,15 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             attrs["team_id"] = self.context["view"].team_id
             include_args = {"team_id": attrs["team_id"]}
 
-        if Action.objects.filter(name=attrs["name"], deleted=False, **include_args).exclude(**exclude_args).exists():
+        colliding_action_ids = list(
+            Action.objects.filter(name=attrs["name"], deleted=False, **include_args)
+            .exclude(**exclude_args)[:1]
+            .values_list("id", flat=True)
+        )
+        if colliding_action_ids:
             raise serializers.ValidationError(
-                {"name": "This project already has an action with that name."}, code="unique"
+                {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
+                code="unique",
             )
 
         return attrs
