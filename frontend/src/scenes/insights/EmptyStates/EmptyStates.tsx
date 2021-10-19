@@ -3,7 +3,7 @@ import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
-import { IllustrationDanger, TrendUp } from 'lib/components/icons'
+import { IllustrationDanger, IconTrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
@@ -277,7 +277,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
         <div className="saved-insight-empty-state">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">
-                    <TrendUp />
+                    <IconTrendUp />
                 </div>
                 <h2 className="empty-state__title">{SAVED_INSIGHTS_COPY[tab].title}</h2>
                 <p className="empty-state__description">{SAVED_INSIGHTS_COPY[tab].description}</p>
