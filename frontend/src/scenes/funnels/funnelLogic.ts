@@ -57,11 +57,11 @@ export const funnelLogic = kea<funnelLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
 
-    connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading']],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
+    connect: {
+        values: [insightLogic, ['filters', 'insight', 'insightLoading']],
+        actions: [insightLogic, ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
-    }),
+    },
 
     actions: () => ({
         clearFunnel: true,

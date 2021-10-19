@@ -13,10 +13,12 @@ import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefini
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
+    connect: { values: [teamLogic, ['currentTeamId']] },
     actions: () => ({
         moveUp: true,
         moveDown: true,
@@ -68,7 +70,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         groups: [
-            () => [(_, props) => props.teamId],
+            (selectors) => [selectors.currentTeamId],
             (teamId): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',

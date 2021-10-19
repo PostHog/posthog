@@ -7,20 +7,11 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
 import { teamLogic } from '../../../scenes/teamLogic'
+import { AppContext } from '../../../types'
 
 jest.mock('lib/api')
-let windowSpy: any
 
-beforeEach(() => {
-    windowSpy = jest.spyOn(window, 'window', 'get')
-    windowSpy.mockImplementation(() => ({
-        POSTHOG_APP_CONTEXT: { current_team: { id: MOCK_TEAM_ID } },
-    }))
-})
-
-afterEach(() => {
-    windowSpy.mockRestore()
-})
+window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>

@@ -5,7 +5,6 @@ import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { teamLogic } from '../../../scenes/teamLogic'
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
@@ -36,7 +35,6 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
     const { activeTab, groups, groupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
 
@@ -66,7 +64,7 @@ export function InfiniteSelectResults({
                     >
                         <BindLogic
                             logic={infiniteListLogic}
-                            props={{ ...taxonomicFilterLogicProps, teamId: currentTeamId, listGroupType: groupType }}
+                            props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                         >
                             <InfiniteList />
                         </BindLogic>
