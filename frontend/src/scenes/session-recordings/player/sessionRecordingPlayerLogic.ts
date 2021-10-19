@@ -180,7 +180,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             values.replayer?.setConfig({ speed })
         },
         seek: async ({ time, forcePlay }, breakpoint) => {
-            breakpoint()
+            await breakpoint(100)
 
             const nextTime = getTime(time, values.meta)
             values.replayer?.play(nextTime)
@@ -199,7 +199,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            await breakpoint(10)
+            breakpoint()
         },
         seekForward: () => {
             actions.seek(values.time.current + values.jumpTimeMs)

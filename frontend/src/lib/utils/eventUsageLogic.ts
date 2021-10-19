@@ -27,8 +27,6 @@ import { EventIndex } from '@posthog/react-rrweb-player'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -261,8 +259,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportRecordingViewed: (
             recordingData: SessionPlayerData,
             source: RecordingWatchedSource,
-            loadTime: number
-        ) => ({ recordingData, source, loadTime }),
+            loadTime: number,
+            delay: number
+        ) => ({ recordingData, source, loadTime, delay }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -603,8 +602,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
         },
-        reportRecordingViewed: async ({ recordingData, source, loadTime }, breakpoint) => {
-            await breakpoint()
+        reportRecordingViewed: ({ recordingData, source, loadTime, delay }) => {
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
@@ -615,10 +613,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
                 user_is_identified: recordingData.person?.is_identified,
                 source: source,
             }
-            posthog.capture(`recording ${0 ? 'analyzed' : 'viewed'}`, payload)
-            // tests will wait for all breakpoints to finish
-            await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            posthog.capture(`recording ${10 ? 'analyzed' : 'viewed'}`, payload)
+            posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, payload)
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)
