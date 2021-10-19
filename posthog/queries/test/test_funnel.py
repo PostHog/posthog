@@ -416,11 +416,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
 
 class TestFunnel(funnel_test_factory(Funnel, Event.objects.create, Person.objects.create)):  # type: ignore
-    pass
-
-
-@patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
-class TestGetFunnel(APIBaseTest):
     def test_funnel_with_display_set_to_trends_linear(self):
         """
         This is a limited regression test to ensure that the issue
