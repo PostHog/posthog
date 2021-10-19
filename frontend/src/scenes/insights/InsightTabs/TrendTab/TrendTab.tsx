@@ -168,23 +168,13 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                 </Tooltip>
                             </h4>
                             <Row align="middle">
-                                {filters.breakdown_type === 'cohort' && filters.breakdown ? (
-                                    <BreakdownFilter
-                                        filters={filters}
-                                        setFilters={setFilters}
-                                        onChange={(breakdown, breakdown_type): void =>
-                                            setFilters({ breakdown, breakdown_type })
-                                        }
-                                    />
-                                ) : (
-                                    <BreakdownFilter
-                                        filters={filters}
-                                        setFilters={setFilters}
-                                        onChange={(breakdown, breakdown_type): void =>
-                                            setFilters({ breakdown, breakdown_type })
-                                        }
-                                    />
-                                )}
+                                <BreakdownFilter
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    onChange={(breakdown, breakdown_type): void =>
+                                        setFilters({ breakdown, breakdown_type })
+                                    }
+                                />
                             </Row>
                         </>
                     )}
