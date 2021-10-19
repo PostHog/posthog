@@ -96,7 +96,7 @@ const PropertyNamesSelectBox = ({ onBlur }: { onBlur?: (selectedProperties: stri
 }
 
 const PropertyNamesSearch = (): JSX.Element => {
-    const { properties, selectedProperties, toggleProperty } = useSelectedProperties()
+    const { properties, toggleProperty, isSelected } = useSelectedProperties()
     const { filteredProperties, query, setQuery } = usePropertySearch(properties)
 
     return (
@@ -112,8 +112,8 @@ const PropertyNamesSearch = (): JSX.Element => {
                     filteredProperties.map((property) => (
                         <Checkbox
                             key={property.name}
-                            className="checkbox"
-                            checked={selectedProperties.has(property.name)}
+                            className={'checkbox' + (isSelected(property.name) ? ' checked' : '')}
+                            checked={isSelected(property.name)}
                             onChange={() => toggleProperty(property.name)}
                         >
                             {property.name}
@@ -233,6 +233,7 @@ const propertiesSelectionContext = React.createContext<
           toggleProperty: (propertyName: string) => void
           clearAll: () => void
           selectAll: () => void
+          isSelected: (propertyName: string) => boolean
       }
     | undefined
 >(undefined)
@@ -274,12 +275,14 @@ const SelectPropertiesProvider = ({
         setAndNotify(new Set(properties.map((property) => property.name)))
     }
 
+    const isSelected = (property: string): boolean => selectedProperties.has(property)
+
     const selectState: 'all' | 'none' | 'some' =
         selectedProperties.size === properties.length ? 'all' : selectedProperties.size === 0 ? 'none' : 'some'
 
     return (
         <propertiesSelectionContext.Provider
-            value={{ properties, selectedProperties, toggleProperty, clearAll, selectAll, selectState }}
+            value={{ properties, selectedProperties, toggleProperty, clearAll, selectAll, selectState, isSelected }}
         >
             {children}
         </propertiesSelectionContext.Provider>

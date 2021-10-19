@@ -86,8 +86,12 @@
                 margin: 4px 0px;
                 width: 100%;
 
-                background: #eef2ff;
+                background: #ffffff;
                 border-radius: 4px;
+
+                &.checked {
+                    background: #eef2ff;
+                }
             }
 
             .no-results-message {
