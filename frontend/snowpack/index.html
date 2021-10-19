@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>PostHog</title>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+        <!-- Favicons & OS-theme configurations -->
+        <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29" />
+        <link rel="manifest" href="/static/site.webmanifest?v=2021-04-29" />
+        <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2021-04-29" color="#FF053C" />
+        <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29" />
+        <meta name="apple-mobile-web-app-title" content="PostHog" />
+        <meta name="application-name" content="PostHog" />
+
+        <!-- snowpack -->
+        <script type="importmap">
+        {
+          "imports": {
+            "dayjs": "https://unpkg.com/dayjs@1.8.21/dayjs.min.js"
+          }
+        }
+        </script>
+        <script type="module" src="/dist/index.js"></script>
+    </head>
+    <body>
+        <div id="bottom-notice" class="tricolor click-close" style="display: none">
+            <div>
+                <span>
+                    <span>Current branch: </span
+                    ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
+                    ><span>.</span>
+                </span>
+            </div>
+            <div>
+                <span
+                    ><span>PostHog running in </span
+                    ><b><code style="background: 0; color: white">DEBUG</code></b> mode!</span
+                >
+            </div>
+            <div>
+                <span
+                    ><span>Current revision: </span
+                    ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
+                    ><span>.</span></span
+                >
+            </div>
+            <button title="Close debug bar">
+                <code style="background: 0; color: white">×</code>
+            </button>
+        </div>
+        <script>
+            document.getElementById('bottom-notice').addEventListener('click', function (e) {
+                if (e.target.tagName !== 'SPAN') {
+                    document.getElementById('bottom-notice').remove()
+                }
+            })
+        </script>
+        <script>
+            if (
+                typeof Object.entries === 'undefined' ||
+                typeof Object.fromEntries === 'undefined' ||
+                typeof Array.prototype.flatMap === 'undefined'
+            ) {
+                var div = document.createElement('div')
+                div.style.color = '#fef6f6'
+                div.style.background = '#920c0c'
+                div.style.padding = '5px 10px'
+                div.innerHTML = 'You are using a really old browser. Please upgrade to fully enjoy PostHog!'
+                document.body.prepend(div)
+            }
+        </script>
+        <div id="root"></div>
+    </body>
+</html>
