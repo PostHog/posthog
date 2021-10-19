@@ -48,10 +48,8 @@ class Migration(migrations.Migration):
                                 (
                                     stored_timestamp IS NULL OR
                                     last_operation IS NULL OR
-                                    (
-                                        event_timestamp > stored_timestamp OR
-                                        (event_timestamp=stored_timestamp AND last_operation = 'set_once')
-                                    )
+                                    event_timestamp > stored_timestamp OR
+                                    (event_timestamp=stored_timestamp AND last_operation = 'set_once')
                                 )
                             )
                             OR (
