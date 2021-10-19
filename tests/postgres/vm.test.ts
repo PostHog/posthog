@@ -1092,7 +1092,7 @@ describe('exportEvents', () => {
             expect.arrayContaining([
                 'exportEventsWithRetry',
                 'exportEventsFromTheBeginning',
-                'Export events from the beginning',
+                'Export historical events',
             ])
         )
         expect(Object.keys(vm.tasks.schedule)).toEqual([])

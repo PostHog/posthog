@@ -24,7 +24,7 @@ const MAX_UNIX_TIMESTAMP_KEY = 'max_timestamp'
 const MIN_UNIX_TIMESTAMP_KEY = 'min_timestamp'
 const EXPORT_RUNNING_KEY = 'is_export_running'
 
-const INTERFACE_JOB_NAME = 'Export events from the beginning'
+const INTERFACE_JOB_NAME = 'Export historical events'
 
 export function addHistoricalEventsExportCapability(
     hub: Hub,

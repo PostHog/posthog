@@ -175,7 +175,7 @@ describe('e2e', () => {
             const kwargs = {
                 pluginConfigTeam: 2,
                 pluginConfigId: 39,
-                type: 'Export events from the beginning',
+                type: 'Export historical events',
                 jobOp: 'start',
                 payload: {},
             }
@@ -212,7 +212,7 @@ describe('e2e', () => {
             const kwargs = {
                 pluginConfigTeam: 2,
                 pluginConfigId: 39,
-                type: 'Export events from the beginning',
+                type: 'Export historical events',
                 jobOp: 'start',
                 payload: {
                     dateFrom: new Date().toISOString(),
