@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL("DROP FUNCTION IF EXISTS should_update_person_props;"),
         migrations.RunSQL("DROP TYPE IF EXISTS person_property_update;"),
-        migrations.RunSQL("DROP FUNCTION IF EXISTS update_and_return_person_props;"),
+        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;"),
         migrations.RunSQL(
             """
         CREATE TYPE person_property_update AS (
@@ -25,20 +25,21 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             """
             -- not-null-ignore
-            CREATE FUNCTION update_and_return_person_props(
+            CREATE FUNCTION update_person_props(
                     person_id int,
-                    properties jsonb,
-                    properties_last_updated_at jsonb,
-                    properties_last_operation jsonb,
                     event_timestamp text,
                     property_updates person_property_update []
-                ) RETURNS jsonb AS $$
+                ) RETURNS void AS $$
             DECLARE 
-                result_props jsonb := properties;
-                result_props_last_updated_at jsonb := properties_last_updated_at;
-                result_props_last_operation jsonb := properties_last_operation;
+                props jsonb;
+                props_last_updated_at jsonb;
+                props_last_operation jsonb;
                 property_update person_property_update;
             BEGIN 
+                SELECT properties, COALESCE(properties_last_updated_at, '{}'::jsonb), COALESCE(properties_last_operation, '{}'::jsonb) 
+                INTO props, props_last_updated_at, props_last_operation 
+                FROM posthog_person WHERE id=person_id
+                FOR UPDATE; -- acquire a row-level lock here
                 FOREACH property_update IN ARRAY property_updates LOOP 
                     IF TRUE= 
                         (SELECT NOT property_exists
@@ -54,23 +55,22 @@ class Migration(migrations.Migration):
                             )
                         FROM (
                                 SELECT 
-                                properties->property_update.key IS NOT NULL as property_exists,
-                                properties_last_updated_at->>property_update.key as stored_timestamp,
-                                properties_last_operation->>property_update.key as last_operation
+                                props->property_update.key IS NOT NULL as property_exists,
+                                props_last_updated_at->>property_update.key as stored_timestamp,
+                                props_last_operation->>property_update.key as last_operation
                             ) as person_props )
                     THEN 
-                        result_props := result_props || jsonb_build_object(property_update.key,  property_update.value);
-                        result_props_last_updated_at := result_props_last_updated_at || jsonb_build_object(property_update.key,  event_timestamp);
-                        result_props_last_operation := result_props_last_operation || jsonb_build_object(property_update.key,  property_update.update_op);
+                        props := props || jsonb_build_object(property_update.key,  property_update.value);
+                        props_last_updated_at := props_last_updated_at || jsonb_build_object(property_update.key,  event_timestamp);
+                        props_last_operation := props_last_operation || jsonb_build_object(property_update.key,  property_update.update_op);
                     END IF;
                 END LOOP;
             UPDATE posthog_person
             SET
-                properties = result_props,
-                properties_last_updated_at=result_props_last_updated_at,
-                properties_last_operation=result_props_last_operation
+                properties = props,
+                properties_last_updated_at=props_last_updated_at,
+                properties_last_operation=props_last_operation
             WHERE id=person_id;
-            RETURN result_props;
             END
             $$ LANGUAGE plpgsql;
         """

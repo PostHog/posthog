@@ -38,15 +38,14 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_and_return_person_props(
-	                id, 
-	                properties,
-	                properties_last_updated_at, 
-	                properties_last_operation, 
+                SELECT update_person_props(
+	                {person.id}, 
 	                now()::text, 
-	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
-                FROM posthog_person 
-                WHERE id={person.id}
+	                array[
+                        row('set', 'a', '1'::jsonb)::person_property_update, 
+                        row('set_once', 'b', '1'::jsonb)::person_property_update
+                    ]
+                ) 
             """
             )
 
@@ -69,16 +68,14 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_and_return_person_props(
-	                id, 
-	                properties,
-	                properties_last_updated_at, 
-	                properties_last_operation, 
+                SELECT update_person_props(
+	                {person.id}, 
 	                now()::text, 
-	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
-                FROM posthog_person 
-                WHERE id={person.id}
-                FOR UPDATE
+	                array[
+                        row('set', 'a', '1'::jsonb)::person_property_update, 
+                        row('set_once', 'b', '1'::jsonb)::person_property_update
+                    ]
+                ) 
             """
             )
 
@@ -96,17 +93,15 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_and_return_person_props(
-	                id, 
-	                properties,
-	                properties_last_updated_at, 
-	                properties_last_operation, 
+                SELECT update_person_props(
+	                {person.id}, 
 	                now()::text, 
-	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
-                FROM posthog_person 
-                WHERE id={person.id}
-                FOR UPDATE
-            """
+	                array[
+                        row('set', 'a', '1'::jsonb)::person_property_update, 
+                        row('set_once', 'b', '1'::jsonb)::person_property_update
+                    ]
+                ) 
+                """
             )
 
         updated_person = Person.objects.get(id=person.id)
@@ -128,16 +123,14 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_and_return_person_props(
-	                id, 
-	                properties,
-	                properties_last_updated_at, 
-	                properties_last_operation, 
+                SELECT update_person_props(
+	                {person.id}, 
 	                now()::text, 
-	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set', 'b', '1'::jsonb)::person_property_update]) 
-                FROM posthog_person 
-                WHERE id={person.id}
-                FOR UPDATE
+	                array[
+                        row('set', 'a', '1'::jsonb)::person_property_update, 
+                        row('set', 'b', '1'::jsonb)::person_property_update
+                    ]
+                ) 
             """
             )
 
@@ -161,16 +154,14 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_and_return_person_props(
-	                id, 
-	                properties,
-	                properties_last_updated_at, 
-	                properties_last_operation, 
+                SELECT update_person_props(
+	                {person.id}, 
 	                now()::text, 
-	                array[row('set', 'a', '1'::jsonb)::person_property_update, row('set', 'b', '1'::jsonb)::person_property_update]) 
-                FROM posthog_person 
-                WHERE id={person.id}
-                FOR UPDATE
+	                array[
+                        row('set', 'a', '1'::jsonb)::person_property_update, 
+                        row('set', 'b', '1'::jsonb)::person_property_update
+                    ]
+                ) 
             """
             )
 
@@ -194,16 +185,14 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_and_return_person_props(
-	                id, 
-	                properties,
-	                properties_last_updated_at, 
-	                properties_last_operation, 
+                SELECT update_person_props(
+	                {person.id}, 
 	                now()::text, 
-	                array[row('set_once', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
-                FROM posthog_person 
-                WHERE id={person.id}
-                FOR UPDATE
+	                array[
+                        row('set_once', 'a', '1'::jsonb)::person_property_update, 
+                        row('set_once', 'b', '1'::jsonb)::person_property_update
+                    ]
+                ) 
             """
             )
 
@@ -227,16 +216,14 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_and_return_person_props(
-	                id, 
-	                properties,
-	                properties_last_updated_at, 
-	                properties_last_operation, 
+                SELECT update_person_props(
+	                {person.id}, 
 	                now()::text, 
-	                array[row('set_once', 'a', '1'::jsonb)::person_property_update, row('set_once', 'b', '1'::jsonb)::person_property_update]) 
-                FROM posthog_person 
-                WHERE id={person.id}
-                FOR UPDATE
+	                array[
+                        row('set_once', 'a', '1'::jsonb)::person_property_update, 
+                        row('set_once', 'b', '1'::jsonb)::person_property_update
+                    ]
+                ) 
             """
             )
 
@@ -258,11 +245,8 @@ class TestShouldUpdatePersonProp(BaseTest):
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT update_and_return_person_props(
-	                id, 
-	                properties,
-	                properties_last_updated_at, 
-	                properties_last_operation, 
+                SELECT update_person_props(
+	                {person.id}, 
 	                '{timestamp}', 
 	                array[
                         row('set', 'a', '1'::jsonb)::person_property_update, 
@@ -271,9 +255,6 @@ class TestShouldUpdatePersonProp(BaseTest):
                         row('set_once', 'd', '1'::jsonb)::person_property_update
                     ]
                 ) 
-                FROM posthog_person 
-                WHERE id={person.id}
-                FOR UPDATE
             """
             )
 
