@@ -2,7 +2,7 @@
 import React, { useState } from 'react'
 import './ProfilePicture.scss'
 
-const md5 = (a: string): string => `hello ${a}`
+const md5 = (a: string): string => `hello ${a.length}`
 
 export interface ProfilePictureProps {
     name?: string
