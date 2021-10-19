@@ -203,7 +203,7 @@ class LocalPathCleaningFiltersMixin(BaseParamMixin):
         return local_path_cleaning_filters
 
     @include_dict
-    def path_replacements_to_dict(self):
+    def local_path_cleaning_filters_to_dict(self):
         return (
             {LOCAL_PATH_CLEANING_FILTERS: self.local_path_cleaning_filters} if self.local_path_cleaning_filters else {}
         )
