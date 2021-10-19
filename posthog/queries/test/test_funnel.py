@@ -1,4 +1,7 @@
 from unittest.mock import patch
+from datetime import datetime
+
+import pytz
 
 from freezegun import freeze_time
 
@@ -409,6 +412,45 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             ).run()
 
             self.assertEqual(result[0]["count"], 2)
+
+        def test_funnel_with_display_set_to_trends_linear(self):
+            """
+            This is a limited regression test to ensure that the issue
+            highlighted by https://github.com/PostHog/posthog/issues/6530 is
+            resolved.
+
+            I am not attempting to evaluate the correctness of
+            `ActionsLineGraph` with this test, just that it is the same as
+            before https://github.com/PostHog/posthog/pull/5997#event-5326521193
+            was introduceed.
+            """
+            with freeze_time("2020-01-01"):
+                person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
+                event_factory(distinct_id="person1", event="event1", team=self.team)
+                event_factory(distinct_id="person1", event="event2", team=self.team)
+
+                result = Funnel(
+                    filter=Filter(
+                        data={
+                            "events": [{"id": "event1"}, {"id": "event2"}],
+                            "insight": INSIGHT_FUNNELS,
+                            "display": "ActionsLineGraph",
+                            "interval": "day",
+                            # Just get today, so the response isn't massive
+                            "date_from": "-0days",
+                        }
+                    ),
+                    team=self.team,
+                ).run()
+
+            assert result == [
+                {
+                    "count": 0,
+                    "data": [100],
+                    "days": [datetime(2020, 1, 1).replace(tzinfo=pytz.UTC)],
+                    "labels": ["1-Jan-2020"],
+                }
+            ]
 
     return TestGetFunnel
 
