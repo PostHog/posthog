@@ -117,30 +117,12 @@ export const funnelLogic = kea<funnelLogicType>({
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
                 loadCorrelations: async () => {
-                    // return (
-                    //     await api.create('api/insight/funnel/correlation', {
-                    //         ...values.apiParams,
-                    //         funnel_correlation_type: 'events',
-                    //     })
-                    // ).result
-                    return {
-                        events: [
-                            {
-                                event: 'positively_related',
-                                success_count: 5,
-                                failure_count: 0,
-                                odds_ratio: 11.0,
-                                correlation_type: 'success',
-                            },
-                            {
-                                event: 'negatively_related',
-                                success_count: 0,
-                                failure_count: 3,
-                                odds_ratio: 0.18181818181818182,
-                                correlation_type: 'failure',
-                            },
-                        ],
-                    }
+                    return (
+                        await api.create('api/insight/funnel/correlation', {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'events',
+                        })
+                    ).result
                 },
             },
         ],
@@ -167,37 +149,13 @@ export const funnelLogic = kea<funnelLogicType>({
             {} as Record<string, FunnelCorrelation[]>,
             {
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
-                    // const results = (
-                    //     await api.create('api/insight/funnel/correlation', {
-                    //         ...values.apiParams,
-                    //         funnel_correlation_type: 'event_with_properties',
-                    //         funnel_correlation_event_names: [eventName],
-                    //     })
-                    // ).result.events
-
-                    const results = [
-                        {
-                            event: 'positively_related::blah::value_bleh',
-                            success_count: 5,
-                            failure_count: 0,
-                            odds_ratio: 11.0,
-                            correlation_type: 'success',
-                        },
-                        {
-                            event: 'positively_related::signup_source::facebook',
-                            success_count: 3,
-                            failure_count: 0,
-                            odds_ratio: 5.5,
-                            correlation_type: 'success',
-                        },
-                        {
-                            event: 'negatively_related::signup_source::email',
-                            success_count: 0,
-                            failure_count: 3,
-                            odds_ratio: 0.18181818181818182,
-                            correlation_type: 'failure',
-                        },
-                    ]
+                    const results = (
+                        await api.create('api/insight/funnel/correlation', {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'event_with_properties',
+                            funnel_correlation_event_names: [eventName],
+                        })
+                    ).result?.events
 
                     return { [eventName]: results }
                 },

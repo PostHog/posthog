@@ -161,7 +161,7 @@ class FunnelCorrelation:
                     -- Ensure that the event is not outside the bounds of the funnel conversion window
 
                 -- Exclude funnel steps
-                -- AND event.event NOT IN funnel_step_names
+                AND event.event NOT IN funnel_step_names
             GROUP BY name
 
             -- To get the total success/failure numbers, we do an aggregation on
