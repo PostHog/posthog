@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { DeleteOutlined } from '@ant-design/icons'
 import { Button, Input, Modal } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
-import Paragraph from 'antd/lib/typography/Paragraph'
+import Paragraph from 'antd/es/typography/Paragraph'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 
 export function DeleteProjectModal({

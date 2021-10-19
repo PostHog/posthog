@@ -1,4 +1,4 @@
-import Modal from 'antd/lib/modal/Modal'
+import Modal from 'antd/es/modal/Modal'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'

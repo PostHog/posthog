@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
-import Skeleton from 'antd/lib/skeleton'
+import Skeleton from 'antd/es/skeleton'
 import { Table } from 'antd'
 import { CohortType } from '~/types'
 

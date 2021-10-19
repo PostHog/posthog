@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { QuerySummary } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
+import { ColumnsType } from 'antd/es/table'
 import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModal'
 import { Link } from 'lib/components/Link'
 

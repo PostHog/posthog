@@ -1,7 +1,7 @@
 import React from 'react'
 import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
 import { Tooltip, Form, Input, Radio, InputNumber, DatePicker } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
+import Modal from 'antd/es/modal/Modal'
 import MonacoEditor from '@monaco-editor/react'
 import { useValues, useActions } from 'kea'
 import { JobSpec } from '~/types'

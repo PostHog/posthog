@@ -4,7 +4,7 @@ import { EditOutlined } from '@ant-design/icons'
 import { DashboardItemType, DashboardMode, ItemMode } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import './Description.scss'
-import { TextAreaRef } from 'antd/lib/input/TextArea'
+import { TextAreaRef } from 'antd/es/input/TextArea'
 
 interface DescriptionInterface {
     item: Partial<DashboardItemType>

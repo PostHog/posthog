@@ -1,5 +1,5 @@
 import { Alert, Button, Col, Input, Row } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
+import Modal from 'antd/es/modal/Modal'
 import { useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'

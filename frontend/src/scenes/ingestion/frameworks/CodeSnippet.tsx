@@ -20,7 +20,7 @@ import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
 import { copyToClipboard } from 'lib/utils'
 import { Popconfirm } from 'antd'
-import { PopconfirmProps } from 'antd/lib/popconfirm'
+import { PopconfirmProps } from 'antd/es/popconfirm'
 
 export interface Action {
     Icon: any

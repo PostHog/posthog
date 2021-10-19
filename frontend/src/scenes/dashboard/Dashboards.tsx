@@ -11,7 +11,7 @@ import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { AvailableFeature, DashboardType } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
-import { ColumnType } from 'antd/lib/table'
+import { ColumnType } from 'antd/es/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 

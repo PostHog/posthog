@@ -3,7 +3,7 @@ import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
 import { isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
-import { ColProps } from 'antd/lib/col'
+import { ColProps } from 'antd/es/col'
 
 interface OperatorValueSelectProps {
     type?: string

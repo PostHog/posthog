@@ -1,11 +1,11 @@
 import React from 'react'
 import { Col, Input, Row, Table } from 'antd'
-import Column from 'antd/lib/table/Column'
+import Column from 'antd/es/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationType } from '~/types'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
+import Checkbox from 'antd/es/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {

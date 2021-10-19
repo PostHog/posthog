@@ -14,7 +14,7 @@ import {
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
+import { ColumnsType } from 'antd/es/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'

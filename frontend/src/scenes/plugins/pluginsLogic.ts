@@ -12,7 +12,7 @@ import {
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
-import { FormInstance } from 'antd/lib/form'
+import { FormInstance } from 'antd/es/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
 

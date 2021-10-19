@@ -4,14 +4,14 @@ import { ControlOutlined, LockOutlined, PlusOutlined, CloseOutlined } from '@ant
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
-import Modal from 'antd/lib/modal/Modal'
+import Modal from 'antd/es/modal/Modal'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
 import { AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
-import Search from 'antd/lib/input/Search'
+import Search from 'antd/es/input/Search'
 
 interface TableConfigProps {
     availableColumns: string[] //the full set of column titles in the table's data

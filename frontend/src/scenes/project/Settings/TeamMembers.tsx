@@ -13,7 +13,7 @@ import {
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { TeamType, UserType, FusedTeamMemberType } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
+import { ColumnsType } from 'antd/es/table'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'

@@ -4,7 +4,7 @@ import { useActions } from 'kea'
 import { personsLogic } from './personsLogic'
 import { PlusOutlined, SaveOutlined, BulbOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
 import { IconText } from 'lib/components/icons'
-import Modal from 'antd/lib/modal/Modal'
+import Modal from 'antd/es/modal/Modal'
 
 interface NewPropertyInterface {
     creating: boolean

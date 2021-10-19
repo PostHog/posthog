@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { RefSelectProps } from 'antd/lib/select'
+import { RefSelectProps } from 'antd/es/select'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {

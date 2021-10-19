@@ -8,7 +8,7 @@ import { TestAccountFilter } from '../../TestAccountFilter'
 import { PathType, ViewType, FunnelPathType, PathEdgeParameters, AvailableFeature } from '~/types'
 import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../../common'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import useBreakpoint from 'antd/es/grid/hooks/useBreakpoint'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'

@@ -16,7 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { PageHeader } from 'lib/components/PageHeader'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { ColumnType } from 'antd/lib/table'
+import { ColumnType } from 'antd/es/table'
 import { teamLogic } from '../teamLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {

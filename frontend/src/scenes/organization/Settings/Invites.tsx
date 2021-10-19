@@ -7,7 +7,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationInviteType, UserBasicType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
-import { ColumnsType } from 'antd/lib/table'
+import { ColumnsType } from 'antd/es/table'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {

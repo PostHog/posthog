@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import api from 'lib/api'
 import { Select } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
+import Modal from 'antd/es/modal/Modal'
 import { PersonType } from '~/types'
 import { toast } from 'react-toastify'
 import posthog from 'posthog-js'

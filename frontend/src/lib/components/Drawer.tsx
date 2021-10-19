@@ -1,6 +1,6 @@
 import React, { PropsWithChildren, useEffect } from 'react'
 import { Drawer as AntDrawer } from 'antd'
-import { DrawerProps } from 'antd/lib/drawer'
+import { DrawerProps } from 'antd/es/drawer'
 import styles from '~/vars.scss'
 
 /**

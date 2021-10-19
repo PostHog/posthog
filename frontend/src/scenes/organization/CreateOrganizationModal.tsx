@@ -1,5 +1,5 @@
 import { Alert, Input } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
+import Modal from 'antd/es/modal/Modal'
 import { useActions } from 'kea'
 import React, { useCallback, useRef, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'

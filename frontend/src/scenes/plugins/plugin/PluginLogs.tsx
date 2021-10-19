@@ -1,5 +1,5 @@
 import { Button, Row, Space } from 'antd'
-import Search from 'antd/lib/input/Search'
+import Search from 'antd/es/input/Search'
 import { LoadingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useActions, useValues } from 'kea'

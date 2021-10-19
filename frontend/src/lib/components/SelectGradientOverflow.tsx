@@ -1,6 +1,6 @@
 import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
 import { Select, Tag } from 'antd'
-import { RefSelectProps, SelectProps } from 'antd/lib/select'
+import { RefSelectProps, SelectProps } from 'antd/es/select'
 import { CloseButton } from './CloseButton'
 import { ANTD_TOOLTIP_PLACEMENTS, toString } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'

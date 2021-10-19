@@ -16,7 +16,7 @@ import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 dayjs.extend(utc)
 
-import { ColumnsType } from 'antd/lib/table'
+import { ColumnsType } from 'antd/es/table'
 import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
 

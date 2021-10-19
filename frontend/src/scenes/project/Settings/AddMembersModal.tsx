@@ -1,14 +1,14 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Form, Select } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
+import Modal from 'antd/es/modal/Modal'
 import { UserAddOutlined } from '@ant-design/icons'
 import { teamMembersLogic } from './teamMembersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { membershipLevelToName, teamMembershipLevelIntegers } from '../../../lib/utils/permissioning'
 import { TeamMembershipLevel } from '../../../lib/constants'
-import { useForm } from 'antd/lib/form/Form'
+import { useForm } from 'antd/es/form/Form'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 
 export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {

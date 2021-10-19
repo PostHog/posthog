@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { responsiveMap } from 'antd/lib/_util/responsiveObserve'
+import { responsiveMap } from 'antd/es/_util/responsiveObserve'
 import { ANTD_EXPAND_BUTTON_WIDTH } from '../components/ResizableTable'
 
 const BREAKPOINT_MAP = Object.fromEntries(

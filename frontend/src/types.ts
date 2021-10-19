@@ -16,7 +16,7 @@ import {
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { UploadFile } from 'antd/lib/upload/interface'
+import { UploadFile } from 'antd/es/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 

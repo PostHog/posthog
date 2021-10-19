@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { DeleteOutlined } from '@ant-design/icons'
 import { Button, Input, Modal } from 'antd'
 import { organizationLogic } from 'scenes/organizationLogic'
-import Paragraph from 'antd/lib/typography/Paragraph'
+import Paragraph from 'antd/es/typography/Paragraph'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 import React, { Dispatch, SetStateAction, useState } from 'react'
 

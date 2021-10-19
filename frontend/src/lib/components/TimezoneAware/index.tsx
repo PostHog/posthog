@@ -11,7 +11,7 @@ import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined } from
 import { Link } from '../Link'
 import { humanTzOffset, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { TooltipPlacement } from 'antd/lib/tooltip'
+import { TooltipPlacement } from 'antd/es/tooltip'
 import { teamLogic } from '../../../scenes/teamLogic'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'

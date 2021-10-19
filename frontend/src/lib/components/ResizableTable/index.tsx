@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
-import { ColumnType } from 'antd/lib/table'
+import { ColumnType } from 'antd/es/table'
 import { ResizableProps } from 'react-resizable'
 import ResizeObserver from 'resize-observer-polyfill'
 import { RenderedCell } from 'rc-table/lib/interface'

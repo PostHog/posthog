@@ -1,6 +1,6 @@
 import { Button, Input } from 'antd'
 import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
-import Table, { ColumnsType } from 'antd/lib/table'
+import Table, { ColumnsType } from 'antd/es/table'
 import Fuse from 'fuse.js'
 import { useValues, useActions } from 'kea'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

@@ -13,7 +13,7 @@ import { Link } from 'lib/components/Link'
 import { WhoAmI } from '~/layout/navigation/TopNavigation'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
+import Checkbox from 'antd/es/checkbox/Checkbox'
 import smLogo from 'public/icon-white.svg'
 import { urls } from 'scenes/urls'
 

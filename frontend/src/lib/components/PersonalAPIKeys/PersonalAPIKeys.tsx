@@ -7,7 +7,7 @@ import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CopyToClipboardInline } from '../CopyToClipboard'
-import { ColumnsType } from 'antd/lib/table'
+import { ColumnsType } from 'antd/es/table'
 
 function CreateKeyModal({
     isVisible,
