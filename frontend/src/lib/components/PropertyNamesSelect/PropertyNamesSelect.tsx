@@ -117,7 +117,7 @@ const PropertyNamesSearch = (): JSX.Element => {
                             checked={isSelected(property.name)}
                             onChange={() => toggleProperty(property.name)}
                         >
-                            {property.name}
+                            {property.highlightedName}
                         </Checkbox>
                     ))
                 ) : (
@@ -197,10 +197,39 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
 const usePropertySearch = (
     properties: PersonProperty[]
 ): { filteredProperties: PersonProperty[]; setQuery: (query: string) => void; query: string } => {
-    /* Basic case insensitive substring search functionality for person property selection */
+    /* 
+        Basic case insensitive substring search functionality for person property
+        selection. It's pretty much this stackoverflow answer:
+        https://stackoverflow.com/a/43235785 
+    */
     const [query, setQuery] = React.useState<string>('')
     const filteredProperties = React.useMemo(() => {
-        return properties.filter((property) => property.name.toLowerCase().includes(query.toLowerCase()))
+        return (
+            properties
+                // First we split on query term, case insensitive, and globally,
+                // not just the first
+                .map((property) => ({
+                    ...property,
+                    nameParts: property.name.split(new RegExp(`(${query})`, 'gi')),
+                }))
+                // Then filter where we have a match
+                .filter((property) => property.nameParts.length > 1)
+                // Then create a JSX.Element that can be rendered
+                .map((property) => ({
+                    ...property,
+                    highlightedName: (
+                        <span>
+                            {property.nameParts.map((part, index) =>
+                                part.toLowerCase() === query.toLowerCase() ? (
+                                    <b key={index}>{part}</b>
+                                ) : (
+                                    <React.Fragment key={index}>{part}</React.Fragment>
+                                )
+                            )}
+                        </span>
+                    ),
+                }))
+        )
     }, [query, properties])
 
     return { filteredProperties, setQuery, query }
