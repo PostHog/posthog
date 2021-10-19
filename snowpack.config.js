@@ -1,3 +1,5 @@
+const proxy = require('http2-proxy')
+
 module.exports = {
     exclude: [
         '**/*.stories.*',
@@ -12,25 +14,54 @@ module.exports = {
         'frontend/public': { url: '/static', static: true },
         'frontend/src': { url: '/dist' },
     },
+    routes: [
+        {
+            match: 'all',
+            src: '/api/.*',
+            dest: (req, res) => {
+                return proxy.web(req, res, {
+                    hostname: 'localhost',
+                    port: 8000,
+                })
+            },
+        },
+        {
+            match: 'routes',
+            src: '.*',
+            dest: '/index.html',
+        },
+    ],
     alias: {
         '~': './frontend/src',
         lib: './frontend/src/lib',
         scenes: './frontend/src/scenes',
         public: './frontend/public',
-        // 'dayjs/plugin/relativeTime': './frontend/submodules/dayjs/plugin/relativeTime',
-        dayjs: 'dayjs-es',
+        // 'dayjs-es/plugin/timezone': 'dayjs/plugin/timezone',
+        // dayjs: 'dayjs-es',
+        json2mq: './frontend/json2mq.js',
     },
+
     plugins: [
         '@snowpack/plugin-react-refresh',
         '@snowpack/plugin-babel',
         '@snowpack/plugin-dotenv',
         '@snowpack/plugin-typescript',
+        '@snowpack/plugin-postcss',
     ],
     devOptions: {},
     packageOptions: {
-        external: ['react-syntax-highlighter'],
+        external: [
+            'dayjs',
+            'posthog-js-lite',
+            'kea-loaders',
+            'json2mq',
+            'warning',
+            'react-syntax-highlighter',
+            'copy-to-clipboard',
+        ],
         polyfillNode: true,
         knownEntrypoints: [
+            '@babel/runtime/helpers/asyncToGenerator',
             '@babel/runtime/helpers/extends',
             'rc-slider',
             'rc-tooltip/es/placements',
@@ -57,6 +88,7 @@ module.exports = {
             'rc-util/es/utils/set',
             'rc-util/es/warning',
             'react-transition-group',
+            'string-convert/camel2hyphen',
         ],
     },
 }
