@@ -10,10 +10,10 @@ import './InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { router } from 'kea-router'
-// import relativeTime from 'dayjs/plugin/relativeTime'
+import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-// dayjs.extend(relativeTime)
+dayjs.extend(relativeTime)
 
 const InsightHistoryType = {
     SAVED: 'SAVED',

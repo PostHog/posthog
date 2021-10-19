@@ -16,20 +16,20 @@ import {
     SplitCellsOutlined,
     LoadingOutlined,
 } from '@ant-design/icons'
-// import dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import { MergePerson } from './MergePerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NewPropertyComponent } from './NewPropertyComponent'
 
-// import relativeTime from 'dayjs/plugin/relativeTime'
+import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SplitPerson } from './SplitPerson'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-// dayjs.extend(relativeTime)
+dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
 
@@ -37,15 +37,8 @@ export function Person(): JSX.Element {
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
     const [splitModalOpen, setSplitModalOpen] = useState(false)
-    const {
-        person,
-        personLoading,
-        deletedPersonLoading,
-        hasNewKeys,
-        currentTab,
-        showSessionRecordings,
-        showTabs,
-    } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading, hasNewKeys, currentTab, showSessionRecordings, showTabs } =
+        useValues(personsLogic)
     const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
