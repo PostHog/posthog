@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Any, Callable, Dict
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
@@ -11,7 +11,12 @@ from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
 
-def factory_org_usage_report(_create_person: Callable, _create_event: Callable) -> "TestOrganizationUsageReport":
+def factory_org_usage_report(
+    _create_person: Callable,
+    _create_event: Callable,
+    _send_all_org_usage_reports: Callable,
+    _instance_settings: Dict[str, Any],
+) -> "TestOrganizationUsageReport":
     class TestOrganizationUsageReport(APIBaseTest):
         def create_new_org_and_team(
             self, for_internal_metrics: bool = False, org_owner_email: str = "test@posthog.com"
@@ -23,7 +28,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
 
         @patch("os.environ", {"DEPLOYMENT": "tests"})
         def test_org_usage_report(self) -> None:
-            all_reports = send_all_org_usage_reports(dry_run=True)
+            all_reports = _send_all_org_usage_reports(dry_run=True)
 
             self.assertEqual(all_reports[0]["posthog_version"], VERSION)
             self.assertEqual(all_reports[0]["deployment_infrastructure"], "tests")
@@ -42,7 +47,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                 self.assertIsNotNone(org_report["organization_name"])
                 self.assertEqual(org_report["team_count"], 1)
 
-            with self.settings(**{"EE_AVAILABLE": False}):
+            with self.settings(**_instance_settings):
                 with freeze_time("2020-11-02"):
                     _create_person("old_user1", team=self.team)
                     _create_person("old_user2", team=self.team)
@@ -57,7 +62,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                         "new_user1", "$event2", "$mobile", now() - relativedelta(days=1, hours=1), team=self.team
                     )
                     _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=self.team)
-                    all_reports = send_all_org_usage_reports(dry_run=True)
+                    all_reports = _send_all_org_usage_reports(dry_run=True)
                     org_report = all_reports[0]
                     _test_org_report(org_report)
                     team_in_other_org = self.create_new_org_and_team(
@@ -79,7 +84,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                     _create_event(
                         "new_user1", "$eventBefore", "$web", now() - relativedelta(days=2, hours=2), team=self.team
                     )
-                    updated_org_report = send_all_org_usage_reports(dry_run=True)[0]  # Check event totals are updated
+                    updated_org_report = _send_all_org_usage_reports(dry_run=True)[0]  # Check event totals are updated
                     self.assertEqual(
                         updated_org_report["event_count_lifetime"], org_report["event_count_lifetime"] + 2,
                     )
@@ -112,7 +117,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
                         team=internal_metrics_team,
                     )
                     self.assertEqual(
-                        send_all_org_usage_reports(dry_run=True)[0][
+                        _send_all_org_usage_reports(dry_run=True)[0][
                             "event_count_lifetime"
                         ],  # Verify that internal metrics events are not counted
                         updated_org_report["event_count_lifetime"],
@@ -136,5 +141,5 @@ def create_event_postgres(distinct_id: str, event: str, lib: str, created_at: da
     )
 
 
-class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_postgres)):  # type: ignore
+class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_postgres, send_all_org_usage_reports, {"EE_AVAILABLE": False})):  # type: ignore
     pass
