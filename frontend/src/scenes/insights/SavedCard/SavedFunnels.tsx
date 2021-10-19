@@ -37,7 +37,9 @@ export function SavedFunnels(): JSX.Element {
                         <Col style={{ whiteSpace: 'pre-line', width: '100%', padding: 0 }}>
                             <Row justify="space-between" align="middle">
                                 <Link
-                                    to={`/insights?${toParams(funnel.filters)}#fromItem=${funnel.id}`}
+                                    to={`/insights?${toParams(funnel.filters)}#fromItem=${
+                                        funnel.id
+                                    }&fromSavedFunnels=true`}
                                     style={{ flex: 1 }}
                                 >
                                     {funnel.name}
