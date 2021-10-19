@@ -29,6 +29,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
+        setSplitMergeModalShown: (shown: boolean) => ({ shown }),
     },
     reducers: {
         listFilters: [
@@ -47,6 +48,12 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             null as PersonsTabType | null,
             {
                 navigateToTab: (_, { tab }) => tab,
+            },
+        ],
+        splitMergeModalShown: [
+            false,
+            {
+                setSplitMergeModalShown: (_, { shown }) => shown,
             },
         ],
     },

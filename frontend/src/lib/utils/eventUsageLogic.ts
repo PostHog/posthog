@@ -255,6 +255,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportRecordingViewed: (payload: RecordingViewedProps) => ({ payload }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
+        reportPersonMerged: (merge_count: number) => ({ merge_count }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -604,6 +605,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         },
         reportPayGateDismissed: (props) => {
             posthog.capture('pay gate dismissed', props)
+        },
+        reportPersonMerged: (props) => {
+            posthog.capture('merge person completed', props)
         },
     },
 })
