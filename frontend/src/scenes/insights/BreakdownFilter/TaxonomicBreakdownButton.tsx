@@ -33,7 +33,9 @@ export function TaxonomicBreakdownButton({
                 : cohorts.filter((c) => c.id == breakdown)[0]?.name || `Cohort ${breakdown}`
     }
 
-    return (
+    return label ? (
+        <></>
+    ) : (
         <Popup
             overlay={
                 <TaxonomicFilter
