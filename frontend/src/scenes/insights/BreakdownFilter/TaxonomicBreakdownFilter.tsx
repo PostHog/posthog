@@ -33,7 +33,6 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
     const tags = breakdownArray
         .filter((b) => !!b)
         .map((t, index) => {
-            console.log({ t, index })
             const onClose =
                 typeof t === 'string' && t !== 'all'
                     ? () => setFilters({ breakdown: undefined, breakdown_type: null })
@@ -67,13 +66,7 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
                             const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(
                                 groupType
                             ) as BreakdownType
-                            console.log({
-                                groupType,
-                                changedBreakdownType,
-                                changedBreakdown,
-                                breakdownParts,
-                                needle: TaxonomicFilterGroupType.CohortsWithAllUsers,
-                            })
+
                             if (changedBreakdownType) {
                                 setFilters({
                                     breakdown:

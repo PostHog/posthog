@@ -18,7 +18,7 @@ export function TaxonomicBreakdownButton({
     onlyCohorts,
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
-    console.log({ breakdownType, needle: TaxonomicFilterGroupType.Cohorts })
+
     return (
         <Popup
             overlay={
