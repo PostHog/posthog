@@ -121,7 +121,7 @@ const PropertyNamesSearch = (): JSX.Element => {
                     ))
                 ) : (
                     <p className="no-results-message">
-                        No properties match “{query}”. Refine your search to try again.
+                        No properties match <b>“{query}”</b>. Refine your search to try again.
                     </p>
                 )}
             </div>
