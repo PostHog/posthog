@@ -25,6 +25,9 @@ from posthog.test.base import BaseTest
 # Refers to migration 0176_update_person_props_function
 # This is a Postgres function we use in the plugin server
 
+FUTURE_TIMESTAMP = datetime(2050, 1, 1, 1, 1, 1).isoformat()
+PAST_TIMESTAMP = datetime(2000, 1, 1, 1, 1, 1).isoformat()
+
 
 class TestShouldUpdatePersonProp(BaseTest):
     def test_update_without_properties_last_updated_at(self):
@@ -59,8 +62,8 @@ class TestShouldUpdatePersonProp(BaseTest):
             team=self.team,
             properties={"a": 0, "b": 0},
             properties_last_updated_at={
-                "a": datetime(2050, 1, 1, 1, 1, 1).isoformat(),
-                "b": datetime(2050, 1, 1, 1, 1, 1).isoformat(),
+                "a": FUTURE_TIMESTAMP,
+                "b": FUTURE_TIMESTAMP,
             },
             properties_last_operation={},
         )
@@ -83,8 +86,10 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         # dont update set_once call
         self.assertEqual(updated_person.properties, {"a": 1, "b": 0})
+        self.assertEqual(updated_person.properties_last_operation, {"a": "set"})
+        self.assertNotEqual(updated_person.properties_last_updated_at["a"], FUTURE_TIMESTAMP)
 
-    # # tests cases 1 and 2 from the table
+    # tests cases 1 and 2 from the table
     def test_update_non_existent_prop(self):
         person = Person.objects.create(
             team=self.team, properties={}, properties_last_updated_at={}, properties_last_operation={}
@@ -108,6 +113,9 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         # both updated
         self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
+        self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set_once"})
+        self.assertIsNotNone(updated_person.properties_last_updated_at["a"])
+        self.assertIsNotNone(updated_person.properties_last_updated_at["b"])
 
     # # tests cases 3 and 4 from the table
     def test_set_operation_with_earlier_timestamp(self):
@@ -115,8 +123,8 @@ class TestShouldUpdatePersonProp(BaseTest):
             team=self.team,
             properties={"a": 0, "b": 0},
             properties_last_updated_at={
-                "a": datetime(2050, 1, 1, 1, 1, 1).isoformat(),
-                "b": datetime(2050, 1, 1, 1, 1, 1).isoformat(),
+                "a": FUTURE_TIMESTAMP,
+                "b": FUTURE_TIMESTAMP,
             },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
@@ -138,6 +146,9 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         # b updated
         self.assertEqual(updated_person.properties, {"a": 0, "b": 1})
+        self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set"})
+        self.assertEqual(updated_person.properties_last_updated_at["a"], FUTURE_TIMESTAMP)
+        self.assertNotEqual(updated_person.properties_last_updated_at["b"], FUTURE_TIMESTAMP)
 
     # # tests cases 5 and 6 from the table
     def test_set_operation_with_older_timestamp(self):
@@ -145,8 +156,8 @@ class TestShouldUpdatePersonProp(BaseTest):
             team=self.team,
             properties={"a": 0, "b": 0},
             properties_last_updated_at={
-                "a": datetime(2000, 1, 1, 1, 1, 1).isoformat(),
-                "b": datetime(2000, 1, 1, 1, 1, 1).isoformat(),
+                "a": PAST_TIMESTAMP,
+                "b": PAST_TIMESTAMP,
             },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
@@ -169,15 +180,18 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         # both updated
         self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
+        self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set"})
+        self.assertNotEqual(updated_person.properties_last_updated_at["a"], PAST_TIMESTAMP)
+        self.assertNotEqual(updated_person.properties_last_updated_at["b"], PAST_TIMESTAMP)
 
-    # # tests cases 7 and 8 from the table
+    # tests cases 7 and 8 from the table
     def test_set_once_operation_with_earlier_timestamp(self):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
             properties_last_updated_at={
-                "a": datetime(2050, 1, 1, 1, 1, 1).isoformat(),
-                "b": datetime(2050, 1, 1, 1, 1, 1).isoformat(),
+                "a": FUTURE_TIMESTAMP,
+                "b": FUTURE_TIMESTAMP,
             },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
@@ -200,15 +214,18 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         # b updated
         self.assertEqual(updated_person.properties, {"a": 0, "b": 1})
+        self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set_once"})
+        self.assertEqual(updated_person.properties_last_updated_at["a"], FUTURE_TIMESTAMP)
+        self.assertNotEqual(updated_person.properties_last_updated_at["b"], FUTURE_TIMESTAMP)
 
-    # # tests cases 9 and 10 from the table
+    # tests cases 9 and 10 from the table
     def test_set_once_operation_with_older_timestamp(self):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
             properties_last_updated_at={
-                "a": datetime(2000, 1, 1, 1, 1, 1).isoformat(),
-                "b": datetime(2000, 1, 1, 1, 1, 1).isoformat(),
+                "a": PAST_TIMESTAMP,
+                "b": PAST_TIMESTAMP,
             },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
@@ -231,10 +248,13 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         # neither updated
         self.assertEqual(updated_person.properties, {"a": 0, "b": 0})
+        self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set_once"})
+        self.assertEqual(updated_person.properties_last_updated_at["a"], PAST_TIMESTAMP)
+        self.assertEqual(updated_person.properties_last_updated_at["b"], PAST_TIMESTAMP)
 
     # # tests cases 11-14 from the table
     def test_equal_timestamps(self):
-        timestamp = datetime(2000, 1, 1, 1, 1, 1).isoformat()
+        timestamp = PAST_TIMESTAMP
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0, "c": 0, "d": 0},
@@ -262,3 +282,10 @@ class TestShouldUpdatePersonProp(BaseTest):
 
         # update if current op is set and last op is set_once i.e. "c"
         self.assertEqual(updated_person.properties, {"a": 0, "b": 0, "c": 1, "d": 0})
+        self.assertEqual(
+            updated_person.properties_last_operation, {"a": "set", "b": "set", "c": "set", "d": "set_once"}
+        )  # c changed
+        self.assertEqual(updated_person.properties_last_updated_at["a"], PAST_TIMESTAMP)
+        self.assertEqual(updated_person.properties_last_updated_at["b"], PAST_TIMESTAMP)
+        self.assertEqual(updated_person.properties_last_updated_at["c"], PAST_TIMESTAMP)
+        self.assertEqual(updated_person.properties_last_updated_at["c"], PAST_TIMESTAMP)
