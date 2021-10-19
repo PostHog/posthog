@@ -23,7 +23,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
-import { PathCleanFilter } from './PathCleanFilter'
+import { PathCleanFilterToggle } from './PathCleanFilterToggle'
+import { PlusCircleOutlined } from '@ant-design/icons'
+import { Link } from 'lib/components/Link'
+import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { Popup } from 'lib/components/Popup/Popup'
+import { PathRegexPopup } from 'lib/components/PathCleanFilters/PathCleanFilter'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -252,9 +257,92 @@ export function NewPathTab(): JSX.Element {
                                         value={filter.path_groupings || []}
                                     />
                                 </Row>
-                                <div style={{ marginTop: 5 }}>
-                                    <PathCleanFilter filters={filter} onChange={setFilter} />
-                                </div>
+                                <hr />
+                            </>
+                        )}
+                        {hasAdvancedPaths && (
+                            <>
+                                <Row align="middle" justify="space-between">
+                                    <Col>
+                                        <b>Path Cleaning Rules: (optional)</b>
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    Cleaning rules are an advanced feature that uses regex to normalize
+                                                    URLS for paths visualization. Rules can be set for all insights in
+                                                    the project settings, or they can be defined specifically for an
+                                                    insight.
+                                                </>
+                                            }
+                                        >
+                                            <InfoCircleOutlined className="info-indicator" />
+                                        </Tooltip>
+                                    </Col>
+                                    <Link to="/project/settings#path_cleaning_filtering">Configure Project Rules</Link>
+                                </Row>
+                                <Row>
+                                    <PathCleanFilters
+                                        style={{ display: 'block' }}
+                                        pageKey="pathcleanfilters-local"
+                                        pathCleaningFilters={filter.local_path_cleaning_filters || []}
+                                        onChange={(newItem) => {
+                                            setFilter({
+                                                local_path_cleaning_filters: [
+                                                    ...(filter.local_path_cleaning_filters || []),
+                                                    newItem,
+                                                ],
+                                            })
+                                        }}
+                                        onRemove={(index) => {
+                                            const newState = (filter.local_path_cleaning_filters || []).filter(
+                                                (_, i) => i !== index
+                                            )
+                                            setFilter({ local_path_cleaning_filters: newState })
+                                        }}
+                                    />
+                                </Row>
+                                <Row align="middle" justify="space-between">
+                                    <Popup
+                                        visible={open}
+                                        placement={'bottom-end'}
+                                        fallbackPlacements={['bottom-start']}
+                                        onClickOutside={() => setOpen(false)}
+                                        overlay={
+                                            <PathRegexPopup
+                                                item={{}}
+                                                onClose={() => setOpen(false)}
+                                                onComplete={(newItem) => {
+                                                    setFilter({
+                                                        local_path_cleaning_filters: [
+                                                            ...(filter.local_path_cleaning_filters || []),
+                                                            newItem,
+                                                        ],
+                                                    })
+                                                    setOpen(false)
+                                                }}
+                                            />
+                                        }
+                                    >
+                                        {({ setRef }) => {
+                                            return (
+                                                <>
+                                                    <Button
+                                                        ref={setRef}
+                                                        onClick={() => setOpen(!open)}
+                                                        className="new-prop-filter"
+                                                        data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}
+                                                        type="link"
+                                                        style={{ paddingLeft: 0 }}
+                                                        icon={<PlusCircleOutlined />}
+                                                    >
+                                                        {'Add Rule'}
+                                                    </Button>
+                                                </>
+                                            )
+                                        }}
+                                    </Popup>
+                                    <PathCleanFilterToggle filters={filter} onChange={setFilter} />
+                                </Row>
                                 <hr />
                             </>
                         )}

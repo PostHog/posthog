@@ -1,13 +1,11 @@
 import { Row, Switch } from 'antd'
 import { useValues } from 'kea'
-import { Link } from 'lib/components/Link'
 import React from 'react'
 import { FilterType } from '~/types'
-import { SettingOutlined } from '@ant-design/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export function PathCleanFilter({
+export function PathCleanFilterToggle({
     filters,
     onChange,
 }: {
@@ -25,14 +23,7 @@ export function PathCleanFilter({
                     : "You don't have path cleaning filters. Click the gear icon to configure it."
             }
         >
-            <Row style={{ alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
-                <Link to="/project/settings#path_cleaning_filtering">
-                    <SettingOutlined
-                        style={{
-                            marginLeft: 8,
-                        }}
-                    />
-                </Link>
+            <Row style={{ alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'flex-end', paddingRight: 0 }}>
                 <label
                     style={{
                         marginLeft: 10,

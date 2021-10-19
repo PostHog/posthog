@@ -1,16 +1,16 @@
 import React, { CSSProperties } from 'react'
-import { useValues } from 'kea'
 import 'scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { FilterRow } from '../PropertyFilters/components/FilterRow'
 import { PathRegexPopup } from './PathCleanFilter'
-import { teamLogic } from 'scenes/teamLogic'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
-    onChange: (filters: Record<string, any>[]) => void
+    onChange: (newItem: Record<string, any>) => void
+    onRemove: (index: number) => void
+    pathCleaningFilters: Record<string, any>[]
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
@@ -24,6 +24,8 @@ interface PropertyFiltersProps {
 export function PathCleanFilters({
     pageKey,
     onChange,
+    onRemove,
+    pathCleaningFilters,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement = null,
@@ -31,24 +33,17 @@ export function PathCleanFilters({
     style = {},
     showNestedArrow = false,
 }: PropertyFiltersProps): JSX.Element {
-    const { path_cleaning_filters_with_new, currentTeam } = useValues(teamLogic)
-
-    const onRemove = (index: number): void => {
-        const newState = (currentTeam?.path_cleaning_filters || []).filter((_, i) => i !== index)
-        onChange(newState)
-    }
-
     return (
         <div className="mb" style={style}>
-            {path_cleaning_filters_with_new.length &&
-                path_cleaning_filters_with_new.map((item, index) => {
+            {pathCleaningFilters.length > 0 &&
+                pathCleaningFilters.map((item, index) => {
                     return (
                         <FilterRow
                             key={index}
                             item={item}
                             index={index}
-                            totalCount={path_cleaning_filters_with_new.length - 1} // empty state
-                            filters={path_cleaning_filters_with_new}
+                            totalCount={pathCleaningFilters.length - 1} // empty state
+                            filters={pathCleaningFilters}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
                             disablePopover={disablePopover}
@@ -63,7 +58,7 @@ export function PathCleanFilters({
                                         item={item}
                                         onClose={onComplete}
                                         onComplete={(newItem) => {
-                                            onChange([...(currentTeam?.path_cleaning_filters || []), newItem])
+                                            onChange(newItem)
                                             onComplete()
                                         }}
                                     />

@@ -5,17 +5,29 @@ import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilte
 
 export function PathCleaningFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, path_cleaning_filters_with_new } = useValues(teamLogic)
 
     const handleChange = (filters: Record<string, any>[]): void => {
         updateCurrentTeam({ path_cleaning_filters: filters })
     }
 
+    const onRemove = (index: number): void => {
+        const newState = (currentTeam?.path_cleaning_filters || []).filter((_, i) => i !== index)
+        handleChange(newState)
+    }
+
     return (
         <div style={{ marginBottom: 16 }}>
-            <div style={{ marginBottom: 8 }}>
-                {currentTeam && <PathCleanFilters pageKey="testaccountfilters" onChange={handleChange} />}
-            </div>
+            {currentTeam && (
+                <PathCleanFilters
+                    pageKey="pathcleanfilters"
+                    pathCleaningFilters={path_cleaning_filters_with_new}
+                    onChange={(newItem) => {
+                        handleChange([...(currentTeam?.path_cleaning_filters || []), newItem])
+                    }}
+                    onRemove={onRemove}
+                />
+            )}
         </div>
     )
 }
