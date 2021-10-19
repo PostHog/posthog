@@ -107,7 +107,7 @@ class PathEventQuery(ClickhouseEventQuery):
         if self._filter.path_replacements and team.path_cleaning_filters and len(team.path_cleaning_filters) > 0:
             replacements = [*team.path_cleaning_filters]
 
-        if self._filter.local_path_cleaning_filters and len(self._filter.local_path_cleaning_filters > 0):
+        if self._filter.local_path_cleaning_filters and len(self._filter.local_path_cleaning_filters) > 0:
             replacements = [*replacements, *self._filter.local_path_cleaning_filters]
 
         if len(replacements) > 0:
