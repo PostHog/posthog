@@ -209,7 +209,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
 
             // Time passed into seek function must be timestamp offset time.
-            const nextTime = getZeroOffsetTime(time, values.meta)
+            const nextTime = getZeroOffsetTime(time ?? 0, values.meta)
             values.replayer?.play(nextTime)
 
             console.log('SEEK TIME', time, nextTime)

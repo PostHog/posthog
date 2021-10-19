@@ -24,9 +24,9 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
             visible
             width="100%"
             onClose={onClose}
-            className={true || featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER] ? 'session-player-drawer-v2' : ''}
+            className={featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER] ? 'session-player-drawer-v2' : ''}
         >
-            {true || featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER] ? (
+            {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER] ? (
                 <Col style={{ height: '100vh' }}>
                     <Row style={{ height: 40 }} align="middle" justify="space-between">
                         <Button type="link" onClick={onClose}>
