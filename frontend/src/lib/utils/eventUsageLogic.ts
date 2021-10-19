@@ -19,7 +19,7 @@ import {
     PropertyFilter,
     AvailableFeature,
 } from '~/types'
-import { Dayjs } from 'dayjs'
+import type { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonModalParams } from 'scenes/trends/personsModalLogic'
 

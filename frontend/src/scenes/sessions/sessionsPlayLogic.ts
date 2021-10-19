@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { eventWithTime } from 'rrweb/typings/types'
+import type { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
 import { errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'

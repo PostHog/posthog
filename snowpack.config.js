@@ -1,21 +1,62 @@
-const fs = require('fs')
-const path = require('path')
-
-const cwd = process.cwd()
-const isTS = fs.existsSync(path.join(cwd, 'tsconfig.json'))
-
 module.exports = {
-    exclude: ['**/*.stories.*', '**/*.test.*', 'frontend/src/test'],
+    exclude: [
+        '**/*.stories.*',
+        '**/*.test.*',
+        '**/*.cy-spec.*',
+        '**/*Type.*',
+        '**/frontend/src/test/**',
+        '**/frontend/src/mocks/**',
+    ],
     mount: {
-        'frontend/public': { url: '/', static: true },
+        'frontend/snowpack': { url: '/', static: true },
+        'frontend/public': { url: '/static', static: true },
         'frontend/src': { url: '/dist' },
+    },
+    alias: {
+        '~': './frontend/src',
+        lib: './frontend/src/lib',
+        scenes: './frontend/src/scenes',
+        public: './frontend/public',
+        // 'dayjs/plugin/relativeTime': './frontend/submodules/dayjs/plugin/relativeTime',
+        dayjs: 'dayjs-es',
     },
     plugins: [
         '@snowpack/plugin-react-refresh',
         '@snowpack/plugin-babel',
         '@snowpack/plugin-dotenv',
-        ...(isTS ? ['@snowpack/plugin-typescript'] : []),
+        '@snowpack/plugin-typescript',
     ],
     devOptions: {},
-    packageOptions: {},
+    packageOptions: {
+        external: ['react-syntax-highlighter'],
+        polyfillNode: true,
+        knownEntrypoints: [
+            '@babel/runtime/helpers/extends',
+            'rc-slider',
+            'rc-tooltip/es/placements',
+            'rc-util/es/Children/toArray',
+            'rc-util/es/Dom/addEventListener',
+            'rc-util/es/Dom/canUseDom',
+            'rc-util/es/Dom/contains',
+            'rc-util/es/Dom/css',
+            'rc-util/es/Dom/findDOMNode',
+            'rc-util/es/Dom/isVisible',
+            'rc-util/es/KeyCode',
+            'rc-util/es/Portal',
+            'rc-util/es/PortalWrapper',
+            'rc-util/es/createChainedFunction',
+            'rc-util/es/getScrollBarSize',
+            'rc-util/es/hooks/useMemo',
+            'rc-util/es/hooks/useMergedState',
+            'rc-util/es/isMobile',
+            'rc-util/es/omit',
+            'rc-util/es/pickAttrs',
+            'rc-util/es/raf',
+            'rc-util/es/ref',
+            'rc-util/es/utils/get',
+            'rc-util/es/utils/set',
+            'rc-util/es/warning',
+            'react-transition-group',
+        ],
+    },
 }

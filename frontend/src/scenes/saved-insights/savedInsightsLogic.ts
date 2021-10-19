@@ -6,7 +6,7 @@ import { DashboardItemType, LayoutView, SavedInsightsTabs, UserBasicType } from 
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { Dayjs } from 'dayjs'
+import type { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 interface InsightsResult {

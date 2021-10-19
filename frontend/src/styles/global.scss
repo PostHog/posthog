@@ -8,9 +8,9 @@ NOTE: $medium is a SCSS var; not a keyword
 */
 
 // Global components
-@import 'react-toastify/dist/ReactToastify';
+@import '/react-toastify/dist/ReactToastify';
 @import '~/vars';
-@import 'fonts';
+@import './fonts';
 
 :root {
     --primary: #{$primary};
