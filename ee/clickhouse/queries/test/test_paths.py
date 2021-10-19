@@ -406,7 +406,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
-        data.update({"path_replacements": True})
+        data.update({"path_replacements": "True"})
         response = ClickhousePaths(team=self.team, filter=path_filter).run()
 
         self.assertEqual(
