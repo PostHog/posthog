@@ -30,7 +30,10 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
                             <Radio value="merge">Merge</Radio>
                         </Col>
                         <Col className="tab-btn ant-btn">
-                            <Radio value="split"> Split</Radio>
+                            <Radio value="split" disabled={person.distinct_ids.length < 2}>
+                                {' '}
+                                Split
+                            </Radio>
                         </Col>
                     </Radio.Group>
                 </Row>
