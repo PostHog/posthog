@@ -185,9 +185,20 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                 <TestAccountFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="path_cleaning_filtering">
-                    Path Cleaning
+                    Path Cleaning Rules
                 </h2>
-                <p>Placeholder copy goes here</p>
+                <p>Reduce noisy parameters in your path results by performing replacement using regex matching.</p>
+                <p>
+                    Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name that
+                    matches the regex will be replaced with the alias.
+                </p>
+                <p>The rules are applied in the order that they're listed.</p>
+                <p>
+                    <b>
+                        Rules that you set here will be applied before wildcarding and other regex replacement if the
+                        toggle is switched on.
+                    </b>
+                </p>
                 <PathCleaningFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">
