@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
@@ -26,10 +26,12 @@ def factory_org_usage_report(
             User.objects.create_and_join(org, org_owner_email, None)
             return team
 
+        def select_report_by_org_id(self, org_id: str, reports: List[OrgReport]) -> OrgReport:
+            return [report for report in reports if report["organization_id"] == org_id][0]
+
         @patch("os.environ", {"DEPLOYMENT": "tests"})
         def test_org_usage_report(self) -> None:
             all_reports = _send_all_org_usage_reports(dry_run=True)
-
             self.assertEqual(all_reports[0]["posthog_version"], VERSION)
             self.assertEqual(all_reports[0]["deployment_infrastructure"], "tests")
             self.assertIsNotNone(all_reports[0]["realm"])
@@ -39,6 +41,8 @@ def factory_org_usage_report(
             self.assertIsNotNone(all_reports[0]["product"])
 
         def test_event_counts(self) -> None:
+            default_team = self.create_new_org_and_team()
+
             def _test_org_report(org_report: OrgReport) -> None:
                 self.assertEqual(org_report["event_count_lifetime"], 5)
                 self.assertEqual(org_report["event_count_in_period"], 3)
@@ -49,22 +53,22 @@ def factory_org_usage_report(
 
             with self.settings(**_instance_settings):
                 with freeze_time("2020-11-02"):
-                    _create_person("old_user1", team=self.team)
-                    _create_person("old_user2", team=self.team)
+                    _create_person("old_user1", team=default_team)
+                    _create_person("old_user2", team=default_team)
 
                 with freeze_time("2020-11-11 00:30:00"):
-                    _create_person("new_user1", team=self.team)
-                    _create_person("new_user2", team=self.team)
-                    _create_event("new_user1", "$event1", "$web", now() - relativedelta(hours=12), team=self.team)
-                    _create_event("new_user1", "$event2", "$web", now() - relativedelta(hours=11), team=self.team)
-                    _create_event("new_user1", "$event2", "$web", now() - relativedelta(hours=11), team=self.team)
+                    _create_person("new_user1", team=default_team)
+                    _create_person("new_user2", team=default_team)
+                    _create_event("new_user1", "$event1", "$web", now() - relativedelta(hours=12), team=default_team)
+                    _create_event("new_user1", "$event2", "$web", now() - relativedelta(hours=11), team=default_team)
+                    _create_event("new_user1", "$event2", "$web", now() - relativedelta(hours=11), team=default_team)
                     _create_event(
-                        "new_user1", "$event2", "$mobile", now() - relativedelta(days=1, hours=1), team=self.team
+                        "new_user1", "$event2", "$mobile", now() - relativedelta(days=1, hours=1), team=default_team
                     )
-                    _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=self.team)
+                    _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=default_team)
 
                     all_reports = _send_all_org_usage_reports(dry_run=True)
-                    org_report = all_reports[0]
+                    org_report = self.select_report_by_org_id(str(default_team.organization.id), all_reports)
                     _test_org_report(org_report)
 
                     # Create usage in a different org.
@@ -80,14 +84,17 @@ def factory_org_usage_report(
 
                     # Create an event before and after this current period
                     _create_event(
-                        "new_user1", "$eventAfter", "$web", now() + relativedelta(days=2, hours=2), team=self.team,
+                        "new_user1", "$eventAfter", "$web", now() + relativedelta(days=2, hours=2), team=default_team,
                     )
                     _create_event(
-                        "new_user1", "$eventBefore", "$web", now() - relativedelta(days=2, hours=2), team=self.team
+                        "new_user1", "$eventBefore", "$web", now() - relativedelta(days=2, hours=2), team=default_team
                     )
 
                     # Check event totals are updated
-                    updated_org_report = _send_all_org_usage_reports(dry_run=True)[0]
+                    updated_org_reports = _send_all_org_usage_reports(dry_run=True)
+                    updated_org_report = self.select_report_by_org_id(
+                        str(default_team.organization.id), updated_org_reports
+                    )
                     self.assertEqual(
                         updated_org_report["event_count_lifetime"], org_report["event_count_lifetime"] + 2,
                     )
@@ -123,8 +130,12 @@ def factory_org_usage_report(
                     )
 
                     # Verify that internal metrics events are not counted
+                    org_reports_after_internal_org = _send_all_org_usage_reports(dry_run=True)
+                    org_report_after_internal_org = self.select_report_by_org_id(
+                        str(default_team.organization.id), org_reports_after_internal_org
+                    )
                     self.assertEqual(
-                        _send_all_org_usage_reports(dry_run=True)[0]["event_count_lifetime"],
+                        org_report_after_internal_org["event_count_lifetime"],
                         updated_org_report["event_count_lifetime"],
                     )
 
