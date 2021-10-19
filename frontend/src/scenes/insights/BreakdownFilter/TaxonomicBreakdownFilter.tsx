@@ -1,5 +1,5 @@
 import React from 'react'
-import { Row, Tag } from 'antd'
+import { Space, Tag } from 'antd'
 import { BreakdownType, FilterType } from '~/types'
 import {
     propertyFilterTypeToTaxonomicFilterType,
@@ -14,11 +14,10 @@ import './TaxonomicBreakdownFilter.scss'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
-    onChange: (value: string | number | (string | number)[] | null, groupType: BreakdownType | null) => void
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
 }
 
-export function BreakdownFilter({ filters, onChange, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
+export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdown_type } = filters
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
@@ -26,11 +25,7 @@ export function BreakdownFilter({ filters, onChange, setFilters }: TaxonomicBrea
         breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
     }
 
-    /**
-     * this is a list of "tags" representing breakdowns each of which can be removed followed by a button to add more
-     * if the tag is a cohort there can be zero to many in the list
-     * if the tag is a breakdown there can be zero or one in the list
-     */
+    const hasSelectedBreakdown = breakdown && typeof breakdown === 'string'
 
     const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b) => !!b)
     const breakdownParts = breakdownArray.map((b) => (b === 'all' ? b : parseInt(`${b}`)))
@@ -38,6 +33,7 @@ export function BreakdownFilter({ filters, onChange, setFilters }: TaxonomicBrea
     const tags = breakdownArray
         .filter((b) => !!b)
         .map((t, index) => {
+            console.log({ t, index })
             const onClose =
                 typeof t === 'string' && t !== 'all'
                     ? () => setFilters({ breakdown: undefined, breakdown_type: null })
@@ -60,48 +56,37 @@ export function BreakdownFilter({ filters, onChange, setFilters }: TaxonomicBrea
             )
         })
 
-    if (breakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers && breakdown) {
-        return (
-            <>
-                {tags}
-                {[...breakdownParts, 0].map((breakdownPart, index) => (
-                    <Row key={index} style={{ marginBottom: 8 }}>
-                        <TaxonomicBreakdownButton
-                            onlyCohorts={index > 0 || breakdownParts.length > 1}
-                            breakdown={breakdownPart}
-                            breakdownType={breakdownType}
-                            onChange={(changedBreakdown) => {
-                                const fullChangedBreakdown = [...breakdownParts, ''] // add empty element in teh end we could change it in `map`
-                                    .map((b, i) => (i === index ? changedBreakdown : b))
-                                    .filter((b) => !!b)
-                                    .map((b) => (b === 'all' ? b : parseInt(`${b}`)))
-
-                                onChange(fullChangedBreakdown, 'cohort')
-                            }}
-                        />
-                    </Row>
-                ))}
-            </>
-        )
-    }
-
     return (
         <>
-            {tags}
-            <TaxonomicBreakdownButton
-                breakdown={(Array.isArray(breakdown) ? breakdown[0] : breakdown) || undefined}
-                breakdownType={breakdownType}
-                onChange={(changedBreakdown, groupType) => {
-                    const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
-                    if (changedBreakdownType) {
-                        if (groupType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
-                            onChange([changedBreakdown], changedBreakdownType)
-                        } else {
-                            onChange(changedBreakdown, changedBreakdownType)
-                        }
-                    }
-                }}
-            />
+            <Space direction={'horizontal'} wrap={true}>
+                {tags}
+                {hasSelectedBreakdown ? null : (
+                    <TaxonomicBreakdownButton
+                        breakdownType={breakdownType}
+                        onChange={(changedBreakdown, groupType) => {
+                            const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(
+                                groupType
+                            ) as BreakdownType
+                            console.log({
+                                groupType,
+                                changedBreakdownType,
+                                changedBreakdown,
+                                breakdownParts,
+                                needle: TaxonomicFilterGroupType.CohortsWithAllUsers,
+                            })
+                            if (changedBreakdownType) {
+                                setFilters({
+                                    breakdown:
+                                        groupType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                                            ? [...breakdownParts, changedBreakdown]
+                                            : changedBreakdown,
+                                    breakdown_type: changedBreakdownType,
+                                })
+                            }
+                        }}
+                    />
+                )}
+            </Space>
         </>
     )
 }
