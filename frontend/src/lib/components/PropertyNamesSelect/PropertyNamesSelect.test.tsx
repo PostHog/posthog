@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { GetPersonPropertiesRequest, GetPersonPropertiesResponse } from 'lib/api/person-properties'
 import { ResponseResolver, RestRequest, RestContext, rest } from 'msw'
 
-test('Can load, deselect property and receive selection via onChange', async () => {
+test('Can load, deselect property, hide popup and receive selection via onChange', async () => {
     const server = setupServer(
         mockGetPersonProperties((_, res, ctx) =>
             res(
@@ -31,6 +31,36 @@ test('Can load, deselect property and receive selection via onChange', async () 
     userEvent.click(propertyACheckbox)
 
     userEvent.click(summaryText)
+
+    expect(onChange).toHaveBeenLastCalledWith(['Property B', 'Property C'])
+})
+
+test('Can load, deselect property, click away and receive selection via onChange', async () => {
+    const server = setupServer(
+        mockGetPersonProperties((_, res, ctx) =>
+            res(
+                ctx.json([
+                    { id: 1, name: 'Property A', count: 10 },
+                    { id: 2, name: 'Property B', count: 20 },
+                    { id: 3, name: 'Property C', count: 30 },
+                ])
+            )
+        )
+    )
+    server.listen()
+
+    const onChange = jest.fn()
+    const { findByRole } = render(<PropertyNamesSelect onChange={onChange} />)
+
+    const combo = await findByRole('combobox')
+    const summaryText = await within(combo).findByText(/3 of 3 selected/)
+    userEvent.click(summaryText)
+
+    const propertyACheckbox = await findByRole('checkbox', { name: 'Property A' })
+    userEvent.click(propertyACheckbox)
+
+    // Click outside the component
+    userEvent.click(document.body)
 
     expect(onChange).toHaveBeenLastCalledWith(['Property B', 'Property C'])
 })
