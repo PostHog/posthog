@@ -8,6 +8,7 @@ import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 const radioStyle: React.CSSProperties = {
     display: 'block',
@@ -36,6 +37,7 @@ export function SaveToDashboardModal({
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({ fromDashboard })
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { currentTeamId } = useValues(teamLogic)
     const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
     const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
@@ -51,7 +53,7 @@ export function SaveToDashboardModal({
             const response = await api.create('api/insight', { filters, name, saved: true, dashboard: dashboardId })
             if (annotations) {
                 for (const { content, date_marker, created_at, scope } of annotations) {
-                    await api.create('api/annotation', {
+                    await api.create(`api/projects/${currentTeamId}/annotations`, {
                         content,
                         date_marker: dayjs(date_marker),
                         created_at,

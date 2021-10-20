@@ -22,6 +22,7 @@ from typing import (
     Sequence,
     Tuple,
     Union,
+    cast,
 )
 from urllib.parse import urljoin, urlparse
 
@@ -242,19 +243,25 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.user import UserSerializer
+        from posthog.api.team import TeamSerializer
+        from posthog.api.user import User, UserSerializer
         from posthog.views import preflight_check
 
-        posthog_app_context: Dict = {
+        posthog_app_context: Dict[str, Any] = {
             "current_user": None,
+            "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
             "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         }
 
         if request.user.pk:
-            user = UserSerializer(request.user, context={"request": request}, many=False)
-            posthog_app_context["current_user"] = user.data
+            user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
+            posthog_app_context["current_user"] = user_serialized.data
+            team = cast(User, request.user).team
+            if team:
+                team_serialized = TeamSerializer(team, context={"request": request}, many=False)
+                posthog_app_context["current_team"] = team_serialized.data
 
         context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
     else:
