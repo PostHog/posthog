@@ -99,24 +99,21 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 })
             },
         ],
-        flagNames: [(s) => [s.userFlags], (userFlags) => userFlags.map((uf) => uf.feature_flag.name)],
-        searchMatches: [
-            (s) => [s.searchTerm, s.flagNames],
-            (searchTerm, flagNames) => {
-                const filteredNames = searchTerm
-                    ? new Fuse(flagNames, {
-                          threshold: 0.3,
-                      })
-                          .search(searchTerm)
-                          .map(({ item }) => item)
-                    : flagNames
-                return new Set(filteredNames)
-            },
-        ],
         filteredFlags: [
-            (s) => [s.searchMatches, s.userFlagsWithCalculatedInfo],
-            (searchMatches, userFlagsWithCalculatedInfo) =>
-                userFlagsWithCalculatedInfo.filter((uf) => searchMatches.has(uf.feature_flag.name)),
+            (s) => [s.searchTerm, s.userFlagsWithCalculatedInfo],
+            (searchTerm, userFlagsWithCalculatedInfo) => {
+                const flagNames = userFlagsWithCalculatedInfo.map((uf) => uf.feature_flag.name)
+                const filteredNames = new Set(
+                    searchTerm
+                        ? new Fuse(flagNames, {
+                              threshold: 0.3,
+                          })
+                              .search(searchTerm)
+                              .map(({ item }) => item)
+                        : flagNames
+                )
+                return userFlagsWithCalculatedInfo.filter((uf) => filteredNames.has(uf.feature_flag.name))
+            },
         ],
         countFlagsOverridden: [(s) => [s.userFlags], (userFlags) => userFlags.filter((flag) => !!flag.override).length],
     },
