@@ -1,16 +1,12 @@
 from unittest.mock import patch
 from uuid import uuid4
 
-import posthoganalytics
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin
-from ee.conftest import reset_clickhouse_tables
-from ee.models.license import License
 from ee.tasks.send_license_usage import send_license_usage
-from posthog.models import organization
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
@@ -25,7 +21,6 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
     @patch("posthoganalytics.capture")
     @patch("requests.post")
     def test_send_license_usage(self, mock_post, mock_capture):
-        reset_clickhouse_tables()
         team2 = Team.objects.create(organization=self.organization)
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")

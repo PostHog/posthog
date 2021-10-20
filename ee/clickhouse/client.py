@@ -76,7 +76,7 @@ if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
     def async_execute(query, args=None, settings=None, with_column_types=False):
         raise ClickHouseNotConfigured()
 
-    def sync_execute(query, args=None, settings=None, with_column_types=False):
+    def sync_execute(query, args=None, settings=None, with_column_types=False, pool=None):
         raise ClickHouseNotConfigured()
 
     def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None, with_column_types=False):

@@ -1,6 +1,7 @@
 from time import sleep, time
 
 from ee.clickhouse.client import sync_execute
+from posthog.settings import CLICKHOUSE_DATABASE
 
 
 # this normally is unnecessary as CH is fast to consume from Kafka when testing
@@ -8,7 +9,7 @@ from ee.clickhouse.client import sync_execute
 def delay_until_clickhouse_consumes_from_kafka(table_name: str, target_row_count: int, timeout_seconds=10) -> None:
     ts_start = time()
     while time() < ts_start + timeout_seconds:
-        result = sync_execute(f"SELECT COUNT(1) FROM {table_name}")
+        result = sync_execute(f"SELECT COUNT(1) FROM {CLICKHOUSE_DATABASE()}.{table_name}")
         if result[0][0] == target_row_count:
             return
         sleep(0.5)
