@@ -9,10 +9,10 @@ export function initKeaTestLogic<L extends Logic = Logic>({
     props,
     onLogic,
 }: {
-    logic: LogicWrapper<L>
+    logic?: LogicWrapper<L>
     props?: LogicWrapper<L>['props']
     onLogic?: (l: BuiltLogic<L>) => any
-}): void {
+} = {}): void {
     let builtLogic: BuiltLogic<L>
     let unmount: () => void
 
@@ -33,13 +33,17 @@ export function initKeaTestLogic<L extends Logic = Logic>({
         ;(history as any).pushState = history.push
         ;(history as any).replaceState = history.replace
         initKea({ beforePlugins: [testUtilsPlugin], routerLocation: history.location, routerHistory: history })
-        builtLogic = logic.build({ ...props })
-        await onLogic?.(builtLogic)
-        unmount = builtLogic.mount()
+        if (logic) {
+            builtLogic = logic.build({ ...props })
+            await onLogic?.(builtLogic)
+            unmount = builtLogic.mount()
+        }
     })
 
     afterEach(async () => {
-        unmount()
-        await expectLogic(logic).toFinishAllListeners()
+        if (logic) {
+            unmount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
     })
 }
