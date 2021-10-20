@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=14"
+        "node": ">=14 <17"
     },
     "scripts": {
         "copy-scripts": "yarn copy-scripts:array && yarn copy-scripts:recorder",
@@ -109,6 +109,7 @@
         "resize-observer-polyfill": "^1.5.1",
         "rrweb": "^1.0.2",
         "sass": "^1.26.2",
+        "screenfull": "^5.1.0",
         "use-debounce": "^6.0.1",
         "zxcvbn": "^4.4.2"
     },

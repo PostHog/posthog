@@ -14,6 +14,7 @@ import {
     FullscreenExitOutlined,
     ShareAltOutlined,
     PlusOutlined,
+    CopyOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import dayjs from 'dayjs'
@@ -35,7 +36,7 @@ export function DashboardHeader(): JSX.Element {
         useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { nameSortedDashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
-    const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
+    const { pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)
     const [newName, setNewName] = useState(dashboard?.name || null) // Used to update the input immediately, debouncing API calls
 
@@ -96,6 +97,12 @@ export function DashboardHeader(): JSX.Element {
                         )}
 
                         <Menu.Divider />
+                        <Menu.Item
+                            icon={<CopyOutlined />}
+                            onClick={() => duplicateDashboard({ id: dashboard.id, name: dashboard.name, show: true })}
+                        >
+                            Duplicate dashboard
+                        </Menu.Item>
                         <Menu.Item
                             icon={<DeleteOutlined />}
                             onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}

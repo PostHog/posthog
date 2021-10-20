@@ -115,7 +115,7 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                  docker-compose -f ee/docker-compose.ch.yml up -d db # start db separately so we don't have to fetch zookeeper and kafka synchronously
+                  docker-compose -f ee/docker-compose.ch.yml up -d db pgb # start db separately so we don't have to fetch zookeeper and kafka synchronously
                   docker-compose -f ee/docker-compose.ch.yml up -d clickhouse zookeeper kafka &
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -243,7 +243,7 @@ jobs:
                   cat requirements.txt >> deploy/requirements.txt
             - name: Start stack with Docker Compose
               run: |
-                  docker-compose -f deploy/ee/docker-compose.ch.yml up -d db # start db separately so we don't have to fetch zookeeper and kafka synchronously
+                  docker-compose -f deploy/ee/docker-compose.ch.yml up -d pgb db # start db separately so we don't have to fetch zookeeper and kafka synchronously
                   docker-compose -f deploy/ee/docker-compose.ch.yml up -d clickhouse zookeeper kafka &
             - name: Set up Python 3.8
               uses: actions/setup-python@v2

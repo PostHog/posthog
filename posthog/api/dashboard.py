@@ -28,6 +28,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
+    use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
 
     class Meta:
         model = Dashboard
@@ -44,6 +45,7 @@ class DashboardSerializer(serializers.ModelSerializer):
             "deleted",
             "creation_mode",
             "use_template",
+            "use_dashboard",
             "filters",
             "tags",
         ]
@@ -54,14 +56,37 @@ class DashboardSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
         team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
-        creation_mode = "template" if use_template else "default"
-        dashboard = Dashboard.objects.create(team=team, creation_mode=creation_mode, **validated_data)
+        use_dashboard: int = validated_data.pop("use_dashboard", None)
+        validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
+        dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if use_template:
             try:
                 create_dashboard_from_template(use_template, dashboard)
             except AttributeError:
                 raise serializers.ValidationError({"use_template": "Invalid value provided."})
+
+        elif use_dashboard:
+            try:
+                from posthog.api.insight import InsightSerializer
+
+                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
+                existing_dashboard_items = existing_dashboard.items.all()
+                for dashboard_item in existing_dashboard_items:
+                    override_dashboard_item_data = {
+                        "id": None,  # to create a new DashboardItem
+                        "dashboard": dashboard.pk,
+                        "last_refresh": now(),
+                    }
+                    insight_serializer = InsightSerializer(
+                        data={**InsightSerializer(dashboard_item).data, **override_dashboard_item_data},
+                        context=self.context,
+                    )
+                    insight_serializer.is_valid()
+                    insight_serializer.save()
+
+            except Dashboard.DoesNotExist:
+                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
 
         elif request.data.get("items"):
             for item in request.data["items"]:
@@ -74,7 +99,13 @@ class DashboardSerializer(serializers.ModelSerializer):
         posthoganalytics.capture(
             request.user.distinct_id,
             "dashboard created",
-            {**dashboard.get_analytics_metadata(), "from_template": bool(use_template), "template_key": use_template},
+            {
+                **dashboard.get_analytics_metadata(),
+                "from_template": bool(use_template),
+                "template_key": use_template,
+                "duplicated": bool(use_dashboard),
+                "dashboard_id": use_dashboard,
+            },
         )
 
         return dashboard
@@ -116,6 +147,19 @@ class DashboardSerializer(serializers.ModelSerializer):
             items = self.add_dive_source_item(items, int(dive_source_id))
 
         return DashboardItemSerializer(items, many=True, context=self.context).data
+
+    def validate(self, data):
+        if data.get("use_dashboard", None) and data.get("use_template", None):
+            raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
+        return data
+
+    def _update_creation_mode(self, validated_data, use_template: str, use_dashboard: int):
+        if use_template:
+            return {**validated_data, "creation_mode": "template"}
+        if use_dashboard:
+            return {**validated_data, "creation_mode": "duplicate"}
+
+        return {**validated_data, "creation_mode": "default"}
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

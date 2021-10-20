@@ -145,6 +145,22 @@ export const funnelLogic = kea<funnelLogicType>({
                 },
             },
         ],
+        eventWithPropertyCorrelations: [
+            {} as Record<string, FunnelCorrelation[]>,
+            {
+                loadEventWithPropertyCorrelations: async (eventName: string) => {
+                    const results = (
+                        await api.create('api/insight/funnel/correlation', {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'event_with_properties',
+                            funnel_correlation_event_names: [eventName],
+                        })
+                    ).result?.events
+
+                    return { [eventName]: results }
+                },
+            },
+        ],
     }),
 
     reducers: ({ props }) => ({
@@ -207,6 +223,14 @@ export const funnelLogic = kea<funnelLogicType>({
                 hideSkewWarning: () => true,
             },
         ],
+        eventWithPropertyCorrelations: {
+            loadEventWithPropertyCorrelationsSuccess: (state, { eventWithPropertyCorrelations }) => {
+                return {
+                    ...state,
+                    ...eventWithPropertyCorrelations,
+                }
+            },
+        },
     }),
 
     selectors: ({ selectors }) => ({
@@ -691,6 +715,39 @@ export const funnelLogic = kea<funnelLogicType>({
                     .sort((first, second) => {
                         return second.odds_ratio - first.odds_ratio
                     })
+            },
+        ],
+        eventWithPropertyCorrelationsValues: [
+            () => [selectors.eventWithPropertyCorrelations, selectors.correlationTypes],
+            (eventWithPropertyCorrelations, correlationTypes): Record<string, FunnelCorrelation[]> => {
+                const eventWithPropertyCorrelationsValues: Record<string, FunnelCorrelation[]> = {}
+                for (const key in eventWithPropertyCorrelations) {
+                    if (eventWithPropertyCorrelations.hasOwnProperty(key)) {
+                        eventWithPropertyCorrelationsValues[key] = eventWithPropertyCorrelations[key]
+                            ?.filter((correlation) => correlationTypes.includes(correlation.correlation_type))
+                            .map((value) => {
+                                return {
+                                    ...value,
+                                    odds_ratio:
+                                        value.correlation_type === FunnelCorrelationType.Success
+                                            ? value.odds_ratio
+                                            : 1 / value.odds_ratio,
+                                }
+                            })
+                            .sort((first, second) => {
+                                return second.odds_ratio - first.odds_ratio
+                            })
+                    }
+                }
+                return eventWithPropertyCorrelationsValues
+            },
+        ],
+        eventHasPropertyCorrelations: [
+            () => [selectors.eventWithPropertyCorrelationsValues],
+            (eventWithPropertyCorrelationsValues): ((eventName: string) => boolean) => {
+                return (eventName) => {
+                    return !!eventWithPropertyCorrelationsValues[eventName]
+                }
             },
         ],
     }),
