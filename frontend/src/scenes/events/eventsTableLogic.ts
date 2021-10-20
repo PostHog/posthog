@@ -189,9 +189,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             (events, newEvents) => formatEvents(events, newEvents),
         ],
         exportUrl: [
-            () => [selectors.eventFilter, selectors.orderBy, selectors.properties],
-            (eventFilter, orderBy, properties) =>
-                `/api/event.csv?${toParams({
+            () => [selectors.currentTeamId, selectors.eventFilter, selectors.orderBy, selectors.properties],
+            (teamId, eventFilter, orderBy, properties) =>
+                `/api/projects/${teamId}/events.csv?${toParams({
                     properties,
                     ...(props.fixedFilters || {}),
                     ...(eventFilter ? { event: eventFilter } : {}),
