@@ -1,6 +1,6 @@
 import apiNoMock from 'lib/api'
 import { combineUrl } from 'kea-router'
-import { AvailableFeature, OrganizationType, TeamType } from '~/types'
+import { AvailableFeature, TeamType } from '~/types'
 
 type APIMockReturnType = {
     [K in keyof typeof apiNoMock]: jest.Mock<ReturnType<typeof apiNoMock[K]>, Parameters<typeof apiNoMock[K]>>
@@ -21,7 +21,6 @@ interface APIMockOptions {
     availableFeatures: AvailableFeature[]
 }
 
-export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = '11FACD14-ADB2-4023-A260-E89E10F32823'
 export const MOCK_TEAM_ID: TeamType['id'] = 997
 
 export const api = apiNoMock as any as APIMockReturnType
