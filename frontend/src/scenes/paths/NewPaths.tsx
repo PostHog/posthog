@@ -6,7 +6,7 @@ import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Button, Menu, Dropdown, Tooltip, Row } from 'antd'
-import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
+import { IconPathsCompletedArrow, IconPathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
@@ -324,7 +324,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                                                 >
                                                     <span className="text-small">
                                                         <span style={{ paddingRight: 8 }}>
-                                                            <PathsCompletedArrow />
+                                                            <IconPathsCompletedArrow />
                                                         </span>{' '}
                                                         Continuing
                                                     </span>{' '}
@@ -361,7 +361,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                                                                 alignItems: 'center',
                                                             }}
                                                         >
-                                                            <PathsDropoffArrow />
+                                                            <IconPathsDropoffArrow />
                                                         </span>{' '}
                                                         Dropping off
                                                     </span>{' '}

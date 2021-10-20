@@ -4,7 +4,7 @@ import { Drawer } from 'lib/components/Drawer'
 import { SessionsPlay } from 'scenes/sessions/SessionsPlay'
 import { SessionRecordingPlayerV2 } from 'scenes/sessionRecordings/player/SessionRecordingPlayerV2'
 import { useValues } from 'kea'
-import { ArrowTopLeftOutlined } from 'lib/components/icons'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Button } from 'antd'
@@ -21,7 +21,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
         <Drawer destroyOnClose visible width="100%" onClose={onClose}>
             <>
                 <Button type="link" onClick={onClose}>
-                    <ArrowTopLeftOutlined /> Back to{' '}
+                    <ArrowLeftOutlined /> Back to{' '}
                     {isPersonPage
                         ? 'persons'
                         : featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]
