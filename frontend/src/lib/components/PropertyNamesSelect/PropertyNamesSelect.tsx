@@ -47,7 +47,7 @@ const PropertyNamesSelectBox = ({ onBlur }: { onBlur?: (selectedProperties: stri
 
     return (
         <div className="property-names-select-container" {...triggerProps}>
-            <div className="property-names-select">
+            <div className="property-names-select" role="combobox">
                 {properties ? (
                     <>
                         {selectState === 'all' ? (
@@ -203,36 +203,36 @@ const usePropertySearch = (properties: PersonProperty[]) => {
     */
     const [query, setQuery] = React.useState<string>('')
     const filteredProperties = React.useMemo(() => {
-        return (
-            properties
-                // First we split on query term, case insensitive, and globally,
-                // not just the first
-                // NOTE: it's important to use a capture group here, otherwise
-                // the query string match will not be included as a part. See
-                // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/split#splitting_with_a_regexp_to_include_parts_of_the_separator_in_the_result
-                // for details
-                .map((property) => ({
-                    ...property,
-                    nameParts: property.name.split(new RegExp(`(${query})`, 'gi')),
-                }))
-                // Then filter where we have a match
-                .filter((property) => property.nameParts.length > 1)
-                // Then create a JSX.Element that can be rendered
-                .map((property) => ({
-                    ...property,
-                    highlightedName: (
-                        <span>
-                            {property.nameParts.map((part, index) =>
-                                part.toLowerCase() === query.toLowerCase() ? (
-                                    <b key={index}>{part}</b>
-                                ) : (
-                                    <React.Fragment key={index}>{part}</React.Fragment>
-                                )
-                            )}
-                        </span>
-                    ),
-                }))
-        )
+        return query === ''
+            ? properties.map((property) => ({ ...property, highlightedName: property.name }))
+            : properties
+                  // First we split on query term, case insensitive, and globally,
+                  // not just the first
+                  // NOTE: it's important to use a capture group here, otherwise
+                  // the query string match will not be included as a part. See
+                  // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/split#splitting_with_a_regexp_to_include_parts_of_the_separator_in_the_result
+                  // for details
+                  .map((property) => ({
+                      ...property,
+                      nameParts: property.name.split(new RegExp(`(${query})`, 'gi')),
+                  }))
+                  // Then filter where we have a match
+                  .filter((property) => property.nameParts.length > 1)
+                  // Then create a JSX.Element that can be rendered
+                  .map((property) => ({
+                      ...property,
+                      highlightedName: (
+                          <span>
+                              {property.nameParts.map((part, index) =>
+                                  part.toLowerCase() === query.toLowerCase() ? (
+                                      <b key={index}>{part}</b>
+                                  ) : (
+                                      <React.Fragment key={index}>{part}</React.Fragment>
+                                  )
+                              )}
+                          </span>
+                      ),
+                  }))
     }, [query, properties])
 
     return { filteredProperties, setQuery, query }
