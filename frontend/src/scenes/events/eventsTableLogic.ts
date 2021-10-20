@@ -3,12 +3,12 @@ import { errorToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
-
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
+
 const POLL_TIMEOUT = 5000
 
 const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
@@ -60,7 +60,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key]
             .filter((keyPart) => !!keyPart)
             .join('-'),
-
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: {
         setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter): { properties: AnyPropertyFilter[] } => {
             // there seem to be multiple representations of "empty" properties
@@ -306,7 +308,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 let apiResponse = null
 
                 try {
-                    apiResponse = await api.get(`api/projects/${teamLogic.values.currentTeamId}/events/?${urlParams}`)
+                    apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
                 } catch (error) {
                     actions.fetchOrPollFailure(error)
                     return
@@ -347,7 +349,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             let apiResponse = null
             try {
-                apiResponse = await api.get(`api/projects/${teamLogic.values.currentTeamId}/events/?${urlParams}`)
+                apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
             } catch (e) {
                 // We don't call fetchOrPollFailure because we don't to generate an error alert for this
                 return

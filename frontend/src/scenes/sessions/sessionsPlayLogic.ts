@@ -26,7 +26,12 @@ interface SessionPlayerData {
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
     connect: {
         logic: [eventUsageLogic],
-        values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
+        values: [
+            sessionsTableLogic,
+            ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents'],
+            teamLogic,
+            ['currentTeamId'],
+        ],
         actions: [
             sessionsTableLogic,
             ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer', 'loadSessionEvents'],
@@ -184,9 +189,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 } else {
                     // Very first call
                     const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
-                    response = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/events/session_recording?${params}`
-                    )
+                    response = await api.get(`api/projects/${values.currentTeamId}/events/session_recording?${params}`)
                     actions.reportUsage(response.result, performance.now() - startTime)
                 }
 

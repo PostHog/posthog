@@ -1,7 +1,7 @@
 import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
 import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic, initTeamLogic } from '~/test/init'
+import { initKeaTestLogic } from '~/test/init'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import recordingJson from './__mocks__/recording.json'
@@ -25,7 +25,6 @@ describe('sessionsPlayLogic', () => {
         return defaultAPIMocks(url)
     })
 
-    initTeamLogic()
     initKeaTestLogic({
         logic: sessionsPlayLogic,
         onLogic: (l) => (logic = l),
