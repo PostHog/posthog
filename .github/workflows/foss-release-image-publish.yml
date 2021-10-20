@@ -1,6 +1,5 @@
 # Generates the `posthog/posthog:foss-latest-release` & `posthog/posthog:foss-release-[version]` Docker images
 # and pushes to Docker Hub
-# N.B. When making changes to this workflow, be sure to update foss-sync.yml if relevant
 
 name: Docker FOSS release image
 
