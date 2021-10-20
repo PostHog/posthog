@@ -32,7 +32,9 @@ class ClickhouseTestInsights(
         self.organization_membership.save()
         self.team.access_control = False
         self.team.save()
-        response = self.client.get("/api/insight/trend/?events={}".format(json.dumps([{"id": "$pageview"}])))
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_insight_trends_forbidden_if_project_private_and_org_member(self):
@@ -40,7 +42,7 @@ class ClickhouseTestInsights(
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        response = self.client.get("/api/insight/trend/?events={}".format(json.dumps([{"id": "$pageview"}])))
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?events={[{'id': '$pageview'}]}")
         self.assertDictEqual(self.permission_denied_response("You don't have access to the project."), response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -52,7 +54,7 @@ class ClickhouseTestInsights(
         self_team_membership = ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
-        response = self.client.get("/api/insight/trend/?events={}".format(json.dumps([{"id": "$pageview"}])))
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?events={[{'id': '$pageview'}]}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
@@ -67,7 +69,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event="step one", distinct_id="2")
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "events": [
                     {"id": "step one", "type": "events", "order": 0},
@@ -96,7 +98,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event="step two", distinct_id="2")
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "events": [
                     {"id": "step one", "type": "events", "order": 0},
@@ -129,7 +131,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step three", distinct_id="user_two", team=self.team, timestamp="2021-05-05 00:00:00")
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "events": [
                     {"id": "step one", "type": "events", "order": 0},
@@ -161,7 +163,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 00:00:00")
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "events": [
                     {"id": "step one", "type": "events", "order": 0},
@@ -195,7 +197,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step three", distinct_id="user_two", team=self.team, timestamp="2021-05-05 00:00:00")
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "events": [
                     {"id": "step one", "type": "events", "order": 0},
@@ -235,7 +237,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step three", distinct_id="user_three", team=self.team, timestamp="2021-05-05 00:00:00")
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "events": [
                     {"id": "step one", "type": "events", "order": 0},
@@ -274,7 +276,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         # Converted from 0 to 1 in 82_800 s
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "insight": "funnels",
                 "funnel_viz_type": "time_to_convert",
@@ -324,7 +326,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         # Converted from 0 to 1 in 82_800 s
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "insight": "funnels",
                 "funnel_viz_type": "time_to_convert",
@@ -375,7 +377,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         # Converted from 0 to 1 in 82_800 s
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "insight": "funnels",
                 "funnel_viz_type": "time_to_convert",
@@ -408,7 +410,10 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_funnel_invalid_action_handled(self):
-        response = self.client.post("/api/insight/funnel/", {"actions": [{"id": 666, "type": "actions", "order": 0},]},)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel/",
+            {"actions": [{"id": 666, "type": "actions", "order": 0},]},
+        )
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), self.validation_error_response("Action ID 666 does not exist!"))
@@ -424,7 +429,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event="step two", distinct_id="2")
 
         response = self.client.post(
-            "/api/insight/funnel/",
+            f"/api/projects/{self.team.id}/insights/funnel/",
             {
                 "events": [
                     {"id": "step one", "type": "events", "order": 0},
@@ -461,7 +466,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             ("step three", 0, 1, False),
         ]:
             response = self.client.post(
-                "/api/insight/funnel/",
+                f"/api/projects/{self.team.id}/insights/funnel/",
                 {
                     "events": [
                         {"id": "step one", "type": "events", "order": 0},

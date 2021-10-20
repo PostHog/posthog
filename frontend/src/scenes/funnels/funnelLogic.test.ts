@@ -1,7 +1,7 @@
 import { funnelLogic } from './funnelLogic'
-import { api, defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTestLogic, initTeamLogic } from '~/test/init'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'
@@ -15,7 +15,7 @@ describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
 
     mockAPI(async (url) => {
-        if (url.pathname === 'api/insight/funnel/') {
+        if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
             return {
                 is_cached: true,
                 last_refresh: '2021-09-16T13:41:41.297295Z',
@@ -28,6 +28,7 @@ describe('funnelLogic', () => {
         return defaultAPIMocks(url)
     })
 
+    initTeamLogic()
     initKeaTestLogic({
         logic: funnelLogic,
         props: {
@@ -166,8 +167,7 @@ describe('funnelLogic', () => {
             })
 
         expect(api.create).toBeCalledWith(
-            'api/insight/funnel/?',
-            expect.objectContaining({
+            `api/projects/${MOCK_TEAM_ID}/insights/funnel/?${expect.objectContaining({
                 actions: [],
                 events: [
                     { id: '$pageview', order: 0 },
@@ -178,7 +178,7 @@ describe('funnelLogic', () => {
                 breakdown_type: undefined,
                 insight: 'FUNNELS',
                 interval: 'day',
-            })
+            })}`
         )
     })
 

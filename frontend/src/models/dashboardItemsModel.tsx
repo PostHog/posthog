@@ -8,6 +8,7 @@ import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
 import { urls } from 'scenes/urls'
+import { teamLogic } from '../scenes/teamLogic'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
     actions: () => ({
@@ -28,7 +29,9 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                 value: item.name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    item = await api.update(`api/insight/${item.id}`, { name })
+                    item = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
+                        name,
+                    })
                     toast('Successfully renamed item')
                     actions.renameDashboardItemSuccess(item)
                 },
@@ -46,14 +49,17 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
 
             const { id: _discard, ...rest } = item // eslint-disable-line
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
-            const addedItem = await api.create('api/insight', newItem)
+            const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
             if (move && dashboard) {
-                const deletedItem = await api.update(`api/insight/${item.id}`, {
-                    deleted: true,
-                })
+                const deletedItem = await api.update(
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
+                    {
+                        deleted: true,
+                    }
+                )
                 dashboardsModel.actions.updateDashboardItem(deletedItem)
 
                 const toastId = toast(
@@ -68,10 +74,15 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                             onClick={async () => {
                                 toast.dismiss(toastId)
                                 const [restoredItem, removedItem] = await Promise.all([
-                                    api.update(`api/insight/${item.id}`, { deleted: false }),
-                                    api.update(`api/insight/${addedItem.id}`, {
-                                        deleted: true,
+                                    api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
+                                        deleted: false,
                                     }),
+                                    api.update(
+                                        `api/projects/${teamLogic.values.currentTeamId}/insights/${addedItem.id}`,
+                                        {
+                                            deleted: true,
+                                        }
+                                    ),
                                 ])
                                 toast(<div>Panel move reverted!</div>)
                                 dashboardsModel.actions.updateDashboardItem(restoredItem)

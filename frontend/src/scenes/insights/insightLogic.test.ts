@@ -1,6 +1,6 @@
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTestLogic, initTeamLogic } from '~/test/init'
 import { insightLogic } from './insightLogic'
 import { AvailableFeature, PropertyOperator, ViewType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -16,20 +16,25 @@ describe('insightLogic', () => {
         const throwAPIError = (): void => {
             throw { status: 0, statusText: 'error from the API' }
         }
-        if (['api/insight/42', 'api/insight/43'].includes(pathname)) {
+        if (['api/projects/2/insights/42', 'api/projects/2/insights/43'].includes(pathname)) {
             return {
-                result: pathname === 'api/insight/42' ? ['result from api'] : null,
-                id: pathname === 'api/insight/42' ? 42 : 43,
+                result: pathname.endsWith('42') ? ['result from api'] : null,
+                id: pathname.endsWith('42') ? 42 : 43,
                 filters: {
                     insight: ViewType.TRENDS,
                     events: [{ id: 3 }],
                     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                 },
             }
-        } else if (['api/insight/44'].includes(pathname)) {
+        } else if (['api/projects/2/insights/44'].includes(pathname)) {
             throwAPIError()
         } else if (
-            ['api/insight', 'api/insight/session/', 'api/insight/trend/', 'api/insight/funnel/'].includes(pathname)
+            [
+                'api/insight',
+                'api/projects/2/insights/session/',
+                'api/projects/2/insights/trend/',
+                'api/projects/2/insights/funnel/',
+            ].includes(pathname)
         ) {
             if (searchParams?.events?.[0]?.throw) {
                 throwAPIError()
@@ -38,6 +43,8 @@ describe('insightLogic', () => {
         }
         return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
     })
+
+    initTeamLogic()
 
     it('requires props', () => {
         expect(() => {

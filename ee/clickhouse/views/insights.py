@@ -110,7 +110,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             return {"result": funnel_order_class(team=team, filter=filter).run()}
 
     # ******************************************
-    # /insight/funnel/correlation
+    # /projects/:id/insights/funnel/correlation
     #
     # params:
     # - params are the same as for funnel

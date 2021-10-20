@@ -490,10 +490,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             })
         },
         updateItemColor: ({ id, color }) => {
-            api.update(`api/insight/${id}`, { color })
+            api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, { color })
         },
         setDiveDashboard: ({ id, dive_dashboard }) => {
-            api.update(`api/insight/${id}`, { dive_dashboard })
+            api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, { dive_dashboard })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval

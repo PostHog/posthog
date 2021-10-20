@@ -188,17 +188,17 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     # ******************************************
     # Calculated Insight Endpoints
-    # /insight/trend
-    # /insight/session
-    # /insight/funnel
-    # /insight/retention
-    # /insight/path
+    # /projects/:id/insights/trend
+    # /projects/:id/insights/session
+    # /projects/:id/insights/funnel
+    # /projects/:id/insights/retention
+    # /projects/:id/insights/path
     #
     # Request parameteres and caching are handled here and passed onto respective .queries classes
     # ******************************************
 
     # ******************************************
-    # /insight/trend
+    # /projects/:id/insights/trend
     #
     # params:
     # - from_dashboard: (string) determines trend is being retrieved from dashboard item to update dashboard_item metadata
@@ -230,7 +230,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"result": result}
 
     # ******************************************
-    # /insight/session
+    # /projects/:id/insights/session
     #
     # params:
     # - session: (string: avg, dist) specifies session type
@@ -246,7 +246,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"result": result}
 
     # ******************************************
-    # /insight/funnel
+    # /projects/:id/insights/funnel
     # The funnel endpoint is asynchronously processed. When a request is received, the endpoint will
     # call an async task with an id that can be continually polled for 3 minutes.
     #
@@ -291,7 +291,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"result": result}
 
     # ******************************************
-    # /insight/retention
+    # /projects/:id/insights/retention
     # params:
     # - start_entity: (dict) specifies id and type of the entity to focus retention on
     # - **shared filter types
@@ -312,7 +312,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"result": result}
 
     # ******************************************
-    # /insight/path
+    # /projects/:id/insights/path
     # params:
     # - start: (string) specifies the name of the starting property or element
     # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type

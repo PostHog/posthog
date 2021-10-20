@@ -63,7 +63,7 @@ export function SaveToDashboardModal({
                 }
             }
         } else {
-            await api.update(`api/insight/${fromItem}`, { filters })
+            await api.update(`api/projects/${currentTeamId}/insights/${fromItem}`, { filters })
         }
         reportSavedInsightToDashboard()
         toast(

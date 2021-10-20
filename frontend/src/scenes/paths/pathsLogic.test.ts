@@ -1,6 +1,6 @@
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTestLogic, initTeamLogic } from '~/test/init'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -11,7 +11,7 @@ describe('pathsLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (['api/insight/paths/'].includes(pathname)) {
+        if (`api/projects/${MOCK_TEAM_ID}/insights/paths/` === pathname) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
@@ -19,6 +19,7 @@ describe('pathsLogic', () => {
 
     describe('syncs with insightLogic', () => {
         const props = { dashboardItemId: 123 }
+        initTeamLogic()
         initKeaTestLogic({
             logic: pathsLogic,
             props,

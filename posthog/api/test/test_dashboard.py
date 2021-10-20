@@ -125,7 +125,7 @@ class TestDashboard(APIBaseTest):
 
         # cache results
         response = self.client.get(
-            "/api/insight/trend/?events=%s&properties=%s"
+            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
@@ -404,7 +404,7 @@ class TestDashboard(APIBaseTest):
             dashboard=dashboard, filters=filter.to_dict(), team=self.team,
         )
         self.client.get(
-            "/api/insight/trend/?events=%s&properties=%s&date_from=-7d"
+            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-7d"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         patch_response = self.client.patch(
@@ -414,7 +414,7 @@ class TestDashboard(APIBaseTest):
 
         # cache results
         response = self.client.get(
-            "/api/insight/trend/?events=%s&properties=%s&date_from=-24h"
+            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-24h"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
@@ -426,7 +426,7 @@ class TestDashboard(APIBaseTest):
     def test_invalid_properties(self):
         properties = "invalid_json"
 
-        response = self.client.get(f"/api/insight/trend/?properties={properties}")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?properties={properties}")
 
         self.assertEqual(response.status_code, 400)
         self.assertDictEqual(

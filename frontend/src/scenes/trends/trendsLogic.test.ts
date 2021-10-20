@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTestLogic, initTeamLogic } from '~/test/init'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { trendsLogicType } from 'scenes/trends/trendsLogicType'
 import { TrendResult } from '~/types'
@@ -16,13 +16,20 @@ describe('trendsLogic', () => {
         const { pathname } = url
         if (['api/insight'].includes(pathname)) {
             return { results: [] }
-        } else if (['api/insight/123', 'api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
+        } else if (
+            [
+                `api/projects/${MOCK_TEAM_ID}/insights/123`,
+                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
+            ].includes(pathname)
+        ) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
     })
 
     describe('core assumptions', () => {
+        initTeamLogic()
         initKeaTestLogic({
             logic: trendsLogic,
             props: { dashboardItemId: undefined },
@@ -37,6 +44,7 @@ describe('trendsLogic', () => {
     })
 
     describe('reducers', () => {
+        initTeamLogic()
         initKeaTestLogic({
             logic: trendsLogic,
             props: { dashboardItemId: undefined },
@@ -66,6 +74,7 @@ describe('trendsLogic', () => {
     })
 
     describe('syncs with insightLogic', () => {
+        initTeamLogic()
         const props = { dashboardItemId: 123 }
         initKeaTestLogic({
             logic: trendsLogic,
