@@ -128,7 +128,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
                 },
                 {
-                    name: 'Pageview Urls',
+                    name: 'Pageview URLs',
                     type: TaxonomicFilterGroupType.PageviewUrls,
                     endpoint: 'api/event/values/?key=$current_url',
                     searchAlias: 'value',
