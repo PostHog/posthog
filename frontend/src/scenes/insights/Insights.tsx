@@ -49,7 +49,7 @@ export function Insights(): JSX.Element {
         setActiveView(view)
         reportHotkeyNavigation('insights', hotkey)
     }
-
+    console.log(insightProps)
     const { push } = useActions(router)
 
     useKeyboardHotkeys({

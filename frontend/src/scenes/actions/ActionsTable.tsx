@@ -29,8 +29,8 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 }
 
 export function ActionsTable(): JSX.Element {
-    const { currentTeam, currentTeamId } = useValues(teamLogic)
-    const { actions, actionsLoading } = useValues(actionsModel({ teamId: currentTeamId, params: 'include_count=1' }))
+    const { currentTeam } = useValues(teamLogic)
+    const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
     const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)

@@ -42,8 +42,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dive_source_id,
         }),
         triggerDashboardUpdate: (payload) => ({ payload }),
+        /** Whether the dashboard is shared or not. */
         setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }),
-        // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
+        /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
@@ -59,6 +60,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dateTo,
             reloadDashboard,
         }),
+        /** Take the user to insights to add a graph. */
         addGraph: true,
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),

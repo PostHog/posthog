@@ -8,14 +8,13 @@ import { renameModalLogic } from 'scenes/insights/ActionFilter/renameModalLogic'
 import { InputFocusOptions } from 'antd/es/input/Input'
 
 interface RenameModalProps {
-    relevantEntityFilterLogic: typeof entityFilterLogic
     typeKey: string
     view?: InsightType
 }
 
-export function RenameModal({ relevantEntityFilterLogic, typeKey, view }: RenameModalProps): JSX.Element {
-    const { selectedFilter, modalVisible } = useValues(relevantEntityFilterLogic)
-    const { renameFilter, hideModal } = useActions(relevantEntityFilterLogic)
+export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
+    const { selectedFilter, modalVisible } = useValues(entityFilterLogic)
+    const { renameFilter, hideModal } = useActions(entityFilterLogic)
 
     const logic = renameModalLogic({ typeKey, filter: selectedFilter })
     const { name } = useValues(logic)

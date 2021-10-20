@@ -24,7 +24,6 @@ export function ActionEdit({
 }: Omit<ActionEditLogicProps, 'teamId'>): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const relevantActionEditLogic = actionEditLogic({
-        teamId: currentTeamId,
         id: id,
         action: loadedAction,
         onSave: (action) => onSave(action),

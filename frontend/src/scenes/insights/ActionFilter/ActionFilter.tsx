@@ -1,6 +1,6 @@
 import './ActionFilter.scss'
 import React, { useEffect } from 'react'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
@@ -152,7 +152,12 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         return (
             <div ref={ref}>
                 {!hideRename && (
-                    <RenameModal view={filters.insight} typeKey={typeKey} relevantEntityFilterLogic={logic as any} />
+                    <BindLogic
+                        logic={entityFilterLogic}
+                        props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
+                    >
+                        <RenameModal view={filters.insight} typeKey={typeKey} />
+                    </BindLogic>
                 )}
                 {localFilters ? (
                     sortable ? (

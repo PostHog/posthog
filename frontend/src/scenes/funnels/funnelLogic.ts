@@ -766,7 +766,7 @@ export const funnelLogic = kea<funnelLogicType>({
             })
         },
         clearFunnel: ({}) => {
-            actions.setFilters({ new_entity: values.filters.new_entity }, false, false)
+            actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {

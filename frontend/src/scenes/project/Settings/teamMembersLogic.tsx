@@ -9,7 +9,6 @@ import {
     ExplicitTeamMemberType,
     FusedTeamMemberType,
     OrganizationMemberType,
-    TeamType,
     UserBasicType,
     UserType,
 } from '~/types'
@@ -17,30 +16,27 @@ import { teamMembersLogicType } from './teamMembersLogicType'
 import { membersLogic } from '../../organization/Settings/membersLogic'
 import { membershipLevelToName } from '../../../lib/utils/permissioning'
 import { userLogic } from '../../userLogic'
+import { teamLogic } from '../../teamLogic'
 
 export const MINIMUM_IMPLICIT_ACCESS_LEVEL = OrganizationMembershipLevel.Admin
 
 export const teamMembersLogic = kea<teamMembersLogicType>({
-    props: {} as {
-        team: TeamType
-    },
-    key: (props) => props.team.id,
     actions: {
         changeUserAccessLevel: (user: UserBasicType, newLevel: TeamMembershipLevel) => ({
             user,
             newLevel,
         }),
     },
-    loaders: ({ props, values }) => ({
+    loaders: ({ values }) => ({
         explicitMembers: {
             __default: [] as ExplicitTeamMemberType[],
             loadMembers: async () => {
-                return await api.get(`api/projects/${props.team.id}/explicit_members/`)
+                return await api.get(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/`)
             },
             addMembers: async ({ userUuids, level }: { userUuids: string[]; level: TeamMembershipLevel }) => {
                 const newMembers: ExplicitTeamMemberType[] = await Promise.all(
                     userUuids.map((userUuid) =>
-                        api.create(`api/projects/${props.team.id}/explicit_members/`, {
+                        api.create(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/`, {
                             user_uuid: userUuid,
                             level,
                         })
@@ -57,7 +53,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 return [...values.explicitMembers, ...newMembers]
             },
             removeMember: async ({ member }: { member: BaseMemberType }) => {
-                await api.delete(`api/projects/${props.team.id}/explicit_members/${member.user.uuid}/`)
+                await api.delete(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/${member.user.uuid}/`)
                 toast(
                     <div>
                         <h1 className="text-success">
@@ -140,9 +136,11 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                     }),
         ],
     }),
-    listeners: ({ props, actions }) => ({
+    listeners: ({ actions }) => ({
         changeUserAccessLevel: async ({ user, newLevel }) => {
-            await api.update(`api/projects/${props.team.id}/explicit_members/${user.uuid}/`, { level: newLevel })
+            await api.update(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/${user.uuid}/`, {
+                level: newLevel,
+            })
             toast(
                 <div>
                     <h1 className="text-success">
