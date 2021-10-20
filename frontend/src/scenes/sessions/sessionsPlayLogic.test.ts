@@ -14,7 +14,10 @@ describe('sessionsPlayLogic', () => {
     let logic: ReturnType<typeof sessionsPlayLogic.build>
 
     mockAPI(async (url) => {
-        if (url.pathname === `api/projects/${MOCK_TEAM_ID}/session_recordings`) {
+        if (
+            url.pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording` || // Old api
+            url.pathname === `api/projects/${MOCK_TEAM_ID}/session_recordings` // New api
+        ) {
             return { result: recordingJson }
         } else if (url.pathname === 'api/sessions_filter') {
             return { results: [] }
