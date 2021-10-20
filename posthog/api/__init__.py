@@ -44,7 +44,7 @@ router = DefaultRouterPlusPlus()
 router.register(r"annotation", annotation.LegacyAnnotationsViewSet)
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
-router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
+router.register(r"dashboard_item", dashboard.LegacySavedInsightsViewSet)
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 router.register(r"sessions_filter", sessions_filter.LegacySessionsFilterViewSet)
 
@@ -62,7 +62,7 @@ projects_router.register(
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
 projects_router.register(r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"])
-projects_router.register(r"dashboard_items", dashboard.DashboardItemsViewSet, "project_dashboard_items", ["team_id"])
+projects_router.register(r"dashboard_items", dashboard.SavedInsightsViewSet, "project_dashboard_items", ["team_id"])
 projects_router.register(
     r"sessions_filters", sessions_filter.SessionsFilterViewSet, "project_session_filters", ["team_id"]
 )

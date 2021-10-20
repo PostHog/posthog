@@ -18,7 +18,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardItem, Team
+from posthog.models import Dashboard, SavedInsight, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks.update_cache import update_dashboard_item_cache, update_dashboard_items_cache
 from posthog.utils import get_safe_cache, render_template, str_to_bool
@@ -74,7 +74,7 @@ class DashboardSerializer(serializers.ModelSerializer):
                 existing_dashboard_items = existing_dashboard.items.all()
                 for dashboard_item in existing_dashboard_items:
                     override_dashboard_item_data = {
-                        "id": None,  # to create a new DashboardItem
+                        "id": None,  # to create a new SavedInsight
                         "dashboard": dashboard.pk,
                         "last_refresh": now(),
                     }
@@ -90,7 +90,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         elif request.data.get("items"):
             for item in request.data["items"]:
-                DashboardItem.objects.create(
+                SavedInsight.objects.create(
                     **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
                     dashboard=dashboard,
                     team=team,
@@ -127,7 +127,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     def add_dive_source_item(self, items: QuerySet, dive_source_id: int):
         item_as_list = list(i for i in items if i.id == dive_source_id)
         if not item_as_list:
-            item_as_list = [DashboardItem.objects.get(pk=dive_source_id)]
+            item_as_list = [SavedInsight.objects.get(pk=dive_source_id)]
         others = list(i for i in items if i.id != dive_source_id)
         return item_as_list + others
 
@@ -146,7 +146,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if dive_source_id is not None:
             items = self.add_dive_source_item(items, int(dive_source_id))
 
-        return DashboardItemSerializer(items, many=True, context=self.context).data
+        return SavedInsightSerializer(items, many=True, context=self.context).data
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
@@ -178,7 +178,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         queryset = queryset.prefetch_related(
-            Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
+            Prefetch("items", queryset=SavedInsight.objects.filter(deleted=False).order_by("order"),)
         )
         # See get_permissions() for share_token mechanics
         if self.request.GET.get("share_token"):
@@ -211,13 +211,13 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
     legacy_team_compatibility = True
 
 
-class DashboardItemSerializer(serializers.ModelSerializer):
+class SavedInsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     _get_result: Optional[Dict[str, Any]] = None
 
     class Meta:
-        model = DashboardItem
+        model = SavedInsight
         fields = [
             "id",
             "short_id",
@@ -241,29 +241,29 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> SavedInsight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
-            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
+            dashboard_item = SavedInsight.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = DashboardItem.objects.create(
+            dashboard_item = SavedInsight.objects.create(
                 team=team, last_refresh=now(), created_by=created_by, **validated_data
             )
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def update(self, instance: Model, validated_data: Dict, **kwargs) -> DashboardItem:
+    def update(self, instance: Model, validated_data: Dict, **kwargs) -> SavedInsight:
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
 
-    def get_result(self, dashboard_item: DashboardItem):
+    def get_result(self, dashboard_item: SavedInsight):
         # If it's more than a day old, don't return anything
         if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
             return None
@@ -276,7 +276,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             return None
         return result.get("result")
 
-    def get_last_refresh(self, dashboard_item: DashboardItem):
+    def get_last_refresh(self, dashboard_item: SavedInsight):
         result = self.get_result(dashboard_item)
         if result is not None:
             return dashboard_item.last_refresh
@@ -300,9 +300,9 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return value
 
 
-class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = DashboardItem.objects.all()
-    serializer_class = DashboardItemSerializer
+class SavedInsightsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = SavedInsight.objects.all()
+    serializer_class = SavedInsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
@@ -368,5 +368,5 @@ def shared_dashboard(request: HttpRequest, share_token: str):
     )
 
 
-class LegacyDashboardItemsViewSet(DashboardItemsViewSet):
+class LegacySavedInsightsViewSet(SavedInsightsViewSet):
     legacy_team_compatibility = True

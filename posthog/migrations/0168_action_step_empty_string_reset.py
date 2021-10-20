@@ -2,7 +2,7 @@
 
 from django.db import migrations, models
 
-import posthog.models.dashboard_item
+import posthog.models.saved_insight
 
 
 def action_step_empty_string_reset(apps, schema_editor):

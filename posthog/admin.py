@@ -6,7 +6,6 @@ from django.utils.translation import gettext_lazy as _
 from posthog.models import (
     Action,
     ActionStep,
-    DashboardItem,
     Element,
     Event,
     FeatureFlag,
@@ -14,6 +13,7 @@ from posthog.models import (
     Person,
     Plugin,
     PluginConfig,
+    SavedInsight,
     Team,
     User,
 )
@@ -24,7 +24,7 @@ admin.site.register(Element)
 admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
-admin.site.register(DashboardItem)
+admin.site.register(SavedInsight)
 
 
 @admin.register(Plugin)

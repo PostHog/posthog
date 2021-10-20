@@ -3,7 +3,6 @@ from .action_step import ActionStep
 from .annotation import Annotation
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
-from .dashboard_item import DashboardItem
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -18,6 +17,7 @@ from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry
 from .property import Property
 from .property_definition import PropertyDefinition
+from .saved_insight import SavedInsight
 from .session_recording_event import SessionRecordingEvent
 from .sessions_filter import SessionsFilter
 from .team import Team
@@ -30,7 +30,7 @@ __all__ = [
     "Cohort",
     "CohortPeople",
     "Dashboard",
-    "DashboardItem",
+    "SavedInsight",
     "Element",
     "ElementGroup",
     "Entity",

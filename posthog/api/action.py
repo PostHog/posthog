@@ -27,12 +27,12 @@ from posthog.models import (
     Action,
     ActionStep,
     CohortPeople,
-    DashboardItem,
     Entity,
     Event,
     Filter,
     Person,
     RetentionFilter,
+    SavedInsight,
 )
 from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -219,7 +219,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         dashboard_id = request.GET.get("from_dashboard", None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+            SavedInsight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
         return result
 
@@ -273,7 +273,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+            SavedInsight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
         return Response(result)
 

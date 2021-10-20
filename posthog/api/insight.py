@@ -24,7 +24,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Event, Filter, Team
+from posthog.models import Event, Filter, SavedInsight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
@@ -41,7 +41,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
     """
 
     class Meta:
-        model = DashboardItem
+        model = SavedInsight
         fields = [
             "id",
             "short_id",
@@ -71,7 +71,7 @@ class InsightSerializer(InsightBasicSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = DashboardItem
+        model = SavedInsight
         fields = [
             "id",
             "short_id",
@@ -102,24 +102,24 @@ class InsightSerializer(InsightBasicSerializer):
             "updated_at",
         )
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> SavedInsight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
-            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
+            dashboard_item = SavedInsight.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = DashboardItem.objects.create(
+            dashboard_item = SavedInsight.objects.create(
                 team=team, last_refresh=now(), created_by=created_by, **validated_data,
             )
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def get_result(self, dashboard_item: DashboardItem):
+    def get_result(self, dashboard_item: SavedInsight):
         if not dashboard_item.filters:
             return None
         result = get_safe_cache(dashboard_item.filters_hash)
@@ -136,7 +136,7 @@ class InsightSerializer(InsightBasicSerializer):
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = DashboardItem.objects.all()
+    queryset = SavedInsight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
@@ -334,7 +334,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def _refresh_dashboard(self, request) -> None:
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+            SavedInsight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
 
 class LegacyInsightViewSet(InsightViewSet):

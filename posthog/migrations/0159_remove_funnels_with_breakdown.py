@@ -2,7 +2,7 @@
 
 from django.db import migrations, models
 
-import posthog.models.dashboard_item
+import posthog.models.saved_insight
 
 # Some funnels accidentally had breakdown values which broke displaying them in the old funnel values
 # Resetting these as from this migration forward we'll have funnels that _do_ support breakdowns

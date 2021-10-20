@@ -9,10 +9,10 @@ from rest_framework import status
 from posthog.models import (
     Cohort,
     Dashboard,
-    DashboardItem,
     Event,
     Filter,
     Person,
+    SavedInsight,
     Team,
     User,
 )
@@ -32,12 +32,12 @@ def insight_test_factory(event_factory, person_factory):
                 "properties": [{"key": "$browser", "value": "Mac OS X"}],
             }
 
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user
             )
 
             # create without user
-            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+            SavedInsight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
             response = self.client.get("/api/insight/", data={"user": "true"}).json()
 
@@ -49,17 +49,17 @@ def insight_test_factory(event_factory, person_factory):
                 "properties": [{"key": "$browser", "value": "Mac OS X"}],
             }
 
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user,
             )
 
             # create without saved
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
             )
 
             # create without user
-            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+            SavedInsight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
             response = self.client.get("/api/insight/", data={"saved": "true", "user": "true"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -73,17 +73,17 @@ def insight_test_factory(event_factory, person_factory):
                 "properties": [{"key": "$browser", "value": "Mac OS X"}],
             }
 
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), favorited=True, team=self.team, created_by=self.user,
             )
 
             # create without favorited
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
             )
 
             # create without user
-            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+            SavedInsight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
             response = self.client.get("/api/insight/?favorited=true&user=true")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -96,13 +96,13 @@ def insight_test_factory(event_factory, person_factory):
                 "events": [{"id": "$pageview"}],
             }
 
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
             )
 
             # Red herring: Should be ignored because it's not on the current team (even though the user has access)
             new_team = Team.objects.create(organization=self.organization)
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), team=new_team, short_id="12345678",
             )
 
@@ -122,10 +122,10 @@ def insight_test_factory(event_factory, person_factory):
                 "events": [{"id": "$pageview"}],
             }
 
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
             )
-            DashboardItem.objects.create(
+            SavedInsight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
             )
 
@@ -166,14 +166,14 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response.json()["description"], None)
             self.assertEqual(response.json()["tags"], [])
 
-            objects = DashboardItem.objects.all()
+            objects = SavedInsight.objects.all()
             self.assertEqual(len(objects), 1)
             self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
             self.assertEqual(objects[0].filters["date_from"], "-90d")
             self.assertEqual(len(objects[0].short_id), 8)
 
         def test_update_insight(self):
-            insight = DashboardItem.objects.create(team=self.team, name="special insight", created_by=self.user,)
+            insight = SavedInsight.objects.create(team=self.team, name="special insight", created_by=self.user,)
             response = self.client.patch(
                 f"/api/insight/{insight.id}",
                 {
@@ -196,7 +196,7 @@ def insight_test_factory(event_factory, person_factory):
 
         @skip("Compatibility issue caused by test account filters")
         def test_update_insight_filters(self):
-            insight = DashboardItem.objects.create(
+            insight = SavedInsight.objects.create(
                 team=self.team,
                 name="insight with custom filters",
                 created_by=self.user,
@@ -260,7 +260,7 @@ def insight_test_factory(event_factory, person_factory):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-            objects = DashboardItem.objects.all()
+            objects = SavedInsight.objects.all()
             self.assertEqual(len(objects), 1)
             self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
             self.assertEqual(objects[0].filters["display"], "FunnelViz")
