@@ -576,11 +576,12 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver:
                     userLogic.values.user?.is_staff ||
+                    userLogic.values.user?.is_impersonated ||
                     preflightLogic.values.preflight?.is_debug ||
-                    userLogic.values.user?.is_impersonated
+                    preflightLogic.values.preflight?.debug_queries
                         ? {
                               icon: PlusOutlined,
-                              display: 'Debug ClickHouse Queries',
+                              display: 'Debug queries (ClickHouse)',
                               executor: () => {
                                   debugCHQueries()
                               },
