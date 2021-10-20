@@ -14,6 +14,7 @@ import { router } from 'kea-router'
 import dayjs from 'dayjs'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
+import { teamLogic } from '../teamLogic'
 
 export type SessionRecordingId = string
 export type PersonUUID = string
@@ -83,7 +84,9 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
-                    const response = await api.get(`api/projects/@current/session_recordings?${params}`)
+                    const response = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/session_recordings?${params}`
+                    )
                     breakpoint()
                     return response
                 },

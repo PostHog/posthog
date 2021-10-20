@@ -130,7 +130,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 {
                     name: 'Pageview URLs',
                     type: TaxonomicFilterGroupType.PageviewUrls,
-                    endpoint: 'api/event/values/?key=$current_url',
+                    endpoint: `api/projects/${teamId}/events/values/?key=$current_url`,
                     searchAlias: 'value',
                     getName: (option: SimpleOption): string => option.name,
                     getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
@@ -138,7 +138,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 {
                     name: 'Screens',
                     type: TaxonomicFilterGroupType.Screens,
-                    endpoint: 'api/event/values/?key=$screen_name',
+                    endpoint: `api/projects/${teamId}/events/values/?key=$screen_name`,
                     searchAlias: 'value',
                     getName: (option: SimpleOption): string => option.name,
                     getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,

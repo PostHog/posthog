@@ -1,4 +1,4 @@
-// /api/event/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
+// /api/projects/@current/events/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'

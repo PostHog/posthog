@@ -166,7 +166,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
-    # /event/session_recording
+    # /events/session_recording
     # params:
     # - session_recording_id: (string) id of the session recording
     # - save_view: (boolean) save view of the recording

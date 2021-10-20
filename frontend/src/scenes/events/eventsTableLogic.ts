@@ -8,6 +8,7 @@ import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { teamLogic } from '../teamLogic'
 const POLL_TIMEOUT = 5000
 
 const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
@@ -35,7 +36,6 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
 
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
-    apiUrl?: string // = 'api/event/'
     key?: string
 }
 
@@ -57,7 +57,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
-        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.apiUrl || 'events', props.key]
+        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key]
             .filter((keyPart) => !!keyPart)
             .join('-'),
 
@@ -306,7 +306,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 let apiResponse = null
 
                 try {
-                    apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                    apiResponse = await api.get(`api/projects/${teamLogic.values.currentTeamId}/events/?${urlParams}`)
                 } catch (error) {
                     actions.fetchOrPollFailure(error)
                     return
@@ -347,7 +347,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             let apiResponse = null
             try {
-                apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                apiResponse = await api.get(`api/projects/${teamLogic.values.currentTeamId}/events/?${urlParams}`)
             } catch (e) {
                 // We don't call fetchOrPollFailure because we don't to generate an error alert for this
                 return

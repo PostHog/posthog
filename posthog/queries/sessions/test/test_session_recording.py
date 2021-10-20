@@ -17,7 +17,9 @@ from posthog.test.base import BaseTest
 
 
 def session_recording_test_factory(session_recording, filter_sessions, event_factory):
-    def create_recording_request_and_filter(session_recording_id, limit=None, offset=None) -> Tuple[Request, Filter]:
+    def create_recording_request_and_filter(
+        team_id, session_recording_id, limit=None, offset=None
+    ) -> Tuple[Request, Filter]:
         params = {}
         if limit:
             params["limit"] = limit
@@ -27,7 +29,8 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
         build_req.META = {"HTTP_HOST": "www.testserver"}
 
         req = Request(
-            build_req, f"/api/event/session_recording?session_recording_id={session_recording_id}{urlencode(params)}"
+            build_req,
+            f"/api/projects/{team_id}/session_recordings?session_recording_id={session_recording_id}{urlencode(params)}",
         )
         return (req, Filter(request=req, data=params))
 
@@ -43,7 +46,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 self.create_snapshot("user2", "2", now() + relativedelta(seconds=20))
                 self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
 
-                req, filt = create_recording_request_and_filter("1")
+                req, filt = create_recording_request_and_filter(self.team.id, "1")
                 session = session_recording(team=self.team, session_recording_id="1", request=req, filter=filt).run()
                 self.assertEqual(
                     session["snapshots"],
@@ -58,7 +61,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
         def test_query_run_with_no_such_session(self):
 
-            req, filt = create_recording_request_and_filter("xxx")
+            req, filt = create_recording_request_and_filter(self.team.id, "xxx")
             session = session_recording(team=self.team, session_recording_id="xxx", request=req, filter=filt).run()
             self.assertEqual(
                 session, {"snapshots": [], "person": None, "start_time": None, "next": None, "duration": 0}
@@ -174,7 +177,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 for s in range(num_snapshots + 1):
                     self.create_chunked_snapshot("user", chunked_session_id, now() + relativedelta(seconds=s), s)
 
-                req, filt = create_recording_request_and_filter(chunked_session_id)
+                req, filt = create_recording_request_and_filter(self.team.id, chunked_session_id)
                 session = session_recording(
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
@@ -195,7 +198,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 for s in range(200):
                     self.create_chunked_snapshot("user", chunked_session_id, now() + relativedelta(seconds=s), s)
 
-                req, filt = create_recording_request_and_filter(chunked_session_id, limit)
+                req, filt = create_recording_request_and_filter(self.team.id, chunked_session_id, limit)
                 session = session_recording(
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
@@ -223,7 +226,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     )
 
                 # A successful single session recording query will make {num_chunks} requests
-                base_req, base_filter = create_recording_request_and_filter(chunked_session_id)
+                base_req, base_filter = create_recording_request_and_filter(self.team.id, chunked_session_id)
                 session = None
 
                 for i in range(expected_num_requests):
@@ -307,7 +310,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 )
 
                 # Do the thing
-                req, filt = create_recording_request_and_filter(chunked_session_id)
+                req, filt = create_recording_request_and_filter(self.team.id, chunked_session_id)
                 session = session_recording(
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
