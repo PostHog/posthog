@@ -1,0 +1,107 @@
+.property-names-select-container {
+    // Make sure we can absolutely position the popover
+    position: relative;
+
+    // Make sure the popover isn't cropped
+    overflow: visible;
+
+    min-width: 300px;
+
+    .property-names-select {
+        display: flex;
+        align-items: stretch;
+        align-items: center;
+        padding: 8px;
+
+        /* background/clear */
+
+        background: #ffffff;
+        /* main/primary */
+
+        border: 1px solid var(--primary);
+        border-radius: 4px;
+
+        .checkbox-icon {
+            font-size: 18px;
+            color: var(--primary);
+        }
+
+        .selection-status-text {
+            margin-left: 8px;
+            flex-grow: 1;
+        }
+
+        &:hover {
+            cursor: pointer;
+        }
+    }
+
+    .popover {
+        // Position the popover below the select
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        right: 0;
+
+        // Make sure we don't get covered up
+        z-index: 100; // number is abritrary
+
+        padding: 8px;
+        /* background/clear */
+
+        background: #ffffff;
+        /* main/primary */
+
+        border: 1px solid var(--primary);
+        box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.25);
+        border-radius: 4px;
+
+        .search-box {
+            padding: 8px;
+
+            /* background/clear */
+
+            background: #ffffff;
+            /* border/default */
+
+            border: 1px solid #d9d9d9;
+            box-sizing: border-box;
+            border-radius: 4px;
+
+            &:focus-within {
+                border-color: var(--primary);
+            }
+        }
+
+        .search-results {
+            width: 100%;
+            max-height: 310px;
+            overflow-y: auto;
+
+            .checkbox {
+                display: block;
+                padding: 8px;
+
+                height: 40px;
+                margin: 4px 0px;
+                width: 100%;
+
+                background: #ffffff;
+                border-radius: 4px;
+
+                &.checked {
+                    background: #eef2ff;
+                }
+            }
+
+            .no-results-message {
+                padding: 8px;
+                text-align: center;
+                font-size: 14px;
+                line-height: 24px;
+                color: #2d2d2d;
+                margin: 1em 4px;
+            }
+        }
+    }
+}
