@@ -167,29 +167,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     <InfoCircleOutlined className="info-indicator" />
                                 </Tooltip>
                             </h4>
-                            {filters.breakdown_type === 'cohort' && filters.breakdown ? (
-                                <BreakdownFilter
-                                    filters={filters}
-                                    onChange={(breakdown, breakdown_type): void =>
-                                        setFilters({ breakdown, breakdown_type })
-                                    }
-                                />
-                            ) : (
-                                <Row align="middle">
-                                    <BreakdownFilter
-                                        filters={filters}
-                                        onChange={(breakdown, breakdown_type): void =>
-                                            setFilters({ breakdown, breakdown_type })
-                                        }
-                                    />
-                                    {filters.breakdown && (
-                                        <CloseButton
-                                            onClick={() => setFilters({ breakdown: undefined, breakdown_type: null })}
-                                            style={{ marginTop: 1, marginLeft: 5 }}
-                                        />
-                                    )}
-                                </Row>
-                            )}
+                            <Row align="middle">
+                                <BreakdownFilter filters={filters} setFilters={setFilters} />
+                            </Row>
                         </>
                     )}
                 </Col>
