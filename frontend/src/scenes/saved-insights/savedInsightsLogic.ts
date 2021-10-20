@@ -18,6 +18,9 @@ interface InsightsResult {
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: {
         addGraph: (type: string) => ({ type }),
         setInsightType: (type: string) => ({ type }),
@@ -133,7 +136,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         addGraph: ({ type }) => {
             router.actions.push(`/insights?insight=${type.toString().toUpperCase()}&backToURL=/saved_insights`)
         },
@@ -173,7 +176,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             })
         },
         duplicateInsight: async ({ insight }) => {
-            await api.create('api/insight', insight)
+            await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
             actions.loadInsights()
         },
         setDates: () => {

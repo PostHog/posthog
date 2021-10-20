@@ -40,6 +40,9 @@ const updateInsightState = (
 
 /* insightHistoryLogic - Handles all logic for saved insights and recent history */
 export const insightHistoryLogic = kea<insightHistoryLogicType>({
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     loaders: ({ actions }) => ({
         insights: {
             __default: [] as DashboardItemType[],
@@ -163,7 +166,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>({
         },
         deleteInsight: ({ insight }) => {
             deleteWithUndo({
-                endpoint: 'insight',
+                endpoint: `api/projects/${values.currentTeamId}/insights`,
                 object: { name: insight.name, id: insight.id },
                 callback: () => actions.loadSavedInsights(),
             })

@@ -1,4 +1,4 @@
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic, initTeamLogic } from '~/test/init'
 import { insightLogic } from './insightLogic'
@@ -16,7 +16,9 @@ describe('insightLogic', () => {
         const throwAPIError = (): void => {
             throw { status: 0, statusText: 'error from the API' }
         }
-        if (['api/projects/2/insights/42', 'api/projects/2/insights/43'].includes(pathname)) {
+        if (
+            [`api/projects/${MOCK_TEAM_ID}/insights/42`, `api/projects/${MOCK_TEAM_ID}/insights/43`].includes(pathname)
+        ) {
             return {
                 result: pathname.endsWith('42') ? ['result from api'] : null,
                 id: pathname.endsWith('42') ? 42 : 43,
@@ -26,14 +28,14 @@ describe('insightLogic', () => {
                     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                 },
             }
-        } else if (['api/projects/2/insights/44'].includes(pathname)) {
+        } else if ([`api/projects/${MOCK_TEAM_ID}/insights/44`].includes(pathname)) {
             throwAPIError()
         } else if (
             [
-                'api/insight',
-                'api/projects/2/insights/session/',
-                'api/projects/2/insights/trend/',
-                'api/projects/2/insights/funnel/',
+                `api/projects/${MOCK_TEAM_ID}/insights`,
+                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
             ].includes(pathname)
         ) {
             if (searchParams?.events?.[0]?.throw) {

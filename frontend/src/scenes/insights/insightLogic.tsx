@@ -497,7 +497,7 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         loadInsightSuccess: async ({ payload, insight }) => {
-            // loaded `/api/insight`, but it didn't have `results`, so make another query
+            // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters && !payload?.doNotLoadResults) {
                 actions.loadResults()
             }
@@ -508,7 +508,7 @@ export const insightLogic = kea<insightLogicType>({
                 return
             }
             if (!insight.id) {
-                const createdInsight = await api.create('api/insight', {
+                const createdInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, {
                     filters: insight.filters,
                 })
                 breakpoint()

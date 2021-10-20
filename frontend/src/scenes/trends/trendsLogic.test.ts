@@ -14,7 +14,7 @@ describe('trendsLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (['api/insight'].includes(pathname)) {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights`) {
             return { results: [] }
         } else if (
             [

@@ -50,7 +50,12 @@ export function SaveToDashboardModal({
     async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
         if (newItem) {
-            const response = await api.create('api/insight', { filters, name, saved: true, dashboard: dashboardId })
+            const response = await api.create(`api/projects/${currentTeamId}/insights`, {
+                filters,
+                name,
+                saved: true,
+                dashboard: dashboardId,
+            })
             if (annotations) {
                 for (const { content, date_marker, created_at, scope } of annotations) {
                     await api.create(`api/projects/${currentTeamId}/annotations`, {

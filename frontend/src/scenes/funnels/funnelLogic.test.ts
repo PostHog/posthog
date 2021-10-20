@@ -22,7 +22,7 @@ describe('funnelLogic', () => {
                 result: ['result from api'],
                 type: 'Funnel',
             }
-        } else if (url.pathname.startsWith('api/insight')) {
+        } else if (url.pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
             return { results: [], next: null }
         }
         return defaultAPIMocks(url)
@@ -167,7 +167,8 @@ describe('funnelLogic', () => {
             })
 
         expect(api.create).toBeCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights/funnel/?${expect.objectContaining({
+            `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
+            expect.objectContaining({
                 actions: [],
                 events: [
                     { id: '$pageview', order: 0 },
@@ -178,7 +179,7 @@ describe('funnelLogic', () => {
                 breakdown_type: undefined,
                 insight: 'FUNNELS',
                 interval: 'day',
-            })}`
+            })
         )
     })
 
