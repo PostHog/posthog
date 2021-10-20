@@ -6,7 +6,7 @@ import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 
-type OrganizationUpdatePayload = Partial<
+export type OrganizationUpdatePayload = Partial<
     Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
 >
 
