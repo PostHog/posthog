@@ -192,7 +192,7 @@ class Funnel(BaseQuery):
         ).format(
             interval=sql.Literal(filter.interval),
             particular_steps=sql.SQL(",\n").join(particular_steps),
-            steps_query=self._build_query(within_time="'1 day'"),
+            steps_query=sql.SQL(self._build_query(within_time="'1 day'")),
             interval_field=sql.SQL("step_0")
             if filter.interval != "week"
             else sql.SQL("(\"step_0\" + interval '1 day') AT TIME ZONE 'UTC'"),

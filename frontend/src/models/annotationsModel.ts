@@ -5,6 +5,7 @@ import dayjs, { Dayjs } from 'dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
 import { AnnotationScope, AnnotationType } from '~/types'
+import { teamLogic } from '../scenes/teamLogic'
 
 export const annotationsModel = kea<annotationsModelType>({
     actions: {
@@ -21,16 +22,15 @@ export const annotationsModel = kea<annotationsModelType>({
             __default: [] as AnnotationType[],
             loadGlobalAnnotations: async () => {
                 const response = await api.get(
-                    'api/annotation/?' +
-                        toParams({
-                            scope: 'organization',
-                            deleted: false,
-                        })
+                    `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams({
+                        scope: 'organization',
+                        deleted: false,
+                    })}`
                 )
                 return response.results
             },
             createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
-                await api.create('api/annotation', {
+                await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                     content,
                     date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
                     created_at,
@@ -72,13 +72,13 @@ export const annotationsModel = kea<annotationsModelType>({
         deleteGlobalAnnotation: ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
-                    endpoint: 'annotation',
+                    endpoint: `projects/${teamLogic.values.currentTeamId}/annotations`,
                     object: { name: 'Annotation', id },
                     callback: () => actions.loadGlobalAnnotations(),
                 })
         },
     }),
     events: ({ actions }) => ({
-        afterMount: actions.loadGlobalAnnotations,
+        afterMount: () => actions.loadGlobalAnnotations(),
     }),
 })

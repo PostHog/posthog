@@ -17,6 +17,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
+import { eventWithTime } from 'rrweb/typings/types'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -308,6 +309,28 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     type: 'cohort'
     key: 'id'
     value: number
+}
+
+export type SessionRecordingId = string
+
+export interface SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: string
+    next: string | null
+    duration: number
+}
+
+export enum SessionPlayerState {
+    BUFFER = 'buffer',
+    PLAY = 'play',
+    PAUSE = 'pause',
+    SKIP = 'skip',
+}
+
+export interface SessionPlayerTime {
+    current: number
+    lastBuffered: number
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1224,6 +1247,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
+    current_team: TeamType | null
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]

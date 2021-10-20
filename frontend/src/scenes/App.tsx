@@ -18,6 +18,7 @@ import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
+import { teamLogic } from './teamLogic'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -62,12 +63,14 @@ export const appLogic = kea<appLogicType>({
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { sceneConfig } = useValues(sceneLogic)
 
     if (showApp) {
         return (
             <>
-                {user ? <Models /> : null}
-                <AppScene />
+                {user && currentTeamId ? <Models /> : null}
+                {(!sceneConfig.projectBased || currentTeamId) && <AppScene />}
             </>
         )
     }
