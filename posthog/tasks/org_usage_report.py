@@ -116,8 +116,7 @@ def send_all_reports(
         if not org_first_user:
             with configure_scope() as scope:
                 scope.set_context("org", cast(Dict[str, Any], org))
-                name = org["name"]
-                capture_exception(Exception(f"No user found for org '{name}' ({id})"))
+                capture_exception(Exception("No user found for org while generating report"))
             continue
         distinct_id = org_first_user.distinct_id
         try:
