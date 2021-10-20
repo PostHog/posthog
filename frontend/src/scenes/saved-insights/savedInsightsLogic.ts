@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { objectsEqual, toParams } from 'lib/utils'
-import { DashboardItemType, LayoutView, SavedInsightsTabs, UserBasicType } from '~/types'
+import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
@@ -22,7 +22,7 @@ interface SavedInsightFilters {
     tab: SavedInsightsTabs
     searchTerm: string
     insightType: string
-    createdBy: Partial<UserBasicType> | 'All users'
+    createdBy: number | 'All users'
     dates: {
         dateFrom?: string | Dayjs | undefined
         dateTo?: string | Dayjs | undefined
@@ -44,45 +44,38 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
     }
 }
 
-export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
+export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
     actions: {
+        setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         addGraph: (type: string) => ({ type }),
-        setInsightType: (type: string) => ({ type }),
-        setOrder: (order: string) => ({ order }),
-        setCreatedBy: (user: Partial<UserBasicType> | 'All users') => ({ user }),
-        setLayoutView: (view: LayoutView) => ({ view }),
-        setTab: (tab: SavedInsightsTabs) => ({ tab }),
-        setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
-            dateFrom,
-            dateTo,
-        }),
-        setSearchTerm: (term: string) => ({ term }),
+
         renameInsight: (id: number) => ({ id }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
         addToDashboard: (item: DashboardItemType, dashboardId: number) => ({ item, dashboardId }),
-        orderByUpdatedAt: true,
-        orderByCreator: true,
         loadInsights: true,
     },
     loaders: ({ values }) => ({
         insights: {
             __default: { results: [], count: 0 } as InsightsResult,
             loadInsights: async (_, breakpoint) => {
-                await breakpoint(10)
+                await breakpoint(1)
+                const { filters } = values
                 const response = await api.get(
                     'api/insight/?' +
                         toParams({
-                            order: values.order,
+                            order: filters.order,
                             limit: 15,
                             saved: true,
-                            ...(values.tab === SavedInsightsTabs.Yours && { user: true }),
-                            ...(values.tab === SavedInsightsTabs.Favorites && { favorited: true }),
-                            ...(values.searchTerm && { search: values.searchTerm }),
-                            ...(values.insightType.toLowerCase() !== 'all types' && { insight: values.insightType }),
-                            ...(values.createdBy !== 'All users' && { created_by: values.createdBy?.id }),
-                            ...(values.dates.dateFrom && {
-                                date_from: values.dates.dateFrom,
-                                date_to: values.dates.dateTo,
+                            ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                            ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                            ...(filters.searchTerm && { search: filters.searchTerm }),
+                            ...(filters.insightType?.toLowerCase() !== 'all types' && {
+                                insight: filters.insightType.toLowerCase(),
+                            }),
+                            ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                            ...(filters.dates.dateFrom && {
+                                date_from: filters.dates.dateFrom,
+                                date_to: filters.dates.dateTo,
                             }),
                         })
                 )
@@ -103,51 +96,18 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         },
     }),
     reducers: {
-        layoutView: [
-            LayoutView.List as LayoutView,
+        filters: [
+            cleanFilters({}) as SavedInsightFilters,
             {
-                setLayoutView: (_, { view }) => view,
-            },
-        ],
-        order: [
-            '-updated_at',
-            {
-                orderByUpdatedAt: (state) => (state === '-updated_at' ? 'updated_at' : '-updated_at'),
-                orderByCreator: (state) => (state === 'created_by' ? '-created_by' : 'created_by'),
-                setOrder: (_, { order }) => order,
-            },
-        ],
-        tab: [
-            SavedInsightsTabs.All as SavedInsightsTabs,
-            {
-                setTab: (_, { tab }) => tab,
-            },
-        ],
-        searchTerm: [
-            '' as string,
-            {
-                setSearchTerm: (_, { term }) => term,
-            },
-        ],
-        insightType: [
-            'All types',
-            {
-                setInsightType: (_, { type }) => type.toUpperCase(),
-            },
-        ],
-        createdBy: [
-            'All users' as Partial<UserBasicType> | 'All users',
-            {
-                setCreatedBy: (_, { user }) => user,
-            },
-        ],
-        dates: [
-            {
-                dateFrom: undefined as string | Dayjs | undefined,
-                dateTo: undefined as string | Dayjs | undefined,
-            },
-            {
-                setDates: (_, dates) => dates,
+                setSavedInsightsFilters: (state, { filters, merge }) =>
+                    cleanFilters(
+                        merge
+                            ? {
+                                  ...state,
+                                  ...filters,
+                              }
+                            : filters
+                    ),
             },
         ],
     },
@@ -163,31 +123,18 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values, selectors }) => ({
         addGraph: ({ type }) => {
             router.actions.push(`/insights?insight=${type.toString().toUpperCase()}&backToURL=/saved_insights`)
         },
-        setTab: () => {
-            actions.loadInsights()
-        },
-        setSearchTerm: ({ term }) => {
-            if (term.length === 0) {
-                actions.loadInsights()
+        setSavedInsightsFilters: async (_, breakpoint, __, previousState) => {
+            const oldFilters = selectors.filters(previousState)
+            const { filters } = values // not taking from props because sometimes we merge them
+
+            if (typeof filters.searchTerm !== 'undefined' && filters.searchTerm !== oldFilters.searchTerm) {
+                console.log('breakpoint hit')
+                await breakpoint(300)
             }
-        },
-        setInsightType: () => {
-            actions.loadInsights()
-        },
-        setCreatedBy: () => {
-            actions.loadInsights()
-        },
-        setOrder: () => {
-            actions.loadInsights()
-        },
-        orderByUpdatedAt: () => {
-            actions.loadInsights()
-        },
-        orderByCreator: () => {
             actions.loadInsights()
         },
         renameInsight: async ({ id }) => {
@@ -215,11 +162,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         },
     }),
     actionToUrl: ({ values }) => {
-        const changeUrl = (): [string, Record<string, any>, Record<string, any>] | void => {
-            const nextValues = cleanFilters(values)
+        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: true }] | void => {
+            const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
-                return ['/saved_insights', nextValues, {}]
+                return ['/saved_insights', nextValues, {}, { replace: true }]
             }
         }
         return {
@@ -229,30 +176,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
     },
     urlToAction: ({ actions, values }) => ({
         '/saved_insights': (_, searchParams) => {
-            const currentValues = cleanFilters(values)
-            const nextValues = cleanFilters(searchParams)
-            if (!objectsEqual(currentValues, nextValues)) {
-                if (!objectsEqual(currentValues.insightType, nextValues.insightType)) {
-                    actions.setInsightType(nextValues.insightType)
-                }
-                if (!objectsEqual(currentValues.createdBy, nextValues.createdBy)) {
-                    actions.setCreatedBy(nextValues.createdBy)
-                }
-                if (!objectsEqual(currentValues.dates, nextValues.dates)) {
-                    actions.setDates(nextValues.dates?.dateFrom, nextValues.dates?.dateTo)
-                }
-                if (!objectsEqual(currentValues.layoutView, nextValues.layoutView)) {
-                    actions.setLayoutView(nextValues.layoutView)
-                }
-                if (!objectsEqual(currentValues.searchTerm, nextValues.searchTerm)) {
-                    actions.setSearchTerm(nextValues.searchTerm)
-                }
-                if (!objectsEqual(currentValues.tab, nextValues.tab)) {
-                    actions.setTab(nextValues.tab)
-                }
-                if (!objectsEqual(currentValues.order, nextValues.order)) {
-                    actions.setOrder(nextValues.order)
-                }
+            const currentFilters = cleanFilters(values.filters)
+            const nextFilters = cleanFilters(searchParams)
+            if (!objectsEqual(currentFilters, nextFilters)) {
+                actions.setSavedInsightsFilters(nextFilters, false)
             }
         },
     }),

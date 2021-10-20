@@ -53,34 +53,27 @@ export function SavedInsights(): JSX.Element {
         loadInsights,
         updateFavoritedInsight,
         loadPaginatedInsights,
-        setLayoutView,
-        setSearchTerm,
-        setTab,
-        setInsightType,
-        setCreatedBy,
         renameInsight,
         duplicateInsight,
         addToDashboard,
-        setDates,
-        orderByUpdatedAt,
-        orderByCreator,
         addGraph,
+        setSavedInsightsFilters,
     } = useActions(savedInsightsLogic)
-    const {
-        insights,
-        count,
-        offset,
-        tab,
-        nextResult,
-        previousResult,
-        insightsLoading,
-        layoutView,
-        searchTerm,
-        dates: { dateFrom, dateTo },
-    } = useValues(savedInsightsLogic)
+    const { insights, count, offset, nextResult, previousResult, insightsLoading, filters } =
+        useValues(savedInsightsLogic)
+
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { members } = useValues(membersLogic)
+    const {
+        tab,
+        order,
+        createdBy,
+        layoutView,
+        searchTerm,
+        insightType,
+        dates: { dateFrom, dateTo },
+    } = filters
     const insightTypes: InsightType[] = [
         { type: 'All types' },
         { type: 'Trends', icon: <LineChartOutlined /> },
@@ -149,7 +142,12 @@ export function SavedInsights(): JSX.Element {
             : {},
         {
             title: (
-                <div className="order-by" onClick={orderByUpdatedAt}>
+                <div
+                    className="order-by"
+                    onClick={() =>
+                        setSavedInsightsFilters({ order: order === '-updated_at' ? 'updated_at' : '-updated_at' })
+                    }
+                >
                     Last modified{' '}
                     <div style={{ fontSize: 10, paddingLeft: 8 }}>
                         <ArrowDownOutlined />
@@ -165,7 +163,12 @@ export function SavedInsights(): JSX.Element {
         },
         {
             title: (
-                <div className="order-by" onClick={orderByCreator}>
+                <div
+                    className="order-by"
+                    onClick={() =>
+                        setSavedInsightsFilters({ order: order === 'created_by' ? '-created_by' : 'created_by' })
+                    }
+                >
                     {normalizeColumnTitle('Created by')}
                 </div>
             ),
@@ -281,7 +284,11 @@ export function SavedInsights(): JSX.Element {
                 </Dropdown>
             </Row>
 
-            <Tabs activeKey={tab} style={{ borderColor: '#D9D9D9' }} onChange={(t) => setTab(t as SavedInsightsTabs)}>
+            <Tabs
+                activeKey={tab}
+                style={{ borderColor: '#D9D9D9' }}
+                onChange={(t) => setSavedInsightsFilters({ tab: t as SavedInsightsTabs })}
+            >
                 <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
                 <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
@@ -293,14 +300,18 @@ export function SavedInsights(): JSX.Element {
                         enterButton
                         placeholder="Search for insights"
                         style={{ width: 240 }}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                        onChange={(e) => setSavedInsightsFilters({ searchTerm: e.target.value })}
                         value={searchTerm || ''}
                         onSearch={() => loadInsights()}
                     />
                 </Col>
                 <Col>
                     Type
-                    <Select defaultValue="All types" style={{ paddingLeft: 8, width: 120 }} onChange={setInsightType}>
+                    <Select
+                        value={insightType}
+                        style={{ paddingLeft: 8, width: 120 }}
+                        onChange={(it) => setSavedInsightsFilters({ insightType: it })}
+                    >
                         {insightTypes.map((insight: InsightType, index) => (
                             <Select.Option key={index} value={insight.type}>
                                 {insight.icon}
@@ -318,18 +329,19 @@ export function SavedInsights(): JSX.Element {
                             bordered={true}
                             dateFrom={dateFrom}
                             dateTo={dateTo}
-                            onChange={setDates}
+                            onChange={(fromDate, toDate) =>
+                                setSavedInsightsFilters({ dates: { dateFrom: fromDate, dateTo: toDate } })
+                            }
                         />
                     </div>
                 </Col>
                 <Col>
                     Created by
                     <Select
-                        defaultValue="All users"
+                        value={createdBy}
                         style={{ paddingLeft: 8, width: 120 }}
-                        onChange={(userId) => {
-                            const createdBy = userId === 'All users' ? undefined : userId
-                            setCreatedBy({ id: createdBy })
+                        onChange={(cb) => {
+                            setSavedInsightsFilters({ createdBy: cb })
                         }}
                     >
                         <Select.Option value={'All users'}>All users</Select.Option>
@@ -346,7 +358,7 @@ export function SavedInsights(): JSX.Element {
                     Showing {paginationCount()} - {nextResult ? offset : count} of {count} insights
                     <div>
                         <Radio.Group
-                            onChange={(e) => setLayoutView(e.target.value)}
+                            onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
                             value={layoutView}
                             buttonStyle="solid"
                         >
