@@ -48,8 +48,8 @@ jobs:
                   context: .
                   push: true
                   tags: |
-                      posthog/posthog-foss:temp-latest-release
-                      posthog/posthog-foss:temp-release-${{ env.TAG_NAME  }}
+                      posthog/posthog-foss:latest-release
+                      posthog/posthog-foss:release-${{ env.TAG_NAME  }}
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog-foss'
