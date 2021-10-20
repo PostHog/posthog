@@ -1,6 +1,8 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
+# Note: for 'posthog/posthog-cloud' remember to update 'prod.web.Dockerfile' as appropriate
+#
 FROM python:3.8-alpine3.14
 
 ENV PYTHONUNBUFFERED 1
