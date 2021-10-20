@@ -1,0 +1,59 @@
+# Generates the `posthog/posthog:foss-latest-release` & `posthog/posthog:foss-release-[version]` Docker images
+# and pushes to Docker Hub
+# N.B. When making changes to this workflow, be sure to update foss-sync.yml if relevant
+
+name: Docker FOSS release image
+
+on:
+    - pull_request
+
+jobs:
+    build-push:
+        name: Build & push Docker release image
+        runs-on: ubuntu-20.04
+        steps:
+            - name: Checkout default branch
+              if: github.repository == 'PostHog/posthog'
+              uses: actions/checkout@v2
+
+            - name: Change LICENSE to pure MIT
+              run: |
+                  sed -i -e '/PostHog Inc\./,/Permission is hereby granted/c\Copyright (c) 2020-2021 PostHog Inc\.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy' LICENSE
+                  echo -e "MIT License\n\n$(cat LICENSE)" > LICENSE
+
+            - name: Remove EE code
+              run: |
+                  rm -r ee/
+                  rm -r .github/
+
+            - name: Get tag name
+              run: echo "TAG_NAME=$(echo ${GITHUB_REF#refs/tags/} | tr / -)" >> $GITHUB_ENV
+
+            - name: Update git SHA
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v1
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v1
+
+            - name: Login to DockerHub
+              uses: docker/login-action@v1
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Build and push release
+              id: docker-release
+              uses: docker/build-push-action@v2
+              with:
+                  context: .
+                  push: true
+                  tags: |
+                      posthog/posthog-foss:temp-latest-release
+                      posthog/posthog-foss:temp-release-${{ env.TAG_NAME  }}
+
+            - name: Image digest
+              run: |
+                  echo "Pushed release: ${{ steps.docker-release.outputs.digest }}"

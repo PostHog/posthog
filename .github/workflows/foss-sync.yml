@@ -1,3 +1,4 @@
+# N.B. When making changes to this workflow, be sure to update foss-image-publish.yml if relevant
 name: Sync PostHog FOSS
 
 on:
