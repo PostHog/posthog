@@ -24,23 +24,24 @@ export const PropertyNamesSelect = ({
         </div>
     ) : properties ? (
         <SelectPropertiesProvider properties={properties}>
-            <PropertyNamesSelectBox onBlur={onChange} />
+            <PropertyNamesSelectBox onChange={onChange} />
         </SelectPropertiesProvider>
     ) : (
         <div className="property-names-select">Loading properties...</div>
     )
 }
 
-const PropertyNamesSelectBox = ({ onBlur }: { onBlur?: (selectedProperties: string[]) => void }): JSX.Element => {
+const PropertyNamesSelectBox = ({ onChange }: { onChange?: (selectedProperties: string[]) => void }): JSX.Element => {
     const { properties, selectedProperties, selectAll, clearAll, selectState } = useSelectedProperties()
+
     const {
         isOpen: isSearchOpen,
         popoverProps,
         triggerProps,
     } = usePopover({
         onHide: () => {
-            if (onBlur) {
-                onBlur(Array.from(selectedProperties))
+            if (onChange) {
+                onChange(Array.from(selectedProperties))
             }
         },
     })
@@ -53,24 +54,39 @@ const PropertyNamesSelectBox = ({ onBlur }: { onBlur?: (selectedProperties: stri
                         {selectState === 'all' ? (
                             <Checkbox
                                 checked={true}
+                                aria-label="Select all"
                                 onClick={(evt) => {
                                     clearAll()
+
+                                    if (onChange) {
+                                        onChange([])
+                                    }
                                     evt.stopPropagation()
                                 }}
                             />
                         ) : selectState === 'none' ? (
                             <Checkbox
                                 checked={false}
+                                aria-label="Select all"
                                 onClick={(evt) => {
                                     selectAll()
+
+                                    if (onChange) {
+                                        onChange(properties.map((property) => property.name))
+                                    }
                                     evt.stopPropagation()
                                 }}
                             />
                         ) : (
                             <Checkbox
+                                aria-label="Select all"
                                 indeterminate={true}
                                 onClick={(evt) => {
                                     selectAll()
+
+                                    if (onChange) {
+                                        onChange(properties.map((property) => property.name))
+                                    }
                                     evt.stopPropagation()
                                 }}
                             />
@@ -273,12 +289,10 @@ const propertiesSelectionContext = React.createContext<
 
 const SelectPropertiesProvider = ({
     properties,
-    onChange,
     children,
 }: {
     properties: PersonProperty[]
     children: React.ReactNode
-    onChange?: (selectedProperties: string[]) => void
 }): JSX.Element => {
     const [selectedProperties, setSelectedProperties] = React.useState<Set<string>>(
         new Set(properties.map((property) => property.name))
@@ -286,10 +300,6 @@ const SelectPropertiesProvider = ({
 
     const setAndNotify = (newSelectedProperties: Set<string>): void => {
         setSelectedProperties(newSelectedProperties)
-
-        if (onChange) {
-            onChange(Array.from(newSelectedProperties))
-        }
     }
 
     const toggleProperty = (property: string): void => {
