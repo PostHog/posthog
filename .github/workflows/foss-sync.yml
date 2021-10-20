@@ -1,4 +1,4 @@
-name: PostHog FOSS
+name: Sync PostHog FOSS
 
 on:
     push:
