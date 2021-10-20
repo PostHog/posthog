@@ -171,7 +171,7 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
             // Cleanup the event listener
             document.removeEventListener('mousedown', checkIfClickedOutside)
         }
-    }, [isOpen])
+    }, [isOpen, hide])
 
     return {
         isOpen,
