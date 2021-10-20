@@ -73,7 +73,7 @@ export function CommandResults(): JSX.Element {
     const { activeResultIndex, commandSearchResults, commandSearchResultsGrouped } = useValues(commandPaletteLogic)
     const { executeResult, onArrowUp, onArrowDown } = useActions(commandPaletteLogic)
 
-    useEventListener('keydown', (event: KeyboardEvent) => {
+    useEventListener('keydown', (event) => {
         if (event.key === 'Enter' && commandSearchResults.length) {
             const result = commandSearchResults[activeResultIndex]
             const isExecutable = !!result.executor

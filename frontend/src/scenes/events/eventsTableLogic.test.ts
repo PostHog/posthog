@@ -2,7 +2,8 @@ import { BuiltLogic } from 'kea'
 import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
 import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
 import { mockAPI } from 'lib/api.mock'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
 import { EmptyPropertyFilter, EventType, PropertyFilter } from '~/types'
@@ -67,9 +68,7 @@ describe('eventsTableLogic', () => {
             selectedEvent: null,
             newEvents: [],
             highlightEvents: {},
-            columnConfigSaving: false,
             automaticLoadEnabled: false,
-            columnConfig: 'DEFAULT',
         })
     })
 
@@ -116,14 +115,6 @@ describe('eventsTableLogic', () => {
                 logic.actions.toggleAutomaticLoad(false)
             }).toMatchValues({
                 automaticLoadEnabled: false,
-            })
-        })
-
-        it('can mark that column config is saving', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setColumnConfigSaving(true)
-            }).toMatchValues({
-                columnConfigSaving: true,
             })
         })
 
@@ -487,7 +478,5 @@ describe('eventsTableLogic', () => {
             })
             expect(toastSpy).toHaveBeenCalled()
         })
-
-        describe('calling the API', () => {})
     })
 })

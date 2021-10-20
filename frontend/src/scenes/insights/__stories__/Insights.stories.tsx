@@ -1,10 +1,10 @@
 import { Meta } from '@storybook/react'
+
 import { keaStory } from 'lib/storybook/kea-story'
 
 import { Insights } from '../Insights'
 
 import trendsJson from './trends.json'
-import funnelsJson from './funnels.json'
 import retentionJson from './retention.json'
 import lifecycleJson from './lifecycle.json'
 import pathsJson from './paths.json'
@@ -16,7 +16,6 @@ export default {
 } as Meta
 
 export const Trends = keaStory(Insights, trendsJson)
-export const Funnels = keaStory(Insights, funnelsJson)
 export const Retention = keaStory(Insights, retentionJson)
 export const UserPaths = keaStory(Insights, pathsJson)
 export const Sessions = keaStory(Insights, sessionsJson)

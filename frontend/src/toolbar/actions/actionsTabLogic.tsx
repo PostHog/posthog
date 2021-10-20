@@ -8,11 +8,11 @@ import { toast } from 'react-toastify'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionType } from '~/types'
-import { ActionForm, AntdFieldData } from '~/toolbar/types'
+import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/es/form'
 import { posthog } from '~/toolbar/posthog'
 
-function newAction(element: HTMLElement | null, dataAttributes: string[]): Partial<ActionType> {
+function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
         name: '',
         steps: [element ? actionStepToAntdForm(elementToActionStep(element, dataAttributes), true) : {}],
@@ -99,22 +99,22 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
     selectors: {
         selectedAction: [
             (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
-            (selectedActionId, newActionForElement, allActions): ActionType | null => {
+            (selectedActionId, newActionForElement, allActions): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
-                    return newAction(newActionForElement)
+                    return newAction(newActionForElement, [])
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
             },
         ],
         initialValuesForForm: [
             (s) => [s.selectedAction],
-            (selectedAction): ActionForm =>
+            (selectedAction): Partial<ActionForm> =>
                 selectedAction
                     ? {
                           ...selectedAction,
                           steps: selectedAction.steps?.map((step) => actionStepToAntdForm(step)) || [],
                       }
-                    : { steps: [] },
+                    : { name: '', steps: [] },
         ],
         selectedEditedAction: [
             // `editingFields` don't update on values.form.setFields(fields), so reloading by tagging a few other selectors
@@ -164,42 +164,29 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             let response
             if (selectedActionId && selectedActionId !== 'new') {
                 response = await api.update(
-                    `${apiURL}${
-                        apiURL.endsWith('/') ? '' : '/'
-                    }api/action/${selectedActionId}/?temporary_token=${temporaryToken}`,
+                    `${apiURL}/api/action/${selectedActionId}/?temporary_token=${temporaryToken}`,
                     actionToSave
                 )
             } else {
-                response = await api.create(
-                    `${apiURL}${apiURL.endsWith('/') ? '' : '/'}api/action/?temporary_token=${temporaryToken}`,
-                    actionToSave
-                )
+                response = await api.create(`${apiURL}/api/action/?temporary_token=${temporaryToken}`, actionToSave)
             }
             breakpoint()
 
             actionsLogic.actions.updateAction({ action: response })
             actions.selectAction(null)
 
-            const insightsUrl = `insights?insight=TRENDS&interval=day&actions=${encodeURIComponent(
+            const insightsUrl = `/insights?insight=TRENDS&interval=day&actions=${encodeURIComponent(
                 JSON.stringify([{ type: 'actions', id: response.id, order: 0, name: response.name }])
             )}`
 
             toast(
                 <>
                     Action saved! Open it in PostHog:{' '}
-                    <a
-                        href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}${insightsUrl}`}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                    >
+                    <a href={`${apiURL}${insightsUrl}`} target="_blank" rel="noreferrer noopener">
                         Insights
                     </a>{' '}
                     -{' '}
-                    <a
-                        href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}action/${response.id}`}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                    >
+                    <a href={`${apiURL}/action/${response.id}`} target="_blank" rel="noreferrer noopener">
                         Actions
                     </a>
                 </>
@@ -209,11 +196,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             const { apiURL, temporaryToken } = toolbarLogic.values
             const { selectedActionId } = values
             if (selectedActionId && selectedActionId !== 'new') {
-                await api.delete(
-                    `${apiURL}${
-                        apiURL.endsWith('/') ? '' : '/'
-                    }api/action/${selectedActionId}/?temporary_token=${temporaryToken}`
-                )
+                await api.delete(`${apiURL}/api/action/${selectedActionId}/?temporary_token=${temporaryToken}`)
 
                 actionsLogic.actions.deleteAction({ id: selectedActionId })
                 actions.selectAction(null)

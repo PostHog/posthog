@@ -45,13 +45,17 @@ export function defaultAPIMocks(
             organization: { available_features: availableFeatures || [] },
             team: { ingested_event: true, completed_snippet_onboarding: true },
         }
+    } else if (pathname === 'api/projects/@current') {
+        return {
+            ingested_event: true,
+            completed_snippet_onboarding: true,
+        }
     } else if (
         [
             'api/action/',
             'api/projects/@current/event_definitions/',
             'api/dashboard',
             'api/organizations/@current',
-            'api/projects/@current',
         ].includes(pathname)
     ) {
         return { results: [] }

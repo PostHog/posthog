@@ -156,3 +156,36 @@ class StructuredViewSetMixin(_GenericViewSet):
                 raise AuthenticationFailed()
 
         return team_found
+
+    # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
+    # TODO: Delete below when no legacy endpoints are used anymore
+
+    # def create(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (create)")
+    #     return super_cls.create(*args, **kwargs)
+
+    # def retrieve(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (retrieve)")
+    #     return super_cls.retrieve(*args, **kwargs)
+
+    # def list(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (list)")
+    #     return super_cls.list(*args, **kwargs)
+
+    # def update(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (update)")
+    #     return super_cls.update(*args, **kwargs)
+
+    # def delete(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (delete)")
+    #     return super_cls.delete(*args, **kwargs)

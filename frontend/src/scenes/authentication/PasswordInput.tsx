@@ -1,7 +1,7 @@
 import { Form, Input } from 'antd'
 import { FormItemProps } from 'antd/es/form'
 import React, { lazy, Suspense } from 'react'
-
+import './PasswordInput.scss'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
@@ -13,6 +13,7 @@ interface PasswordInputProps extends FormItemProps {
     validateMinLength?: boolean
     validationDisabled?: boolean
     disabled?: boolean
+    inputName?: string
 }
 
 export const PasswordInput = React.forwardRef(function PasswordInputInternal(
@@ -23,18 +24,19 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
         style,
         validationDisabled,
         disabled,
+        inputName = 'password',
         ...props
     }: PasswordInputProps,
     ref: React.LegacyRef<Input>
 ): JSX.Element {
     return (
-        <div style={{ marginBottom: 24, ...style }}>
+        <div style={{ marginBottom: 24, ...style }} className="password-input">
             <div style={{ display: 'flex', alignItems: 'center' }} className="ant-form-item-label">
                 <label htmlFor="password">{label}</label>
                 {showStrengthIndicator && (
                     <Form.Item
                         shouldUpdate={(prevValues, currentValues) => prevValues.password !== currentValues.password}
-                        style={{ margin: 0, flexGrow: 1, paddingBottom: 8 }}
+                        className="password-input-strength-indicator"
                     >
                         {({ getFieldValue }) => (
                             <Suspense fallback={<></>}>
@@ -54,7 +56,7 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                 )}
             </div>
             <Form.Item
-                name="password"
+                name={inputName}
                 rules={
                     !validationDisabled
                         ? [

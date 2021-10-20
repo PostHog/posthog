@@ -3,6 +3,7 @@ from enum import Enum
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
 
+# N.B. Keep this in sync with frontend enum (types.ts)
 class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
@@ -11,6 +12,7 @@ class AvailableFeature(str, Enum):
     SAML = "saml"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
+    PATHS_ADVANCED = "paths_advanced"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -117,6 +119,7 @@ FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
+FUNNEL_CORRELATION_EVENT_NAMES = "funnel_correlation_event_names"
 BIN_COUNT = "bin_count"
 ENTRANCE_PERIOD_START = "entrance_period_start"
 DROP_OFF = "drop_off"
@@ -128,6 +131,7 @@ FUNNEL_PATH_AFTER_STEP = "funnel_path_after_step"
 FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
 FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
 PATH_GROUPINGS = "path_groupings"
+PATH_REPLACEMENTS = "path_replacements"
 PATH_START_KEY = "path_start_key"
 PATH_END_KEY = "path_end_key"
 PATH_DROPOFF_KEY = "path_dropoff_key"
@@ -151,6 +155,7 @@ class FunnelVizType(str, Enum):
 class FunnelCorrelationType(str, Enum):
     EVENTS = "events"
     PROPERTIES = "properties"
+    EVENT_WITH_PROPERTIES = "event_with_properties"
 
 
 RETENTION_RECURRING = "retention_recurring"
@@ -173,3 +178,6 @@ class RetentionQueryType(str, Enum):
     RETURNING = "returning"
     TARGET = "target"
     TARGET_FIRST_TIME = "target_first_time"
+
+
+MAX_SLUG_LENGTH = 48

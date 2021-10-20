@@ -15,6 +15,7 @@ attrs==19.3.0
     #   black
     #   flake8-bugbear
     #   pytest
+    #   syrupy
 black==19.10b0
     # via -r requirements-dev.in
 certifi==2019.11.28
@@ -29,6 +30,8 @@ click==7.1.1
     # via
     #   black
     #   pip-tools
+colored==1.4.2
+    # via syrupy
 coreapi==2.3.3
     # via djangorestframework-stubs
 coreschema==0.0.4
@@ -132,6 +135,7 @@ pytest==6.2.2
     #   pytest-cov
     #   pytest-django
     #   pytest-mock
+    #   syrupy
 python-dateutil==2.8.1
     # via
     #   -c requirements.txt
@@ -165,6 +169,8 @@ sqlparse==0.3.0
     # via
     #   -c requirements.txt
     #   django
+syrupy==1.4.6
+    # via -r requirements-dev.in
 toml==0.10.1
     # via
     #   black

@@ -1,27 +1,19 @@
 import { kea } from 'kea'
-import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
-import { eventToName, toParams } from 'lib/utils'
+import { errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
-import { PersonType, SessionType } from '~/types'
+import { SessionPlayerData, SessionRecordingId, SessionType } from '~/types'
 import dayjs from 'dayjs'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-
+import { eventWithTime } from 'rrweb/typings/types'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
-type SessionRecordingId = string
-
-interface SessionPlayerData {
-    snapshots: eventWithTime[]
-    person: PersonType | null
-    start_time: string
-}
-
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
+export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
     connect: {
+        logic: [eventUsageLogic],
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
         actions: [
             sessionsTableLogic,
@@ -36,18 +28,13 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
+        loadRecording: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
     },
     reducers: {
         sessionRecordingId: [
             null as SessionRecordingId | null,
             {
-                loadRecording: (_, sessionRecordingId) => sessionRecordingId,
-            },
-        ],
-        sessionPlayerData: [
-            null as null | SessionPlayerData,
-            {
-                loadRecording: () => null,
+                loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
             },
         ],
         addingTagShown: [
@@ -68,6 +55,21 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 openNextRecordingOnLoad: () => true,
                 loadRecording: () => false,
                 closeSessionPlayer: () => false,
+            },
+        ],
+        chunkIndex: [
+            0,
+            {
+                loadRecordingSuccess: (state) => state + 1,
+            },
+        ],
+        sessionPlayerDataLoading: [
+            false,
+            {
+                loadRecordingSuccess: (_, { sessionPlayerData }) => {
+                    // If sessionPlayerData doesn't have a next url, it means the entire recording is still loading.
+                    return !!sessionPlayerData?.next
+                },
             },
         ],
         source: [
@@ -105,22 +107,25 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 actions.goToNext()
             }
         },
+        loadRecordingSuccess: async () => {
+            // If there is more data to poll for load the next batch.
+            // This will keep calling loadRecording until `next` is empty.
+            if (!!values.sessionPlayerData?.next) {
+                await actions.loadRecording(undefined, values.sessionPlayerData.next)
+            }
+        },
+        loadRecordingFailure: ({ error }) => {
+            errorToast(
+                'Error fetching your session recording',
+                'Your recording returned the following error response:',
+                error
+            )
+        },
         reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
             await breakpoint()
-            const eventIndex = new EventIndex(recordingData?.snapshots || [])
-            const payload = {
-                load_time: loadTime,
-                duration: eventIndex.getDuration(),
-                start_time: recordingData?.start_time,
-                page_change_events_length: eventIndex.pageChangeEvents().length,
-                recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
-                user_is_identified: recordingData.person?.is_identified,
-                source: values.source,
-            }
-            eventUsageLogic.actions.reportRecordingViewed({ delay: 0, ...payload })
-            // tests will wait for all breakpoints to finish
+            eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 0)
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecordingViewed({ delay: 10, ...payload })
+            eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 10)
         },
     }),
     loaders: ({ values, actions }) => ({
@@ -138,12 +143,24 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             },
         ],
         sessionPlayerData: {
-            loadRecording: async (sessionRecordingId: string): Promise<SessionPlayerData> => {
+            loadRecording: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
                 const startTime = performance.now()
-                const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
-                const response = await api.get(`api/event/session_recording?${params}`)
-                actions.reportUsage(response.result, performance.now() - startTime)
-                return response.result
+
+                let response
+                if (url) {
+                    // Subsequent calls to get rest of recording
+                    response = await api.get(url)
+                } else {
+                    // Very first call
+                    const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
+                    response = await api.get(`api/event/session_recording?${params}`)
+                    actions.reportUsage(response.result, performance.now() - startTime)
+                }
+                const currData = values.sessionPlayerData
+                return {
+                    ...response.result,
+                    snapshots: [...(currData?.snapshots ?? []), ...(response.result?.snapshots ?? [])],
+                }
             },
         },
     }),
@@ -183,6 +200,19 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         shouldLoadSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
             (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
+        ],
+        firstChunkLoaded: [(selectors) => [selectors.chunkIndex], (chunkIndex) => chunkIndex > 0],
+        isPlayable: [
+            (selectors) => [
+                selectors.firstChunkLoaded,
+                selectors.sessionPlayerDataLoading,
+                selectors.sessionPlayerData,
+            ],
+            (firstChunkLoaded, sessionPlayerDataLoading, sessionPlayerData) =>
+                (firstChunkLoaded || // If first chunk is ready
+                    !sessionPlayerDataLoading) && // data isn't being fetched
+                sessionPlayerData?.snapshots.length >= 2 && // more than two snapshots needed to init Replayed
+                !!sessionPlayerData?.snapshots?.find((s: eventWithTime) => s.type === 2), // there's a full snapshot in the data that was loaded
         ],
         highlightedSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],

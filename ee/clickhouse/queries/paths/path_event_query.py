@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
@@ -58,8 +58,9 @@ class PathEventQuery(ClickhouseEventQuery):
 
         _fields.append(event_conditional)
 
-        _fields.append("multiMatchAnyIndex(path_item_ungrouped, %(regex_groupings)s) AS group_index")
-        _fields.append("if(group_index > 0, %(groupings)s[group_index], path_item_ungrouped) AS path_item")
+        grouping_fields, grouping_params = self._get_grouping_fields()
+        _fields.extend(grouping_fields)
+        self.params.update(grouping_params)
 
         # remove empty strings
         _fields = list(filter(None, _fields))
@@ -74,10 +75,13 @@ class PathEventQuery(ClickhouseEventQuery):
         event_query, event_params = self._get_event_query()
         self.params.update(event_params)
 
+        person_query, person_params = self._get_person_query()
+        self.params.update(person_params)
+
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
-            {self._get_person_query()}
+            {person_query}
             {funnel_paths_join}
             WHERE team_id = %(team_id)s
             {event_query}
@@ -90,6 +94,36 @@ class PathEventQuery(ClickhouseEventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
+
+    def _get_grouping_fields(self) -> Tuple[List[str], Dict[str, Any]]:
+        _fields = []
+        params = {}
+
+        if self._filter.path_replacements and len(self._filter.path_replacements) > 0:
+            for idx, replacement in enumerate(self._filter.path_replacements):
+                # should only be one
+                for alias, regex in replacement.items():
+                    if idx == 0:
+                        name = "path_item" if idx == len(self._filter.path_replacements) - 1 else f"path_item_{idx}"
+                        _fields.append(
+                            f"replaceRegexpAll(path_item_ungrouped, %(regex_replacement_{idx})s, %(alias_{idx})s) as {name}"
+                        )
+                    elif idx == len(self._filter.path_replacements) - 1:
+                        _fields.append(
+                            f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item"
+                        )
+                    else:
+                        _fields.append(
+                            f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item_{idx}"
+                        )
+                    params[f"regex_replacement_{idx}"] = regex
+                    params[f"alias_{idx}"] = alias
+
+        else:
+            _fields.append("multiMatchAnyIndex(path_item_ungrouped, %(regex_groupings)s) AS group_index")
+            _fields.append("if(group_index > 0, %(groupings)s[group_index], path_item_ungrouped) AS path_item")
+
+        return _fields, params
 
     def _get_current_url_parsing(self):
         path_type, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")

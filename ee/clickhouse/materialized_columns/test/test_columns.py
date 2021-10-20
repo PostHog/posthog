@@ -1,7 +1,6 @@
 import random
 from datetime import timedelta
 from time import sleep
-from unittest.mock import patch
 from uuid import uuid4
 
 from freezegun import freeze_time

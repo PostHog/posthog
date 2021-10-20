@@ -95,6 +95,9 @@ class FunnelCorrelation:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return self.get_properties_query()
 
+        if self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
+            return self.get_event_property_query()
+
         return self.get_event_query()
 
     def get_event_query(self) -> Tuple[str, Dict[str, Any]]:
@@ -102,31 +105,31 @@ class FunnelCorrelation:
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
         query = f"""
-            WITH 
+            WITH
                 funnel_people as ({funnel_persons_query}),
                 toDateTime(%(date_to)s) AS date_to,
                 toDateTime(%(date_from)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
 
-            SELECT 
-                event.event AS name, 
+            SELECT
+                event.event AS name,
 
-                -- If we have a `person.steps = target_step`, we know the person 
+                -- If we have a `person.steps = target_step`, we know the person
                 -- reached the end of the funnel
                 countDistinctIf(
-                    person.person_id, 
+                    person.person_id,
                     person.steps = target_step
                 ) AS success_count,
 
                 -- And the converse being for failures
                 countDistinctIf(
-                    person.person_id, 
+                    person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
 
             FROM events AS event
-            
+
             JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
                 ON pdi.distinct_id = events.distinct_id
 
@@ -139,8 +142,8 @@ class FunnelCorrelation:
 
             -- Make sure we're only looking at events before the final step, or
             -- failing that, date_to
-            WHERE 
-                -- add this condition in to ensure we can filter events before 
+            WHERE
+                -- add this condition in to ensure we can filter events before
                 -- joining funnel_people
                 event.timestamp >= date_from
                 AND event.timestamp < date_to
@@ -148,7 +151,7 @@ class FunnelCorrelation:
                 AND event.team_id = {self._team.pk}
 
                 -- Add in per person filtering on event time range. We just want
-                -- to include events that happened within the bounds of the 
+                -- to include events that happened within the bounds of the
                 -- persons time in the funnel.
                 AND event.timestamp > person.first_timestamp
                 AND event.timestamp < COALESCE(
@@ -160,19 +163,18 @@ class FunnelCorrelation:
                 -- Exclude funnel steps
                 AND event.event NOT IN funnel_step_names
             GROUP BY name
-            
-            -- To get the total success/failure numbers, we do an aggregation on 
+
+            -- To get the total success/failure numbers, we do an aggregation on
             -- the funnel people CTE and count distinct person_ids
             UNION ALL
 
-            SELECT 
-                -- Use null as a special marker for the WITH TOTALS equivelant.
+            SELECT
                 -- We're not using WITH TOTALS because the resulting queries are
                 -- not runnable in Metabase
-                '{self.TOTAL_IDENTIFIER}' as name, 
+                '{self.TOTAL_IDENTIFIER}' as name,
 
                 countDistinctIf(
-                    person.person_id, 
+                    person.person_id,
                     person.steps = target_step
                 ) AS success_count,
 
@@ -190,6 +192,87 @@ class FunnelCorrelation:
 
         return query, params
 
+    def get_event_property_query(self) -> Tuple[str, Dict[str, Any]]:
+
+        if not self._filter.correlation_event_names:
+            raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
+
+        funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
+
+        query = f"""
+            WITH
+                funnel_people as ({funnel_persons_query}),
+                toDateTime(%(date_to)s) AS date_to,
+                toDateTime(%(date_from)s) AS date_from,
+                %(target_step)s AS target_step,
+                %(funnel_step_names)s as funnel_step_names,
+                %(event_names)s as event_names
+
+            SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
+                   countDistinctIf(person_id, steps = target_step) as success_count,
+                   countDistinctIf(person_id, steps <> target_step) as failure_count
+            FROM (
+                SELECT
+                    person.person_id as person_id,
+                    person.steps as steps,
+                    events.event as event_name,
+                    -- Same as what we do in $all property queries
+                    arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
+                    arrayJoin(
+                        arrayZip(
+                            prop_keys,
+                            arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw(properties, x)), prop_keys)
+                            )
+                        ) as prop
+                FROM events AS event
+
+                JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
+                    ON pdi.distinct_id = events.distinct_id
+                JOIN funnel_people AS person
+                    ON pdi.person_id = person.person_id
+                WHERE
+                    event.timestamp >= date_from
+                    AND event.timestamp < date_to
+                    AND event.team_id = {self._team.pk}
+                    AND event.timestamp > person.first_timestamp
+                    AND event.timestamp < COALESCE(
+                        person.final_timestamp,
+                        person.first_timestamp + INTERVAL {self._funnel_persons_generator._filter.funnel_window_interval} {self._funnel_persons_generator._filter.funnel_window_interval_unit_ch()},
+                        date_to)
+                    AND event.event NOT IN funnel_step_names
+                    AND event.event IN event_names
+            )
+            GROUP BY name
+            -- Discard high cardinality / low hits properties
+            -- This removes the long tail of random properties with empty, null, or very small values
+            HAVING (success_count + failure_count) > 2
+
+            UNION ALL
+            -- To get the total success/failure numbers, we do an aggregation on
+            -- the funnel people CTE and count distinct person_ids
+            SELECT
+                '{self.TOTAL_IDENTIFIER}' as name,
+
+                countDistinctIf(
+                    person.person_id,
+                    person.steps = target_step
+                ) AS success_count,
+
+                countDistinctIf(
+                    person.person_id,
+                    person.steps <> target_step
+                ) AS failure_count
+            FROM funnel_people AS person
+        """
+        params = {
+            **funnel_persons_params,
+            "funnel_step_names": [entity.id for entity in self._filter.events],
+            "target_step": len(self._filter.entities),
+            "event_names": self._filter.correlation_event_names,
+        }
+
+        return query, params
+
     def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
 
         if not self._filter.correlation_property_names:
@@ -199,12 +282,12 @@ class FunnelCorrelation:
 
         person_prop_query, person_prop_params = self._get_properties_prop_clause()
 
-        person_query = ClickhousePersonQuery(
+        person_query, person_query_params = ClickhousePersonQuery(
             self._filter, self._team.pk, ColumnOptimizer(self._filter, self._team.pk)
         ).get_query()
 
         query = f"""
-            WITH 
+            WITH
                 funnel_people as ({funnel_persons_query}),
                 %(target_step)s AS target_step
             SELECT
@@ -246,7 +329,7 @@ class FunnelCorrelation:
                 ON person.id = funnel_people.person_id
             ) person_with_props
             -- Group by the tuple items: (property_name, property_value) generated by zip
-            GROUP BY prop.1, prop.2 
+            GROUP BY prop.1, prop.2
             UNION ALL
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
@@ -257,6 +340,7 @@ class FunnelCorrelation:
         params = {
             **funnel_persons_params,
             **person_prop_params,
+            **person_query_params,
             "target_step": len(self._filter.entities),
             "property_names": self._filter.correlation_property_names,
         }
@@ -324,7 +408,7 @@ class FunnelCorrelation:
 
         Then the odds that a person signs up given they watched the video is 5 /
         1.
-        
+
         And the odds that a person signs up given they didn't watch the video is
         2 / 10.
 
@@ -357,6 +441,8 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
+        if not self._filter.entities:
+            return FunnelCorrelationResponse(events=[], skewed=False)
 
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
 

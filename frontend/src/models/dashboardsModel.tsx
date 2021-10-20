@@ -38,6 +38,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
             show: show || false,
             useTemplate: useTemplate || '',
         }),
+        duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
+            id: id,
+            name: name || `#${id}`,
+            show: show || false,
+        }),
     }),
     loaders: ({ values }) => ({
         rawDashboards: [
@@ -105,6 +110,16 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return response
             },
+            duplicateDashboard: async ({ id, name, show }) => {
+                const result = (await api.create('api/dashboard', {
+                    use_dashboard: id,
+                    name: `${name} (Copy)`,
+                })) as DashboardType
+                if (show) {
+                    router.actions.push(urls.dashboard(result.id))
+                }
+                return result
+            },
         },
     }),
 
@@ -136,6 +151,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             },
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            duplicateDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
         },
         lastDashboardId: [
             null as null | number,
@@ -154,20 +170,33 @@ export const dashboardsModel = kea<dashboardsModelType>({
     },
 
     selectors: ({ selectors }) => ({
-        dashboards: [
+        nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                const list = Object.values(rawDashboards).sort((a, b) =>
+                return Object.values(rawDashboards).sort((a, b) =>
                     (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
                 )
-                return [...list.filter((d) => d.pinned), ...list.filter((d) => !d.pinned)]
+            },
+        ],
+        /** Display dashboards are additionally sorted by pin status: pinned first. */
+        pinSortedDashboards: [
+            () => [selectors.nameSortedDashboards],
+            (nameSortedDashboards) => {
+                return nameSortedDashboards.sort(
+                    (a, b) =>
+                        (Number(b.pinned) - Number(a.pinned)) * 10 +
+                        (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
+                )
             },
         ],
         dashboardsLoading: [
             () => [selectors.rawDashboardsLoading, selectors.sharedDashboardsLoading],
             (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
         ],
-        pinnedDashboards: [() => [selectors.dashboards], (dashboards) => dashboards.filter((d) => d.pinned)],
+        pinnedDashboards: [
+            () => [selectors.nameSortedDashboards],
+            (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),
+        ],
     }),
 
     events: ({ actions }) => ({
@@ -204,9 +233,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             )
 
             const { id } = dashboard
-            const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(
-                (d) => d.id !== id && !d.deleted
-            )
+            const nextDashboard = values.pinSortedDashboards.find((d) => d.id !== id && !d.deleted)
 
             if (values.redirect) {
                 if (nextDashboard) {
@@ -219,6 +246,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
             }
 
             actions.delayedDeleteDashboard(id)
+        },
+
+        duplicateDashboardSuccess: async ({ dashboard }) => {
+            toast(`Dashboard copied as "${dashboard.name}"!`)
         },
     }),
 

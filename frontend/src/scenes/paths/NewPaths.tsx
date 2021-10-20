@@ -6,7 +6,7 @@ import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Button, Menu, Dropdown, Tooltip, Row } from 'antd'
-import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
+import { IconPathsCompletedArrow, IconPathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
@@ -22,6 +22,8 @@ import {
 } from './pathUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
+import { userLogic } from 'scenes/userLogic'
+import { AvailableFeature } from '~/types'
 
 function NoData(): JSX.Element {
     return (
@@ -47,6 +49,9 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
     const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(pathsLogic(insightProps))
     const [pathItemCards, setPathItemCards] = useState<PathNodeData[]>([])
+    const { user } = useValues(userLogic)
+
+    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
     useEffect(() => {
         setPathItemCards([])
@@ -319,7 +324,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                                                 >
                                                     <span className="text-small">
                                                         <span style={{ paddingRight: 8 }}>
-                                                            <PathsCompletedArrow />
+                                                            <IconPathsCompletedArrow />
                                                         </span>{' '}
                                                         Continuing
                                                     </span>{' '}
@@ -356,7 +361,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                                                                 alignItems: 'center',
                                                             }}
                                                         >
-                                                            <PathsDropoffArrow />
+                                                            <IconPathsDropoffArrow />
                                                         </span>{' '}
                                                         Dropping off
                                                     </span>{' '}
@@ -474,26 +479,33 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                                                         >
                                                             Set as path start
                                                         </Menu.Item>
-                                                        <Menu.Item
-                                                            onClick={() =>
-                                                                setFilter({ end_point: pageUrl(pathItemCard) })
-                                                            }
-                                                        >
-                                                            Set as path end
-                                                        </Menu.Item>
-                                                        <Menu.Item
-                                                            onClick={() => {
-                                                                updateExclusions([
-                                                                    ...(filter.exclude_events || []),
-                                                                    pageUrl(pathItemCard, false),
-                                                                ])
-                                                            }}
-                                                        >
-                                                            Exclude path item
-                                                        </Menu.Item>
-                                                        <Menu.Item onClick={() => viewPathToFunnel(pathItemCard)}>
-                                                            View funnel
-                                                        </Menu.Item>
+                                                        {hasAdvancedPaths && (
+                                                            <>
+                                                                <Menu.Item
+                                                                    onClick={() =>
+                                                                        setFilter({ end_point: pageUrl(pathItemCard) })
+                                                                    }
+                                                                >
+                                                                    Set as path end
+                                                                </Menu.Item>
+                                                                <Menu.Item
+                                                                    onClick={() => {
+                                                                        updateExclusions([
+                                                                            ...(filter.exclude_events || []),
+                                                                            pageUrl(pathItemCard, false),
+                                                                        ])
+                                                                    }}
+                                                                >
+                                                                    Exclude path item
+                                                                </Menu.Item>
+
+                                                                <Menu.Item
+                                                                    onClick={() => viewPathToFunnel(pathItemCard)}
+                                                                >
+                                                                    View funnel
+                                                                </Menu.Item>
+                                                            </>
+                                                        )}
                                                         <Menu.Item
                                                             onClick={() => copyToClipboard(pageUrl(pathItemCard))}
                                                         >

@@ -16,8 +16,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { zeroPad } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelStepDropdown } from 'scenes/funnels/FunnelStepDropdown'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
@@ -100,7 +98,6 @@ export const renderGraphAndHeader = (
     dashboardItemId?: number,
     useCustomName?: boolean
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const stepIndex = step?.order ?? 0
     if (rowIndex === 0 || rowIndex === 1) {
         // Empty cell
@@ -152,7 +149,7 @@ export const renderGraphAndHeader = (
                             ) : (
                                 <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
                             )}
-                            {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && <FunnelStepDropdown index={stepIndex} />}
+                            <FunnelStepDropdown index={stepIndex} />
                         </div>
                     ),
                     props: {
@@ -190,7 +187,7 @@ export const renderGraphAndHeader = (
                         <div className="funnel-step-title">
                             <span className="funnel-step-glyph">{zeroPad(humanizeOrder(stepIndex), 2)}</span>
                             <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
-                            {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && <FunnelStepDropdown index={stepIndex} />}
+                            <FunnelStepDropdown index={stepIndex} />
                         </div>
                     ),
                     props: {
