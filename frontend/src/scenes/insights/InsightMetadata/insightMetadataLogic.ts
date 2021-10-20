@@ -25,9 +25,9 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
         showEditMode: (property: keyof DashboardItemType) => ({ property }),
         showViewMode: (property: keyof DashboardItemType) => ({ property }),
     },
-    connect: {
-        actions: [insightLogic, ['setInsight', 'updateInsight']],
-    },
+    connect: ({ insightProps }: InsightMetadataLogicProps) => ({
+        actions: [insightLogic(insightProps), ['setInsight', 'updateInsight']],
+    }),
     reducers: ({ props }) => ({
         insightMetadata: [
             cleanMetadataValues(props.insight ?? {}),
