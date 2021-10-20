@@ -70,13 +70,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                             ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
                             ...(filters.searchTerm && { search: filters.searchTerm }),
                             ...(filters.insightType?.toLowerCase() !== 'all types' && {
-                                insight: filters.insightType.toLowerCase(),
+                                insight: filters.insightType.toUpperCase(),
                             }),
                             ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
-                            ...(filters.dates.dateFrom && {
-                                date_from: filters.dates.dateFrom,
-                                date_to: filters.dates.dateTo,
-                            }),
+                            ...(filters.dates.dateFrom &&
+                                filters.dates.dateFrom !== 'all' && {
+                                    date_from: filters.dates.dateFrom,
+                                    date_to: filters.dates.dateTo,
+                                }),
                         })
                 )
                 return response
