@@ -1,8 +1,6 @@
 import datetime
 import json
 
-import celery
-from django.conf import settings
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q

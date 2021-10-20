@@ -7,14 +7,9 @@ from django.utils.timezone import now
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.util import cache_for
 from posthog.models.property import PropertyName, TableWithProperties
+from posthog.models.settings import materialized_columns_enabled
 from posthog.models.utils import generate_random_short_suffix
-from posthog.settings import (
-    CLICKHOUSE_CLUSTER,
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_REPLICATION,
-    MATERIALIZED_COLUMNS_ENABLED,
-    TEST,
-)
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION, TEST
 
 ColumnName = str
 
@@ -33,7 +28,7 @@ def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, C
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
-    if rows and MATERIALIZED_COLUMNS_ENABLED:
+    if rows and materialized_columns_enabled():
         return {extract_property(comment): column_name for comment, column_name in rows}
     else:
         return {}

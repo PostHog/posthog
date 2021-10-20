@@ -20,6 +20,7 @@ from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
 from .sessions_filter import SessionsFilter
+from .settings import Settings
 from .team import Team
 from .user import User, UserManager
 
@@ -53,6 +54,7 @@ __all__ = [
     "PropertyDefinition",
     "SessionRecordingEvent",
     "SessionsFilter",
+    "Settings",
     "Team",
     "User",
     "UserManager",
