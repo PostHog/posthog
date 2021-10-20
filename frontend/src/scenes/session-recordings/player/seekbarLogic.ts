@@ -77,8 +77,9 @@ export const seekbarLogic = kea<seekbarLogicType>({
             actions.seek(nextTime)
             breakpoint()
         },
-        handleSeek: async ({ newX }) => {
+        handleSeek: ({ newX }) => {
             const end = values.slider?.offsetWidth ?? 0
+            console.log('SETTING THUM LEFT')
             actions.setThumbLeftPos(clamp(newX, 0, end) - THUMB_OFFSET)
         },
         handleMouseMove: ({ event }) => {

@@ -219,7 +219,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setPlay: () => {
             actions.stopAnimation()
-            actions.seek(values.zeroOffsetTime.current, true)
+            actions.seek(values.time.current, true)
             actions.updateAnimation()
         },
         setPause: () => {

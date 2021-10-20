@@ -10,6 +10,7 @@ $thumb_size: 14px;
 
     .thumb {
         z-index: 4;
+        backface-visibility: hidden;
         top: 0;
         left: -$thumb_size / 2;
         position: absolute;
