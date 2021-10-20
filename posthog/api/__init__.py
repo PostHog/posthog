@@ -112,7 +112,7 @@ if is_clickhouse_enabled():
 
     # Legacy endpoints CH (to be removed eventually)
     router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")  # Should be completely unused now
-    router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")
+    router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")  # Should be completely unused now
     router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")
     router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
     router.register(r"paths", LegacyClickhousePathsViewSet, basename="paths")
@@ -134,7 +134,7 @@ else:
     router.register(r"insight", insight.LegacyInsightViewSet)
     router.register(r"action", action.LegacyActionViewSet)  # Should be completely unused now
     router.register(r"person", person.LegacyPersonViewSet)
-    router.register(r"event", event.LegacyEventViewSet)
+    router.register(r"event", event.LegacyEventViewSet)  # Should be completely unused now
     router.register(r"paths", paths.LegacyPathsViewSet, basename="paths")
     router.register(r"element", element.LegacyElementViewSet)
     router.register(r"cohort", cohort.LegacyCohortViewSet)
