@@ -77,7 +77,7 @@ const PropertyNamesSelectBox = ({ onBlur }: { onBlur?: (selectedProperties: stri
                         )}
 
                         <div className="selection-status-text">
-                            {selectedProperties.size} or {properties.length} selected
+                            {selectedProperties.size} of {properties.length} selected
                         </div>
 
                         <CaretDownFilled />
