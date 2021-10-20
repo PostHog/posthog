@@ -69,11 +69,17 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                 : []
             try {
                 const queryString = props.temporaryToken ? `?temporary_token=${props.temporaryToken}` : ''
-                const pathEnding = action.id ? `${action.id}/` : ''
-                action = await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/actions/${pathEnding}${queryString}`,
-                    action
-                )
+                if (action.id) {
+                    action = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/actions/${action.id}/${queryString}`,
+                        action
+                    )
+                } else {
+                    action = await api.create(
+                        `api/projects/${teamLogic.values.currentTeamId}/actions/${queryString}`,
+                        action
+                    )
+                }
             } catch (response) {
                 if (response.code === 'unique') {
                     // Below works because `detail` in the format:
