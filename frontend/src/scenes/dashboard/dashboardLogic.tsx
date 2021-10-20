@@ -19,29 +19,20 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 export const dashboardLogic = kea<dashboardLogicType>({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
-    props: {} as {
-        id?: number
-        shareToken?: string
-        internal?: boolean
-    },
+    props: {} as { id?: number; shareToken?: string; internal?: boolean },
+
     key: (props) => props.id || 'dashboardLogic',
 
     actions: {
         addNewDashboard: true,
-        loadDashboardItems: ({
-            refresh,
-            dive_source_id,
-        }: {
-            refresh?: boolean
-            dive_source_id?: number
-        } = {}) => ({
+        loadDashboardItems: ({ refresh, dive_source_id }: { refresh?: boolean; dive_source_id?: number } = {}) => ({
             refresh,
             dive_source_id,
         }),
         triggerDashboardUpdate: (payload) => ({ payload }),
-        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }),
+        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }), // whether the dashboard is shared or not
         // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
-        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }), // see DashboardMode
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
@@ -56,12 +47,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
             dateTo,
             reloadDashboard,
         }),
-        addGraph: true,
+        addGraph: true, // takes the user to insights to add a graph
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (id: number, loading = false) => ({ id, loading }),
-        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }),
+        setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
+        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }), // id represents dashboardItem id's
         setRefreshError: (id: number) => ({ id }),
         setPageTitle: (title: string) => ({ title }),
     },
@@ -73,10 +64,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 loadDashboardItems: async ({
                     refresh,
                     dive_source_id,
-                }: {
-                    refresh?: boolean
-                    dive_source_id?: number
-                } = {}) => {
+                }: { refresh?: boolean; dive_source_id?: number } = {}) => {
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
                         return
@@ -203,14 +191,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         refreshStatus: [
-            {} as Record<
-                number,
-                {
-                    loading?: boolean
-                    refreshed?: boolean
-                    error?: boolean
-                }
-            >,
+            {} as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
             {
                 setRefreshStatus: (state, { id, loading }) => ({
                     ...state,
@@ -219,14 +200,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 setRefreshStatuses: (_, { ids, loading }) =>
                     Object.fromEntries(
                         ids.map((id) => [id, loading ? { loading: true } : { refreshed: true }])
-                    ) as Record<
-                        number,
-                        {
-                            loading?: boolean
-                            refreshed?: boolean
-                            error?: boolean
-                        }
-                    >,
+                    ) as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
                 setRefreshError: (state, { id }) => ({
                     ...state,
                     [id]: { error: true },
@@ -255,17 +229,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
         lastDashboardModeSource: [
             null as DashboardEventSource | null,
             {
-                setDashboardMode: (_, { source }) => source,
+                setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
             },
         ],
         autoRefresh: [
             {
                 interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
                 enabled: false,
-            } as {
-                interval: number
-                enabled: boolean
-            },
+            } as { interval: number; enabled: boolean },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },

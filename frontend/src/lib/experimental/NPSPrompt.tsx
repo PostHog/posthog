@@ -46,7 +46,7 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
         setPayload: (payload: NPSPayload | null) => ({ payload }),
         submit: (completed?: boolean) => ({ completed }),
         dismiss: true,
-        send: (result: 'completed' | 'partial' | 'dismissed') => ({ result }),
+        send: (result: 'completed' | 'partial' | 'dismissed') => ({ result }), // Sends response data to PostHog
     },
     reducers: {
         step: [
