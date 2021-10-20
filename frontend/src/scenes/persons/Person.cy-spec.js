@@ -7,6 +7,7 @@ describe('<Person /> ', () => {
 
     beforeEach(() => {
         cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
         cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
         cy.intercept('/api/person/', { fixture: 'api/person' }).as('api_person')
         cy.intercept('/api/projects/2/events/?', { fixture: 'api/event/single_person_events' }).as('api_event')
