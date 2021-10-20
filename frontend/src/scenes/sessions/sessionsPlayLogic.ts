@@ -121,7 +121,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 error
             )
         },
-        recordUsage: async ({ recordingData, loadTime }, breakpoint) => {
+        reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
             await breakpoint()
             eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 0)
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
