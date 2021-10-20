@@ -3,7 +3,6 @@ import { getContext } from 'kea'
 import '~/styles'
 import { worker } from '../frontend/src/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { withApi } from './ApiSelector/withApi'
 
 const setupMsw = () => {
     // Make sure the msw worker is started, if we're running in browser
@@ -54,5 +53,4 @@ export const decorators = [
         worker.resetHandlers()
         return <Story />
     },
-    withApi,
 ]
