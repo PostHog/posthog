@@ -194,12 +194,10 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     except AttributeError:
         # Report problem in next block
         pass
-    if not user:
-        report_no_org_user_found(organization_id)
-    return user  # type: ignore
-
-
-def report_no_org_user_found(organization_id: str) -> None:
-    with configure_scope() as scope:
-        scope.set_context("org", {"organization_id": organization_id})
-        capture_exception(Exception("No user found for org while generating report"))
+    finally:
+        if not user:
+            capture_exception(
+                Exception("No user found for org while generating report"),
+                {"org": {"organization_id": organization_id}},
+            )
+        return user  # type: ignore
