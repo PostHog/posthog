@@ -16,12 +16,7 @@ import { compactNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-export function ActionEdit({
-    action: loadedAction,
-    id,
-    onSave,
-    temporaryToken,
-}: Omit<ActionEditLogicProps, 'teamId'>): JSX.Element {
+export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const relevantActionEditLogic = actionEditLogic({
         id: id,
