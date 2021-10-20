@@ -6,6 +6,7 @@ from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
 from posthog.models import Event, Organization, Person, Team, User
+from posthog.models.organization import OrganizationMembership
 from posthog.tasks.org_usage_report import OrgReport, send_all_org_usage_reports
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
@@ -23,7 +24,9 @@ def factory_org_usage_report(
         ) -> Team:
             org = Organization.objects.create(name="New Org", for_internal_metrics=for_internal_metrics)
             team = Team.objects.create(organization=org, name="Default Project")
-            User.objects.create_and_join(org, org_owner_email, None)
+            User.objects.create_and_join(
+                organization=org, email=org_owner_email, password=None, level=OrganizationMembership.Level.OWNER
+            )
             return team
 
         def select_report_by_org_id(self, org_id: str, reports: List[OrgReport]) -> OrgReport:
