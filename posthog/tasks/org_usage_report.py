@@ -183,6 +183,7 @@ def get_product_name(realm: str, license_keys: List[str]) -> str:
 
 def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     # Find the membership object for the org owner
+    user = None
     membership = OrganizationMembership.objects.filter(
         organization_id=organization_id, level=OrganizationMembership.Level.OWNER
     ).first()
