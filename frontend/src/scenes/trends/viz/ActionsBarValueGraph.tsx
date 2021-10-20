@@ -57,11 +57,15 @@ export function ActionsBarValueGraph({
         setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
-    useEffect(() => {
-        if (results) {
-            updateData()
-        }
-    }, [results, color])
+    useEffect(
+        () => {
+            if (results) {
+                updateData()
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [results, color]
+    )
 
     return data && total > 0 ? (
         <LineGraph

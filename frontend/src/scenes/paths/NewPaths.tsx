@@ -53,10 +53,14 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
 
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
-    useEffect(() => {
-        setPathItemCards([])
-        renderPaths()
-    }, [paths, !pathsLoading, size, color])
+    useEffect(
+        () => {
+            setPathItemCards([])
+            renderPaths()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [paths, !pathsLoading, size, color]
+    )
 
     const createCanvas = (width: number, height: number): D3Selector => {
         return d3

@@ -8,9 +8,13 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
     const { exampleEmail, listFilters } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('')
 
-    useEffect(() => {
-        setSearchTerm(listFilters.search)
-    }, [])
+    useEffect(
+        () => {
+            setSearchTerm(listFilters.search)
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        []
+    )
 
     return (
         <Input.Search

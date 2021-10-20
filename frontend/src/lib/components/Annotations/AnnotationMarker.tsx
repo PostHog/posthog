@@ -83,14 +83,18 @@ export function AnnotationMarker({
 
     const visible = focused || (!dynamic && hovered)
 
-    useEffect(() => {
-        if (visible) {
-            reportAnnotationViewed(annotations)
-        } else {
-            reportAnnotationViewed(null)
-            /* We report a null value to cancel (if applicable) the report because the annotation was closed */
-        }
-    }, [visible])
+    useEffect(
+        () => {
+            if (visible) {
+                reportAnnotationViewed(annotations)
+            } else {
+                reportAnnotationViewed(null)
+                /* We report a null value to cancel (if applicable) the report because the annotation was closed */
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [visible]
+    )
 
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -119,12 +123,16 @@ export function AnnotationMarker({
         closePopup()
     }
 
-    useEffect(() => {
-        document.addEventListener('mousedown', deselect)
-        return () => {
-            document.removeEventListener('mousedown', deselect)
-        }
-    }, [])
+    useEffect(
+        () => {
+            document.addEventListener('mousedown', deselect)
+            return () => {
+                document.removeEventListener('mousedown', deselect)
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        []
+    )
 
     if (
         dynamic &&

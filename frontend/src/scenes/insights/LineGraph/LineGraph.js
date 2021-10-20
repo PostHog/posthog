@@ -75,9 +75,13 @@ export function LineGraph({
 
     useEscapeKey(() => setFocused(false), [focused])
 
-    useEffect(() => {
-        buildChart()
-    }, [datasets, color, visibilityMap])
+    useEffect(
+        () => {
+            buildChart()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [datasets, color, visibilityMap]
+    )
 
     // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border.
     // Let's manually remove tooltips when the chart is being hovered over. #5061
@@ -96,13 +100,17 @@ export function LineGraph({
     // annotation related effects
 
     // update boundaries and axis padding when user hovers with mouse or annotations load
-    useEffect(() => {
-        if (annotationsCondition && myLineChart.current) {
-            myLineChart.current.options.scales.xAxes[0].ticks.padding = annotationInRange || focused ? 35 : 0
-            myLineChart.current.update()
-            calculateBoundaries()
-        }
-    }, [annotationsLoading, annotationsCondition, annotationsList, annotationInRange])
+    useEffect(
+        () => {
+            if (annotationsCondition && myLineChart.current) {
+                myLineChart.current.options.scales.xAxes[0].ticks.padding = annotationInRange || focused ? 35 : 0
+                myLineChart.current.update()
+                calculateBoundaries()
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [annotationsLoading, annotationsCondition, annotationsList, annotationInRange]
+    )
 
     useEffect(() => {
         if (annotationsCondition && datasets?.[0]?.days?.length > 0) {
@@ -115,18 +123,26 @@ export function LineGraph({
     }, [datasets, annotationsList, annotationsCondition])
 
     // recalculate diff if interval type selection changes
-    useEffect(() => {
-        if (annotationsCondition && datasets?.[0]?.days) {
-            updateDiffType(datasets[0].days)
-        }
-    }, [datasets, type, annotationsCondition])
+    useEffect(
+        () => {
+            if (annotationsCondition && datasets?.[0]?.days) {
+                updateDiffType(datasets[0].days)
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [datasets, type, annotationsCondition]
+    )
 
     // update only boundaries when window size changes or chart type changes
-    useEffect(() => {
-        if (annotationsCondition) {
-            calculateBoundaries()
-        }
-    }, [myLineChart.current, size, type, annotationsCondition])
+    useEffect(
+        () => {
+            if (annotationsCondition) {
+                calculateBoundaries()
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [myLineChart.current, size, type, annotationsCondition]
+    )
 
     function calculateBoundaries() {
         const boundaryLeftExtent = myLineChart.current.scales['x-axis-0'].left

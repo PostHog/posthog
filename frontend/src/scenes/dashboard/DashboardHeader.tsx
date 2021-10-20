@@ -164,15 +164,19 @@ export function DashboardHeader(): JSX.Element {
         </Button>
     )
 
-    useEffect(() => {
-        if (dashboardMode === DashboardMode.Edit) {
-            if (lastDashboardModeSource === DashboardEventSource.AddDescription) {
-                setTimeout(() => descriptionInputRef.current?.focus(), 10)
-            } else if (!isMobile()) {
-                setTimeout(() => nameInputRef.current?.focus(), 10)
+    useEffect(
+        () => {
+            if (dashboardMode === DashboardMode.Edit) {
+                if (lastDashboardModeSource === DashboardEventSource.AddDescription) {
+                    setTimeout(() => descriptionInputRef.current?.focus(), 10)
+                } else if (!isMobile()) {
+                    setTimeout(() => nameInputRef.current?.focus(), 10)
+                }
             }
-        }
-    }, [dashboardMode])
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [dashboardMode]
+    )
 
     return (
         <>

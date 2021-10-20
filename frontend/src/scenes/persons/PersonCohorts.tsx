@@ -9,11 +9,15 @@ export function PersonCohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(personsLogic)
     const { loadCohorts, navigateToCohort } = useActions(personsLogic)
 
-    useEffect(() => {
-        if (cohorts === null && !cohortsLoading) {
-            loadCohorts()
-        }
-    }, [cohorts, cohortsLoading])
+    useEffect(
+        () => {
+            if (cohorts === null && !cohortsLoading) {
+                loadCohorts()
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [cohorts, cohortsLoading]
+    )
 
     if (cohortsLoading) {
         return <Skeleton paragraph={{ rows: 2 }} active />

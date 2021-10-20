@@ -72,25 +72,29 @@ export function ToolbarButton(): JSX.Element {
     // (Should be removed when we want to roll this out broadly)
     const showFeatureFlags = featureFlags[FEATURE_FLAGS.TOOLBAR_FEATURE_FLAGS]
 
-    useEffect(() => {
-        globalMouseMove.current = function (e: MouseEvent): void {
-            const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
-            if (buttonDiv) {
-                const rect = buttonDiv.getBoundingClientRect()
-                const x = rect.left + rect.width / 2
-                const y = rect.top + rect.height / 2
-                const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
+    useEffect(
+        () => {
+            globalMouseMove.current = function (e: MouseEvent): void {
+                const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
+                if (buttonDiv) {
+                    const rect = buttonDiv.getBoundingClientRect()
+                    const x = rect.left + rect.width / 2
+                    const y = rect.top + rect.height / 2
+                    const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
 
-                const maxDistance = isAuthenticated ? 300 : 100
+                    const maxDistance = isAuthenticated ? 300 : 100
 
-                if (distance >= maxDistance && toolbarButtonLogic.values.extensionPercentage !== 0) {
-                    setExtensionPercentage(0)
+                    if (distance >= maxDistance && toolbarButtonLogic.values.extensionPercentage !== 0) {
+                        setExtensionPercentage(0)
+                    }
                 }
             }
-        }
-        window.addEventListener('mousemove', globalMouseMove.current)
-        return () => window.removeEventListener('mousemove', globalMouseMove.current)
-    }, [isAuthenticated])
+            window.addEventListener('mousemove', globalMouseMove.current)
+            return () => window.removeEventListener('mousemove', globalMouseMove.current)
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isAuthenticated]
+    )
 
     // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
     const clickEvents = useLongPress(

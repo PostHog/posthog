@@ -57,18 +57,22 @@ export function PluginSource(): JSX.Element {
     const { setEditingSource, editPluginSource } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
-    useEffect(() => {
-        if (editingPlugin) {
-            const newPlugin = !editingPlugin.source && Object.keys(editingPlugin.config_schema).length === 0
-            form.setFieldsValue({
-                name: editingPlugin.name || 'Untitled Plugin',
-                source: newPlugin ? defaultSource : editingPlugin.source,
-                configSchema: JSON.stringify(newPlugin ? defaultConfig : editingPlugin.config_schema, null, 2),
-            })
-        } else {
-            form.resetFields()
-        }
-    }, [editingPlugin?.id, editingSource])
+    useEffect(
+        () => {
+            if (editingPlugin) {
+                const newPlugin = !editingPlugin.source && Object.keys(editingPlugin.config_schema).length === 0
+                form.setFieldsValue({
+                    name: editingPlugin.name || 'Untitled Plugin',
+                    source: newPlugin ? defaultSource : editingPlugin.source,
+                    configSchema: JSON.stringify(newPlugin ? defaultConfig : editingPlugin.config_schema, null, 2),
+                })
+            } else {
+                form.resetFields()
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [editingPlugin?.id, editingSource]
+    )
 
     function savePluginSource(values: any): void {
         if (editingPlugin) {

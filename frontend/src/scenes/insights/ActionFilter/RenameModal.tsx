@@ -68,12 +68,16 @@ function useSelectAllText(
 ): void {
     // Hacky setTimeout is needed to select all text on modal open
     // https://github.com/ant-design/ant-design/issues/8668#issuecomment-352955313
-    useEffect(() => {
-        const autoFocusTimeout = setTimeout(() => {
-            if (ref.current) {
-                ref.current?.focus(options)
-            }
-        }, 0)
-        return () => clearTimeout(autoFocusTimeout)
-    }, dependencies)
+    useEffect(
+        () => {
+            const autoFocusTimeout = setTimeout(() => {
+                if (ref.current) {
+                    ref.current?.focus(options)
+                }
+            }, 0)
+            return () => clearTimeout(autoFocusTimeout)
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        dependencies
+    )
 }

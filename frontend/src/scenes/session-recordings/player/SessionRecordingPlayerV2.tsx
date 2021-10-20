@@ -15,14 +15,18 @@ export function SessionRecordingPlayerV2(): JSX.Element {
     const frame = useRef<HTMLDivElement | null>(null)
 
     // Need useEffect to populate replayer on component paint
-    useEffect(() => {
-        if (frame.current && isPlayable) {
-            stopAnimation()
-            initReplayer(frame)
+    useEffect(
+        () => {
+            if (frame.current && isPlayable) {
+                stopAnimation()
+                initReplayer(frame)
 
-            return () => stopAnimation()
-        }
-    }, [frame, isPlayable])
+                return () => stopAnimation()
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [frame, isPlayable]
+    )
 
     const toggleFullScreen = (): void => {
         if (screenfull.isEnabled && frame.current) {
