@@ -78,10 +78,18 @@ class ColumnOptimizer:
         #
         # See ee/clickhouse/queries/trends/breakdown.py#get_query or
         # ee/clickhouse/queries/breakdown_props.py#get_breakdown_prop_values
-        if self.filter.breakdown_type in ["event", "person"]:
+        if self.filter.breakdown_type in ["person"]:
             # :TRICKY: We only support string breakdown for event/person properties
             assert isinstance(self.filter.breakdown, str)
             counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
+
+        if self.filter.breakdown_type in ["event"]:
+            # :TRICKY: We only support string breakdown for event/person properties
+            if isinstance(self.filter.breakdown, str):
+                counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
+            else:
+                for b in self.filter.breakdown:
+                    counter[(b, self.filter.breakdown_type)] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):

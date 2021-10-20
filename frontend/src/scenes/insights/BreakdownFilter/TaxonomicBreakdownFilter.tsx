@@ -5,12 +5,14 @@ import {
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicBreakdownButton } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues } from 'kea'
 import { cohortsModel } from '~/models/cohortsModel'
 import './TaxonomicBreakdownFilter.scss'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -19,6 +21,7 @@ export interface TaxonomicBreakdownFilterProps {
 
 export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdown_type } = filters
+    const { featureFlags } = useValues(featureFlagLogic)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -28,7 +31,7 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
     const hasSelectedBreakdown = breakdown && typeof breakdown === 'string'
 
     const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b) => !!b)
-    const breakdownParts = breakdownArray.map((b) => (b === 'all' ? b : parseInt(`${b}`)))
+    const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))).filter((b) => !!b)
     const { cohorts } = useValues(cohortsModel)
     const tags = breakdownArray
         .filter((b) => !!b)
@@ -55,30 +58,39 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
             )
         })
 
+    const onChange = featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+        ? (changedBreakdown: TaxonomicFilterValue, groupType: TaxonomicFilterGroupType): void => {
+              const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
+
+              if (changedBreakdownType) {
+                  const newFilters = {
+                      breakdown: [...breakdownParts, changedBreakdown],
+                      breakdown_type: changedBreakdownType,
+                  }
+                  console.log({ newFilters, breakdownParts, breakdownArray })
+                  setFilters(newFilters)
+              }
+          }
+        : (changedBreakdown: TaxonomicFilterValue, groupType: TaxonomicFilterGroupType): void => {
+              const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
+
+              if (changedBreakdownType) {
+                  setFilters({
+                      breakdown:
+                          groupType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                              ? [...breakdownParts, changedBreakdown]
+                              : changedBreakdown,
+                      breakdown_type: changedBreakdownType,
+                  })
+              }
+          }
     return (
         <>
             <Space direction={'horizontal'} wrap={true}>
                 {tags}
-                {hasSelectedBreakdown ? null : (
-                    <TaxonomicBreakdownButton
-                        breakdownType={breakdownType}
-                        onChange={(changedBreakdown, groupType) => {
-                            const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(
-                                groupType
-                            ) as BreakdownType
-
-                            if (changedBreakdownType) {
-                                setFilters({
-                                    breakdown:
-                                        groupType === TaxonomicFilterGroupType.CohortsWithAllUsers
-                                            ? [...breakdownParts, changedBreakdown]
-                                            : changedBreakdown,
-                                    breakdown_type: changedBreakdownType,
-                                })
-                            }
-                        }}
-                    />
-                )}
+                {!hasSelectedBreakdown || featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] ? (
+                    <TaxonomicBreakdownButton breakdownType={breakdownType} onChange={onChange} />
+                ) : null}
             </Space>
         </>
     )

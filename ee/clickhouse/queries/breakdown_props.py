@@ -44,8 +44,14 @@ def get_breakdown_prop_values(
     if filter.breakdown_type == "person":
         value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
     else:
-        value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
-
+        if isinstance(filter.breakdown, str):
+            value_expression, _ = get_property_string_expr(
+                "events", cast(str, filter.breakdown), "%(key)s", "properties"
+            )
+        else:
+            value_expression, _ = get_property_string_expr(
+                "events", cast(str, filter.breakdown[0]), "%(key)s", "properties"
+            )
     person_join_clauses = ""
     person_join_params: Dict = {}
     person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer, entity=entity)
@@ -66,19 +72,42 @@ def get_breakdown_prop_values(
         **entity_format_params,
     )
 
-    return sync_execute(
-        elements_query,
-        {
-            "key": filter.breakdown,
-            "limit": limit,
-            "team_id": team_id,
-            "offset": filter.offset,
-            **prop_filter_params,
-            **entity_params,
-            **person_join_params,
-            **extra_params,
-        },
-    )[0][0]
+    execute_results = []
+    if isinstance(filter.breakdown, str):
+        execute_results.append(
+            sync_execute(
+                elements_query,
+                {
+                    "key": filter.breakdown,
+                    "limit": limit,
+                    "team_id": team_id,
+                    "offset": filter.offset,
+                    **prop_filter_params,
+                    **entity_params,
+                    **person_join_params,
+                    **extra_params,
+                },
+            )
+        )
+    else:
+        for b in filter.breakdown:
+            execute_results.append(
+                sync_execute(
+                    elements_query,
+                    {
+                        "key": b,
+                        "limit": limit,
+                        "team_id": team_id,
+                        "offset": filter.offset,
+                        **prop_filter_params,
+                        **entity_params,
+                        **person_join_params,
+                        **extra_params,
+                    },
+                )
+            )
+
+    return execute_results[0][0]
 
 
 def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict]:

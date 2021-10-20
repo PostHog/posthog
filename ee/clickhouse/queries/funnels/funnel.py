@@ -177,7 +177,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             timestamp,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
-            FROM ({self._get_inner_event_query()})
+                FROM ({self._get_inner_event_query()})
             """
         else:
             return f"""

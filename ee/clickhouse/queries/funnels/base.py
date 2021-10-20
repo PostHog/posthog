@@ -288,6 +288,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         steps = ", ".join(all_step_cols)
 
+        # generates ', trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(breakdown)s)) AS prop' for e.g. breadkown = $browser
+        # generates ', value AS prop' for 1 cohort
         select_prop = self._get_breakdown_select_prop()
         breakdown_conditions = ""
         extra_conditions = ""
@@ -454,10 +456,18 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 return f", {expression} AS prop"
             elif self._filter.breakdown_type == "event":
                 # :TRICKY: We only support string breakdown for event/person properties
-                assert isinstance(self._filter.breakdown, str)
-                expression, _ = get_property_string_expr(
-                    "events", self._filter.breakdown, "%(breakdown)s", "properties"
-                )
+                if isinstance(self._filter.breakdown, str):
+                    expression, _ = get_property_string_expr(
+                        "events", self._filter.breakdown, "%(breakdown)s", "properties"
+                    )
+                else:
+                    expressions = []
+                    for i, b in enumerate(self._filter.breakdown):
+                        expr, _ = get_property_string_expr("events", b, f"'{b}'", "properties")
+                        expressions.append(expr)
+
+                    delimiter = ", '::', "
+                    expression = f"concat({delimiter.join(expressions)})"
                 return f", {expression} AS prop"
             elif self._filter.breakdown_type == "cohort":
                 return ", value AS prop"
