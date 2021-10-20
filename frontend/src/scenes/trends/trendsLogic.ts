@@ -11,10 +11,10 @@ export const trendsLogic = kea<trendsLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('all_trends'),
 
-    connect: {
-        values: [insightLogic, ['filters', 'insight', 'insightLoading']],
-        actions: [insightLogic, ['loadResultsSuccess']],
-    },
+    connect: (props: InsightLogicProps) => ({
+        values: [insightLogic(props), ['filters', 'insight', 'insightLoading']],
+        actions: [insightLogic(props), ['loadResultsSuccess']],
+    }),
 
     actions: () => ({
         setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),

@@ -38,10 +38,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
-    connect: {
-        values: [taxonomicFilterLogic, ['searchQuery', 'value', 'groupType', 'groups']],
-        actions: [taxonomicFilterLogic, ['setSearchQuery', 'selectItem']],
-    },
+    connect: (props: InfiniteListLogicProps) => ({
+        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'groups']],
+        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem']],
+    }),
 
     actions: {
         selectSelected: true,

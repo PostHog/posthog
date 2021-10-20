@@ -33,10 +33,10 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 export const retentionTableLogic = kea<retentionTableLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    connect: {
-        values: [insightLogic, ['filters', 'insight', 'insightLoading'], actionsModel, ['actions']],
-        actions: [insightLogic, ['loadResultsSuccess']],
-    },
+    connect: (props: InsightLogicProps) => ({
+        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], actionsModel, ['actions']],
+        actions: [insightLogic(props), ['loadResultsSuccess']],
+    }),
     actions: () => ({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         loadMorePeople: true,
