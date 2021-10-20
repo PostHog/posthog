@@ -19,7 +19,6 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.utils import namedtuplefetchall
-from posthog.queries.sessions.utils import cached_recording
 from posthog.utils import format_query_params_absolute_url, get_milliseconds_between_dates
 
 DistinctId = str

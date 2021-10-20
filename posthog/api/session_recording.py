@@ -1,6 +1,7 @@
 from typing import Any
 
 from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -8,9 +9,10 @@ from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries.session_recordings.session_recording import SessionRecording
+from posthog.queries.session_recordings.session_recording import SessionRecordingMetaData, SessionRecordingSnapshots
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
@@ -39,9 +41,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()
 
-    def _get_session_recording(self, request, filter, session_recording_id):
-        return SessionRecording(
+    def _get_session_recording_snapshots(self, request, filter, session_recording_id):
+        return SessionRecordingSnapshots(
             request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
+        ).run()
+
+    def _get_session_recording_meta_data(self, request, session_recording_id):
+        return SessionRecordingMetaData(
+            request=request, team=self.team, session_recording_id=session_recording_id
         ).run()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -86,19 +93,45 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"results": session_recording_serializer_with_person, "has_next": more_recordings_available})
 
+    # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
-        filter = SessionRecordingsFilter(request=request)
-        session_recording = self._get_session_recording(request, filter, session_recording_id)
+        session_recording_meta_data = self._get_session_recording_meta_data(request, session_recording_id)
 
-        # Offset pagination allows session_recording api to return empty snapshots list to indicate that there is no
-        # next chunk.
-        if not filter.offset and len(session_recording.get("snapshots", [])) == 0:
-            raise exceptions.NotFound()
+        if not session_recording_meta_data.get("event_count"):
+            raise exceptions.NotFound("Session not found")
+
+        if not request.user.is_authenticated:  # for mypy
+            raise exceptions.NotAuthenticated()
+        viewed_session_recording = SessionRecordingViewed.objects.filter(
+            team=self.team, user=request.user, session_id=session_recording_id
+        ).exists()
+
+        session_recording_serializer = SessionRecordingSerializer(
+            data={**session_recording_meta_data, "session_id": session_recording_id, "viewed": viewed_session_recording}
+        )
+        session_recording_serializer.is_valid(raise_exception=True)
+
+        distinct_id = session_recording_meta_data["distinct_id"]
+        try:
+            person = Person.objects.get(persondistinctid__distinct_id=distinct_id, team=self.team)
+        except Person.DoesNotExist:
+            person = None
 
         if request.GET.get("save_view"):
             SessionRecordingViewed.objects.get_or_create(
                 team=self.team, user=request.user, session_id=session_recording_id
             )
 
-        return response.Response({"result": session_recording})
+        return response.Response(
+            {"session_recording": session_recording_serializer.data, "person": PersonSerializer(instance=person).data,}
+        )
+
+    # Paginated endpoint that returns the snapshots for the recording
+    @action(methods=["GET"], detail=True)
+    def snapshots(self, request: request.Request, **kwargs):
+        if request.method == "GET":
+            session_recording_id = kwargs["pk"]
+            filter = SessionRecordingsFilter(request=request)
+            session_recording_snapshots = self._get_session_recording_snapshots(request, filter, session_recording_id)
+            return response.Response({"result": session_recording_snapshots})

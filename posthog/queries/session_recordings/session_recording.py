@@ -1,22 +1,24 @@
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
+from django.db import connection
 from django.db.models import QuerySet
 from rest_framework.request import Request
 
 from posthog.helpers.session_recording import decompress_chunked_snapshot_data
-from posthog.models import Person, SessionRecordingEvent, Team
+from posthog.models import SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.sessions.session_recording import RECORDINGS_NUM_SNAPSHOTS_LIMIT
-from posthog.queries.sessions.utils import cached_recording
-from posthog.utils import format_query_params_absolute_url, get_milliseconds_between_dates
+from posthog.models.utils import namedtuplefetchall
+from posthog.utils import format_query_params_absolute_url
 
 DistinctId = str
 Snapshots = List[Any]
 Events = Tuple[str, str, Snapshots]
 
 
-class SessionRecording:
+RECORDINGS_NUM_CHUNKS_LIMIT = 20  # Should be tuned to find the best value
+
+
+class SessionRecordingSnapshots:
     _request: Request
     _filter: SessionRecordingsFilter
     _session_recording_id: str
@@ -31,7 +33,7 @@ class SessionRecording:
         self._filter = filter
         self._session_recording_id = session_recording_id
         self._team = team
-        self._limit = self._filter.limit if self._filter.limit else RECORDINGS_NUM_SNAPSHOTS_LIMIT
+        self._limit = self._filter.limit if self._filter.limit else RECORDINGS_NUM_CHUNKS_LIMIT
         self._offset = self._filter.offset if self._filter.offset else 0
 
     def query_recording_snapshots(self) -> Union[QuerySet, List[SessionRecordingEvent]]:
@@ -39,54 +41,78 @@ class SessionRecording:
             "timestamp"
         )
 
-    # @cached_recording TODO: uncomment once it's determined safe to cache session recordings
-    def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime], Snapshots]:
-        events = self.query_recording_snapshots()
-        if len(events) == 0:
-            return None, None, []
+    def get_paginated_chunks(self):
+        all_session_snapshots = self.query_recording_snapshots()
+        has_next = False
+        chunk_number = -1
+        filtered_snapshots = []
+        current_chunk_id = None
+        for snapshot in all_session_snapshots:
+            chunk_id = snapshot.snapshot_data.get("chunk_id")
+            if not chunk_id:
+                chunk_number += 1
+            elif chunk_id != current_chunk_id:
+                chunk_number += 1
+                current_chunk_id = snapshot.snapshot_data.get("chunk_id")
+            if chunk_number >= self._offset and chunk_number < self._offset + self._limit:
+                filtered_snapshots.append(snapshot)
+            elif chunk_number >= self._offset + self._limit:
+                has_next = True
+                break
         return (
-            events[0].distinct_id,
-            events[0].timestamp,
+            has_next,
             list(
                 decompress_chunked_snapshot_data(
-                    self._team.pk, self._session_recording_id, [e.snapshot_data for e in events]
+                    self._team.pk, self._session_recording_id, [s.snapshot_data for s in filtered_snapshots]
                 )
             ),
         )
 
     def run(self) -> Dict[str, Any]:
-        from posthog.api.person import PersonSerializer
+        has_next, snapshots = self.get_paginated_chunks()
 
-        distinct_id, start_time, snapshots = self.get_snapshot_data()
-
-        # Apply limit and offset after decompressing to account for non-fully formed chunks.
-        snapshots_subset = snapshots[self._offset : (self._offset + self._limit)]
-        duration = 0
-        if len(snapshots) > 1:
-            duration = get_milliseconds_between_dates(
-                datetime.fromtimestamp(snapshots[-1].get("timestamp", 0) / 1000.0),
-                datetime.fromtimestamp(snapshots[0].get("timestamp", 0) / 1000.0),
-            )
-        has_next = len(snapshots) > (self._offset + self._limit + 1)
         next_url = (
             format_query_params_absolute_url(self._request, self._offset + self._limit, self._limit)
             if has_next
             else None
         )
 
-        try:
-            person = (
-                PersonSerializer(Person.objects.get(team=self._team, persondistinctid__distinct_id=distinct_id)).data
-                if distinct_id
-                else None
-            )
-        except Person.DoesNotExist:
-            person = None
-
         return {
-            "snapshots": snapshots_subset,
-            "person": person,
-            "start_time": start_time,
+            "snapshots": snapshots,
             "next": next_url,
-            "duration": duration,
         }
+
+
+class SessionRecordingMetaData:
+    _request: Request
+    _session_recording_id: str
+    _team: Team
+
+    def __init__(self, request: Request, session_recording_id: str, team: Team) -> None:
+        self._request = request
+        self._session_recording_id = session_recording_id
+        self._team = team
+
+    _recording_metadata_query = """
+            SELECT
+                count(*) as event_count,
+                MIN(distinct_id) as distinct_id,
+                MIN(timestamp) AS start_time,
+                MAX(timestamp) AS end_time,
+                EXTRACT(EPOCH FROM MAX(timestamp) - MIN(timestamp)) as duration
+            FROM posthog_sessionrecordingevent
+            WHERE
+                team_id = %(team_id)s
+                AND session_id = %(session_recording_id)s
+    """
+
+    def run(self, *args, **kwargs):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                self._recording_metadata_query,
+                {"team_id": self._team.pk, "session_recording_id": self._session_recording_id},
+            )
+            query_results = namedtuplefetchall(cursor)
+        result = query_results[0]._asdict()
+
+        return result
