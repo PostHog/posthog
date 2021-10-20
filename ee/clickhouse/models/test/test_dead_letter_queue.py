@@ -9,7 +9,7 @@ from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes
 from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE, INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
-from posthog.settings import KAFKA_HOSTS
+from posthog.settings import CLICKHOUSE_DATABASE, KAFKA_HOSTS
 from posthog.test.base import BaseTest
 
 TEST_EVENT_RAW_PAYLOAD = json.dumps(
@@ -97,7 +97,9 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
 
         delay_until_clickhouse_consumes_from_kafka(DEAD_LETTER_QUEUE_TABLE, 1)
 
-        dead_letter_queue_events = sync_execute(f"SELECT * FROM {DEAD_LETTER_QUEUE_TABLE} LIMIT 1")
+        dead_letter_queue_events = sync_execute(
+            f"SELECT * FROM {CLICKHOUSE_DATABASE()}.{DEAD_LETTER_QUEUE_TABLE} LIMIT 1"
+        )
 
         dlq_event = dead_letter_queue_events[0]
 

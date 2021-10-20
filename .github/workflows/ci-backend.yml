@@ -150,6 +150,7 @@ jobs:
             #       touch frontend/dist/layout.html
             #       touch frontend/dist/shared_dashboard.html
             #       pytest -m "not ee" posthog/ -n auto --cov --cov-report=xml:coverage-postgres.xml
+            # NOTE TO SELF: -n4 10m41s
             - name: Run EE tests
               env:
                   PRIMARY_DB: 'clickhouse'
@@ -158,8 +159,8 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml --durations=100 -n 4
-                  pytest posthog -m "ee" -n 4
+                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml --durations=100 -n auto
+                  pytest posthog -m "ee" -n auto
             - uses: codecov/codecov-action@v2
               with:
                   files: ./coverage-postgres.xml,./coverage-clickhouse.xml
