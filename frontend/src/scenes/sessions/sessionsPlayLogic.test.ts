@@ -10,12 +10,14 @@ import { combineUrl } from 'kea-router'
 
 jest.mock('lib/api')
 
+const EVENTS_SESSION_RECORDING_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events/session_recording`
+
 describe('sessionsPlayLogic', () => {
     let logic: ReturnType<typeof sessionsPlayLogic.build>
 
     mockAPI(async (url) => {
         if (
-            url.pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording` || // Old api
+            url.pathname === EVENTS_SESSION_RECORDING_ENDPOINT || // Old api
             url.pathname === `api/projects/${MOCK_TEAM_ID}/session_recordings` // New api
         ) {
             return { result: recordingJson }
@@ -63,29 +65,29 @@ describe('sessionsPlayLogic', () => {
             await expectLogic(logic).toMount([eventUsageLogic])
             api.get.mockClear()
 
-            const firstNext = `api/projects/${MOCK_TEAM_ID}/events/session_recording?session_recording_id=1&offset=200&limit=200`
-            const secondNext = `api/projects/${MOCK_TEAM_ID}/events/session_recording?session_recording_id=1&offset=400&limit=200`
-            const thirdNext = `api/projects/${MOCK_TEAM_ID}/events/session_recording?session_recording_id=1&offset=600&limit=200`
+            const firstNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=200&limit=200`
+            const secondNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=400&limit=200`
+            const thirdNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=600&limit=200`
             const snaps = recordingJson.snapshots
 
             api.get
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: { ...recordingJson, next: firstNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: { ...recordingJson, next: secondNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: { ...recordingJson, next: thirdNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: recordingJson }
                     }
                 })
@@ -129,18 +131,18 @@ describe('sessionsPlayLogic', () => {
             await expectLogic(logic).toMount([eventUsageLogic])
             api.get.mockClear()
 
-            const firstNext = `api/projects/${MOCK_TEAM_ID}/events/session_recording?session_recording_id=1&offset=200&limit=200`
-            const secondNext = `api/projects/${MOCK_TEAM_ID}/events/session_recording?session_recording_id=1&offset=400&limit=200`
+            const firstNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=200&limit=200`
+            const secondNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=400&limit=200`
             const snaps = recordingJson.snapshots
 
             api.get
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: { ...recordingJson, next: firstNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: { ...recordingJson, next: secondNext } }
                     }
                 })
@@ -193,22 +195,22 @@ describe('sessionsPlayLogic', () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic])
 
-            const firstNext = `api/projects/${MOCK_TEAM_ID}/events/session_recording?session_recording_id=1&offset=200&limit=200`
-            const secondNext = `api/projects/${MOCK_TEAM_ID}/events/session_recording?session_recording_id=1&offset=400&limit=200`
+            const firstNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=200&limit=200`
+            const secondNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=400&limit=200`
 
             api.get
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: { ...recordingJson, next: firstNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: { ...recordingJson, next: secondNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return { result: recordingJson }
                     }
                 })
@@ -269,7 +271,7 @@ describe('sessionsPlayLogic', () => {
                     },
                 ]
                 api.get.mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return {
                             result: {
                                 ...recordingJson,
@@ -299,7 +301,7 @@ describe('sessionsPlayLogic', () => {
                     },
                 ]
                 api.get.mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === `api/projects/${MOCK_TEAM_ID}/events/session_recording`) {
+                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
                         return {
                             result: {
                                 ...recordingJson,
