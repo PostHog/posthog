@@ -6,7 +6,7 @@ export type GetPersonPropertiesRequest = undefined
 
 type usePersonProperiesReturnType = { properties: GetPersonPropertiesResponse | undefined; error: boolean }
 
-export const usePersonProperies = (): usePersonProperiesReturnType => {
+export const usePersonProperties = (): usePersonProperiesReturnType => {
     const [response, setResponse] = React.useState<usePersonProperiesReturnType>({
         properties: undefined,
         error: false,

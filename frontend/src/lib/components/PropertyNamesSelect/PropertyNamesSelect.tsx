@@ -2,7 +2,7 @@ import CaretDownFilled from '@ant-design/icons/lib/icons/CaretDownFilled'
 import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
 import WarningFilled from '@ant-design/icons/lib/icons/WarningFilled'
 import { Checkbox, Input } from 'antd'
-import { usePersonProperies } from 'lib/api/person-properties'
+import { usePersonProperties } from 'lib/api/person-properties'
 import React from 'react'
 import { PersonProperty } from '~/types'
 import './styles.scss'
@@ -16,7 +16,7 @@ export const PropertyNamesSelect = ({
         Provides a super simple multiselect box for selecting property names.
     */
 
-    const { properties, error } = usePersonProperies()
+    const { properties, error } = usePersonProperties()
 
     return error ? (
         <div className="property-names-select">
