@@ -282,7 +282,7 @@ export const useSelectedProperties = ({
     )
 
     const setSelectedProperties = (newSelectedProperties: string[]): void => {
-        setSelectedPropertiesSet(new Set(newSelectedProperties))
+        setAndNotify(new Set(newSelectedProperties))
     }
 
     const setAndNotify = (newSelectedProperties: Set<string>): void => {

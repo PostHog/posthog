@@ -103,7 +103,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         hideSkewWarning: true,
 
-        setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
+        setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
     }),
 
     loaders: ({ values }) => ({
@@ -133,15 +133,13 @@ export const funnelLogic = kea<funnelLogicType>({
                 events: [],
             } as Record<'events', FunnelCorrelation[]>,
             {
-                loadPropertyCorrelations: async (propertyNames: string[]) => {
+                loadPropertyCorrelations: async (excludedPropertyNames: string[]) => {
                     return (
                         await api.create('api/insight/funnel/correlation', {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
                             // Name is comma separated list of property names
-                            funnel_correlation_names: propertyNames.length
-                                ? propertyNames.map((name: string) => name.trim())
-                                : ['$all'],
+                            funnel_correlation_exclude_names: excludedPropertyNames.map((name: string) => name.trim()),
                         })
                     ).result
                 },
@@ -233,8 +231,8 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         },
-        propertyNames: {
-            setPropertyNames: (state, { propertyNames }) => propertyNames,
+        excludedPropertyNames: {
+            setExcludedPropertyNames: (state, { excludedPropertyNames }) => excludedPropertyNames,
         },
     }),
 
@@ -880,8 +878,8 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setFilters(values.conversionWindow)
         },
 
-        setPropertyNames: async ({ propertyNames }) => {
-            actions.loadPropertyCorrelations(propertyNames)
+        setExcludedPropertyNames: async ({ excludedPropertyNames }) => {
+            actions.loadPropertyCorrelations(excludedPropertyNames)
         },
     }),
 })

@@ -18,8 +18,9 @@ import { usePersonProperties } from 'lib/api/person-properties'
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes, propertyNames } = useValues(logic)
-    const { setPropertyCorrelationTypes, setPropertyNames } = useActions(logic)
+    const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes, excludedPropertyNames } =
+        useValues(logic)
+    const { setPropertyCorrelationTypes, setExcludedPropertyNames } = useActions(logic)
     const { properties: personProperties } = usePersonProperties()
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
@@ -33,7 +34,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         }
     }
 
-    const selectProps = useSelectedProperties({ properties: personProperties || [], onChange: setPropertyNames })
+    const selectProps = useSelectedProperties({
+        properties: personProperties || [],
+        onChange: setExcludedPropertyNames,
+    })
     const { setSelectedProperties } = selectProps
 
     if (!personProperties) {
@@ -55,13 +59,14 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                             <b>Correlation Analysis for:</b>
                         </Col>
                         <Col>
+                            Exclude:{' '}
                             <PropertyNamesSelectBox
                                 // NOTE: we want to make sure that if the
                                 // selected propertyNames change, we reset the
                                 // internal state of the select
-                                key={propertyNames?.toString()}
+                                key={excludedPropertyNames?.toString()}
                                 properties={personProperties}
-                                initialProperties={propertyNames}
+                                initialProperties={excludedPropertyNames}
                                 onChange={setSelectedProperties}
                             />
                         </Col>
@@ -149,7 +154,12 @@ const CorrelationPropertyCell = ({ record }: { record: FunnelCorrelation }): JSX
 }
 
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
-    const { toggleProperty } = useSelectedPropertiesContext()
+    const { toggleProperty, isSelected } = useSelectedPropertiesContext()
+    const propertyName = (record.event || '').split('::')[0]
 
-    return <button onClick={() => toggleProperty((record.event || '').split('::')[0])}>Exclude property</button>
+    return (
+        <button disabled={isSelected(propertyName)} onClick={() => toggleProperty(propertyName)}>
+            Exclude property
+        </button>
+    )
 }
