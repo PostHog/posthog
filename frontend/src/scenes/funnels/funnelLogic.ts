@@ -164,7 +164,12 @@ export const funnelLogic = kea<funnelLogicType>({
         excludedPropertyNames: [
             [] as string[],
             {
-                loadExcludedPropertyNames: async () => window.localStorage.getItem('excludedPropertyNames') || '',
+                loadExcludedPropertyNames: async () => {
+                    const excludedPropertyNamesJson = window.localStorage.getItem('excludedPropertyNames');
+                    if (excludedPropertyNamesJson) {
+                        return JSON.parse(excludedPropertyNamesJson);
+                    }
+                    return []
             },
         ],
     }),
