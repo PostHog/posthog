@@ -87,7 +87,7 @@ export const funnelLogic = kea<funnelLogicType>({
             stepNumber,
             breakdown_value,
         }),
-        openCorrelationPersonsModal: (entity: Record<string, any>, converted: 'true' | 'false') => ({
+        openCorrelationPersonsModal: (entity: Record<string, any>, converted: boolean) => ({
             entity,
             converted,
         }),
@@ -874,7 +874,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 date_to: '',
                 filters: {
                     ...values.filters,
-                    funnel_correlation_person_converted: converted,
+                    funnel_correlation_person_converted: converted ? 'true' : 'false',
                     funnel_correlation_person_entity: entity,
                 },
             })

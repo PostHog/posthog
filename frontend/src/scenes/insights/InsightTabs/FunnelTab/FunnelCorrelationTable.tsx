@@ -85,7 +85,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 onClick={() => {
                     openCorrelationPersonsModal(
                         { id: name, type: EntityTypes.EVENTS, properties: property ? [property] : [] },
-                        'true'
+                        true
                     )
                 }}
             >
@@ -102,7 +102,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 onClick={() => {
                     openCorrelationPersonsModal(
                         { id: name, type: EntityTypes.EVENTS, properties: property ? [property] : [] },
-                        'false'
+                        false
                     )
                 }}
             >
