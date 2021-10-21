@@ -128,7 +128,7 @@ class InsightSerializer(InsightBasicSerializer):
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
-        return result.get("data")
+        return result.get("result")
 
     def get_last_refresh(self, dashboard_item: SavedInsight):
         result = self.get_result(dashboard_item)
