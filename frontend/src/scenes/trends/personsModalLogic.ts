@@ -176,7 +176,10 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 } = peopleParams
                 const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
 
-                if (filters.insight === ViewType.LIFECYCLE) {
+                if (filters.funnel_correlation_person_entity) {
+                    const cleanedParams = cleanFilters(filters)
+                    people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
+                } else if (filters.insight === ViewType.LIFECYCLE) {
                     const filterParams = parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                         filters
