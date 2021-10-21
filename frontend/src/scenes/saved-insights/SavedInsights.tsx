@@ -65,15 +65,7 @@ export function SavedInsights(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { members } = useValues(membersLogic)
-    const {
-        tab,
-        order,
-        createdBy,
-        layoutView,
-        searchTerm,
-        insightType,
-        dates: { dateFrom, dateTo },
-    } = filters
+    const { tab, order, createdBy, layoutView, searchTerm, insightType, dateFrom, dateTo } = filters
     const insightTypes: InsightType[] = [
         { type: 'All types' },
         { type: 'Trends', icon: <LineChartOutlined /> },
@@ -330,7 +322,7 @@ export function SavedInsights(): JSX.Element {
                             dateFrom={dateFrom}
                             dateTo={dateTo}
                             onChange={(fromDate, toDate) =>
-                                setSavedInsightsFilters({ dates: { dateFrom: fromDate, dateTo: toDate } })
+                                setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
                             }
                         />
                     </div>

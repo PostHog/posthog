@@ -1,13 +1,14 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { objectsEqual, toParams } from 'lib/utils'
+import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
 import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { urls } from 'scenes/urls'
 
 interface InsightsResult {
     results: DashboardItemType[]
@@ -23,10 +24,8 @@ interface SavedInsightFilters {
     searchTerm: string
     insightType: string
     createdBy: number | 'All users'
-    dates: {
-        dateFrom?: string | Dayjs | undefined
-        dateTo?: string | Dayjs | undefined
-    }
+    dateFrom?: string | Dayjs | undefined
+    dateTo?: string | Dayjs | undefined
 }
 
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -37,10 +36,8 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         searchTerm: values.searchTerm || '',
         insightType: values.insightType || 'All types',
         createdBy: values.createdBy || 'All users',
-        dates: {
-            dateFrom: values?.dates?.dateFrom || undefined,
-            dateTo: values?.dates?.dateTo || undefined,
-        },
+        dateFrom: values.dateFrom || 'all',
+        dateTo: values.dateTo || undefined,
     }
 }
 
@@ -73,10 +70,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                                 insight: filters.insightType.toUpperCase(),
                             }),
                             ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
-                            ...(filters.dates.dateFrom &&
-                                filters.dates.dateFrom !== 'all' && {
-                                    date_from: filters.dates.dateFrom,
-                                    date_to: filters.dates.dateTo,
+                            ...(filters.dateFrom &&
+                                filters.dateFrom !== 'all' && {
+                                    date_from: filters.dateFrom,
+                                    date_to: filters.dateTo,
                                 }),
                         })
                 )
@@ -126,7 +123,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     },
     listeners: ({ actions, values, selectors }) => ({
         addGraph: ({ type }) => {
-            router.actions.push(`/insights?insight=${type.toString().toUpperCase()}&backToURL=/saved_insights`)
+            router.actions.push(
+                `/insights?insight=${encodeURIComponent(String(type).toUpperCase())}&backToURL=${encodeURIComponent(
+                    urls.savedInsights()
+                )}`
+            )
         },
         setSavedInsightsFilters: async (_, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
@@ -167,7 +168,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
-                return ['/saved_insights', nextValues, {}, { replace: true }]
+                return ['/saved_insights', objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: true }]
             }
         }
         return {
