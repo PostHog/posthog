@@ -158,3 +158,11 @@ def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
 
 def report_org_usage_failure(distinct_id: str, err: str) -> None:
     posthoganalytics.capture(distinct_id, "organization event usage report failure", properties={"error": err,})
+
+
+def report_license_activated(distinct_id: str, properties: Dict[str, Any]) -> None:
+    """
+    Reports a user activating their license.
+    TODO: When group analytics is shipped, we should also add the group property here.
+    """
+    posthoganalytics.capture(distinct_id, "license activated", properties)
