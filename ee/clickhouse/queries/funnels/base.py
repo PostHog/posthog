@@ -461,13 +461,20 @@ class ClickhouseFunnelBase(ABC, Funnel):
                         "events", self._filter.breakdown, "%(breakdown)s", "properties"
                     )
                 else:
-                    expressions = []
-                    for i, b in enumerate(self._filter.breakdown):
-                        expr, _ = get_property_string_expr("events", b, f"'{b}'", "properties")
-                        expressions.append(expr)
+                    if len(self._filter.breakdown) == 1:
+                        # TODO warning API input straight into a query
+                        expression, _ = get_property_string_expr(
+                            "events", self._filter.breakdown[0], f"'{self._filter.breakdown[0]}'", "properties"
+                        )
+                    else:
+                        expressions = []
+                        for i, b in enumerate(self._filter.breakdown):
+                            # TODO warning API input straight into a query
+                            expr, _ = get_property_string_expr("events", b, f"'{b}'", "properties")
+                            expressions.append(expr)
 
-                    delimiter = ", '::', "
-                    expression = f"concat({delimiter.join(expressions)})"
+                        delimiter = ", '::', "
+                        expression = f"concat({delimiter.join(expressions)})"
                 return f", {expression} AS prop"
             elif self._filter.breakdown_type == "cohort":
                 return ", value AS prop"
