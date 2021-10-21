@@ -1,10 +1,11 @@
 import json
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.serializer_helpers import ReturnDict, ReturnList
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person

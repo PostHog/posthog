@@ -305,6 +305,15 @@ class FunnelCorrelation:
         return query, params
 
     def _get_events_join_query(self) -> str:
+        """
+        This query is used to join and filter the events table corresponding to the funnel_people CTE.
+        It expects the following variables to be present in the CTE expression:
+            - funnel_people
+            - date_to
+            - date_from
+            - funnel_step_names
+        """
+
         return f"""
             JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
                 ON pdi.distinct_id = events.distinct_id
