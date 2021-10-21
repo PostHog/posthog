@@ -11,7 +11,9 @@ describe('pathsLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (['api/insight/paths/'].includes(pathname)) {
+        if (['api/insight'].includes(pathname)) {
+            return { results: [] }
+        } else if (['api/insight/path', 'api/insight/paths/', 'api/insight/123'].includes(pathname)) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
@@ -28,6 +30,7 @@ describe('pathsLogic', () => {
         it('setFilter calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilter({
+                    insight: 'PATHS',
                     step_limit: 999,
                 })
             })
@@ -51,6 +54,7 @@ describe('pathsLogic', () => {
         it('insightLogic.setFilters updates filter', async () => {
             await expectLogic(logic, () => {
                 insightLogic(props).actions.setFilters({
+                    insight: 'PATHS',
                     step_limit: 999,
                 })
             })

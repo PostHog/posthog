@@ -13,7 +13,7 @@ describe('retentionTableLogic', () => {
         const { pathname } = url
         if (['api/insight', 'api/projects/85/actions/'].includes(pathname)) {
             return { results: [] }
-        } else if (pathname === 'api/insight/retention/') {
+        } else if (['api/insight/retention/', 'api/insight/123'].includes(pathname)) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
@@ -29,37 +29,37 @@ describe('retentionTableLogic', () => {
 
         it('setFilters calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ events: [{ id: 42 }] })
+                logic.actions.setFilters({ insight: 'RETENTION', period: 'Week' })
             })
                 .toDispatchActions([
                     (action) =>
                         action.type === insightLogic(props).actionTypes.setFilters &&
-                        action.payload.filters?.events?.[0]?.id === 42,
+                        action.payload.filters?.period === 'Week',
                 ])
                 .toMatchValues(logic, {
                     filters: expect.objectContaining({
-                        events: [{ id: 42 }],
+                        period: 'Week',
                     }),
                 })
                 .toMatchValues(insightLogic(props), {
                     filters: expect.objectContaining({
-                        events: [{ id: 42 }],
+                        period: 'Week',
                     }),
                 })
         })
 
         it('insightLogic.setFilters updates filters', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ events: [{ id: 42 }] })
+                insightLogic(props).actions.setFilters({ insight: 'RETENTION', period: 'Week' })
             })
                 .toMatchValues(logic, {
                     filters: expect.objectContaining({
-                        events: [{ id: 42 }],
+                        period: 'Week',
                     }),
                 })
                 .toMatchValues(insightLogic(props), {
                     filters: expect.objectContaining({
-                        events: [{ id: 42 }],
+                        period: 'Week',
                     }),
                 })
         })
