@@ -272,9 +272,9 @@ export function ActionFilterRow({
             <EditOutlined />
         </Button>
     )
-
     const deleteButton = (
         <Button
+            style={filterCount == 1 ? { display: 'none' } : {}}
             type="link"
             onClick={onClose}
             className="row-action-btn delete"
