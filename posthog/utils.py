@@ -24,7 +24,7 @@ from typing import (
     Union,
     cast,
 )
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import lzstring
 import pytz
@@ -854,3 +854,45 @@ def format_query_params_absolute_url(request: Request, offset: Optional[int] = N
 
 def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
     return abs(int((d1 - d2).total_seconds() * 1000))
+
+
+# returns host, port, database, username, and password for a database url
+def parse_database_url(db_url: str) -> Dict[str, str]:
+    pattern = re.compile(
+        r"""
+            (?P<name>[\w\+]+)://
+            (?:
+                (?P<username>[^:/]*)
+                (?::(?P<password>[^@]*))?
+            @)?
+            (?:
+                (?:
+                    \[(?P<ipv6host>[^/\?]+)\] |
+                    (?P<ipv4host>[^/:\?]+)
+                )?
+                (?::(?P<port>[^/\?]*))?
+            )?
+            (?:/(?P<database>[^\?]*))?
+            (?:\?(?P<query>.*))?
+            """,
+        re.X,
+    )
+
+    m = pattern.match(db_url)
+    if m is not None:
+        components = m.groupdict()
+
+        if components["username"] is not None:
+            components["username"] = unquote(components["username"])
+
+        if components["password"] is not None:
+            components["password"] = unquote(components["password"])
+
+        ipv4host = components.pop("ipv4host")
+        ipv6host = components.pop("ipv6host")
+        components["host"] = ipv4host or ipv6host
+
+        if components["port"]:
+            components["port"] = int(components["port"])
+
+        return components

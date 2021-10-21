@@ -1,6 +1,8 @@
+from operator import itemgetter
 from typing import Optional
 
 from posthog.settings import CLICKHOUSE_ENABLE_STORAGE_POLICY, CLICKHOUSE_REPLICATION, KAFKA_HOSTS, TEST
+from posthog.utils import parse_database_url
 
 STORAGE_POLICY = "SETTINGS storage_policy = 'hot_to_cold'" if CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 REPLACING_TABLE_ENGINE = (
@@ -45,6 +47,8 @@ KAFKA_COLUMNS = """
 COLLAPSING_MERGE_TREE = "collapsing_merge_tree"
 REPLACING_MERGE_TREE = "replacing_merge_tree"
 
+POSTGRESQL_DATABASE_ENGINE = "MaterializedPostgreSQL('{host}:{port}', '{database}', '{username}', '{password}')"
+
 
 def table_engine(table: str, ver: Optional[str] = None, engine_type: Optional[str] = None) -> str:
     if engine_type == COLLAPSING_MERGE_TREE and ver:
@@ -77,3 +81,24 @@ def kafka_engine(
 
 def ttl_period(field: str = "created_at", weeks: int = 3):
     return "" if TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"
+
+
+def postgresql_database_engine(database_url: str):
+    username, password, port, database, host = itemgetter("username", "password", "port", "database", "host")(
+        parse_database_url(database_url)
+    )
+
+    if not username:
+        username = "postgres"
+        password = "postgres"
+
+    if not password:
+        password = ""
+
+    if not database:
+        database = "posthog"
+
+    engine_str = POSTGRESQL_DATABASE_ENGINE.format(
+        host=host, port=port, database=database, username=username, password=password
+    )
+    return engine_str

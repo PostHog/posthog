@@ -1,5 +1,5 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DATABASE_URL
 
 from .clickhouse import (
     COLLAPSING_MERGE_TREE,
@@ -7,6 +7,7 @@ from .clickhouse import (
     REPLACING_MERGE_TREE,
     STORAGE_POLICY,
     kafka_engine,
+    postgresql_database_engine,
     table_engine,
 )
 
@@ -315,3 +316,16 @@ GROUP BY
 LIMIT %(limit)s
 OFFSET %(offset)s
 """
+
+PSQL_TABLES_TO_REPLICATE = ["posthog_person"]
+
+# needs setting allow_experimental_database_materialized_postgresql=1
+MATERIALIZED_PSQL_DB_BASE_SQL = """
+CREATE DATABASE {database_name}
+ENGINE = {engine}
+SETTINGS materialized_postgresql_tables_list = '{tables}'
+""".format(
+    database_name="materialized_postgres",
+    engine=postgresql_database_engine(DATABASE_URL),
+    tables=",".join(PSQL_TABLES_TO_REPLICATE),
+)
