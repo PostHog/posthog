@@ -17,7 +17,7 @@ from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry
 from .property import Property
 from .property_definition import PropertyDefinition
-from .saved_insight import SavedInsight
+from .saved_insight import Insight
 from .session_recording_event import SessionRecordingEvent
 from .sessions_filter import SessionsFilter
 from .team import Team
@@ -30,7 +30,7 @@ __all__ = [
     "Cohort",
     "CohortPeople",
     "Dashboard",
-    "SavedInsight",
+    "Insight",
     "Element",
     "ElementGroup",
     "Entity",

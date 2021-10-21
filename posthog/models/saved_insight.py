@@ -16,7 +16,7 @@ def generate_short_id():
     return secrets.token_urlsafe(6)  # will result in 8-char strings (after encoding)
 
 
-class SavedInsight(models.Model):
+class Insight(models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.
@@ -81,8 +81,8 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
         item.save()
 
 
-@receiver(pre_save, sender=SavedInsight)
-def dashboard_item_saved(sender, instance: SavedInsight, dashboard=None, **kwargs):
+@receiver(pre_save, sender=Insight)
+def dashboard_item_saved(sender, instance: Insight, dashboard=None, **kwargs):
     if instance.filters and instance.filters != {}:
         filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
 

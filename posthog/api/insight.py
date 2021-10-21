@@ -24,7 +24,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
-from posthog.models import Event, Filter, SavedInsight, Team
+from posthog.models import Event, Filter, Insight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
@@ -42,7 +42,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
     """
 
     class Meta:
-        model = SavedInsight
+        model = Insight
         fields = [
             "id",
             "short_id",
@@ -72,7 +72,7 @@ class InsightSerializer(InsightBasicSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = SavedInsight
+        model = Insight
         fields = [
             "id",
             "short_id",
@@ -99,29 +99,29 @@ class InsightSerializer(InsightBasicSerializer):
         ]
         read_only_fields = ("created_by", "created_at", "short_id", "updated_at", "is_sample")
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> SavedInsight:
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
-            dashboard_item = SavedInsight.objects.create(team=team, created_by=request.user, **validated_data)
+            dashboard_item = Insight.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = SavedInsight.objects.create(
+            dashboard_item = Insight.objects.create(
                 team=team, last_refresh=now(), created_by=created_by, **validated_data
             )
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def update(self, instance: SavedInsight, validated_data: Dict, **kwargs) -> SavedInsight:
+    def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
 
-    def get_result(self, dashboard_item: SavedInsight):
+    def get_result(self, dashboard_item: Insight):
         if not dashboard_item.filters:
             return None
         result = get_safe_cache(dashboard_item.filters_hash)
@@ -130,7 +130,7 @@ class InsightSerializer(InsightBasicSerializer):
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("result")
 
-    def get_last_refresh(self, dashboard_item: SavedInsight):
+    def get_last_refresh(self, dashboard_item: Insight):
         result = self.get_result(dashboard_item)
         if result is not None:
             return dashboard_item.last_refresh
@@ -155,7 +155,7 @@ class InsightSerializer(InsightBasicSerializer):
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = SavedInsight.objects.all()
+    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
@@ -362,7 +362,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def _refresh_dashboard(self, request) -> None:
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
-            SavedInsight.objects.filter(pk=dashboard_id).update(last_refresh=now())
+            Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
 
 class LegacyInsightViewSet(InsightViewSet):

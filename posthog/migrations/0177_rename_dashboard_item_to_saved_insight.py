@@ -11,5 +11,5 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AlterModelTable(name="dashboarditem", table="posthog_dashboarditem",),
-        migrations.RenameModel(old_name="DashboardItem", new_name="SavedInsight",),
+        migrations.RenameModel(old_name="DashboardItem", new_name="Insight",),
     ]

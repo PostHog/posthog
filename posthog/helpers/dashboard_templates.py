@@ -21,14 +21,14 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.models.dashboard import Dashboard
-from posthog.models.saved_insight import SavedInsight
+from posthog.models.saved_insight import Insight
 
 DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
 
-    SavedInsight.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Daily Active Users (DAUs)",
@@ -40,7 +40,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         description="Shows the number of unique users that use your app everyday.",
     )
 
-    SavedInsight.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Weekly revenue (from Order Completed)",
@@ -57,7 +57,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         'Sales should be registered with an "Order Completed" event.',
     )
 
-    SavedInsight.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Cumulative DAUs",
@@ -72,7 +72,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         description="Shows the total cumulative number of unique users that have been using your app.",
     )
 
-    SavedInsight.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Repeat users over time",
@@ -90,7 +90,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         '(e.g. a user that visited your app twice in the time period will be shown under "2 days").',
     )
 
-    SavedInsight.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Sample - Purchase conversion funnel",
@@ -128,7 +128,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         "a specific action at each step.",
     )
 
-    SavedInsight.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Users by browser (last 2 weeks)",
@@ -144,7 +144,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         description="Shows a breakdown of browsers used to visit your app per unique users in the last 14 days.",
     )
 
-    SavedInsight.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Users by traffic source",

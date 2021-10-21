@@ -9,11 +9,11 @@ from posthog.models import (
     Element,
     Event,
     FeatureFlag,
+    Insight,
     Organization,
     Person,
     Plugin,
     PluginConfig,
-    SavedInsight,
     Team,
     User,
 )
@@ -24,7 +24,7 @@ admin.site.register(Element)
 admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
-admin.site.register(SavedInsight)
+admin.site.register(Insight)
 
 
 @admin.register(Plugin)
