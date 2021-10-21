@@ -268,9 +268,9 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                 }
             }
         }
+        const urlPattern = props.personUUID ? '/person/*' : '/recordings'
         return {
-            '/person/*': props.personUUID ? urlToAction : () => {},
-            '/recordings': props.personUUID ? () => {} : urlToAction,
+            [urlPattern]: urlToAction,
         }
     },
 })
