@@ -79,7 +79,10 @@ class DashboardSerializer(serializers.ModelSerializer):
                         "last_refresh": now(),
                     }
                     insight_serializer = InsightSerializer(
-                        data={**InsightSerializer(dashboard_item).data, **override_dashboard_item_data},
+                        data={
+                            **InsightSerializer(dashboard_item, context=self.context,).data,
+                            **override_dashboard_item_data,
+                        },
                         context=self.context,
                     )
                     insight_serializer.is_valid()
@@ -146,7 +149,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if dive_source_id is not None:
             items = self.add_dive_source_item(items, int(dive_source_id))
 
-        return SavedInsightSerializer(items, many=True, context=self.context).data
+        return DashboardItemSerializer(items, many=True, context=self.context).data
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
@@ -211,7 +214,8 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
     legacy_team_compatibility = True
 
 
-class SavedInsightSerializer(serializers.ModelSerializer):
+# TODO: Delete this class, as it's been replaced by InsightSerializer
+class DashboardItemSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     _get_result: Optional[Dict[str, Any]] = None
@@ -300,9 +304,10 @@ class SavedInsightSerializer(serializers.ModelSerializer):
         return value
 
 
-class SavedInsightsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+# TODO: Delete this class, as it's been replaced by InsightViewSet
+class DashboardItemViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = SavedInsight.objects.all()
-    serializer_class = SavedInsightSerializer
+    serializer_class = DashboardItemSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
@@ -368,5 +373,5 @@ def shared_dashboard(request: HttpRequest, share_token: str):
     )
 
 
-class LegacySavedInsightsViewSet(SavedInsightsViewSet):
+class LegacyDashboardItemViewSet(DashboardItemViewSet):
     legacy_team_compatibility = True

@@ -13,11 +13,15 @@ import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from '../teamLogic'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea<dashboardLogicType>({
-    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+        logic: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+    },
 
     props: {} as { id?: number; shareToken?: string; internal?: boolean },
 
@@ -450,7 +454,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
-            await api.update(`api/dashboard_item/layouts`, {
+            await api.update(`api/projects/${values.currentTeamId}/insights/layouts`, {
                 items:
                     values.items?.map((item) => {
                         const layouts: Record<string, Layout> = {}
@@ -492,7 +496,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 try {
                     breakpoint()
                     const refreshedDashboardItem = await api.get(
-                        `api/dashboard_item/${dashboardItem.id}/?${toParams({
+                        `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             share_token: props.shareToken,
                             refresh: true,
                         })}`

@@ -29,8 +29,9 @@ describe('dashboardLogic', () => {
                     { ...dashboardJson.items[1], id: 999 },
                 ],
             }
-        } else if (pathname.startsWith('api/dashboard_item/')) {
-            return dashboardJson.items.find(({ id }) => id === parseInt(pathname.split('/')[2]))
+        } else if (pathname.startsWith('api/projects/undefined/insights/')) {
+            // TODO: Get rid of undefined in the URL
+            return dashboardJson.items.find(({ id }) => id === parseInt(pathname.split('/')[4]))
         }
         return defaultAPIMocks(url)
     })

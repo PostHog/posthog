@@ -32,6 +32,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
+from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 
@@ -94,30 +95,31 @@ class InsightSerializer(InsightBasicSerializer):
             "favorited",
             "saved",
             "created_by",
+            "is_sample",
         ]
-        read_only_fields = (
-            "created_by",
-            "created_at",
-            "short_id",
-            "updated_at",
-        )
+        read_only_fields = ("created_by", "created_at", "short_id", "updated_at", "is_sample")
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> SavedInsight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
-        if not validated_data.get("dashboard", None):
+        if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
             dashboard_item = SavedInsight.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
             dashboard_item = SavedInsight.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data,
+                team=team, last_refresh=now(), created_by=created_by, **validated_data
             )
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
+
+    def update(self, instance: SavedInsight, validated_data: Dict, **kwargs) -> SavedInsight:
+        # Remove is_sample if it's set as user has altered the sample configuration
+        validated_data.setdefault("is_sample", False)
+        return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: SavedInsight):
         if not dashboard_item.filters:
@@ -127,6 +129,23 @@ class InsightSerializer(InsightBasicSerializer):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("data")
+
+    def get_last_refresh(self, dashboard_item: SavedInsight):
+        result = self.get_result(dashboard_item)
+        if result is not None:
+            return dashboard_item.last_refresh
+        dashboard_item.last_refresh = None
+        dashboard_item.save()
+        return None
+
+    def to_representation(self, instance):
+        if self.context["request"].GET.get("refresh"):
+            update_dashboard_item_cache(instance, None)
+            instance.refresh_from_db()
+
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+        return representation
 
     def validate_filters(self, value):
         # :KLUDGE: Debug code to track down the cause of blank dashboards
@@ -185,6 +204,15 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "search":
                 queryset = queryset.filter(name__icontains=request.GET["search"])
         return queryset
+
+    @action(methods=["patch"], detail=False)
+    def layouts(self, request, **kwargs):
+        """Dashboard item layouts."""
+        queryset = self.get_queryset()
+        for data in request.data["items"]:
+            queryset.filter(pk=data["id"]).update(layouts=data["layouts"])
+        serializer = self.get_serializer(queryset.all(), many=True)
+        return Response(serializer.data)
 
     # ******************************************
     # Calculated Insight Endpoints

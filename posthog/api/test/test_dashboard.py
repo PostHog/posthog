@@ -71,7 +71,7 @@ class TestDashboard(APIBaseTest):
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
         response = self.client.post(
-            "/api/dashboard_item/",
+            f"/api/projects/{self.team.id}/insights/",
             {
                 "dashboard": dashboard.pk,
                 "name": "dashboard item",
@@ -131,7 +131,7 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         item = SavedInsight.objects.get(pk=item.pk)
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-        self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
+        self.assertEqual(item.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
         with self.assertNumQueries(12):
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
@@ -234,21 +234,23 @@ class TestDashboard(APIBaseTest):
     def test_dashboard_items(self):
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
         self.client.post(
-            "/api/dashboard_item/",
+            f"/api/projects/{self.team.id}/insights/",
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboard": dashboard.pk, "name": "some_item"},
             format="json",
         )
-        response = self.client.get("/api/dashboard/{}/".format(dashboard.pk)).json()
+        response = self.client.get(f"/api/dashboard/{dashboard.pk}/").json()
         self.assertEqual(len(response["items"]), 1)
         self.assertEqual(response["items"][0]["name"], "some_item")
         self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
 
-        item_response = self.client.get("/api/dashboard_item/").json()
+        item_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")
 
         # delete
-        self.client.patch("/api/dashboard_item/{}/".format(item_response["results"][0]["id"]), {"deleted": "true"})
-        items_response = self.client.get("/api/dashboard_item/").json()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{item_response['results'][0]['id']}/", {"deleted": "true"}
+        )
+        items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(len(items_response["results"]), 0)
 
     def test_dashboard_items_history_per_user(self):
@@ -257,30 +259,34 @@ class TestDashboard(APIBaseTest):
         SavedInsight.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
 
         # Make sure the endpoint works with and without the trailing slash
-        self.client.post("/api/dashboard_item", {"filters": {"hello": "test"}}, format="json").json()
+        self.client.post(f"/api/projects/{self.team.id}/insights", {"filters": {"hello": "test"}}, format="json").json()
 
-        response = self.client.get("/api/dashboard_item/?user=true").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?user=true").json()
         self.assertEqual(response["count"], 1)
 
     def test_dashboard_items_history_saved(self):
 
-        self.client.post("/api/dashboard_item/", {"filters": {"hello": "test"}, "saved": True}, format="json").json()
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/", {"filters": {"hello": "test"}, "saved": True}, format="json"
+        ).json()
 
-        self.client.post("/api/dashboard_item/", {"filters": {"hello": "test"}}, format="json").json()
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/", {"filters": {"hello": "test"}}, format="json"
+        ).json()
 
-        response = self.client.get("/api/dashboard_item/?user=true&saved=true").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?user=true&saved=true").json()
         self.assertEqual(response["count"], 1)
 
     def test_dashboard_item_layout(self):
         dashboard = Dashboard.objects.create(name="asdasd", pinned=True, team=self.team)
         response = self.client.post(
-            "/api/dashboard_item/",
+            f"/api/projects/{self.team.id}/insights/",
             {"filters": {"hello": "test"}, "dashboard": dashboard.pk, "name": "another"},
             format="json",
         ).json()
 
         self.client.patch(
-            "/api/dashboard_item/layouts/",
+            f"/api/projects/{self.team.id}/insights/layouts/",
             {
                 "items": [
                     {
@@ -296,7 +302,7 @@ class TestDashboard(APIBaseTest):
             },
             format="json",
         )
-        items_response = self.client.get("/api/dashboard_item/{}/".format(response["id"])).json()
+        items_response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
         self.assertTrue("lg" in items_response["layouts"])
 
     def test_dashboard_from_template(self):
