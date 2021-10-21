@@ -94,14 +94,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         },
     }),
     reducers: {
-        filters: [
-            {} as Partial<SavedInsightFilters>,
+        rawFilters: [
+            null as Partial<SavedInsightFilters> | null,
             {
                 setSavedInsightsFilters: (state, { filters, merge }) =>
                     cleanFilters(
                         merge
                             ? {
-                                  ...state,
+                                  ...(state || {}),
                                   ...filters,
                               }
                             : filters
@@ -110,6 +110,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         ],
     },
     selectors: {
+        filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         nextResult: [(s) => [s.insights], (insights) => insights.next],
         previousResult: [(s) => [s.insights], (insights) => insights.previous],
         count: [(s) => [s.insights], (insights) => insights.count],
@@ -131,12 +132,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         },
         setSavedInsightsFilters: async (_, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
+            const firstLoad = selectors.rawFilters(previousState) === null
             const { filters } = values // not taking from props because sometimes we merge them
 
-            if (typeof filters.search !== 'undefined' && filters.search !== oldFilters.search) {
+            if (!firstLoad && typeof filters.search !== 'undefined' && filters.search !== oldFilters.search) {
                 await breakpoint(300)
             }
-            if (!objectsEqual(oldFilters, filters)) {
+            if (firstLoad || !objectsEqual(oldFilters, filters)) {
                 actions.loadInsights()
             }
         },
@@ -181,7 +183,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         '/saved_insights': (_, searchParams) => {
             const currentFilters = cleanFilters(values.filters)
             const nextFilters = cleanFilters(searchParams)
-            if (!objectsEqual(currentFilters, nextFilters) || Object.keys(values.filters).length === 0) {
+            if (values.rawFilters === null || !objectsEqual(currentFilters, nextFilters)) {
                 actions.setSavedInsightsFilters(nextFilters, false)
             }
         },
