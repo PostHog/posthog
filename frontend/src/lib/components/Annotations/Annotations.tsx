@@ -46,49 +46,64 @@ export function Annotations({
         )
 
     const markers: JSX.Element[] = []
+
+    const makeAnnotationMarker = (index: number, date: string, annotationsToMark: AnnotationType[]): JSX.Element => (
+        <AnnotationMarker
+            elementId={date}
+            label={dayjs(date).format('MMMM Do YYYY')}
+            key={index}
+            left={index * interval + leftExtent - 12.5}
+            top={topExtent}
+            annotations={annotationsToMark}
+            onCreate={(input: string, applyAll: boolean) => {
+                if (applyAll) {
+                    createGlobalAnnotation(input, date, dashboardItemId)
+                } else if (dashboardItemId) {
+                    createAnnotationNow(input, date)
+                } else {
+                    createAnnotation(input, date)
+                }
+            }}
+            onDelete={(data: AnnotationType) => {
+                annotationsToMark.length === 1 && onClose?.()
+                if (data.scope !== AnnotationScope.DashboardItem) {
+                    deleteGlobalAnnotation(data.id)
+                } else {
+                    deleteAnnotation(data.id)
+                }
+            }}
+            onClick={onClick}
+            onClose={onClose}
+            color={color}
+            graphColor={graphColor}
+            accessoryColor={accessoryColor}
+            currentDateMarker={currentDateMarker}
+            index={index}
+        />
+    )
+
+    const filterAnnotations = (annotations: AnnotationType[], dateKey: string, index: number): void => {
+        annotations.forEach((annotation) => {
+            if (annotation.date_marker.startsWith(dateKey)) {
+                markers.push(makeAnnotationMarker(index, dates[index], [annotation]))
+            }
+        })
+    }
+
     dates &&
         dates.forEach((date: string, index: number) => {
-            const annotations =
-                groupedAnnotations[
-                    dayjs(date)
-                        .startOf(diffType as dayjs.OpUnitType)
-                        .format('YYYY-MM-DD')
-                ]
-            if (annotations) {
-                markers.push(
-                    <AnnotationMarker
-                        elementId={dates[index]}
-                        label={dayjs(dates[index]).format('MMMM Do YYYY')}
-                        key={index}
-                        left={index * interval + leftExtent - 12.5}
-                        top={topExtent}
-                        annotations={annotations}
-                        onCreate={(input: string, applyAll: boolean) => {
-                            if (applyAll) {
-                                createGlobalAnnotation(input, dates[index], dashboardItemId)
-                            } else if (dashboardItemId) {
-                                createAnnotationNow(input, dates[index])
-                            } else {
-                                createAnnotation(input, dates[index])
-                            }
-                        }}
-                        onDelete={(data: AnnotationType) => {
-                            annotations.length === 1 && onClose?.()
-                            if (data.scope !== AnnotationScope.DashboardItem) {
-                                deleteGlobalAnnotation(data.id)
-                            } else {
-                                deleteAnnotation(data.id)
-                            }
-                        }}
-                        onClick={onClick}
-                        onClose={onClose}
-                        color={color}
-                        graphColor={graphColor}
-                        accessoryColor={accessoryColor}
-                        currentDateMarker={currentDateMarker}
-                        index={index}
-                    />
-                )
+            const chosenTime = dayjs(date).startOf(diffType as dayjs.OpUnitType)
+            const groupedAnnotationKey = chosenTime.format('YYYY-MM-DD')
+            const annotations = groupedAnnotations[groupedAnnotationKey] || []
+
+            if (diffType === 'minute') {
+                const minuteKey = chosenTime.format('YYYY-MM-DDTHH:mm')
+                filterAnnotations(annotations, minuteKey, index)
+            } else if (diffType === 'hour') {
+                const hourKey = chosenTime.format('YYYY-MM-DDTHH')
+                filterAnnotations(annotations, hourKey, index)
+            } else if (annotations.length) {
+                markers.push(makeAnnotationMarker(index, dates[index], annotations))
             }
         })
     return markers

@@ -46,6 +46,12 @@ export const mockPosthog = () => {
     cy.stub(posthog)
     posthog.people = { set: () => {} }
     posthog.onFeatureFlags = (callback) => {
-        callback(given.featureFlags || [])
+        if (Array.isArray(given.featureFlags)) {
+            callback(given.featureFlags, Object.fromEntries(given.featureFlags.map((f) => [f, true])))
+        } else if (typeof given.featureFlags === 'object') {
+            callback(Object.keys(given.featureFlags), given.featureFlags)
+        } else {
+            callback([], {})
+        }
     }
 }

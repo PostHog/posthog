@@ -2,7 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import posthoganalytics
 
@@ -97,6 +97,13 @@ def report_user_updated(user: User, updated_attrs: List[str]) -> None:
     )
 
 
+def report_user_password_reset(user: User) -> None:
+    """
+    Reports a user resetting their password.
+    """
+    posthoganalytics.capture(user.distinct_id, "user password reset")
+
+
 def report_team_member_invited(
     distinct_id: str, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
 ) -> None:
@@ -138,3 +145,16 @@ def report_bulk_invited(
             "email_available": email_available,
         },
     )
+
+
+def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
+    """
+    Triggered daily by Celery scheduler.
+    """
+    posthoganalytics.capture(
+        distinct_id, "organization event usage report", properties,
+    )
+
+
+def report_org_usage_failure(distinct_id: str, err: str) -> None:
+    posthoganalytics.capture(distinct_id, "organization event usage report failure", properties={"error": err,})

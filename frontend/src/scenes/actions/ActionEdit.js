@@ -14,11 +14,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
 import { compactNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, temporaryToken }) {
+export function ActionEdit({ action: loadedAction, actionId, onSave, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
-        apiURL,
         action: loadedAction,
         onSave: (action, createNew) => onSave(action, !actionId, createNew),
         temporaryToken,
@@ -216,7 +216,7 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, tem
                 {errorActionId && (
                     <p className="text-danger">
                         Action with this name already exists.{' '}
-                        <a href={apiURL + 'action/' + errorActionId}>Click here to edit.</a>
+                        <a href={urls.action(errorActionId)}>Click here to edit.</a>
                     </p>
                 )}
                 <div className="float-right">

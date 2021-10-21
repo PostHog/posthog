@@ -134,16 +134,18 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
         base_permissions = [permission() for permission in self.permission_classes]
-        if self.action == "create":
-            organization = getattr(self.request.user, "organization", None)
-            if not organization:
-                raise exceptions.ValidationError("You need to belong to an organization.")
-            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-            self.organization = organization
-            base_permissions.append(OrganizationAdminWritePermissions())
-        elif self.action != "list":
-            # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
-            base_permissions.append(TeamMemberLightManagementPermission())
+        if self.action:
+            # Return early for non-actions (e.g. OPTIONS)
+            if self.action == "create":
+                organization = getattr(self.request.user, "organization", None)
+                if not organization:
+                    raise exceptions.ValidationError("You need to belong to an organization.")
+                # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+                self.organization = organization
+                base_permissions.append(OrganizationAdminWritePermissions())
+            elif self.action != "list":
+                # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
+                base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
 
     def get_object(self):
@@ -167,4 +169,4 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         team = self.get_object()
         team.api_token = generate_random_token_project()
         team.save()
-        return response.Response(TeamSerializer(team).data)
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)

@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { sum } from 'lib/utils'
+import { average, sum } from 'lib/utils'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -27,6 +27,7 @@ import {
     FunnelCorrelationType,
     FunnelStepReference,
     FunnelAPIResponse,
+    TrendResult,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -86,6 +87,10 @@ export const funnelLogic = kea<funnelLogicType>({
             stepNumber,
             breakdown_value,
         }),
+        openCorrelationPersonsModal: (entity: Record<string, any>, converted: boolean) => ({
+            entity,
+            converted,
+        }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         changeStepRange: (funnel_from_step?: number, funnel_to_step?: number) => ({
             funnel_from_step,
@@ -100,6 +105,7 @@ export const funnelLogic = kea<funnelLogicType>({
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        hideSkewWarning: true,
     }),
 
     loaders: ({ values }) => ({
@@ -129,17 +135,33 @@ export const funnelLogic = kea<funnelLogicType>({
                 events: [],
             } as Record<'events', FunnelCorrelation[]>,
             {
-                loadPropertyCorrelations: async (propertyCorrelationName) => {
+                loadPropertyCorrelations: async (propertyNames: string[]) => {
                     return (
                         await api.create('api/insight/funnel/correlation', {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
                             // Name is comma separated list of property names
-                            funnel_correlation_names: propertyCorrelationName
-                                .split(',')
-                                .map((name: string) => name.trim()),
+                            funnel_correlation_names: propertyNames.length
+                                ? propertyNames.map((name: string) => name.trim())
+                                : ['$all'],
                         })
                     ).result
+                },
+            },
+        ],
+        eventWithPropertyCorrelations: [
+            {} as Record<string, FunnelCorrelation[]>,
+            {
+                loadEventWithPropertyCorrelations: async (eventName: string) => {
+                    const results = (
+                        await api.create('api/insight/funnel/correlation', {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'event_with_properties',
+                            funnel_correlation_event_names: [eventName],
+                        })
+                    ).result?.events
+
+                    return { [eventName]: results }
                 },
             },
         ],
@@ -199,6 +221,20 @@ export const funnelLogic = kea<funnelLogicType>({
                 setPropertyCorrelationTypes: (_, { types }) => types,
             },
         ],
+        skewWarningHidden: [
+            false,
+            {
+                hideSkewWarning: () => true,
+            },
+        ],
+        eventWithPropertyCorrelations: {
+            loadEventWithPropertyCorrelationsSuccess: (state, { eventWithPropertyCorrelations }) => {
+                return {
+                    ...state,
+                    ...eventWithPropertyCorrelations,
+                }
+            },
+        },
     }),
 
     selectors: ({ selectors }) => ({
@@ -309,6 +345,15 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
 
+                // Handle metrics for trends
+                if (loadedFilters.funnel_viz_type === FunnelVizType.Trends) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: average((stepsWithCount?.[0] as unknown as TrendResult)?.data ?? []) / 100,
+                    }
+                }
+
                 // Handle metrics for steps and trends
                 if (stepsWithCount.length <= 1) {
                     return {
@@ -334,9 +379,9 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         isSkewed: [
-            () => [selectors.conversionMetrics],
-            (conversionMetrics: FunnelTimeConversionMetrics) => {
-                return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
+            (s) => [s.conversionMetrics, s.skewWarningHidden],
+            (conversionMetrics, skewWarningHidden): boolean => {
+                return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
         ],
         apiParams: [
@@ -676,6 +721,39 @@ export const funnelLogic = kea<funnelLogicType>({
                     })
             },
         ],
+        eventWithPropertyCorrelationsValues: [
+            () => [selectors.eventWithPropertyCorrelations, selectors.correlationTypes],
+            (eventWithPropertyCorrelations, correlationTypes): Record<string, FunnelCorrelation[]> => {
+                const eventWithPropertyCorrelationsValues: Record<string, FunnelCorrelation[]> = {}
+                for (const key in eventWithPropertyCorrelations) {
+                    if (eventWithPropertyCorrelations.hasOwnProperty(key)) {
+                        eventWithPropertyCorrelationsValues[key] = eventWithPropertyCorrelations[key]
+                            ?.filter((correlation) => correlationTypes.includes(correlation.correlation_type))
+                            .map((value) => {
+                                return {
+                                    ...value,
+                                    odds_ratio:
+                                        value.correlation_type === FunnelCorrelationType.Success
+                                            ? value.odds_ratio
+                                            : 1 / value.odds_ratio,
+                                }
+                            })
+                            .sort((first, second) => {
+                                return second.odds_ratio - first.odds_ratio
+                            })
+                    }
+                }
+                return eventWithPropertyCorrelationsValues
+            },
+        ],
+        eventHasPropertyCorrelations: [
+            () => [selectors.eventWithPropertyCorrelationsValues],
+            (eventWithPropertyCorrelationsValues): ((eventName: string) => boolean) => {
+                return (eventName) => {
+                    return !!eventWithPropertyCorrelationsValues[eventName]
+                }
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -707,7 +785,7 @@ export const funnelLogic = kea<funnelLogicType>({
             ) {
                 actions.loadCorrelations()
                 // Hardcoded for initial testing
-                actions.loadPropertyCorrelations('$browser, $os, $geoip_country_code')
+                actions.loadPropertyCorrelations(['$all'])
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
@@ -786,6 +864,19 @@ export const funnelLogic = kea<funnelLogicType>({
                 filters: values.filters,
                 saveOriginal: true,
                 funnelStep: stepNumber,
+            })
+        },
+        openCorrelationPersonsModal: ({ entity, converted }) => {
+            personsModalLogic.actions.loadPeople({
+                action: { id: entity.id, name: entity.name, properties: entity.properties, type: entity.type },
+                label: entity.id,
+                date_from: '',
+                date_to: '',
+                filters: {
+                    ...values.filters,
+                    funnel_correlation_person_converted: converted ? 'true' : 'false',
+                    funnel_correlation_person_entity: entity,
+                },
             })
         },
         changeStepRange: ({ funnel_from_step, funnel_to_step }) => {

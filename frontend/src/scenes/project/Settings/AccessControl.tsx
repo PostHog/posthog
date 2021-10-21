@@ -7,16 +7,17 @@ import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea
 import { sceneLogic } from '../../sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { LockOutlined, UnlockOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
 
 export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const projectPermissioningEnabled =
-        currentOrganization?.available_features.includes(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
-        currentTeam?.access_control
+        hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && currentTeam?.access_control
 
     return (
         <div>

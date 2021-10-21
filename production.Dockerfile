@@ -7,6 +7,7 @@ WORKDIR /code
 
 # to remove SAML deps either SAML_DISABLED env var or saml_disabled build arg can be set
 ARG saml_disabled
+ARG SAML_DISABLED
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -20,7 +21,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 
-# install SAML dependencies (unless disabled)   
+# install SAML dependencies (unless disabled)
 RUN if [[ -z "${SAML_DISABLED}" ]] && [[ -z "$saml_disabled" ]] ; then \
     apt-get update \
     && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
@@ -63,6 +64,6 @@ RUN useradd -m posthog && mv /code /home/posthog && chown -R posthog:1000 /home/
 WORKDIR /home/posthog/code
 USER posthog
 
-# expose container port and run entry point script 
+# expose container port and run entry point script
 EXPOSE 8000
 CMD ["./bin/docker"]

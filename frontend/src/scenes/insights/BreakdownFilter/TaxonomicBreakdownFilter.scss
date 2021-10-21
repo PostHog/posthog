@@ -1,0 +1,33 @@
+@import '~/vars';
+
+.taxonomic-breakdown-filter {
+    &.tag-button {
+        padding: 8px 12px;
+        line-height: 16px;
+        font-size: 14px;
+        height: auto;
+    }
+
+    &.tag-pill {
+        vertical-align: bottom;
+        padding: 8px 12px;
+        line-height: 16px;
+        color: $bg_depth;
+        background-color: $border;
+        border: 1px solid $border;
+        border-radius: 40px;
+        font-weight: 400;
+        font-size: 14px;
+
+        span.ant-typography-ellipsis-single-line {
+            vertical-align: baseline;
+        }
+
+        span.anticon {
+            vertical-align: bottom;
+            line-height: 16px;
+            font-size: 14px;
+            color: $bg_depth;
+        }
+    }
+}

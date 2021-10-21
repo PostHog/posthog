@@ -1,4 +1,3 @@
-import importlib
 import json
 import logging
 import os
@@ -7,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 from celery import group
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
-from django.db.models import Prefetch, Q
+from django.db.models import Q
 from django.db.models.expressions import F, Subquery
 from django.utils import timezone
 

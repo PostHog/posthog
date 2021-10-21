@@ -3,7 +3,8 @@ import { BuiltLogic } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { initKeaTestLogic, expectLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
 
 jest.mock('lib/api')

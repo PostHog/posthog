@@ -12,7 +12,7 @@ import './index.scss'
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandPaletteLogic)
 
-    const { setInput, hidePalette, togglePalette, executeResult, backFlow } = useActions(commandPaletteLogic)
+    const { setInput, hidePalette, togglePalette, backFlow } = useActions(commandPaletteLogic)
     const { input, isPaletteShown, isSqueak, activeFlow, commandSearchResults } = useValues(commandPaletteLogic)
     const { user } = useValues(userLogic)
 
@@ -23,7 +23,7 @@ export function CommandPalette(): JSX.Element | null {
 
     const boxRef = useRef<HTMLDivElement | null>(null)
 
-    useEventListener('keydown', (event: KeyboardEvent) => {
+    useEventListener('keydown', (event) => {
         if (isSqueak && event.key === 'Enter') {
             squeakAudio?.play()
         } else if (event.key === 'Escape') {
@@ -60,7 +60,7 @@ export function CommandPalette(): JSX.Element | null {
         <div className="palette__overlay">
             <div className="palette__box" ref={boxRef}>
                 {(!activeFlow || activeFlow.instruction) && <CommandInput />}
-                {!commandSearchResults.length && !activeFlow ? null : <CommandResults executeResult={executeResult} />}
+                {!commandSearchResults.length && !activeFlow ? null : <CommandResults />}
             </div>
         </div>
     )

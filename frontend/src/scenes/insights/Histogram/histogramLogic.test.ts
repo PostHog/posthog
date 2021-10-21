@@ -1,7 +1,7 @@
 import { histogramLogic } from './histogramLogic'
 import { BuiltLogic } from 'kea'
 import { histogramLogicType } from 'scenes/insights/Histogram/histogramLogicType'
-import { initKeaTestLogic } from '~/test/kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { getConfig } from 'scenes/insights/Histogram/histogramUtils'
 import { FunnelLayout } from 'lib/constants'
 

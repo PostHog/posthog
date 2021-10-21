@@ -1,6 +1,20 @@
 version: '3'
 
 services:
+    pgb:
+        image: bitnami/pgbouncer:1.16.0
+        ports:
+            - '6432:6432'
+        environment:
+            PGBOUNCER_POOL_MODE: transaction
+            PGBOUNCER_DATABASE: posthog
+            POSTGRESQL_USERNAME: posthog
+            POSTGRESQL_PASSWORD: posthog
+            POSTGRESQL_DATABASE: posthog
+            POSTGRESQL_HOST: db
+            POSTGRESQL_PORT: 5432
+        depends_on:
+            - db
     db:
         image: postgres:12-alpine
         environment:
@@ -49,7 +63,7 @@ services:
         volumes:
             - ..:/code
         environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            DATABASE_URL: 'postgres://posthog:posthog@pgb:6432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
@@ -63,15 +77,10 @@ services:
             PGUSER: posthog
             PGPASSWORD: posthog
         depends_on:
-            - db
+            - pgb
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
     web:
         <<: *worker
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
@@ -87,18 +96,13 @@ services:
             - ..:/code
         restart: on-failure
         environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            DATABASE_URL: 'postgres://posthog:posthog@pgb:6432/posthog'
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
         depends_on:
-            - db
+            - pgb
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka

@@ -1,6 +1,9 @@
 import datetime
 import json
-from typing import Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
+
+if TYPE_CHECKING:
+    from posthog.models.entity import Entity
 
 from rest_framework.exceptions import ValidationError
 
@@ -9,7 +12,12 @@ from posthog.constants import (
     DISPLAY,
     DROP_OFF,
     ENTRANCE_PERIOD_START,
+    FUNNEL_CORRELATION_EVENT_NAMES,
     FUNNEL_CORRELATION_NAMES,
+    FUNNEL_CORRELATION_PERSON_CONVERTED,
+    FUNNEL_CORRELATION_PERSON_ENTITY,
+    FUNNEL_CORRELATION_PERSON_LIMIT,
+    FUNNEL_CORRELATION_PERSON_OFFSET,
     FUNNEL_CORRELATION_TYPE,
     FUNNEL_FROM_STEP,
     FUNNEL_LAYOUT,
@@ -237,6 +245,13 @@ class FunnelCorrelationMixin(BaseParamMixin):
             return json.loads(property_names)
         return property_names
 
+    @cached_property
+    def correlation_event_names(self) -> Optional[List[str]]:
+        event_names = self._data.get(FUNNEL_CORRELATION_EVENT_NAMES, [])
+        if isinstance(event_names, str):
+            return json.loads(event_names)
+        return event_names
+
     @include_dict
     def funnel_correlation_to_dict(self):
         result_dict: Dict = {}
@@ -244,4 +259,52 @@ class FunnelCorrelationMixin(BaseParamMixin):
             result_dict[FUNNEL_CORRELATION_TYPE] = self.correlation_type
         if self.correlation_property_names:
             result_dict[FUNNEL_CORRELATION_NAMES] = self.correlation_property_names
+        if self.correlation_event_names:
+            result_dict[FUNNEL_CORRELATION_EVENT_NAMES] = self.correlation_event_names
+        return result_dict
+
+
+class FunnelCorrelationPersonsMixin(BaseParamMixin):
+    @cached_property
+    def correlation_person_entity(self) -> Optional["Entity"]:
+        from posthog.models.entity import Entity
+
+        raw_event = self._data.get(FUNNEL_CORRELATION_PERSON_ENTITY)
+        if isinstance(raw_event, str):
+            event = json.loads(raw_event)
+        else:
+            event = raw_event
+
+        return Entity(event) if event else None
+
+    @cached_property
+    def correlation_person_limit(self) -> int:
+        limit = self._data.get(FUNNEL_CORRELATION_PERSON_LIMIT)
+        return int(limit) if limit else 0
+
+    @cached_property
+    def correlation_person_offset(self) -> int:
+        offset = self._data.get(FUNNEL_CORRELATION_PERSON_OFFSET)
+        return int(offset) if offset else 0
+
+    @cached_property
+    def correlation_persons_converted(self) -> Optional[bool]:
+        converted = self._data.get(FUNNEL_CORRELATION_PERSON_CONVERTED)
+        if not converted:
+            return None
+        if converted.lower() == "true":
+            return True
+        return False
+
+    @include_dict
+    def funnel_correlation_persons_to_dict(self):
+        result_dict: Dict = {}
+        if self.correlation_person_entity:
+            result_dict[FUNNEL_CORRELATION_PERSON_ENTITY] = self.correlation_person_entity.to_dict()
+        if self.correlation_person_limit:
+            result_dict[FUNNEL_CORRELATION_PERSON_LIMIT] = self.correlation_person_limit
+        if self.correlation_person_offset:
+            result_dict[FUNNEL_CORRELATION_PERSON_OFFSET] = self.correlation_person_offset
+        if self.correlation_persons_converted is not None:
+            result_dict[FUNNEL_CORRELATION_PERSON_CONVERTED] = self.correlation_persons_converted
         return result_dict

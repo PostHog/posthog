@@ -17,6 +17,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
+import { eventWithTime } from 'rrweb/typings/types'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -28,10 +29,13 @@ export enum AvailableFeature {
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
+    PATHS_ADVANCED = 'paths_advanced',
 }
 
+export type ColumnChoice = string[] | 'DEFAULT'
+
 export interface ColumnConfig {
-    active: string[] | 'DEFAULT'
+    active: ColumnChoice
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -205,7 +209,7 @@ export interface ActionStepType {
     href?: string | null
     id?: number
     name?: string
-    properties?: []
+    properties?: AnyPropertyFilter[]
     selector?: string | null
     tag_name?: string
     text?: string | null
@@ -305,6 +309,28 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     type: 'cohort'
     key: 'id'
     value: number
+}
+
+export type SessionRecordingId = string
+
+export interface SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: string
+    next: string | null
+    duration: number
+}
+
+export enum SessionPlayerState {
+    BUFFER = 'buffer',
+    PLAY = 'play',
+    PAUSE = 'pause',
+    SKIP = 'skip',
+}
+
+export interface SessionPlayerTime {
+    current: number
+    lastBuffered: number
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -785,6 +811,8 @@ export interface FilterType {
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
+    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
+    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
 }
 
 export interface SystemStatusSubrows {
@@ -999,10 +1027,10 @@ export interface InsightLogicProps {
     cachedResults?: any
     /** cached filters, avoid making a request */
     filters?: Partial<FilterType> | null
-    /** not sure about this one */
-    preventLoading?: boolean
     /** enable this to make unsaved queries */
     doNotPersist?: boolean
+    /** enable this to avoid API requests */
+    doNotLoad?: boolean
 }
 
 export interface FeatureFlagGroupType {
@@ -1088,12 +1116,14 @@ export interface PreflightStatus {
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
     posthog_version?: string
-    email_service_available?: boolean
+    email_service_available: boolean
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
+    /** Whether debug queries option should be shown on the command palette. */
+    debug_queries?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -1221,6 +1251,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
+    current_team: TeamType | null
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]

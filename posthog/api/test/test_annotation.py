@@ -5,7 +5,8 @@ import pytz
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Annotation, Dashboard, DashboardItem, Organization, User
+from posthog.models import Annotation, Dashboard, DashboardItem, Organization, User, organization
+from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
 
@@ -25,11 +26,10 @@ class TestAnnotation(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_retrieving_annotation(self, mock_capture):
-
         # Annotation creation is not reported to PostHog because it has no created_by
         mock_capture.assert_not_called()
 
-        response = self.client.get("/api/annotation/").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello world!")
 
@@ -38,13 +38,15 @@ class TestAnnotation(APIBaseTest):
 
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team,)
 
-        dashboardItem = DashboardItem.objects.create(
+        dashboard_item = DashboardItem.objects.create(
             team=self.team, dashboard=dashboard, name="Pageviews this week", last_refresh=timezone.now(),
         )
         Annotation.objects.create(
-            team=self.team, created_by=self.user, content="hello", dashboard_item=dashboardItem,
+            team=self.team, created_by=self.user, content="hello", dashboard_item=dashboard_item,
         )
-        response = self.client.get("/api/annotation/?dashboardItemId=1").json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/?dashboardItemId={dashboard_item.id}"
+        ).json()
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello")
@@ -62,11 +64,11 @@ class TestAnnotation(APIBaseTest):
         Annotation.objects.create(
             team=self.team, created_by=self.user, content="hello_later", created_at="2020-01-06T13:00:01Z",
         )
-        response = self.client.get("/api/annotation/?before=2020-01-05").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/?before=2020-01-05").json()
         self.assertEqual(len(response["results"]), 2)
         self.assertEqual(response["results"][1]["content"], "hello_early")
 
-        response = self.client.get("/api/annotation/?after=2020-01-05").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/?after=2020-01-05").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello_later")
 
@@ -77,7 +79,7 @@ class TestAnnotation(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            "/api/annotation/",
+            f"/api/projects/{self.team.id}/annotations/",
             {
                 "content": "Marketing campaign",
                 "scope": "organization",
@@ -104,7 +106,8 @@ class TestAnnotation(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.patch(
-            f"/api/annotation/{instance.pk}/", {"content": "Updated text", "scope": "organization"},
+            f"/api/projects/{self.team.id}/annotations/{instance.pk}/",
+            {"content": "Updated text", "scope": "organization"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
@@ -117,6 +120,29 @@ class TestAnnotation(APIBaseTest):
             self.user.distinct_id, "annotation updated", {"scope": "organization", "date_marker": None},
         )
 
+    def test_deleting_annotation_of_other_team_prevented(self):
+        other_organization, other_team, _ = User.objects.bootstrap("Other Corp", "Juan", None)
+        other_annotation = Annotation.objects.create(
+            organization=other_organization,
+            team=other_team,
+            created_by=self.user,
+            created_at="2020-01-04T12:00:00Z",
+            content="hello world!",
+        )
+        response_via_other_team = self.client.delete(
+            f"/api/projects/{other_team.pk}/annotations/{other_annotation.pk}/"
+        )
+
+        self.assertEqual(response_via_other_team.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.permission_denied_response("You don't have access to the project."), response_via_other_team.json()
+        )
+
+        response_via_self_team = self.client.delete(f"/api/projects/{self.team.pk}/annotations/{other_annotation.pk}/")
+
+        self.assertEqual(response_via_self_team.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.not_found_response(), response_via_self_team.json())
+
     def test_deleting_annotation(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
@@ -124,7 +150,7 @@ class TestAnnotation(APIBaseTest):
         self.client.force_login(new_user)
 
         with patch("posthoganalytics.capture") as mock_capture:
-            response = self.client.delete(f"/api/annotation/{instance.pk}/")
+            response = self.client.delete(f"/api/projects/{self.team.id}/annotations/{instance.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Annotation.objects.filter(pk=instance.pk).exists())

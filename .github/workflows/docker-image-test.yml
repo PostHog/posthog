@@ -5,20 +5,12 @@ on:
 
 jobs:
     build:
-        name: Test Docker image build
+        name: Test image build
         runs-on: ubuntu-20.04
 
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2
-
-            - name: Lint Dockerfiles with Hadolint
-              run: |
-                  # Install latest Hadolint binary from GitHub (not available via apt)
-                  HADOLINT_LATEST_TAG=$(curl --silent "https://api.github.com/repos/hadolint/hadolint/releases/latest" | jq -r .tag_name)
-                  sudo curl -sLo /usr/bin/hadolint "https://github.com/hadolint/hadolint/releases/download/$HADOLINT_LATEST_TAG/hadolint-Linux-x86_64"
-                  sudo chmod +x /usr/bin/hadolint
-                  hadolint **Dockerfile
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
@@ -34,7 +26,7 @@ jobs:
                   tags: posthog/posthog:testing
 
     saml:
-        name: Test Docker image build (without SAML)
+        name: Test image build (without SAML dependencies)
         runs-on: ubuntu-20.04
 
         steps:

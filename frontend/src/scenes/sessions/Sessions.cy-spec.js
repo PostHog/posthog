@@ -2,7 +2,7 @@ import React from 'react'
 import { Sessions } from './Sessions'
 import * as helpers from 'cypress/support/helpers'
 
-describe('<Sessions />', () => {
+xdescribe('<Sessions />', () => {
     const mount = () => helpers.mountPage(<Sessions />)
 
     beforeEach(() => {

@@ -1,9 +1,10 @@
-import datetime
 import json
-from typing import Any, List, Optional, Tuple
+from typing import Any, List
 
 from ee.clickhouse.client import sync_execute
+from posthog.models import SessionRecordingEvent
 from posthog.queries.session_recordings.session_recording import SessionRecording
+from posthog.queries.sessions.utils import cached_recording
 
 DistinctId = str
 Snapshots = List[Any]
@@ -19,10 +20,11 @@ SINGLE_RECORDING_QUERY = """
 
 
 class ClickhouseSessionRecording(SessionRecording):
-    def query_recording_snapshots(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
+    def query_recording_snapshots(self) -> List[SessionRecordingEvent]:
         response = sync_execute(
-            SINGLE_RECORDING_QUERY, {"team_id": self._team.id, "session_id": self._session_recording_id}
+            SINGLE_RECORDING_QUERY, {"team_id": self._team.id, "session_id": self._session_recording_id,},
         )
-        if len(response) == 0:
-            return None, None, []
-        return response[0][0], response[0][1], [json.loads(snapshot_data) for _, _, snapshot_data in response]
+        return [
+            SessionRecordingEvent(distinct_id=distinct_id, timestamp=timestamp, snapshot_data=json.loads(snapshot_data))
+            for distinct_id, timestamp, snapshot_data in response
+        ]
