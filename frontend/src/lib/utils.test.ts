@@ -15,6 +15,7 @@ import {
     isURL,
     median,
     midEllipsis,
+    objectDiffShallow,
     pluralize,
     toParams,
 } from './utils'
@@ -311,5 +312,16 @@ describe('ensureStringIsNotBlank()', () => {
     it('handles happy case', () => {
         expect(ensureStringIsNotBlank('happyboy')).toEqual('happyboy')
         expect(ensureStringIsNotBlank('  happy boy  ')).toEqual('  happy boy  ')
+    })
+})
+
+describe('objectDiffShallow()', () => {
+    it('obj1 + result = obj2', () => {
+        expect(objectDiffShallow({ b: '4' }, { b: '3', a: '2' })).toStrictEqual({ b: '3', a: '2' })
+        expect(objectDiffShallow({ b: '4', c: '12' }, { b: '3', a: '2' })).toStrictEqual({
+            b: '3',
+            a: '2',
+            c: undefined,
+        })
     })
 })
