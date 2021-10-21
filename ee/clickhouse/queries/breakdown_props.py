@@ -7,6 +7,7 @@ from ee.clickhouse.models.property import get_property_string_expr, parse_prop_c
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.trends.util import is_iterable
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
@@ -48,7 +49,7 @@ def get_breakdown_prop_values(
             value_expression, _ = get_property_string_expr(
                 "events", cast(str, filter.breakdown), "%(key)s", "properties"
             )
-        else:
+        elif is_iterable(filter.breakdown):
             value_expression, _ = get_property_string_expr(
                 "events", cast(str, filter.breakdown[0]), "%(key)s", "properties"
             )
@@ -89,7 +90,7 @@ def get_breakdown_prop_values(
                 },
             )
         )
-    else:
+    elif is_iterable(filter.breakdown):
         for b in filter.breakdown:
             execute_results.append(
                 sync_execute(

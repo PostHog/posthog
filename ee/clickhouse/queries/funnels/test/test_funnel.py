@@ -9,6 +9,9 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
+from ee.clickhouse.queries.funnels.test.by_multiple_properties_breakdown_cases import (
+    funnel_breakdown_by_multi_property_test_factory,
+)
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
@@ -17,6 +20,7 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.models.person import Person
+from posthog.models.utils import UUIDT
 from posthog.queries.test.test_funnel import funnel_test_factory
 from posthog.test.base import test_with_materialized_columns
 
@@ -46,6 +50,11 @@ def _create_event(**kwargs):
 
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_action, _create_person)):  # type: ignore
+    maxDiff = None
+    pass
+
+
+class TestFunnelMultiPropertyBreakdown(ClickhouseTestMixin, funnel_breakdown_by_multi_property_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_action, _create_person)):  # type: ignore
     maxDiff = None
     pass
 

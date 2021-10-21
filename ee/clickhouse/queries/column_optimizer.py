@@ -3,6 +3,7 @@ from typing import Counter, List, Set, Tuple, Union, cast
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
 from ee.clickhouse.models.property import extract_tables_and_properties
+from ee.clickhouse.queries.trends.util import is_iterable
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -87,7 +88,7 @@ class ColumnOptimizer:
             # :TRICKY: We only support string breakdown for event/person properties
             if isinstance(self.filter.breakdown, str):
                 counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
-            else:
+            elif is_iterable(self.filter.breakdown):
                 for b in self.filter.breakdown:
                     counter[(b, self.filter.breakdown_type)] += 1
 
