@@ -161,6 +161,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 },
             },
         ],
+        excludedPropertyNames: [
+            [] as string[],
+            {
+                loadExcludedPropertyNames: async () => window.localStorage.getItem('excludedPropertyNames') || '',
+            },
+        ],
     }),
 
     reducers: ({ props }) => ({
@@ -232,7 +238,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         },
         excludedPropertyNames: {
-            setExcludedPropertyNames: (state, { excludedPropertyNames }) => excludedPropertyNames,
+            setExcludedPropertyNames: (_, { excludedPropertyNames }) => excludedPropertyNames,
         },
     }),
 
@@ -879,6 +885,7 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         setExcludedPropertyNames: async ({ excludedPropertyNames }) => {
+            window.localStorage.setItem('excludedPropertyNames', JSON.stringify(excludedPropertyNames))
             actions.loadPropertyCorrelations(excludedPropertyNames)
         },
     }),
