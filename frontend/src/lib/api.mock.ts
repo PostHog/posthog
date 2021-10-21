@@ -22,7 +22,7 @@ interface APIMockOptions {
 }
 
 export const MOCK_TEAM_ID: TeamType['id'] = 997
-export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'OPQR'
+export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
 export const api = apiNoMock as any as APIMockReturnType
 

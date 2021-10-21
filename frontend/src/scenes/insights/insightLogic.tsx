@@ -515,7 +515,9 @@ export const insightLogic = kea<insightLogicType>({
                     // - not saved if on the history "insight" for some reason
                     (insight.filters.insight as ViewType) !== ViewType.HISTORY &&
                     // - not saved if we came from a dashboard --> there's a separate "save" button for that
-                    !router.values.hashParams.fromDashboard
+                    !router.values.hashParams.fromDashboard &&
+                    // - not saved if we come from the "saved funnels" list, TO BE REMOVED with release of "3408-saved-insights"
+                    !router.values.hashParams.fromSavedFunnels
                 ) {
                     const filterLength = Object.keys(insight.filters).length
                     if (filterLength === 0 || (filterLength === 1 && 'from_dashboard' in insight.filters)) {

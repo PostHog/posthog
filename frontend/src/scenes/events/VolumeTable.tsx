@@ -167,21 +167,25 @@ export function VolumeTable({
             : {},
     ]
 
-    useEffect(() => {
-        setDataWithWarnings(
-            data.map((eventOrProp: EventOrPropType): VolumeTableRecord => {
-                const record = { eventOrProp } as VolumeTableRecord
-                record.warnings = []
-                if (eventOrProp.name?.endsWith(' ')) {
-                    record.warnings.push(`This ${type} ends with a space.`)
-                }
-                if (eventOrProp.name?.startsWith(' ')) {
-                    record.warnings.push(`This ${type} starts with a space.`)
-                }
-                return record
-            }) || []
-        )
-    }, [data])
+    useEffect(
+        () => {
+            setDataWithWarnings(
+                data.map((eventOrProp: EventOrPropType): VolumeTableRecord => {
+                    const record = { eventOrProp } as VolumeTableRecord
+                    record.warnings = []
+                    if (eventOrProp.name?.endsWith(' ')) {
+                        record.warnings.push(`This ${type} ends with a space.`)
+                    }
+                    if (eventOrProp.name?.startsWith(' ')) {
+                        record.warnings.push(`This ${type} starts with a space.`)
+                    }
+                    return record
+                }) || []
+            )
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [data]
+    )
 
     return (
         <>

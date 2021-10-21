@@ -58,19 +58,23 @@ export function PluginDrawer(): JSX.Element {
     const [invisibleFields, setInvisibleFields] = useState<string[]>([])
     const [requiredFields, setRequiredFields] = useState<string[]>([])
 
-    useEffect(() => {
-        if (editingPlugin) {
-            form.setFieldsValue({
-                ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
-                __enabled: editingPlugin.pluginConfig.enabled,
-                ...editingPluginInitialChanges,
-            })
-            generateApiKeysIfNeeded(form)
-        } else {
-            form.resetFields()
-        }
-        updateInvisibleAndRequiredFields()
-    }, [editingPlugin?.id, editingPlugin?.config_schema])
+    useEffect(
+        () => {
+            if (editingPlugin) {
+                form.setFieldsValue({
+                    ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
+                    __enabled: editingPlugin.pluginConfig.enabled,
+                    ...editingPluginInitialChanges,
+                })
+                generateApiKeysIfNeeded(form)
+            } else {
+                form.resetFields()
+            }
+            updateInvisibleAndRequiredFields()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [editingPlugin?.id, editingPlugin?.config_schema]
+    )
 
     const updateInvisibleAndRequiredFields = (): void => {
         determineAndSetInvisibleFields()
