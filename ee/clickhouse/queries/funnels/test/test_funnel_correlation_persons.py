@@ -172,3 +172,39 @@ class TestClickhouseFunnelCorrelationPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertFalse(has_more_results)
         self.assertCountEqual([val["uuid"] for val in results], [*failure_target_persons, str(person_succ.uuid)])
+
+    def test_people_arent_returned_multiple_times(self):
+
+        person = _create_person(distinct_ids=[f"user_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_1", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="positively_related", distinct_id=f"user_1", timestamp="2020-01-03T14:00:00Z",
+        )
+        # duplicate event
+        _create_event(
+            team=self.team, event="positively_related", distinct_id=f"user_1", timestamp="2020-01-03T15:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id=f"user_1", timestamp="2020-01-04T14:00:00Z",
+        )
+
+        filter = Filter(
+            data={
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "paid", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-14",
+                "funnel_correlation_type": "events",
+                "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
+                "funnel_correlation_person_converted": "TrUe",
+            }
+        )
+        results, has_more_results = FunnelCorrelationPersons(filter, self.team).run()
+
+        self.assertFalse(has_more_results)
+        self.assertCountEqual([val["uuid"] for val in results], [str(person.uuid)])
