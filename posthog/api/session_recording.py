@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -114,8 +114,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer.is_valid(raise_exception=True)
 
         distinct_id = session_recording_meta_data["distinct_id"]
+
         try:
-            person = Person.objects.get(persondistinctid__distinct_id=distinct_id, team=self.team)
+            person: Union[Person, None] = Person.objects.get(persondistinctid__distinct_id=distinct_id, team=self.team)
         except Person.DoesNotExist:
             person = None
 

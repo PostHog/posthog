@@ -1,21 +1,30 @@
-from datetime import datetime
-from typing import Any, Dict, List, Tuple, Union
+from datetime import datetime, timedelta
+from typing import List, Optional, TypedDict, Union
 
 from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework.request import Request
 
-from posthog.helpers.session_recording import decompress_chunked_snapshot_data
+from posthog.helpers.session_recording import SnapshotData, decompress_chunked_snapshot_data
 from posthog.models import SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.utils import format_query_params_absolute_url
 
-DistinctId = str
-Snapshots = List[Any]
-Events = Tuple[str, str, Snapshots]
+
+class RecordingMetadata(TypedDict):
+    start_time: Optional[datetime]
+    end_time: Optional[datetime]
+    duration: Optional[timedelta]
+    session_id: Optional[str]
+    distinct_id: Optional[str]
 
 
-RECORDINGS_NUM_CHUNKS_LIMIT = 20  # Should be tuned to find the best value
+class RecordingSnapshots(TypedDict):
+    next: Optional[str]
+    snapshots: List[SnapshotData]
+
+
+DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
 
 class SessionRecording:
@@ -33,7 +42,7 @@ class SessionRecording:
         self._filter = filter
         self._session_recording_id = session_recording_id
         self._team = team
-        self._limit = self._filter.limit if self._filter.limit else RECORDINGS_NUM_CHUNKS_LIMIT
+        self._limit = self._filter.limit if self._filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         self._offset = self._filter.offset if self._filter.offset else 0
 
     def _query_recording_snapshots(self) -> Union[QuerySet, List[SessionRecordingEvent]]:
@@ -68,7 +77,7 @@ class SessionRecording:
             ),
         )
 
-    def get_snapshots(self) -> Dict[str, Any]:
+    def get_snapshots(self) -> RecordingSnapshots:
         has_next, snapshots = self._get_paginated_chunks()
 
         next_url = (
@@ -114,7 +123,7 @@ class SessionRecording:
             last_chunk,
         )
 
-    def get_metadata(self):
+    def get_metadata(self) -> RecordingMetadata:
         all_snapshots = self._query_recording_snapshots()
         if len(all_snapshots) == 0:
             return {
