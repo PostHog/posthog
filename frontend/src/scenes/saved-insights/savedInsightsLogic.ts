@@ -22,7 +22,7 @@ export interface SavedInsightFilters {
     order: string
     tab: SavedInsightsTabs
     search: string
-    insight: string
+    insightType: string
     createdBy: number | 'All users'
     dateFrom?: string | Dayjs | undefined
     dateTo?: string | Dayjs | undefined
@@ -34,7 +34,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         order: values.order || '-updated_at',
         tab: values.tab || SavedInsightsTabs.All,
         search: values.search || '',
-        insight: values.insight || 'All types',
+        insightType: values.insightType || 'All types',
         createdBy: values.createdBy || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
@@ -66,8 +66,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                             ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
                             ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
                             ...(filters.search && { search: filters.search }),
-                            ...(filters.insight?.toLowerCase() !== 'all types' && {
-                                insight: filters.insight.toUpperCase(),
+                            ...(filters.insightType?.toLowerCase() !== 'all types' && {
+                                insight: filters.insightType?.toUpperCase(),
                             }),
                             ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
                             ...(filters.dateFrom &&
@@ -95,7 +95,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     }),
     reducers: {
         filters: [
-            cleanFilters({}) as SavedInsightFilters,
+            {} as Partial<SavedInsightFilters>,
             {
                 setSavedInsightsFilters: (state, { filters, merge }) =>
                     cleanFilters(
@@ -181,7 +181,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         '/saved_insights': (_, searchParams) => {
             const currentFilters = cleanFilters(values.filters)
             const nextFilters = cleanFilters(searchParams)
-            if (!objectsEqual(currentFilters, nextFilters)) {
+            if (!objectsEqual(currentFilters, nextFilters) || Object.keys(values.filters).length === 0) {
                 actions.setSavedInsightsFilters(nextFilters, false)
             }
         },

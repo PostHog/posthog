@@ -43,50 +43,61 @@ global.fetch = jest.fn((url: any) => {
 
 describe('saved insight logic', () => {
     let logic: ReturnType<typeof savedInsightsLogic.build>
-    initKeaTestLogic({
-        logic: savedInsightsLogic,
-        onLogic: (l) => {
-            logic = l
-        },
+    initKeaTestLogic()
+
+    beforeEach(() => {
+        router.actions.push('/saved_insights')
+        logic = savedInsightsLogic()
+        logic.mount()
     })
 
-    it('can filter the flags', async () => {
-        logic.actions.setSavedInsightsFilters({ search: 'hello' })
-        await expectLogic(logic)
-            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
-            .toMatchValues({
-                filters: partial({ search: 'hello' }),
-                insights: { results: partial([partial({ name: 'hello 1' })]), count: 3 },
-            })
-
-        logic.actions.setSavedInsightsFilters({ search: 'hello' })
-        await expectLogic(logic)
-            .toNotHaveDispatchedActions(['loadInsights', 'loadInsightsSuccess'])
-            .toMatchValues({
-                filters: partial({ search: 'hello' }),
-                insights: { results: partial([partial({ name: 'hello 1' })]), count: 3 },
-            })
-
-        logic.actions.setSavedInsightsFilters({ search: 'hello again' })
-        await expectLogic(logic)
-            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
-            .toMatchValues({
-                filters: partial({ search: 'hello again' }),
-                insights: { results: partial([partial({ name: 'hello again 1' })]), count: 3 },
-            })
+    it('loads results on mount', async () => {
+        await expectLogic(logic).toDispatchActions(['setSavedInsightsFilters', 'loadInsights', 'loadInsightsSuccess'])
     })
 
-    it('persists the filter in the url', async () => {
-        logic.actions.setSavedInsightsFilters({ search: 'hello' })
-        await expectLogic(logic)
-            .toDispatchActions(['loadInsightsSuccess'])
-            .toMatchValues({ filters: partial({ search: 'hello' }) })
-            .toMatchValues(router, { searchParams: { search: 'hello' } })
+    describe('after mount', () => {
+        beforeEach(async () => {
+            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
+        })
 
-        router.actions.push(router.values.location.pathname, { search: 'hoi' })
-        await expectLogic(logic)
-            .toDispatchActions(['loadInsightsSuccess'])
-            .toMatchValues({ filters: partial({ search: 'hoi' }) })
-            .toMatchValues(router, { searchParams: { search: 'hoi' } })
+        it('can filter the flags', async () => {
+            logic.actions.setSavedInsightsFilters({ search: 'hello' })
+            await expectLogic(logic)
+                .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+                .toMatchValues({
+                    filters: partial({ search: 'hello' }),
+                    insights: { results: partial([partial({ name: 'hello 1' })]), count: 3 },
+                })
+
+            logic.actions.setSavedInsightsFilters({ search: 'hello' })
+            await expectLogic(logic)
+                .toNotHaveDispatchedActions(['loadInsights', 'loadInsightsSuccess'])
+                .toMatchValues({
+                    filters: partial({ search: 'hello' }),
+                    insights: { results: partial([partial({ name: 'hello 1' })]), count: 3 },
+                })
+
+            logic.actions.setSavedInsightsFilters({ search: 'hello again' })
+            await expectLogic(logic)
+                .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+                .toMatchValues({
+                    filters: partial({ search: 'hello again' }),
+                    insights: { results: partial([partial({ name: 'hello again 1' })]), count: 3 },
+                })
+        })
+
+        it('persists the filter in the url', async () => {
+            logic.actions.setSavedInsightsFilters({ search: 'hello' })
+            await expectLogic(logic)
+                .toDispatchActions(['loadInsightsSuccess'])
+                .toMatchValues({ filters: partial({ search: 'hello' }) })
+                .toMatchValues(router, { searchParams: { search: 'hello' } })
+
+            router.actions.push(router.values.location.pathname, { search: 'hoi' })
+            await expectLogic(logic)
+                .toDispatchActions(['loadInsightsSuccess'])
+                .toMatchValues({ filters: partial({ search: 'hoi' }) })
+                .toMatchValues(router, { searchParams: { search: 'hoi' } })
+        })
     })
 })

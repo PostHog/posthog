@@ -65,7 +65,7 @@ export function SavedInsights(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { members } = useValues(membersLogic)
-    const { tab, order, createdBy, layoutView, searchTerm, insightType, dateFrom, dateTo } = filters
+    const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo } = filters
     const insightTypes: InsightType[] = [
         { type: 'All types' },
         { type: 'Trends', icon: <LineChartOutlined /> },
@@ -292,8 +292,8 @@ export function SavedInsights(): JSX.Element {
                         enterButton
                         placeholder="Search for insights"
                         style={{ width: 240 }}
-                        onChange={(e) => setSavedInsightsFilters({ searchTerm: e.target.value })}
-                        value={searchTerm || ''}
+                        onChange={(e) => setSavedInsightsFilters({ search: e.target.value })}
+                        value={search || ''}
                         onSearch={() => loadInsights()}
                     />
                 </Col>
