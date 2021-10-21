@@ -30,7 +30,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { IconEventsShort } from 'lib/components/icons'
 import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { urls } from 'scenes/urls'
-import { SessionPlayerDrawer } from 'scenes/sessionRecordings/SessionPlayerDrawer'
+import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)

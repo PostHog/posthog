@@ -104,6 +104,8 @@ class FunnelCorrelation:
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
+        event_join_query = self._get_events_join_query()
+
         query = f"""
             WITH
                 funnel_people as ({funnel_persons_query}),
@@ -129,39 +131,7 @@ class FunnelCorrelation:
                 ) AS failure_count
 
             FROM events AS event
-
-            JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
-                ON pdi.distinct_id = events.distinct_id
-
-            -- NOTE: I would love to right join here, so we count get total
-            -- success/failure numbers in one pass, but this causes out of memory
-            -- error mentioning issues with right filling. I'm sure there's a way
-            -- to do it but lifes too short.
-            JOIN funnel_people AS person
-                ON pdi.person_id = person.person_id
-
-            -- Make sure we're only looking at events before the final step, or
-            -- failing that, date_to
-            WHERE
-                -- add this condition in to ensure we can filter events before
-                -- joining funnel_people
-                event.timestamp >= date_from
-                AND event.timestamp < date_to
-
-                AND event.team_id = {self._team.pk}
-
-                -- Add in per person filtering on event time range. We just want
-                -- to include events that happened within the bounds of the
-                -- persons time in the funnel.
-                AND event.timestamp > person.first_timestamp
-                AND event.timestamp < COALESCE(
-                    person.final_timestamp,
-                    person.first_timestamp + INTERVAL {self._funnel_persons_generator._filter.funnel_window_interval} {self._funnel_persons_generator._filter.funnel_window_interval_unit_ch()},
-                    date_to)
-                    -- Ensure that the event is not outside the bounds of the funnel conversion window
-
-                -- Exclude funnel steps
-                AND event.event NOT IN funnel_step_names
+                {event_join_query}
             GROUP BY name
 
             -- To get the total success/failure numbers, we do an aggregation on
@@ -199,14 +169,15 @@ class FunnelCorrelation:
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
+        event_join_query = self._get_events_join_query()
+
         query = f"""
             WITH
                 funnel_people as ({funnel_persons_query}),
                 toDateTime(%(date_to)s) AS date_to,
                 toDateTime(%(date_from)s) AS date_from,
                 %(target_step)s AS target_step,
-                %(funnel_step_names)s as funnel_step_names,
-                %(event_names)s as event_names
+                %(funnel_step_names)s as funnel_step_names
 
             SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
                    countDistinctIf(person_id, steps = target_step) as success_count,
@@ -225,22 +196,8 @@ class FunnelCorrelation:
                             )
                         ) as prop
                 FROM events AS event
-
-                JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
-                    ON pdi.distinct_id = events.distinct_id
-                JOIN funnel_people AS person
-                    ON pdi.person_id = person.person_id
-                WHERE
-                    event.timestamp >= date_from
-                    AND event.timestamp < date_to
-                    AND event.team_id = {self._team.pk}
-                    AND event.timestamp > person.first_timestamp
-                    AND event.timestamp < COALESCE(
-                        person.final_timestamp,
-                        person.first_timestamp + INTERVAL {self._funnel_persons_generator._filter.funnel_window_interval} {self._funnel_persons_generator._filter.funnel_window_interval_unit_ch()},
-                        date_to)
-                    AND event.event NOT IN funnel_step_names
-                    AND event.event IN event_names
+                    {event_join_query}
+                    AND event.event IN %(event_names)s
             )
             GROUP BY name
             -- Discard high cardinality / low hits properties
@@ -346,6 +303,51 @@ class FunnelCorrelation:
         }
 
         return query, params
+
+    def _get_events_join_query(self) -> str:
+        """
+        This query is used to join and filter the events table corresponding to the funnel_people CTE.
+        It expects the following variables to be present in the CTE expression:
+            - funnel_people
+            - date_to
+            - date_from
+            - funnel_step_names
+        """
+
+        return f"""
+            JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
+                ON pdi.distinct_id = events.distinct_id
+
+            -- NOTE: I would love to right join here, so we count get total
+            -- success/failure numbers in one pass, but this causes out of memory
+            -- error mentioning issues with right filling. I'm sure there's a way
+            -- to do it but lifes too short.
+            JOIN funnel_people AS person
+                ON pdi.person_id = person.person_id
+
+            -- Make sure we're only looking at events before the final step, or
+            -- failing that, date_to
+            WHERE
+                -- add this condition in to ensure we can filter events before
+                -- joining funnel_people
+                event.timestamp >= date_from
+                AND event.timestamp < date_to
+
+                AND event.team_id = {self._team.pk}
+
+                -- Add in per person filtering on event time range. We just want
+                -- to include events that happened within the bounds of the
+                -- persons time in the funnel.
+                AND event.timestamp > person.first_timestamp
+                AND event.timestamp < COALESCE(
+                    person.final_timestamp,
+                    person.first_timestamp + INTERVAL {self._funnel_persons_generator._filter.funnel_window_interval} {self._funnel_persons_generator._filter.funnel_window_interval_unit_ch()},
+                    date_to)
+                    -- Ensure that the event is not outside the bounds of the funnel conversion window
+
+                -- Exclude funnel steps
+                AND event.event NOT IN funnel_step_names
+        """
 
     def _get_properties_prop_clause(self):
 

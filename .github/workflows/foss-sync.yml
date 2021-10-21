@@ -1,4 +1,4 @@
-name: PostHog FOSS
+name: Sync PostHog FOSS
 
 on:
     push:
@@ -39,11 +39,17 @@ jobs:
               run: |
                   sed -i -e '/PostHog Inc\./,/Permission is hereby granted/c\Copyright (c) 2020-2021 PostHog Inc\.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy' LICENSE
                   echo -e "MIT License\n\n$(cat LICENSE)" > LICENSE
+            - name: Remove unused GitHub workflows
+              if: github.repository == 'PostHog/posthog'
+              run: |
+                  cd .github/workflows
+                  ls | grep -v foss-release-image-publish.yml | xargs rm
+
             - name: Commit "Sync and remove all non-FOSS parts"
               if: github.repository == 'PostHog/posthog'
               uses: EndBug/add-and-commit@v7
               with:
                   message: 'Sync and remove all non-FOSS parts'
-                  remove: '["-r ee/", "-r .github/"]'
+                  remove: '["-r ee/"]'
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - run: echo # Empty step so that GitHub doesn't complain about an empty job on forks

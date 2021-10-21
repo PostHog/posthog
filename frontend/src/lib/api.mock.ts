@@ -53,6 +53,10 @@ export function defaultAPIMocks(
             ingested_event: true,
             completed_snippet_onboarding: true,
         }
+    } else if (pathname === 'api/organizations/@current') {
+        return {
+            id: 'ABCD', // Should be a UUID but that doesn't matter here
+        }
     } else if (
         [
             `api/projects/${MOCK_TEAM_ID}/actions/`,
