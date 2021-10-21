@@ -262,6 +262,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             loadTime: number,
             delay: number
         ) => ({ recordingData, source, loadTime, delay }),
+        reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -614,6 +615,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
                 source: source,
             }
             posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, payload)
+        },
+        reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
+            posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)
