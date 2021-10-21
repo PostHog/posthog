@@ -40,7 +40,7 @@ export const actionsLogic = kea<actionsLogicType>({
                     if (!Array.isArray(results?.results)) {
                         throw new Error('Error loading actions!')
                     }
-                    console.log(results.results)
+
                     return results.results
                 },
                 updateAction: ({ action }: { action: ActionType }) => {
