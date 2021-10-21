@@ -42,7 +42,7 @@ jobs:
             - name: Remove unused GitHub workflows
               if: github.repository == 'PostHog/posthog'
               run: |
-                  cd .github/
+                  cd .github/workflows
                   ls | grep -v foss-release-image-publish.yml | xargs rm
 
             - name: Commit "Sync and remove all non-FOSS parts"
