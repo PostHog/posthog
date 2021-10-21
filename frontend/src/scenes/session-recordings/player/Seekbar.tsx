@@ -3,21 +3,6 @@ import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 
-// enum SectionType {
-//     INACTIVE = 'inactive',
-//     DEFAULT = 'default',
-// }
-
-// interface RangeSection {
-//     start: number
-//     end: number
-//     type: SectionType
-// }
-//
-// interface SliderProps {
-//     sections?: RangeSection[]
-// }
-
 export function Seekbar(): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)

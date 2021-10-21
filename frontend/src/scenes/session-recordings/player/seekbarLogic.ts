@@ -12,14 +12,17 @@ const THUMB_OFFSET = THUMB_SIZE / 2
 const convertXToValue = (xPos: number, containerWidth: number, start: number, end: number): number => {
     return (xPos / containerWidth) * (end - start) + start
 }
+const convertValueToX = (value: number, containerWidth: number, start: number, end: number): number => {
+    return (containerWidth * (value - start)) / (end - start)
+}
 
 export const seekbarLogic = kea<seekbarLogicType>({
     connect: {
         values: [sessionRecordingPlayerLogic, ['meta', 'zeroOffsetTime']],
-        actions: [sessionRecordingPlayerLogic, ['seek', 'clearLoadingState', 'setScrub']],
+        actions: [sessionRecordingPlayerLogic, ['seek', 'clearLoadingState', 'setScrub', 'setCurrentTime']],
     },
     actions: {
-        setThumbLeftPos: (thumbLeftPos: number) => ({ thumbLeftPos }),
+        setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
         setCursorDiff: (cursorDiff: number) => ({ cursorDiff }),
         handleSeek: (newX: number) => ({ newX }),
         handleMouseMove: (event: MouseEvent) => ({ event }),
@@ -63,35 +66,55 @@ export const seekbarLogic = kea<seekbarLogicType>({
         ],
     },
     listeners: ({ values, actions }) => ({
-        setThumbLeftPos: async ({ thumbLeftPos }, breakpoint) => {
-            // Debounce seeking so that scrubbing doesn't sent a bajillion requests.
+        setCurrentTime: async () => {
             if (!values.slider) {
                 return
             }
-            const nextTime = convertXToValue(
-                thumbLeftPos + THUMB_OFFSET,
-                values.slider.offsetWidth,
-                values.meta.startTime,
-                values.meta.endTime
+            actions.setThumbLeftPos(
+                convertValueToX(values.zeroOffsetTime.current, values.slider.offsetWidth, 0, values.meta.totalTime) -
+                    THUMB_OFFSET,
+                false
             )
-            actions.seek(nextTime)
+        },
+        setThumbLeftPos: async ({ thumbLeftPos, shouldSeek }, breakpoint) => {
+            // Debounce seeking so that scrubbing doesn't sent a bajillion requests.
+            if (!values.slider || !shouldSeek) {
+                return
+            }
+            actions.seek(
+                convertXToValue(
+                    thumbLeftPos + THUMB_OFFSET,
+                    values.slider.offsetWidth,
+                    values.meta.startTime,
+                    values.meta.endTime
+                )
+            )
             breakpoint()
         },
         handleSeek: ({ newX }) => {
             const end = values.slider?.offsetWidth ?? 0
             console.log('SETTING THUM LEFT')
-            actions.setThumbLeftPos(clamp(newX, 0, end) - THUMB_OFFSET)
+            actions.setThumbLeftPos(clamp(newX, 0, end) - THUMB_OFFSET, true)
         },
         handleMouseMove: ({ event }) => {
             console.log('MOVING', values, values.cursorDiff)
             if (!values.slider) {
                 return
             }
+            actions.setScrub()
             console.log('MOVING PASS')
             const newX = event.clientX - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX)
         },
-        handleMouseUp: () => {
+        handleMouseUp: ({ event }) => {
+            console.log('UP')
+            if (!values.slider) {
+                return
+            }
+            console.log('UPPP')
+
+            const newX = event.clientX - values.cursorDiff - values.slider.getBoundingClientRect().left
+            actions.handleSeek(newX)
             actions.clearLoadingState()
             document.removeEventListener('mouseup', actions.handleMouseUp)
             document.removeEventListener('mousemove', actions.handleMouseMove)

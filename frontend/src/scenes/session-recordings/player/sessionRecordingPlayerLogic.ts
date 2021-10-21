@@ -8,6 +8,8 @@ import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
+const BUFFER_TIME_BUFFER_MS = 5 * 1000 // The length of time player has to have loaded to get out of buffering state
+
 function getZeroOffsetTime(time: number, meta: playerMetaData): number {
     return Math.max(Math.min(time - meta.startTime, meta.totalTime), 0)
 }
@@ -91,7 +93,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         playingState: [
-            SessionPlayerState.PLAY as SessionPlayerState,
+            SessionPlayerState.PLAY as SessionPlayerState.PLAY | SessionPlayerState.PAUSE,
             {
                 setPlay: () => SessionPlayerState.PLAY,
                 setPause: () => SessionPlayerState.PAUSE,
@@ -148,7 +150,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             })
             replayer.on('skip-end', () => {
-                if (values.loadingState !== SessionPlayerState.BUFFER) {
+                if (values.loadingState === SessionPlayerState.SKIP) {
                     actions.clearLoadingState()
                 }
             })
@@ -193,9 +195,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setLastBufferedTime(lastEvent.timestamp)
 
             // If buffering has completed, resume last playing state
-            if (values.currentPlayerState === SessionPlayerState.BUFFER) {
+            console.log(
+                'SHOULDCLEAR',
+                values.time.current + BUFFER_TIME_BUFFER_MS,
+                lastEvent.timestamp,
+                values.time.current + BUFFER_TIME_BUFFER_MS < lastEvent.timestamp
+            )
+            if (
+                values.currentPlayerState === SessionPlayerState.BUFFER &&
+                values.time.current + BUFFER_TIME_BUFFER_MS < lastEvent.timestamp
+            ) {
                 console.log('CLEARNING BUFFER')
                 actions.clearLoadingState()
+                actions.setPlay()
             }
 
             // Set meta once whole session recording loads
@@ -218,15 +230,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         setPlay: () => {
+            console.log('SET PLAY')
             actions.stopAnimation()
             actions.seek(values.time.current, true)
-            actions.updateAnimation()
         },
         setPause: () => {
             actions.stopAnimation()
             values.replayer?.pause()
         },
         setBuffer: () => {
+            actions.stopAnimation()
+        },
+        setScrub: () => {
             actions.stopAnimation()
         },
         setSpeed: ({ speed }) => {
@@ -238,8 +253,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // Time passed into seek function must be timestamp offset time.
             const nextTime = getZeroOffsetTime(time ?? 0, values.meta)
-            values.replayer?.play(nextTime)
+
+            // Start playing by default to trigger a replayer tick
             actions.setCurrentTime(time ?? 0)
+            values.replayer?.play(nextTime)
+            actions.updateAnimation()
 
             console.log('SEEK TIME', time, nextTime)
 
@@ -248,14 +266,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.replayer?.pause()
                 actions.setBuffer()
             }
-            // If seek position has already been loaded, resume last playing state
-            else {
+            // If not forced to play and if last playing state was pause, pause
+            else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
+                console.log('CLEARSTATE')
+                values.replayer?.pause()
                 actions.clearLoadingState()
-
-                if (values.playingState === SessionPlayerState.PAUSE && !forcePlay) {
-                    values.replayer?.pause()
-                }
+                actions.setPause()
             }
+            // Otherwise keep playing and updating animation frame
 
             breakpoint()
         },
