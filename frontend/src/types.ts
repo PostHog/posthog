@@ -579,7 +579,7 @@ export interface DashboardItemType {
     refreshing: boolean
     created_by: UserBasicType | null
     is_sample: boolean
-    dashboard: number
+    dashboard: number | null
     dive_dashboard?: number
     result: any | null
     updated_at: string

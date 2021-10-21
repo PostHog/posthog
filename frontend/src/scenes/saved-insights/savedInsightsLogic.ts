@@ -10,19 +10,19 @@ import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { urls } from 'scenes/urls'
 
-interface InsightsResult {
+export interface InsightsResult {
     results: DashboardItemType[]
     count: number
     previous?: string
     next?: string
 }
 
-interface SavedInsightFilters {
+export interface SavedInsightFilters {
     layoutView: LayoutView
     order: string
     tab: SavedInsightsTabs
-    searchTerm: string
-    insightType: string
+    search: string
+    insight: string
     createdBy: number | 'All users'
     dateFrom?: string | Dayjs | undefined
     dateTo?: string | Dayjs | undefined
@@ -33,8 +33,8 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-updated_at',
         tab: values.tab || SavedInsightsTabs.All,
-        searchTerm: values.searchTerm || '',
-        insightType: values.insightType || 'All types',
+        search: values.search || '',
+        insight: values.insight || 'All types',
         createdBy: values.createdBy || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
@@ -65,9 +65,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                             saved: true,
                             ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
                             ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
-                            ...(filters.searchTerm && { search: filters.searchTerm }),
-                            ...(filters.insightType?.toLowerCase() !== 'all types' && {
-                                insight: filters.insightType.toUpperCase(),
+                            ...(filters.search && { search: filters.search }),
+                            ...(filters.insight?.toLowerCase() !== 'all types' && {
+                                insight: filters.insight.toUpperCase(),
                             }),
                             ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
                             ...(filters.dateFrom &&
@@ -133,11 +133,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             const oldFilters = selectors.filters(previousState)
             const { filters } = values // not taking from props because sometimes we merge them
 
-            if (typeof filters.searchTerm !== 'undefined' && filters.searchTerm !== oldFilters.searchTerm) {
-                console.log('breakpoint hit')
+            if (typeof filters.search !== 'undefined' && filters.search !== oldFilters.search) {
                 await breakpoint(300)
             }
-            actions.loadInsights()
+            if (!objectsEqual(oldFilters, filters)) {
+                actions.loadInsights()
+            }
         },
         renameInsight: async ({ id }) => {
             prompt({ key: `rename-insight-${id}` }).actions.prompt({
