@@ -237,6 +237,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     },
                 },
             ] as ResizableColumnType<EventsTableRowItem>[],
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [eventFilter, tableWidth]
     )
 
@@ -274,6 +276,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                               ellipsis: true,
                           }
                   ),
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [selectedColumns]
     )
 

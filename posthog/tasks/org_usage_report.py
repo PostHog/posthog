@@ -15,7 +15,7 @@ from typing import (
 from sentry_sdk import capture_exception, configure_scope
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
-from posthog.models import Event, Team, User
+from posthog.models import Event, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day, is_clickhouse_enabled
 from posthog.version import VERSION
@@ -112,13 +112,10 @@ def send_all_reports(
             }
 
     for id, org in org_data.items():
-        org_first_user = User.objects.filter(current_team_id__in=org["teams"]).first()
-        if not org_first_user:
-            with configure_scope() as scope:
-                scope.set_context("org", cast(Dict[str, Any], org))
-                capture_exception(Exception("No user found for org while generating report"))
+        org_owner = get_org_owner_or_first_user(id)
+        if not org_owner:
             continue
-        distinct_id = org_first_user.distinct_id
+        distinct_id = org_owner.distinct_id
         try:
             month_start = period_start.replace(day=1)
             usage = get_org_usage(
@@ -182,3 +179,26 @@ def get_product_name(realm: str, license_keys: List[str]) -> str:
         return "scale" if len(license_keys) else "open source"
     else:
         return "unknown"
+
+
+def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
+    # Find the membership object for the org owner
+    user = None
+    membership = OrganizationMembership.objects.filter(
+        organization_id=organization_id, level=OrganizationMembership.Level.OWNER
+    ).first()
+    if not membership:
+        # If no owner membership is present, pick the first membership association we can find
+        membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
+    try:
+        user = membership.user  # type: ignore
+    except AttributeError:
+        # Report problem in next block
+        pass
+    finally:
+        if not user:
+            capture_exception(
+                Exception("No user found for org while generating report"),
+                {"org": {"organization_id": organization_id}},
+            )
+        return user  # type: ignore

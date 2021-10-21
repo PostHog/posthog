@@ -87,6 +87,10 @@ export const funnelLogic = kea<funnelLogicType>({
             stepNumber,
             breakdown_value,
         }),
+        openCorrelationPersonsModal: (entity: Record<string, any>, converted: boolean) => ({
+            entity,
+            converted,
+        }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         changeStepRange: (funnel_from_step?: number, funnel_to_step?: number) => ({
             funnel_from_step,
@@ -860,6 +864,19 @@ export const funnelLogic = kea<funnelLogicType>({
                 filters: values.filters,
                 saveOriginal: true,
                 funnelStep: stepNumber,
+            })
+        },
+        openCorrelationPersonsModal: ({ entity, converted }) => {
+            personsModalLogic.actions.loadPeople({
+                action: { id: entity.id, name: entity.name, properties: entity.properties, type: entity.type },
+                label: entity.id,
+                date_from: '',
+                date_to: '',
+                filters: {
+                    ...values.filters,
+                    funnel_correlation_person_converted: converted ? 'true' : 'false',
+                    funnel_correlation_person_entity: entity,
+                },
             })
         },
         changeStepRange: ({ funnel_from_step, funnel_to_step }) => {
