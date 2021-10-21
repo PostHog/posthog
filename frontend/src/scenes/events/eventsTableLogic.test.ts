@@ -3,7 +3,7 @@ import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
 import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic, initTeamLogic } from '~/test/init'
+import { initKeaTestLogic, seedTeamLogic } from '~/test/init'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
 import { EmptyPropertyFilter, EventType, PropertyFilter } from '~/types'
@@ -43,7 +43,7 @@ describe('eventsTableLogic', () => {
         return { results: [], count: 0 }
     })
 
-    initTeamLogic()
+    seedTeamLogic()
     initKeaTestLogic({
         logic: eventsTableLogic,
         props: {
