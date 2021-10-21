@@ -19,6 +19,7 @@ export function initKeaTestLogic<L extends Logic = Logic>({
     let builtLogic: BuiltLogic<L>
 
     beforeEach(async () => {
+        window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
         posthog.init('no token', {
             api_host: 'borked',
             test: true,
@@ -43,9 +44,6 @@ export function initKeaTestLogic<L extends Logic = Logic>({
     afterEach(async () => {
         unmount()
         await expectLogic(logic).toFinishAllListeners()
+        delete window.POSTHOG_APP_CONTEXT
     })
-}
-
-export function seedTeamLogic(): void {
-    window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 }

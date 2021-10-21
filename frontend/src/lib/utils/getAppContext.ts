@@ -2,7 +2,7 @@ import { AppContext, PathType } from '~/types'
 
 declare global {
     export interface Window {
-        POSTHOG_APP_CONTEXT: AppContext
+        POSTHOG_APP_CONTEXT?: AppContext
     }
 }
 
