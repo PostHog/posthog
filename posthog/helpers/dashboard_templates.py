@@ -21,7 +21,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.models.dashboard import Dashboard
-from posthog.models.saved_insight import Insight
+from posthog.models.insight import Insight
 
 DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 

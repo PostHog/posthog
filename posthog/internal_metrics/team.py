@@ -8,7 +8,7 @@ from django.db import transaction
 from sentry_sdk.api import capture_exception
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.saved_insight import Insight
+from posthog.models.insight import Insight
 
 NAME = "PostHog Internal Metrics"
 CLICKHOUSE_DASHBOARD = {

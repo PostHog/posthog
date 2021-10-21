@@ -9,7 +9,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.models import User
 from posthog.models.filters.utils import get_filter
-from posthog.models.saved_insight import Insight
+from posthog.models.insight import Insight
 from posthog.settings import TEMP_CACHE_RESULTS_TTL
 from posthog.utils import should_refresh
 
