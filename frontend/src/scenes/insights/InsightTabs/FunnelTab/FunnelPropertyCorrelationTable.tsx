@@ -7,13 +7,20 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
+import {
+    PropertyNamesSelectBox,
+    SelectPropertiesProvider,
+    useSelectedProperties,
+    useSelectedPropertiesContext,
+} from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
+import { usePersonProperties } from 'lib/api/person-properties'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes } = useValues(logic)
-    const { setPropertyCorrelationTypes, loadPropertyCorrelations } = useActions(logic)
+    const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes, propertyNames } = useValues(logic)
+    const { setPropertyCorrelationTypes, setPropertyNames } = useActions(logic)
+    const { properties: personProperties } = usePersonProperties()
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
             if (propertyCorrelationTypes.includes(correlationType)) {
@@ -25,93 +32,89 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             setPropertyCorrelationTypes([correlationType])
         }
     }
-    return stepsWithCount.length > 1 ? (
-        <Table
-            dataSource={propertyCorrelationValues}
-            scroll={{ x: 'max-content' }}
-            size="small"
-            rowKey="rowKey"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            style={{ marginTop: '1rem' }}
-            title={() => (
-                <Row align="middle">
-                    <Col xs={20} sm={20} xl={6}>
-                        <b>Correlation Analysis for:</b>
-                    </Col>
-                    <Col>
-                        <PropertyNamesSelect
-                            onChange={(selectedProperties) => loadPropertyCorrelations(selectedProperties)}
-                        />
-                    </Col>
-                    <Col
-                        xs={20}
-                        sm={20}
-                        xl={4}
-                        className="tab-btn left ant-btn"
-                        onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
-                    >
-                        <Checkbox
-                            checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
-                            style={{
-                                pointerEvents: 'none',
-                            }}
-                        >
-                            Success
-                        </Checkbox>
-                    </Col>
-                    <Col
-                        xs={20}
-                        sm={20}
-                        xl={4}
-                        className="tab-btn left ant-btn"
-                        onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
-                    >
-                        <Checkbox
-                            checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Failure)}
-                            style={{
-                                pointerEvents: 'none',
-                            }}
-                        >
-                            Dropoff
-                        </Checkbox>
-                    </Col>
-                </Row>
-            )}
-        >
-            <Column
-                title="Correlated Person Properties"
-                key="propertName"
-                render={(_, record: FunnelCorrelation) => {
-                    const is_success = record.correlation_type === FunnelCorrelationType.Success
 
-                    return (
-                        <>
-                            <h4>
-                                {is_success ? (
-                                    <RiseOutlined style={{ color: 'green' }} />
-                                ) : (
-                                    <FallOutlined style={{ color: 'red' }} />
-                                )}{' '}
-                                {record.event}
-                            </h4>
-                            <div>
-                                People who converted were{' '}
-                                <mark>
-                                    <b>
-                                        {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'}{' '}
-                                        likely
-                                    </b>
-                                </mark>{' '}
-                                to have this property value
-                            </div>
-                        </>
-                    )
-                }}
-                align="left"
-            />
-            <Column title="Completed" dataIndex="success_count" width={90} align="center" />
-            <Column title="Dropped off" dataIndex="failure_count" width={100} align="center" />
-        </Table>
+    const selectProps = useSelectedProperties({ properties: personProperties || [], onChange: setPropertyNames })
+    const { setSelectedProperties } = selectProps
+
+    if (!personProperties) {
+        return null
+    }
+
+    return stepsWithCount.length > 1 ? (
+        <SelectPropertiesProvider {...selectProps}>
+            <Table
+                dataSource={propertyCorrelationValues}
+                scroll={{ x: 'max-content' }}
+                size="small"
+                rowKey="rowKey"
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                style={{ marginTop: '1rem' }}
+                title={() => (
+                    <Row align="middle">
+                        <Col xs={20} sm={20} xl={6}>
+                            <b>Correlation Analysis for:</b>
+                        </Col>
+                        <Col>
+                            <PropertyNamesSelectBox
+                                // NOTE: we want to make sure that if the
+                                // selected propertyNames change, we reset the
+                                // internal state of the select
+                                key={propertyNames?.toString()}
+                                properties={personProperties}
+                                initialProperties={propertyNames}
+                                onChange={setSelectedProperties}
+                            />
+                        </Col>
+                        <Col
+                            xs={20}
+                            sm={20}
+                            xl={4}
+                            className="tab-btn left ant-btn"
+                            onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
+                        >
+                            <Checkbox
+                                checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
+                                style={{
+                                    pointerEvents: 'none',
+                                }}
+                            >
+                                Success
+                            </Checkbox>
+                        </Col>
+                        <Col
+                            xs={20}
+                            sm={20}
+                            xl={4}
+                            className="tab-btn left ant-btn"
+                            onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
+                        >
+                            <Checkbox
+                                checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Failure)}
+                                style={{
+                                    pointerEvents: 'none',
+                                }}
+                            >
+                                Dropoff
+                            </Checkbox>
+                        </Col>
+                    </Row>
+                )}
+            >
+                <Column
+                    title="Correlated Person Properties"
+                    key="propertName"
+                    render={(_, record: FunnelCorrelation) => <CorrelationPropertyCell record={record} />}
+                    align="left"
+                />
+                <Column title="Completed" dataIndex="success_count" width={90} align="center" />
+                <Column title="Dropped off" dataIndex="failure_count" width={100} align="center" />
+                <Column
+                    title="Actions"
+                    key="actions"
+                    render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                />
+            </Table>
+        </SelectPropertiesProvider>
     ) : null
 }
 
@@ -121,4 +124,32 @@ const get_friendly_numeric_value = (value: number): string => {
     }
 
     return value.toFixed()
+}
+
+const CorrelationPropertyCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
+    const is_success = record.correlation_type === FunnelCorrelationType.Success
+
+    return (
+        <>
+            <h4>
+                {is_success ? <RiseOutlined style={{ color: 'green' }} /> : <FallOutlined style={{ color: 'red' }} />}{' '}
+                {record.event}
+            </h4>
+            <div>
+                People who converted were{' '}
+                <mark>
+                    <b>
+                        {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
+                    </b>
+                </mark>{' '}
+                to have this property value
+            </div>
+        </>
+    )
+}
+
+const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
+    const { toggleProperty } = useSelectedPropertiesContext()
+
+    return <button onClick={() => toggleProperty((record.event || '').split('::')[0])}>Exclude property</button>
 }

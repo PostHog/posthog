@@ -41,9 +41,9 @@ export const WithCorrelation = (): JSX.Element => {
         mockGetPersonProperties((_, res, ctx) =>
             res(
                 ctx.json([
-                    { id: 1, name: 'location', count: 1 },
-                    { id: 2, name: 'role', count: 2 },
-                    { id: 3, name: 'height', count: 3 },
+                    { id: 1, name: '$geoip_country_code', count: 1 },
+                    { id: 2, name: '$os', count: 2 },
+                    { id: 3, name: '$browser', count: 3 },
                 ])
             )
         ),
@@ -67,9 +67,9 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
         mockGetPersonProperties((_, res, ctx) =>
             res(
                 ctx.json([
-                    { id: 1, name: 'location', count: 1 },
-                    { id: 2, name: 'role', count: 2 },
-                    { id: 3, name: 'height', count: 3 },
+                    { id: 1, name: '$geoip_country_code', count: 1 },
+                    { id: 2, name: '$os', count: 2 },
+                    { id: 3, name: '$browser', count: 3 },
                 ])
             )
         ),

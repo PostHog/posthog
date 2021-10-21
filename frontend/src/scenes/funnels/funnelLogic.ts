@@ -102,6 +102,8 @@ export const funnelLogic = kea<funnelLogicType>({
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         hideSkewWarning: true,
+
+        setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
     }),
 
     loaders: ({ values }) => ({
@@ -230,6 +232,9 @@ export const funnelLogic = kea<funnelLogicType>({
                     ...eventWithPropertyCorrelations,
                 }
             },
+        },
+        propertyNames: {
+            setPropertyNames: (state, { propertyNames }) => propertyNames,
         },
     }),
 
@@ -873,6 +878,10 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
+        },
+
+        setPropertyNames: async ({ propertyNames }) => {
+            actions.loadPropertyCorrelations(propertyNames)
         },
     }),
 })
