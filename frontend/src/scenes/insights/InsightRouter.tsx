@@ -27,7 +27,7 @@ const insightRouterLogic = kea<insightRouterLogicType>({
             if (response.results.length) {
                 const item = response.results[0] as DashboardItemType
                 eventUsageLogic.actions.reportInsightShortUrlVisited(true, item.filters.insight || null)
-                router.actions.push(
+                router.actions.replace(
                     combineUrl('/insights', item.filters, {
                         fromItem: item.id,
                         fromItemName: item.name,
