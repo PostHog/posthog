@@ -1,15 +1,6 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import {
-    EntityTypes,
-    FilterType,
-    Entity,
-    EntityType,
-    ActionFilter,
-    EntityFilter,
-    AnyPropertyFilter,
-    DefaultFirstStep,
-} from '~/types'
+import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -222,10 +213,10 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             } else {
                 actions.setFilters([
                     {
-                        id: DefaultFirstStep.ID,
-                        type: DefaultFirstStep.TYPE,
+                        id: '$pageview',
+                        type: 'events',
                         order: 0,
-                        name: DefaultFirstStep.NAME,
+                        name: '$pageview',
                         ...props.addFilterDefaultOptions,
                     },
                 ])
