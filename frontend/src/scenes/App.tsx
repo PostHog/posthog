@@ -86,13 +86,33 @@ function Models(): null {
 
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { activeScene, loadedScenes, sceneConfig, sceneHistory } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showingDelayedSpinner } = useValues(appLogic)
 
-    const SceneComponent: (...args: any[]) => JSX.Element | null =
-        (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SceneLoading /> : null))
+    const SceneComponent = (): JSX.Element => {
+        return (
+            <>
+                {sceneHistory.history.map(({ scene, params, sceneId }, index) => {
+                    const Component = loadedScenes[scene]?.component
+                    return (
+                        <React.Fragment key={sceneId}>
+                            {!!Component ? (
+                                <div
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        display: sceneHistory.index === index ? 'block' : 'none',
+                                    }}
+                                >
+                                    <Component user={user} {...params} sceneId={sceneId} />
+                                </div>
+                            ) : null}
+                        </React.Fragment>
+                    )
+                })}
+            </>
+        )
+    }
 
     const essentialElements = (
         // Components that should always be mounted inside Layout
@@ -105,7 +125,7 @@ function AppScene(): JSX.Element | null {
     if (!user) {
         return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent {...params} />
+                <SceneComponent />
                 {essentialElements}
             </Layout>
         ) : null
@@ -115,7 +135,7 @@ function AppScene(): JSX.Element | null {
         return (
             <Layout style={{ minHeight: '100vh' }}>
                 {!sceneConfig.hideTopNav && <TopNavigation />}
-                <SceneComponent user={user} {...params} />
+                <SceneComponent />
                 {essentialElements}
             </Layout>
         )
@@ -135,7 +155,7 @@ function AppScene(): JSX.Element | null {
                             ) : null}
                             <BillingAlerts />
                             <BackTo />
-                            <SceneComponent user={user} {...params} />
+                            <SceneComponent />
                         </Layout.Content>
                     ) : null}
                 </Layout>

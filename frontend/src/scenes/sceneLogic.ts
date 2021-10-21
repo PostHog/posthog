@@ -1,19 +1,20 @@
 import { kea, LogicWrapper } from 'kea'
 import { router } from 'kea-router'
-import { identifierToHuman, delay } from 'lib/utils'
+import { identifierToHuman, delay, uuid, objectsEqual } from 'lib/utils'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, UserType } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
+import { LocationChangedPayload } from 'kea-router/lib/types'
 
 export enum Scene {
     Error404 = '404',
@@ -111,12 +112,21 @@ export const scenes: Record<Scene, () => any> = {
 }
 
 interface LoadedScene {
-    component: () => JSX.Element
+    component: (params?: { sceneId: string; user: UserType | null }) => JSX.Element
     logic?: LogicWrapper
 }
 
 interface Params {
     [param: string]: any
+}
+
+interface SceneHistory {
+    history: {
+        scene: Scene
+        params: Params
+        sceneId: string
+    }[]
+    index: number
 }
 
 interface SceneConfig {
@@ -236,7 +246,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': '/insights',
-    '/dashboards': '/dashboard', // TODO: For consistency this should be the default, but we should make sure /dashboard keeps working
+    '/dashboards': '/dashboard',
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
     '/organization/members': '/organization/settings',
@@ -284,15 +294,17 @@ export const routes: Record<string, Scene> = {
     [urls.onboardingSetup()]: Scene.OnboardingSetup,
 }
 
-export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
+type Method = LocationChangedPayload['method']
+
+export const sceneLogic = kea<sceneLogicType<LoadedScene, Method, Params, Scene, SceneConfig, SceneHistory>>({
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
             else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
-        openScene: (scene: Scene, params: Params) => ({ scene, params }),
+        openScene: (scene: Scene, params: Params, method: Method) => ({ scene, params, method }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
-        loadScene: (scene: Scene, params: Params) => ({ scene, params }),
+        loadScene: (scene: Scene, params: Params, method: Method) => ({ scene, params, method }),
         // 3. Set the `scene` reducer
-        setScene: (scene: Scene, params: Params) => ({ scene, params }),
+        setScene: (scene: Scene, params: Params, method: Method) => ({ scene, params, method }),
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         guardAvailableFeature: (
@@ -323,6 +335,52 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
             {} as Params,
             {
                 setScene: (_, payload) => payload.params || {},
+            },
+        ],
+        sceneHistory: [
+            { history: [], index: -1 } as SceneHistory,
+            {
+                setScene: ({ history, index }, { scene, params, method }) => {
+                    if (
+                        history.length > 0 &&
+                        history[index].scene === scene &&
+                        objectsEqual(history[index].params || {}, params || {})
+                    ) {
+                        return { history, index }
+                    } else if (
+                        // going forward
+                        method === 'POP' &&
+                        history.length > 0 &&
+                        index + 1 < history.length &&
+                        history[index + 1].scene === scene &&
+                        objectsEqual(history[index + 1].params || {}, params || {})
+                    ) {
+                        return {
+                            history: history,
+                            index: index + 1,
+                        }
+                    } else if (
+                        // going back
+                        method === 'POP' &&
+                        history.length > 0 &&
+                        index > 0 &&
+                        history[index - 1].scene === scene &&
+                        objectsEqual(history[index - 1].params || {}, params || {})
+                    ) {
+                        return {
+                            history: history,
+                            index: index - 1,
+                        }
+                    } else {
+                        return {
+                            history: [
+                                ...history.filter((_, i) => i <= index),
+                                { scene, params: params || {}, sceneId: uuid() },
+                            ],
+                            index: index + 1,
+                        }
+                    }
+                },
             },
         ],
         loadedScenes: [
@@ -370,7 +428,15 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         ],
     },
     urlToAction: ({ actions }) => {
-        const mapping: Record<string, (params: Params) => any> = {}
+        const mapping: Record<
+            string,
+            (
+                params: Params,
+                searchParams: Record<string, any>,
+                hashParams: Record<string, any>,
+                payload: LocationChangedPayload
+            ) => any
+        > = {}
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
@@ -379,10 +445,10 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
             }
         }
         for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params) => actions.openScene(scene, params)
+            mapping[path] = (params, _, __, { method }) => actions.openScene(scene, params, method)
         }
 
-        mapping['/*'] = () => actions.loadScene(Scene.Error404, {})
+        mapping['/*'] = (_, __, ___, { method }) => actions.loadScene(Scene.Error404, {}, method)
 
         return mapping
     },
@@ -420,7 +486,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
             posthog.capture('$pageview')
             actions.setPageTitle(identifierToHuman(values.scene || ''))
         },
-        openScene: ({ scene, params }) => {
+        openScene: ({ scene, params, method }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
@@ -467,25 +533,16 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 }
             }
 
-            actions.loadScene(scene, params)
+            actions.loadScene(scene, params, method)
         },
-        loadScene: async (
-            {
-                scene,
-                params = {},
-            }: {
-                scene: Scene
-                params: Params
-            },
-            breakpoint
-        ) => {
+        loadScene: async ({ scene, params = {}, method }, breakpoint) => {
             if (values.scene === scene) {
-                actions.setScene(scene, params)
+                actions.setScene(scene, params, method)
                 return
             }
 
             if (!scenes[scene]) {
-                actions.setScene(Scene.Error404, {})
+                actions.setScene(Scene.Error404, {}, method)
                 return
             }
 
@@ -505,7 +562,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                         } else {
                             // First scene, show an error page
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene(Scene.ErrorNetwork, {})
+                            actions.setScene(Scene.ErrorNetwork, {}, method)
                         }
                     } else {
                         throw error
@@ -549,7 +606,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 }
             }
 
-            actions.setScene(scene, params)
+            actions.setScene(scene, params, method)
 
             if (unmount) {
                 // release our hold on this logic after 0.5s as it's by then surely mounted via React
