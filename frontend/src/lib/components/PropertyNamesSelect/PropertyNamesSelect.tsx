@@ -23,16 +23,27 @@ export const PropertyNamesSelect = ({
             <WarningFilled style={{ color: 'var(--warning)' }} /> Error loading properties!
         </div>
     ) : properties ? (
-        <SelectPropertiesProvider properties={properties}>
-            <PropertyNamesSelectBox onChange={onChange} />
-        </SelectPropertiesProvider>
+        <PropertyNamesSelectBox onChange={onChange} properties={properties} />
     ) : (
         <div className="property-names-select">Loading properties...</div>
     )
 }
 
-const PropertyNamesSelectBox = ({ onChange }: { onChange?: (selectedProperties: string[]) => void }): JSX.Element => {
-    const { properties, selectedProperties, selectAll, clearAll, selectState } = useSelectedProperties()
+export const PropertyNamesSelectBox = ({
+    properties,
+    initialProperties,
+    onChange,
+}: {
+    properties: PersonProperty[]
+    initialProperties?: string[]
+    onChange?: (selectedProperties: string[]) => void
+}): JSX.Element => {
+    const selectProps = useSelectedProperties({
+        properties,
+        initialProperties,
+    })
+
+    const { selectedProperties, selectAll, clearAll, selectState } = selectProps
 
     const {
         isOpen: isSearchOpen,
@@ -104,7 +115,9 @@ const PropertyNamesSelectBox = ({ onChange }: { onChange?: (selectedProperties: 
             </div>
             {isSearchOpen ? (
                 <div className="popover" {...popoverProps}>
-                    <PropertyNamesSearch />
+                    <SelectPropertiesProvider {...selectProps}>
+                        <PropertyNamesSearch />
+                    </SelectPropertiesProvider>
                 </div>
             ) : null}
         </div>
@@ -112,7 +125,7 @@ const PropertyNamesSelectBox = ({ onChange }: { onChange?: (selectedProperties: 
 }
 
 const PropertyNamesSearch = (): JSX.Element => {
-    const { properties, toggleProperty, isSelected } = useSelectedProperties()
+    const { properties, toggleProperty, isSelected } = useSelectedPropertiesContext()
     const { filteredProperties, query, setQuery } = usePropertySearch(properties)
 
     return (
@@ -151,10 +164,10 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
     /* Logic for handling arbitrary popover state */
     const [isOpen, setIsOpen] = React.useState<boolean>(false)
 
-    const hide = (): void => {
+    const hide = React.useCallback((): void => {
         setIsOpen(false)
         onHide()
-    }
+    }, [onHide])
 
     const open = (): void => setIsOpen(true)
 
@@ -254,52 +267,30 @@ const usePropertySearch = (properties: PersonProperty[]) => {
     return { filteredProperties, setQuery, query }
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-const useSelectedProperties = () => {
-    /* Provides functions for handling selected properties state */
-    const context = React.useContext(propertiesSelectionContext)
-
-    // make typing happy, i.e. rule out the undefined case so we don't have to
-    // check this everywhere
-    if (context === undefined) {
-        throw Error('No select React.Context found')
-    }
-
-    return context
-}
-
-/* 
-A propertiesSelectionContext provides:
-
-    - selectedProperties: a set of selected property names
-    - state manipulation functions for modifying the set of selected properties
-*/
-const propertiesSelectionContext = React.createContext<
-    | {
-          properties: PersonProperty[]
-          selectState: 'all' | 'none' | 'some'
-          selectedProperties: Set<string>
-          toggleProperty: (propertyName: string) => void
-          clearAll: () => void
-          selectAll: () => void
-          isSelected: (propertyName: string) => boolean
-      }
-    | undefined
->(undefined)
-
-const SelectPropertiesProvider = ({
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
+export const useSelectedProperties = ({
     properties,
-    children,
+    initialProperties,
+    onChange,
 }: {
     properties: PersonProperty[]
-    children: React.ReactNode
-}): JSX.Element => {
-    const [selectedProperties, setSelectedProperties] = React.useState<Set<string>>(
-        new Set(properties.map((property) => property.name))
+    initialProperties?: string[]
+    onChange?: (selectedProperties: string[]) => void
+}) => {
+    const [selectedProperties, setSelectedPropertiesSet] = React.useState<Set<string>>(
+        new Set(initialProperties || properties.map((property) => property.name))
     )
 
+    const setSelectedProperties = (newSelectedProperties: string[]): void => {
+        setSelectedPropertiesSet(new Set(newSelectedProperties))
+    }
+
     const setAndNotify = (newSelectedProperties: Set<string>): void => {
-        setSelectedProperties(newSelectedProperties)
+        setSelectedPropertiesSet(newSelectedProperties)
+
+        if (onChange) {
+            onChange(Array.from(newSelectedProperties))
+        }
     }
 
     const toggleProperty = (property: string): void => {
@@ -323,11 +314,53 @@ const SelectPropertiesProvider = ({
     const selectState: 'all' | 'none' | 'some' =
         selectedProperties.size === properties.length ? 'all' : selectedProperties.size === 0 ? 'none' : 'some'
 
-    return (
-        <propertiesSelectionContext.Provider
-            value={{ properties, selectedProperties, toggleProperty, clearAll, selectAll, selectState, isSelected }}
-        >
-            {children}
-        </propertiesSelectionContext.Provider>
-    )
+    return {
+        properties,
+        selectedProperties,
+        setSelectedProperties,
+        toggleProperty,
+        clearAll,
+        selectAll,
+        selectState,
+        isSelected,
+    }
+}
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
+export const useSelectedPropertiesContext = () => {
+    /* Provides functions for handling selected properties state */
+    const context = React.useContext(propertiesSelectionContext)
+
+    // make typing happy, i.e. rule out the undefined case so we don't have to
+    // check this everywhere
+    if (context === undefined) {
+        throw Error('No select React.Context found')
+    }
+
+    return context
+}
+
+/* 
+A propertiesSelectionContext provides:
+
+    - selectedProperties: a set of selected property names
+    - state manipulation functions for modifying the set of selected properties
+*/
+type PropertiesSelectionContextType = {
+    properties: PersonProperty[]
+    selectState: 'all' | 'none' | 'some'
+    selectedProperties: Set<string>
+    toggleProperty: (propertyName: string) => void
+    clearAll: () => void
+    selectAll: () => void
+    isSelected: (propertyName: string) => boolean
+}
+
+const propertiesSelectionContext = React.createContext<PropertiesSelectionContextType | undefined>(undefined)
+
+export const SelectPropertiesProvider = ({
+    children,
+    ...methods
+}: PropertiesSelectionContextType & { children: JSX.Element[] | JSX.Element }): JSX.Element => {
+    return <propertiesSelectionContext.Provider value={methods}>{children}</propertiesSelectionContext.Provider>
 }
