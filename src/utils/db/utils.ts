@@ -1,9 +1,13 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import crypto from 'crypto'
+import { ProducerRecord } from 'kafkajs'
+import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../config/config'
-import { BasePerson, Element, Person, RawPerson } from '../../types'
+import { KAFKA_PERSON } from '../../config/kafka-topics'
+import { BasePerson, Element, Person, RawPerson, TimestampFormat } from '../../types'
+import { castTimestampOrNow } from '../../utils/utils'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
@@ -220,4 +224,31 @@ export function generatePostgresValuesString(numberOfColumns: number, rowNumber:
             .join(', ') +
         ')'
     )
+}
+
+export function generateKafkaPersonUpdateMessage(
+    createdAt: DateTime | string,
+    properties: Properties,
+    teamId: number,
+    isIdentified: boolean,
+    id: string,
+    isDeleted = 0
+): ProducerRecord {
+    return {
+        topic: KAFKA_PERSON,
+        messages: [
+            {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id,
+                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                        properties: JSON.stringify(properties),
+                        team_id: teamId,
+                        is_identified: isIdentified,
+                        is_deleted: isDeleted,
+                    })
+                ),
+            },
+        ],
+    }
 }

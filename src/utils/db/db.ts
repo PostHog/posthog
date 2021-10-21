@@ -8,7 +8,7 @@ import { KafkaMessage, ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
-import { KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KAFKA_PERSON_UNIQUE_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
     ActionEventPair,
@@ -55,6 +55,7 @@ import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
     chainToElements,
+    generateKafkaPersonUpdateMessage,
     generatePostgresValuesString,
     hashElements,
     timeoutGuard,
@@ -456,26 +457,7 @@ export class DB {
             } as Person
 
             if (this.kafkaProducer) {
-                kafkaMessages.push({
-                    topic: KAFKA_PERSON,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({
-                                    created_at: castTimestampOrNow(
-                                        createdAt,
-                                        TimestampFormat.ClickHouseSecondPrecision
-                                    ),
-                                    properties: JSON.stringify(properties),
-                                    team_id: teamId,
-                                    is_identified: isIdentified,
-                                    id: uuid,
-                                    is_deleted: 0,
-                                })
-                            ),
-                        },
-                    ],
-                })
+                kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid))
             }
 
             for (const distinctId of distinctIds || []) {
@@ -519,25 +501,13 @@ export class DB {
 
         const kafkaMessages = []
         if (this.kafkaProducer) {
-            const message = {
-                topic: KAFKA_PERSON,
-                messages: [
-                    {
-                        value: Buffer.from(
-                            JSON.stringify({
-                                created_at: castTimestampOrNow(
-                                    updatedPerson.created_at,
-                                    TimestampFormat.ClickHouseSecondPrecision
-                                ),
-                                properties: JSON.stringify(updatedPerson.properties),
-                                team_id: updatedPerson.team_id,
-                                is_identified: updatedPerson.is_identified,
-                                id: updatedPerson.uuid,
-                            })
-                        ),
-                    },
-                ],
-            }
+            const message = generateKafkaPersonUpdateMessage(
+                updatedPerson.created_at,
+                updatedPerson.properties,
+                updatedPerson.team_id,
+                updatedPerson.is_identified,
+                updatedPerson.uuid
+            )
             if (client) {
                 kafkaMessages.push(message)
             } else {
@@ -552,26 +522,16 @@ export class DB {
         await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
         const kafkaMessages = []
         if (this.kafkaProducer) {
-            kafkaMessages.push({
-                topic: KAFKA_PERSON,
-                messages: [
-                    {
-                        value: Buffer.from(
-                            JSON.stringify({
-                                created_at: castTimestampOrNow(
-                                    person.created_at,
-                                    TimestampFormat.ClickHouseSecondPrecision
-                                ),
-                                properties: JSON.stringify(person.properties),
-                                team_id: person.team_id,
-                                is_identified: person.is_identified,
-                                id: person.uuid,
-                                is_deleted: 1,
-                            })
-                        ),
-                    },
-                ],
-            })
+            kafkaMessages.push(
+                generateKafkaPersonUpdateMessage(
+                    person.created_at,
+                    person.properties,
+                    person.team_id,
+                    person.is_identified,
+                    person.uuid,
+                    1
+                )
+            )
         }
         return kafkaMessages
     }
