@@ -25,7 +25,10 @@ jobs:
         outputs:
             backend: ${{ steps.filter.outputs.backend }}
         steps:
-            # For pull requests it's not necessary to checkout the code
+            # For pull requests it's not necessary to checkout the code, but we
+            # also want this to run on master so we need to checkout
+            - uses: actions/checkout@v2
+
             - uses: dorny/paths-filter@v2
               id: filter
               with:
