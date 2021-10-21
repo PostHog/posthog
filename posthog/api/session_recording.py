@@ -12,7 +12,7 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries.session_recordings.session_recording import SessionRecordingMetaData, SessionRecordingSnapshots
+from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
@@ -42,14 +42,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return SessionRecordingList(filter=filter, team=self.team).run()
 
     def _get_session_recording_snapshots(self, request, filter, session_recording_id):
-        return SessionRecordingSnapshots(
+        return SessionRecording(
             request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
-        ).run()
+        ).get_snapshots()
 
-    def _get_session_recording_meta_data(self, request, session_recording_id):
-        return SessionRecordingMetaData(
-            request=request, team=self.team, session_recording_id=session_recording_id
-        ).run()
+    def _get_session_recording_meta_data(self, request, filter, session_recording_id):
+        return SessionRecording(
+            request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
+        ).get_metadata()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
@@ -96,9 +96,10 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
-        session_recording_meta_data = self._get_session_recording_meta_data(request, session_recording_id)
+        filter = SessionRecordingsFilter(request=request)
+        session_recording_meta_data = self._get_session_recording_meta_data(request, filter, session_recording_id)
 
-        if not session_recording_meta_data.get("event_count"):
+        if not session_recording_meta_data.get("session_id"):
             raise exceptions.NotFound("Session not found")
 
         if not request.user.is_authenticated:  # for mypy

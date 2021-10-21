@@ -10,13 +10,11 @@ from rest_framework.request import Request
 from posthog.helpers.session_recording import compress_and_chunk_snapshots
 from posthog.models import Filter, Person
 from posthog.models.session_recording_event import SessionRecordingEvent
-from posthog.queries.session_recordings.session_recording import SessionRecordingMetaData, SessionRecordingSnapshots
+from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.test.base import BaseTest
 
 
-def factory_session_recording_test(
-    session_recording_snapshots, session_recording_meta_data, session_recording_event_factory
-):
+def factory_session_recording_test(session_recording: SessionRecording, session_recording_event_factory):
     def create_recording_request_and_filter(session_recording_id, limit=None, offset=None) -> Tuple[Request, Filter]:
         params = {}
         if limit:
@@ -44,9 +42,9 @@ def factory_session_recording_test(
                 self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
 
                 req, filt = create_recording_request_and_filter("1")
-                session = session_recording_snapshots(
+                session = session_recording(
                     team=self.team, session_recording_id="1", request=req, filter=filt
-                ).run()
+                ).get_snapshots()
                 self.assertEqual(
                     session["snapshots"],
                     [
@@ -60,29 +58,30 @@ def factory_session_recording_test(
         def test_query_run_with_no_such_session(self):
 
             req, filt = create_recording_request_and_filter("xxx")
-            session = session_recording_snapshots(
+            session = session_recording(
                 team=self.team, session_recording_id="xxx", request=req, filter=filt
-            ).run()
+            ).get_snapshots()
             self.assertEqual(session, {"snapshots": [], "next": None})
 
         def test_query_run_queries_with_specific_limit_and_offset(self):
             chunked_session_id = "7"
-            limit = 10
+            chunk_limit = 10
+            snapshots_per_chunk = 2
             base_time = now()
 
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
             for _ in range(11):
                 self.create_chunked_snapshots(2, "user", chunked_session_id, base_time)
 
-            req, filt = create_recording_request_and_filter(chunked_session_id, limit)
-            session = session_recording_snapshots(
+            req, filt = create_recording_request_and_filter(chunked_session_id, chunk_limit)
+            session = session_recording(
                 team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
-            ).run()
-            self.assertEqual(len(session["snapshots"]), limit * 2)
+            ).get_snapshots()
+            self.assertEqual(len(session["snapshots"]), chunk_limit * snapshots_per_chunk)
             self.assertIsNotNone(session["next"])
             parsed_params = parse_qs(urlparse(session["next"]).query)
-            self.assertEqual(int(parsed_params["offset"][0]), limit)
-            self.assertEqual(int(parsed_params["limit"][0]), limit)
+            self.assertEqual(int(parsed_params["offset"][0]), chunk_limit)
+            self.assertEqual(int(parsed_params["limit"][0]), chunk_limit)
 
         def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None):
             if team_id == None:
@@ -145,6 +144,6 @@ def factory_session_recording_test(
 
 
 class DjangoSessionRecordingTest(
-    factory_session_recording_test(SessionRecordingSnapshots, SessionRecordingMetaData, SessionRecordingEvent.objects.create)  # type: ignore
+    factory_session_recording_test(SessionRecording, SessionRecordingEvent.objects.create)  # type: ignore
 ):
     pass
