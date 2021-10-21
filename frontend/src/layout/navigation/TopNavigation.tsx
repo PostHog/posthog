@@ -22,7 +22,6 @@ import {
     KeyOutlined,
     SmileOutlined,
     StopOutlined,
-    QuestionCircleOutlined,
 } from '@ant-design/icons'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -42,6 +41,7 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -245,10 +245,6 @@ export function TopNavigation(): JSX.Element {
                             Create new organization
                         </button>
                     )}
-                    <a type="button" className="plain-button text-primary" href="https://posthog.com/support">
-                        <QuestionCircleOutlined className="mr-05" />
-                        Get support
-                    </a>
                 </div>
             }
             <button type="button" onClick={logout} className="bottom-button" data-attr="top-menu-item-logout">
@@ -356,6 +352,7 @@ export function TopNavigation(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
+                <HelpButton />
                 {user && (
                     <>
                         <Dropdown

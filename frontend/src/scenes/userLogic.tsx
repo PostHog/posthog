@@ -21,6 +21,8 @@ export const userLogic = kea<userLogicType>({
     }),
     loaders: ({ values, actions }) => ({
         user: [
+            // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
+            // TODO: We already send the current user in `posthog_app_context`, so we don't have to do this extra request
             null as UserType | null,
             {
                 loadUser: async () => {
