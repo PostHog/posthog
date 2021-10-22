@@ -605,7 +605,7 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
         (
             "You are using the default SECRET_KEY in a production environment!",
             "For the safety of your instance, you must generate and set a unique key.",
-            "More information on https://posthog.com/docs/deployment/securing-posthog#secret-key",
+            "More information on https://posthog.com/docs/self-host/configure/securing-posthog",
         )
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
