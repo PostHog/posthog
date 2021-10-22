@@ -53,7 +53,7 @@ class SessionRecording:
     def get_snapshots(self) -> RecordingSnapshots:
         all_recording_snapshots = [event.snapshot_data for event in list(self._query_recording_snapshots())]
         has_next, snapshots = paginate_chunk_decompression(
-            self._team, self._session_recording_id, all_recording_snapshots, self._limit, self._offset
+            self._team.pk, self._session_recording_id, all_recording_snapshots, self._limit, self._offset
         )
 
         next_url = (
@@ -66,11 +66,11 @@ class SessionRecording:
 
     def _get_first_and_last_chunk(self, all_recording_snapshots: List[SnapshotData]):
         _, first_chunk = paginate_chunk_decompression(
-            self._team, self._session_recording_id, all_recording_snapshots, 1, 0
+            self._team.pk, self._session_recording_id, all_recording_snapshots, 1, 0
         )
 
         _, last_chunk = paginate_chunk_decompression(
-            self._team, self._session_recording_id, list(reversed(all_recording_snapshots)), 1, 0
+            self._team.pk, self._session_recording_id, list(reversed(all_recording_snapshots)), 1, 0
         )
 
         return (

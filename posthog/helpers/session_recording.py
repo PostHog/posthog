@@ -7,7 +7,7 @@ from typing import Dict, Generator, List, Union, cast
 
 from sentry_sdk.api import capture_exception, capture_message
 
-from posthog.models import Team, utils
+from posthog.models import utils
 
 Event = Dict
 SnapshotData = Dict
@@ -166,7 +166,7 @@ def paginate_chunks_to_decompress(
 
 
 def paginate_chunk_decompression(
-    team: Team, session_recording_id: str, all_recording_snapshots: List[SnapshotData], limit: int, offset: int
+    team_id: int, session_recording_id: str, all_recording_snapshots: List[SnapshotData], limit: int, offset: int
 ):
     paginated_chunk_information = paginate_chunks_to_decompress(all_recording_snapshots, limit, offset)
 
@@ -179,7 +179,7 @@ def paginate_chunk_decompression(
             if len(chunks) != chunks[0]["chunk_count"]:
                 capture_message(
                     "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} chunks".format(
-                        team, session_recording_id, chunk_id_or_event, len(chunks), chunks[0]["chunk_count"],
+                        team_id, session_recording_id, chunk_id_or_event, len(chunks), chunks[0]["chunk_count"],
                     )
                 )
                 continue
