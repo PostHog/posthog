@@ -118,27 +118,27 @@ class InsightSerializer(InsightBasicSerializer):
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         # Remove is_sample if it's set as user has altered the sample configuration
-        validated_data.setdefault("is_sample", False)
+        validated_data["is_sample"] = False
         return super().update(instance, validated_data)
 
-    def get_result(self, dashboard_item: Insight):
-        if not dashboard_item.filters:
+    def get_result(self, insight: Insight):
+        if not insight.filters:
             return None
-        result = get_safe_cache(dashboard_item.filters_hash)
+        result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("result")
 
-    def get_last_refresh(self, dashboard_item: Insight):
-        result = self.get_result(dashboard_item)
+    def get_last_refresh(self, insight: Insight):
+        result = self.get_result(insight)
         if result is not None:
-            return dashboard_item.last_refresh
-        dashboard_item.last_refresh = None
-        dashboard_item.save()
+            return insight.last_refresh
+        insight.last_refresh = None
+        insight.save()
         return None
 
-    def to_representation(self, instance):
+    def to_representation(self, instance: Insight):
         if self.context["request"].GET.get("refresh"):
             update_dashboard_item_cache(instance, None)
             instance.refresh_from_db()
@@ -146,12 +146,6 @@ class InsightSerializer(InsightBasicSerializer):
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
         return representation
-
-    def validate_filters(self, value):
-        # :KLUDGE: Debug code to track down the cause of blank dashboards
-        if len(value) == 0 or ("from_dashboard" in value and len(value) == 1):
-            capture_exception(Exception("Saving dashbord_item with blank filters"))
-        return value
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
