@@ -3,8 +3,20 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { encodeParams } from 'kea-router'
 import { actionsLogicType } from './actionsLogicType'
 import { ActionType } from '~/types'
+import Fuse from 'fuse.js'
 
 export const actionsLogic = kea<actionsLogicType>({
+    actions: {
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+    },
+    reducers: {
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+    },
     loaders: ({ values }) => ({
         allActions: [
             [] as ActionType[],
@@ -14,7 +26,10 @@ export const actionsLogic = kea<actionsLogicType>({
                     const params = {
                         temporary_token: toolbarLogic.values.temporaryToken,
                     }
-                    const url = `${toolbarLogic.values.apiURL}/api/action/${encodeParams(params, '?')}`
+                    const url = `${toolbarLogic.values.apiURL}/api/projects/@current/actions/${encodeParams(
+                        params,
+                        '?'
+                    )}`
                     const response = await fetch(url)
                     const results = await response.json()
 
@@ -43,12 +58,21 @@ export const actionsLogic = kea<actionsLogicType>({
 
     selectors: {
         sortedActions: [
-            (s) => [s.allActions],
-            (allActions) =>
-                [...allActions].sort((a, b) =>
+            (s) => [s.allActions, s.searchTerm],
+            (allActions, searchTerm) => {
+                const filteredActions = searchTerm
+                    ? new Fuse(allActions, {
+                          threshold: 0.3,
+                          keys: ['name'],
+                      })
+                          .search(searchTerm)
+                          .map(({ item }) => item)
+                    : allActions
+                return [...filteredActions].sort((a, b) =>
                     (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
-                ) as ActionType[],
+                ) as ActionType[]
+            },
         ],
-        actionCount: [(s) => [s.sortedActions], (sortedActions) => sortedActions.length],
+        actionCount: [(s) => [s.allActions], (allActions) => allActions.length],
     },
 })

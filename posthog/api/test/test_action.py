@@ -17,7 +17,7 @@ def factory_test_action_api(event_factory):
                 elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
             )
             response = self.client.post(
-                "/api/action/",
+                f"/api/projects/{self.team.id}/actions/",
                 data={
                     "name": "user signed up",
                     "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
@@ -94,7 +94,7 @@ def factory_test_action_api(event_factory):
             )
             action_id = action.steps.get().pk
             response = self.client.patch(
-                "/api/action/%s/" % action.pk,
+                f"/api/projects/{self.team.id}/actions/{action.pk}/",
                 data={
                     "name": "user signed up 2",
                     "steps": [
@@ -156,7 +156,7 @@ def factory_test_action_api(event_factory):
             with self.assertNumQueries(6):
                 # Django session, PostHog user, PostHog team, PostHog org membership,
                 # PostHog action, PostHog action step
-                self.client.get("/api/action/")
+                self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         def test_update_action_remove_all_steps(self, *args):
 
@@ -164,7 +164,7 @@ def factory_test_action_api(event_factory):
             ActionStep.objects.create(action=action, text="sign me up!")
 
             response = self.client.patch(
-                "/api/action/%s/" % action.pk,
+                f"/api/projects/{self.team.id}/actions/{action.pk}/",
                 data={"name": "user signed up 2", "steps": [],},
                 HTTP_ORIGIN="http://testserver",
             )
@@ -180,7 +180,9 @@ def factory_test_action_api(event_factory):
             # FIXME: BaseTest is using Django client to performe calls to a DRF endpoint.
             # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
             response = self.client.post(
-                "/api/action/", data={"name": "user signed up",}, HTTP_ORIGIN="https://evilwebsite.com",
+                f"/api/projects/{self.team.id}/actions/",
+                data={"name": "user signed up",},
+                HTTP_ORIGIN="https://evilwebsite.com",
             )
             self.assertEqual(response.status_code, 403)
 
@@ -188,36 +190,40 @@ def factory_test_action_api(event_factory):
             self.user.save()
 
             response = self.client.post(
-                "/api/action/?temporary_token=token123",
+                f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
                 data={"name": "user signed up",},
                 HTTP_ORIGIN="https://somewebsite.com",
             )
             self.assertEqual(response.status_code, 201)
 
             response = self.client.post(
-                "/api/action/?temporary_token=token123",
+                f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
                 data={"name": "user signed up and post to slack", "post_to_slack": True,},
                 HTTP_ORIGIN="https://somewebsite.com",
             )
             self.assertEqual(response.status_code, 201)
             self.assertEqual(response.json()["post_to_slack"], True)
 
-            list_response = self.client.get("/api/action/", HTTP_ORIGIN="https://evilwebsite.com",)
+            list_response = self.client.get(
+                f"/api/projects/{self.team.id}/actions/", HTTP_ORIGIN="https://evilwebsite.com",
+            )
             self.assertEqual(list_response.status_code, 403)
 
             detail_response = self.client.get(
-                f"/api/action/{response.json()['id']}/", HTTP_ORIGIN="https://evilwebsite.com",
+                f"/api/projects/{self.team.id}/actions/{response.json()['id']}/", HTTP_ORIGIN="https://evilwebsite.com",
             )
             self.assertEqual(detail_response.status_code, 403)
 
             self.client.logout()
             list_response = self.client.get(
-                "/api/action/", data={"temporary_token": "token123",}, HTTP_ORIGIN="https://somewebsite.com",
+                f"/api/projects/{self.team.id}/actions/",
+                data={"temporary_token": "token123",},
+                HTTP_ORIGIN="https://somewebsite.com",
             )
             self.assertEqual(list_response.status_code, 200)
 
             response = self.client.post(
-                "/api/action/?temporary_token=token123",
+                f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
                 data={"name": "user signed up 22",},
                 HTTP_ORIGIN="https://somewebsite.com",
             )
@@ -226,7 +232,9 @@ def factory_test_action_api(event_factory):
         # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
         def test_http_to_https(self, *args):
             response = self.client.post(
-                "/api/action/", data={"name": "user signed up again",}, HTTP_ORIGIN="https://testserver/",
+                f"/api/projects/{self.team.id}/actions/",
+                data={"name": "user signed up again",},
+                HTTP_ORIGIN="https://testserver/",
             )
             self.assertEqual(response.status_code, 201, response.json())
 
@@ -238,7 +246,7 @@ def factory_test_action_api(event_factory):
                 elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
             )
             response = self.client.post(
-                "/api/action/",
+                f"/api/projects/{self.team.id}/actions/",
                 data={"name": "test event", "steps": [{"event": "test_event "}],},
                 HTTP_ORIGIN="http://testserver",
             )
@@ -256,7 +264,7 @@ def factory_test_action_api(event_factory):
             event_factory(event="custom event", team=team2, distinct_id="test")
 
             action.calculate_events()
-            response = self.client.get(f"/api/action/{action.id}/count").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
             self.assertEqual(response, {"count": 1})
 
     return TestActionApi

@@ -28,7 +28,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 export function FunnelTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -36,6 +35,7 @@ export function FunnelTab(): JSX.Element {
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
+    useMountedLogic(funnelCommandLogic)
 
     const closeModal = (): void => setSavingModal(false)
     const onSubmit = (input: string): void => {

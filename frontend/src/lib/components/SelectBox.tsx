@@ -77,25 +77,29 @@ export function SelectBox({
         onDismiss(e)
     }
 
-    useEffect(() => {
-        if (selectedItemKey) {
-            const allSources = data.map((item) => item.dataSource).flat()
-            setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || null)
-            const offset = document.querySelector<HTMLElement>(
-                '.search-list [datakey="' + selectedItemKey + '"]'
-            )?.offsetTop
-            const searchListSelector = document.querySelector<HTMLElement>('.search-list')
-            if (offset && searchListSelector) {
-                searchListSelector.scrollTop = offset
+    useEffect(
+        () => {
+            if (selectedItemKey) {
+                const allSources = data.map((item) => item.dataSource).flat()
+                setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || null)
+                const offset = document.querySelector<HTMLElement>(
+                    '.search-list [datakey="' + selectedItemKey + '"]'
+                )?.offsetTop
+                const searchListSelector = document.querySelector<HTMLElement>('.search-list')
+                if (offset && searchListSelector) {
+                    searchListSelector.scrollTop = offset
+                }
             }
-        }
-        document.addEventListener('mousedown', deselect)
-        document.addEventListener('keydown', onKeyDown)
-        return () => {
-            document.removeEventListener('mousedown', deselect)
-            document.removeEventListener('keydown', onKeyDown)
-        }
-    }, [])
+            document.addEventListener('mousedown', deselect)
+            document.addEventListener('keydown', onKeyDown)
+            return () => {
+                document.removeEventListener('mousedown', deselect)
+                document.removeEventListener('keydown', onKeyDown)
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        []
+    )
     return (
         <div ref={dropdownRef} className="select-box" tabIndex={-1}>
             <Row style={{ height: '100%' }}>
@@ -147,24 +151,28 @@ export function SelectUnit({
         lengthOfData += entry?.dataSource?.length || 0
     })
 
-    useEffect(() => {
-        const formattedData: Record<string, SelectedItem[]> = {}
-        const _hiddenData: Record<string, SelectedItem[]> = {}
-        const _groupTypes: string[] = []
-        const currHidden = Object.keys(hiddenData)
-        Object.keys(items).forEach((groupName) => {
-            if (!currHidden.includes(groupName)) {
-                formattedData[groupName] = items[groupName].dataSource
-            } else {
-                formattedData[groupName] = []
-                _hiddenData[groupName] = items[groupName].dataSource
-            }
-            _groupTypes.push(groupName)
-        })
-        setGroupTypes(_groupTypes)
-        setData(formattedData)
-        setHiddenData(_hiddenData)
-    }, [lengthOfData])
+    useEffect(
+        () => {
+            const formattedData: Record<string, SelectedItem[]> = {}
+            const _hiddenData: Record<string, SelectedItem[]> = {}
+            const _groupTypes: string[] = []
+            const currHidden = Object.keys(hiddenData)
+            Object.keys(items).forEach((groupName) => {
+                if (!currHidden.includes(groupName)) {
+                    formattedData[groupName] = items[groupName].dataSource
+                } else {
+                    formattedData[groupName] = []
+                    _hiddenData[groupName] = items[groupName].dataSource
+                }
+                _groupTypes.push(groupName)
+            })
+            setGroupTypes(_groupTypes)
+            setData(formattedData)
+            setHiddenData(_hiddenData)
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [lengthOfData]
+    )
 
     useEffect(() => {
         const _flattenedData: SelectedItem[] = []

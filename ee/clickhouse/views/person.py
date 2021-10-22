@@ -1,21 +1,29 @@
 import json
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.serializer_helpers import ReturnDict, ReturnList
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFunnelTrendsPersons
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
 from ee.clickhouse.queries.paths import ClickhousePathsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, FunnelVizType
+from posthog.constants import (
+    FUNNEL_CORRELATION_PERSON_LIMIT,
+    FUNNEL_CORRELATION_PERSON_OFFSET,
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    FunnelVizType,
+)
 from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
 from posthog.models.filters.path_filter import PathFilter
@@ -63,6 +71,54 @@ class ClickhousePersonViewSet(PersonViewSet):
         people, should_paginate = funnel_class(filter, self.team).run()
         limit = filter.limit if filter.limit else 100
         next_url = format_query_params_absolute_url(request, filter.offset + limit) if should_paginate else None
+        initial_url = format_query_params_absolute_url(request, 0)
+
+        # cached_function expects a dict with the key result
+        return {"result": (people, next_url, initial_url)}
+
+    @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
+    def funnel_correlation(self, request: Request, **kwargs) -> Response:
+        if request.user.is_anonymous or not self.team:
+            return Response(data=[])
+
+        results_package = self.calculate_funnel_correlation_persons(request)
+
+        if not results_package:
+            return Response(data=[])
+
+        people, next_url, initial_url = results_package["result"]
+
+        return Response(
+            data={
+                "results": [{"people": people, "count": len(people)}],
+                "next": next_url,
+                "initial": initial_url,
+                "is_cached": results_package.get("is_cached"),
+                "last_refresh": results_package.get("last_refresh"),
+            }
+        )
+
+    @cached_function
+    def calculate_funnel_correlation_persons(
+        self, request: Request
+    ) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+        if request.user.is_anonymous or not self.team:
+            return {"result": ([], None, None)}
+
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
+        people, should_paginate = FunnelCorrelationPersons(filter=filter, team=self.team).run()
+
+        limit = filter.correlation_person_limit if filter.correlation_person_limit else 100
+        next_url = (
+            format_query_params_absolute_url(
+                request,
+                filter.correlation_person_offset + limit,
+                offset_alias=FUNNEL_CORRELATION_PERSON_OFFSET,
+                limit_alias=FUNNEL_CORRELATION_PERSON_LIMIT,
+            )
+            if should_paginate
+            else None
+        )
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result

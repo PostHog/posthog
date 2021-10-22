@@ -22,4 +22,8 @@
             color: $purple_700;
         }
     }
+
+    &:hover {
+        text-decoration: underline;
+    }
 }
