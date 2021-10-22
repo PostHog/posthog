@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0176_update_person_props_function"),
+        ("posthog", "0177_path_cleaning_filters"),
     ]
 
     operations = [
