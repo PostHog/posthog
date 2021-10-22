@@ -2,14 +2,31 @@ import React from 'react'
 import './HelpButton.scss'
 import { QuestionCircleOutlined, MailOutlined, SolutionOutlined } from '@ant-design/icons'
 import { Button, Popover } from 'antd'
-import { useActions } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
 import slackLogo from 'public/slack-logo.svg'
+import { helpButtonLogicType } from './HelpButtonType'
+
+export const helpButtonLogic = kea<helpButtonLogicType>({
+    actions: {
+        setVisible: (visible: boolean) => ({ visible }),
+    },
+    reducers: {
+        isVisible: [
+            false,
+            {
+                setVisible: (_, { visible }) => visible,
+            },
+        ],
+    },
+})
 
 export function HelpButton(): JSX.Element {
     const UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
     const { reportHelpButtonUsed, reportHelpButtonViewed } = useActions(eventUsageLogic)
+    const { isVisible } = useValues(helpButtonLogic)
+    const { setVisible } = useActions(helpButtonLogic)
 
     const overlay = (
         <div className="help-button-overlay-inner">
@@ -59,7 +76,13 @@ export function HelpButton(): JSX.Element {
                 trigger="click"
                 overlayClassName="help-button-overlay"
                 arrowContent={<></>}
-                onVisibleChange={(visible) => visible && reportHelpButtonViewed()}
+                onVisibleChange={(visible) => {
+                    setVisible(visible)
+                    if (visible) {
+                        reportHelpButtonViewed()
+                    }
+                }}
+                visible={isVisible}
             >
                 <QuestionCircleOutlined className="help-icon" />
             </Popover>

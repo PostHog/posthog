@@ -255,9 +255,6 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
-        reportRecordingViewed: (payload: RecordingViewedProps) => ({ payload }),
-        reportHelpButtonViewed: true,
-        reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportRecordingViewed: (
@@ -266,6 +263,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             loadTime: number,
             delay: number
         ) => ({ recordingData, source, loadTime, delay }),
+        reportHelpButtonViewed: true,
+        reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
