@@ -81,7 +81,7 @@ django-loginas==0.3.9
     # via -r requirements.in
 django-redis==4.12.1
     # via -r requirements.in
-django-rest-hooks @ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
+git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
@@ -109,7 +109,7 @@ idna==2.8
     #   requests
 importlib-metadata==1.6.0
     # via -r requirements.in
-infi-clickhouse-orm @ git+git://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a164af9be632
+git+git://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a164af9be632
     # via -r requirements.in
 iso8601==0.1.12
     # via infi-clickhouse-orm
