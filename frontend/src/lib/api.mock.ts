@@ -29,6 +29,7 @@ export const mockAPI = (cb: (url: APIRoute) => any): void => {
     beforeEach(async () => {
         const methods = ['get', 'update', 'create', 'delete']
         for (const method of methods) {
+            // @ts-expect-error - mock implementation doesn't match original signature exactly but that's fine
             api[method as keyof typeof api].mockImplementation(async (url: string, data?: Record<string, any>) => {
                 return cb({ ...combineUrl(url), data, method })
             })

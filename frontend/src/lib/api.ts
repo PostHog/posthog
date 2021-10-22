@@ -1,11 +1,11 @@
 import posthog from 'posthog-js'
+import { ActionType, TeamType } from '../types'
 
-export function getCookie(name) {
-    var cookieValue = null
+export function getCookie(name: string): string | null {
+    let cookieValue: string | null = null
     if (document.cookie && document.cookie !== '') {
-        var cookies = document.cookie.split(';')
-        for (var i = 0; i < cookies.length; i++) {
-            var cookie = cookies[i].trim()
+        for (let cookie of document.cookie.split(';')) {
+            cookie = cookie.trim()
             // Does this cookie string begin with the name we want?
             if (cookie.substring(0, name.length + 1) === name + '=') {
                 cookieValue = decodeURIComponent(cookie.substring(name.length + 1))
@@ -16,7 +16,7 @@ export function getCookie(name) {
     return cookieValue
 }
 
-async function getJSONOrThrow(response) {
+async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
@@ -24,8 +24,101 @@ async function getJSONOrThrow(response) {
     }
 }
 
-class Api {
-    async get(url, signal = undefined) {
+class ApiRequest {
+    private pathComponents: string[]
+    private queryString: string | undefined
+
+    constructor() {
+        this.pathComponents = []
+    }
+
+    // URL assembly
+
+    public assembleEndpointUrl(): string {
+        let url = this.pathComponents.join('/')
+        if (this.queryString) {
+            if (!this.queryString.startsWith('?')) {
+                url += '?'
+            }
+            url += this.queryString
+        }
+        return url
+    }
+
+    public assembleFullUrl(includeLeadingSlash = false): string {
+        return (includeLeadingSlash ? '/api/' : 'api/') + this.assembleEndpointUrl()
+    }
+
+    // Endpoint composition
+
+    public withAction(apiAction: string): ApiRequest {
+        this.pathComponents.push(apiAction)
+        return this
+    }
+
+    public withQueryString(queryString?: string): ApiRequest {
+        this.queryString = queryString
+        return this
+    }
+
+    public projectsList(): ApiRequest {
+        this.pathComponents.push('projects')
+        return this
+    }
+
+    public projectsDetail(id: TeamType['id']): ApiRequest {
+        this.projectsList()
+        this.pathComponents.push(id.toString())
+        return this
+    }
+
+    public actionsList(teamId: TeamType['id']): ApiRequest {
+        this.projectsDetail(teamId)
+        this.pathComponents.push('actions')
+        return this
+    }
+
+    public actionsDetail(teamId: TeamType['id'], actionId: ActionType['id']): ApiRequest {
+        this.actionsList(teamId)
+        this.pathComponents.push(actionId.toString())
+        return this
+    }
+
+    // Request finalization
+
+    public async get(options?: { signal?: AbortSignal }): Promise<any> {
+        const url = this.assembleFullUrl()
+        return await api.get(url, options?.signal)
+    }
+
+    public async update(options?: { data: any }): Promise<any> {
+        const url = this.assembleFullUrl()
+        return await api.update(url, options?.data)
+    }
+
+    public async create(options?: { data: any }): Promise<any> {
+        const url = this.assembleFullUrl()
+        return await api.create(url, options?.data)
+    }
+
+    public async delete(): Promise<any> {
+        const url = this.assembleFullUrl()
+        return await api.delete(url)
+    }
+}
+
+class Api extends Function {
+    // @ts-expect-error - we DON'T need or want to call super() here
+    constructor() {
+        function createApiRequest(): ApiRequest {
+            return new ApiRequest()
+        }
+        Object.setPrototypeOf(createApiRequest, Api.prototype)
+        // @ts-expect-error - this DOES in reality match the expected constructor signature
+        return createApiRequest
+    }
+
+    public async get(url: string, signal?: AbortSignal): Promise<any> {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
@@ -45,7 +138,8 @@ class Api {
         }
         return await getJSONOrThrow(response)
     }
-    async update(url, data) {
+
+    public async update(url: string, data: any): Promise<any> {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
@@ -55,7 +149,7 @@ class Api {
             method: 'PATCH',
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie('csrftoken'),
+                'X-CSRFToken': getCookie('csrftoken') || '',
             },
             body: isFormData ? data : JSON.stringify(data),
         })
@@ -69,7 +163,8 @@ class Api {
         }
         return await getJSONOrThrow(response)
     }
-    async create(url, data) {
+
+    public async create(url: string, data?: any): Promise<any> {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
@@ -79,9 +174,9 @@ class Api {
             method: 'POST',
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie('csrftoken'),
+                'X-CSRFToken': getCookie('csrftoken') || '',
             },
-            body: isFormData ? data : JSON.stringify(data),
+            body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
         })
         if (!response.ok) {
             reportError('POST', url, response, startTime)
@@ -93,7 +188,8 @@ class Api {
         }
         return await getJSONOrThrow(response)
     }
-    async delete(url) {
+
+    public async delete(url: string): Promise<any> {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
@@ -102,7 +198,7 @@ class Api {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': getCookie('csrftoken'),
+                'X-CSRFToken': getCookie('csrftoken') || '',
             },
         })
         if (!response.ok) {
@@ -114,11 +210,15 @@ class Api {
     }
 }
 
-function reportError(method, url, response, startTime) {
+interface Api {
+    (): ApiRequest
+}
+
+function reportError(method: string, url: string, response: Response, startTime: number): void {
     const duration = new Date().getTime() - startTime
     const pathname = new URL(url, location.origin).pathname
     posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
 }
 
-let api = new Api()
+const api = new Api()
 export default api

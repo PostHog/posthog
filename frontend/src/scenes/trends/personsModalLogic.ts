@@ -12,7 +12,7 @@ import { TrendPeople } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
-import { teamLogic } from '../teamLogic'
+import { unwrapCurrentTeamId } from '../teamLogic'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -217,9 +217,11 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         { label, action, date_from, date_to, breakdown_value },
                         filters
                     )
-                    people = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/actions/people/?${filterParams}${searchTermParam}`
-                    )
+                    people = await api()
+                        .actionsList(unwrapCurrentTeamId())
+                        .withAction('people')
+                        .withQueryString(filterParams + searchTermParam)
+                        .get()
                 }
                 breakpoint()
                 const peopleResult = {
@@ -254,6 +256,9 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         next,
                         funnelStep,
                     } = values.people
+                    if (!next) {
+                        throw new Error('URL of next page of persons is not known.')
+                    }
                     const people = await api.get(next)
                     breakpoint()
 

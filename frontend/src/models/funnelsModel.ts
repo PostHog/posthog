@@ -69,6 +69,9 @@ export const funnelsModel = kea<funnelsModelType>({
     }),
     listeners: ({ values, actions }) => ({
         loadNext: async () => {
+            if (!values.next) {
+                throw new Error('URL of next page of funnels is not known.')
+            }
             const response = await api.get(values.next)
             const results = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
             actions.setNext(response.next)

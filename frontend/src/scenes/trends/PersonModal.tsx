@@ -13,7 +13,8 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
-import { teamLogic } from '../teamLogic'
+import { teamLogic, unwrapCurrentTeamId } from '../teamLogic'
+import api from '../../lib/api'
 
 export interface PersonModalProps {
     visible: boolean
@@ -61,7 +62,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     )
 
     const isDownloadCsvAvailable = view === ViewType.TRENDS
-    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
+    const isSaveAsCohortAvailable = !clickhouseFeaturesEnabled
 
     return (
         <Modal
@@ -77,16 +78,22 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         {isDownloadCsvAvailable && (
                             <Button
                                 icon={<DownloadOutlined />}
-                                href={`/api/projects/${currentTeamId}/actions/people.csv?${parsePeopleParams(
-                                    {
-                                        label: people.label,
-                                        action: people.action,
-                                        date_from: people.day,
-                                        date_to: people.day,
-                                        breakdown_value: people.breakdown_value,
-                                    },
-                                    filters
-                                )}`}
+                                href={api()
+                                    .actionsList(unwrapCurrentTeamId(currentTeamId))
+                                    .withAction('people.csv')
+                                    .withQueryString(
+                                        parsePeopleParams(
+                                            {
+                                                label: people.label,
+                                                action: people.action,
+                                                date_from: people.day,
+                                                date_to: people.day,
+                                                breakdown_value: people.breakdown_value,
+                                            },
+                                            filters
+                                        )
+                                    )
+                                    .assembleFullUrl(true)}
                                 style={{ marginRight: 8 }}
                                 data-attr="person-modal-download-csv"
                             >

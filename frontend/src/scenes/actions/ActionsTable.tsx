@@ -17,7 +17,8 @@ import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { PageHeader } from 'lib/components/PageHeader'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { ColumnType } from 'antd/lib/table'
-import { teamLogic } from '../teamLogic'
+import { teamLogic, unwrapCurrentTeamId } from '../teamLogic'
+import api from '../../lib/api'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -152,7 +153,7 @@ export function ActionsTable(): JSX.Element {
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo
-                            endpoint={`projects/${currentTeamId}/actions`}
+                            endpoint={api().actionsList(unwrapCurrentTeamId(currentTeamId)).assembleEndpointUrl()}
                             object={action}
                             className="text-danger"
                             style={{ marginLeft: 8, marginRight: 8 }}
