@@ -93,25 +93,20 @@ export const seekbarLogic = kea<seekbarLogicType>({
         },
         handleSeek: ({ newX }) => {
             const end = values.slider?.offsetWidth ?? 0
-            console.log('SETTING THUM LEFT')
             actions.setThumbLeftPos(clamp(newX, 0, end) - THUMB_OFFSET, true)
         },
         handleMouseMove: ({ event }) => {
-            console.log('MOVING', values, values.cursorDiff)
             if (!values.slider) {
                 return
             }
             actions.setScrub()
-            console.log('MOVING PASS')
             const newX = event.clientX - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX)
         },
         handleMouseUp: ({ event }) => {
-            console.log('UP')
             if (!values.slider) {
                 return
             }
-            console.log('UPPP')
 
             const newX = event.clientX - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX)
@@ -120,11 +115,9 @@ export const seekbarLogic = kea<seekbarLogicType>({
             document.removeEventListener('mousemove', actions.handleMouseMove)
         },
         handleMouseDown: ({ event }) => {
-            console.log('DOWN', values)
             if (!values.thumb) {
                 return
             }
-            console.log('DOWNN')
             actions.setScrub()
             actions.setCursorDiff(event.clientX - values.thumb.getBoundingClientRect().left - THUMB_OFFSET)
 
@@ -132,11 +125,9 @@ export const seekbarLogic = kea<seekbarLogicType>({
             document.addEventListener('mouseup', actions.handleMouseUp)
         },
         handleMouseClick: ({ event }) => {
-            console.log('CLICK')
             if (!values.slider) {
                 return
             }
-            console.log('CLICKKK')
             // jump thumb to click position
             const newX = event.clientX - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX)

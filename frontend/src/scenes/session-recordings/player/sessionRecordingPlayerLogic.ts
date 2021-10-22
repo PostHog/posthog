@@ -167,9 +167,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // Set meta timestamps when first chunk loads. The first time is a guesstimate that's later corrected by
             // the time the whole chunk loads.
-            console.log('CHUNK INDEX', values.chunkIndex)
             if (values.chunkIndex === 1) {
-                console.log('CHUNK IN', sessionPlayerData, currentEvents, eventsToAdd)
                 const startOffset = eventsToAdd?.[0]?.timestamp ?? currentEvents?.[0]?.timestamp ?? 0
                 const duration = sessionPlayerData?.duration ?? 0
                 actions.setMeta({
@@ -186,32 +184,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const lastEvent = eventsToAdd[eventsToAdd.length - 1]
 
             eventsToAdd.forEach((event: eventWithTime) => {
-                console.log('ADDING EVENT', event)
                 values.replayer?.addEvent(event)
             })
 
             // Update last buffered point
-            console.log('BLAH', lastEvent.timestamp)
             actions.setLastBufferedTime(lastEvent.timestamp)
 
             // If buffering has completed, resume last playing state
-            console.log(
-                'SHOULDCLEAR',
-                values.time.current + BUFFER_TIME_BUFFER_MS,
-                lastEvent.timestamp,
-                values.time.current + BUFFER_TIME_BUFFER_MS < lastEvent.timestamp
-            )
             if (
                 values.currentPlayerState === SessionPlayerState.BUFFER &&
                 values.time.current + BUFFER_TIME_BUFFER_MS < lastEvent.timestamp
             ) {
-                console.log('CLEARNING BUFFER')
                 actions.clearLoadingState()
                 actions.setPlay()
             }
 
             // Set meta once whole session recording loads
-            console.log('LOADING!', values.sessionPlayerDataLoading)
             if (!values.sessionPlayerDataLoading) {
                 const meta = values.replayer.getMetaData()
                 // Sometimes replayer doesn't update with events we recently added.
@@ -230,7 +218,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         setPlay: () => {
-            console.log('SET PLAY')
             actions.stopAnimation()
             actions.seek(values.time.current, true)
         },
@@ -259,8 +246,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             values.replayer?.play(nextTime)
             actions.updateAnimation()
 
-            console.log('SEEK TIME', time, nextTime)
-
             // If next time is greater than last buffered time, set to buffering
             if (nextTime > values.zeroOffsetTime.lastBuffered) {
                 values.replayer?.pause()
@@ -268,7 +253,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                console.log('CLEARSTATE')
                 values.replayer?.pause()
                 actions.clearLoadingState()
                 actions.setPause()
@@ -304,7 +288,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         updateAnimation: () => {
             const nextTime = getOffsetTime(values.replayer?.getCurrentTime() || 0, values.meta)
-            console.log('GET TIME', values.replayer?.getCurrentTime(), nextTime)
             actions.setCurrentTime(nextTime)
             cache.timer = requestAnimationFrame(actions.updateAnimation)
         },

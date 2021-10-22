@@ -12,11 +12,7 @@ import { colonDelimitedDuration } from 'lib/utils'
 
 export function PlayerController(): JSX.Element {
     const { togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(sessionRecordingPlayerLogic)
-    const { currentPlayerState, jumpTimeMs, meta, zeroOffsetTime, speed, playingState, loadingState } =
-        useValues(sessionRecordingPlayerLogic)
-
-    console.log('ZERO OFFSET', zeroOffsetTime)
-    console.log('CURRENT PLAYER STATe', currentPlayerState, playingState, loadingState)
+    const { currentPlayerState, jumpTimeMs, meta, zeroOffsetTime, speed } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div className="rrweb-controller">
