@@ -12,7 +12,6 @@ import { TrendPeople } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
-import { unwrapCurrentTeamId } from '../teamLogic'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -218,7 +217,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         filters
                     )
                     people = await api()
-                        .actionsList(unwrapCurrentTeamId())
+                        .actionsList()
                         .withAction('people')
                         .withQueryString(filterParams + searchTermParam)
                         .get()

@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ActionType } from '~/types'
-import { unwrapCurrentTeamId } from '../scenes/teamLogic'
 import { actionsModelType } from './actionsModelType'
 
 interface ActionsModelProps {
@@ -14,7 +13,7 @@ export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
-                const response = await api().actionsList(unwrapCurrentTeamId()).withQueryString(props.params).get()
+                const response = await api().actionsList().withQueryString(props.params).get()
                 return response.results
             },
         },

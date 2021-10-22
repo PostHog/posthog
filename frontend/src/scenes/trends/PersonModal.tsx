@@ -13,7 +13,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
-import { teamLogic, unwrapCurrentTeamId } from '../teamLogic'
+import { teamLogic, getCurrentTeamId } from '../teamLogic'
 import api from '../../lib/api'
 
 export interface PersonModalProps {
@@ -79,7 +79,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                             <Button
                                 icon={<DownloadOutlined />}
                                 href={api()
-                                    .actionsList(unwrapCurrentTeamId(currentTeamId))
+                                    .actionsList(getCurrentTeamId(currentTeamId))
                                     .withAction('people.csv')
                                     .withQueryString(
                                         parsePeopleParams(

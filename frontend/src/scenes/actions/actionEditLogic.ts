@@ -5,7 +5,6 @@ import { toast } from 'react-toastify'
 import { actionsModel } from '~/models/actionsModel'
 import { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
-import { unwrapCurrentTeamId } from '../teamLogic'
 
 type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
 type ActionEditType = ActionType | NewActionType
@@ -52,7 +51,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
     loaders: ({ props }) => ({
         actionCount: {
             loadActionCount: async () => {
-                return (await api().actionsDetail(unwrapCurrentTeamId(), props.id).withAction('count').get()).count
+                return (await api().actionsDetail(props.id).withAction('count').get()).count
             },
         },
     }),
@@ -70,15 +69,9 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
             try {
                 const queryString = props.temporaryToken ? `?temporary_token=${props.temporaryToken}` : ''
                 if (action.id) {
-                    action = await api()
-                        .actionsDetail(unwrapCurrentTeamId(), action.id)
-                        .withQueryString(queryString)
-                        .update({ data: action })
+                    action = await api().actionsDetail(action.id).withQueryString(queryString).update({ data: action })
                 } else {
-                    action = await api()
-                        .actionsList(unwrapCurrentTeamId())
-                        .withQueryString(queryString)
-                        .create({ data: action })
+                    action = await api().actionsList().withQueryString(queryString).create({ data: action })
                 }
             } catch (response) {
                 if (response.code === 'unique') {

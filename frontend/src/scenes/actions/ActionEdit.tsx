@@ -12,7 +12,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models/actionsModel'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
-import { teamLogic, unwrapCurrentTeamId } from 'scenes/teamLogic'
+import { teamLogic, getCurrentTeamId } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import api from '../../lib/api'
 
@@ -50,7 +50,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             icon={<DeleteOutlined />}
             onClick={() => {
                 deleteWithUndo({
-                    endpoint: api().actionsList(unwrapCurrentTeamId(currentTeamId)).assembleEndpointUrl(),
+                    endpoint: api().actionsList(getCurrentTeamId(currentTeamId)).assembleEndpointUrl(),
                     object: action,
                     callback: () => {
                         router.actions.push('/events/actions')

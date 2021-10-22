@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import { getCurrentTeamId } from '../scenes/teamLogic'
 import { ActionType, TeamType } from '../types'
 
 export function getCookie(name: string): string | null {
@@ -51,8 +52,8 @@ class ApiRequest {
 
     // Endpoint composition
 
-    public withAction(apiAction: string): ApiRequest {
-        this.pathComponents.push(apiAction)
+    private addPathComponent(component: string): ApiRequest {
+        this.pathComponents.push(component)
         return this
     }
 
@@ -61,49 +62,42 @@ class ApiRequest {
         return this
     }
 
+    public withAction(apiAction: string): ApiRequest {
+        return this.addPathComponent(apiAction)
+    }
+
     public projectsList(): ApiRequest {
-        this.pathComponents.push('projects')
-        return this
+        return this.addPathComponent('projects')
     }
 
     public projectsDetail(id: TeamType['id']): ApiRequest {
-        this.projectsList()
-        this.pathComponents.push(id.toString())
-        return this
+        return this.projectsList().addPathComponent(id.toString())
     }
 
-    public actionsList(teamId: TeamType['id']): ApiRequest {
-        this.projectsDetail(teamId)
-        this.pathComponents.push('actions')
-        return this
+    public actionsList(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('actions')
     }
 
-    public actionsDetail(teamId: TeamType['id'], actionId: ActionType['id']): ApiRequest {
-        this.actionsList(teamId)
-        this.pathComponents.push(actionId.toString())
-        return this
+    public actionsDetail(actionId: ActionType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+        return this.actionsList(teamId).addPathComponent(actionId.toString())
     }
 
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
-        const url = this.assembleFullUrl()
-        return await api.get(url, options?.signal)
+        return await api.get(this.assembleFullUrl(), options?.signal)
     }
 
     public async update(options?: { data: any }): Promise<any> {
-        const url = this.assembleFullUrl()
-        return await api.update(url, options?.data)
+        return await api.update(this.assembleFullUrl(), options?.data)
     }
 
     public async create(options?: { data: any }): Promise<any> {
-        const url = this.assembleFullUrl()
-        return await api.create(url, options?.data)
+        return await api.create(this.assembleFullUrl(), options?.data)
     }
 
     public async delete(): Promise<any> {
-        const url = this.assembleFullUrl()
-        return await api.delete(url)
+        return await api.delete(this.assembleFullUrl())
     }
 }
 
