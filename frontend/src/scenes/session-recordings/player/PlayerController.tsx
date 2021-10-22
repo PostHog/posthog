@@ -14,8 +14,6 @@ export function PlayerController(): JSX.Element {
     const { togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(sessionRecordingPlayerLogic)
     const { currentPlayerState, jumpTimeMs, meta, zeroOffsetTime, speed } = useValues(sessionRecordingPlayerLogic)
 
-    console.log('ZERO OFFSET', zeroOffsetTime)
-
     return (
         <div className="rrweb-controller">
             <span>
