@@ -74,6 +74,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
             funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
+            funnel_custom_steps: filters.funnel_custom_steps || undefined,
         }
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`

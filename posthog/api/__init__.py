@@ -42,7 +42,7 @@ router = DefaultRouterPlusPlus()
 
 # Legacy endpoints shared (to be removed eventually)
 router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
-router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)
+router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Should be completely unused now
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
 router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
