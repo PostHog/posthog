@@ -376,14 +376,37 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             properties={"$current_url": "test.com/step3?key=value3"},
         )
 
+        self.team.path_cleaning_filters = [{"alias": "?<param>", "regex": "\\?(.*)"}]
+        self.team.save()
+
         data = {
             "insight": INSIGHT_FUNNELS,
             "include_event_types": ["$pageview"],
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "path_replacements": [{"?<param>": "\\?(.*)"}],  # noqa: W605
         }
         path_filter = PathFilter(data=data)
+        response_no_flag = ClickhousePaths(team=self.team, filter=path_filter).run()
+
+        self.assertNotEqual(
+            response_no_flag,
+            [
+                {
+                    "source": "1_test.com/step1",
+                    "target": "2_test.com/step2",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "2_test.com/step2",
+                    "target": "3_test.com/step3?<param>",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+            ],
+        )
+
+        data.update({"path_replacements": "true"})
         response = ClickhousePaths(team=self.team, filter=path_filter).run()
 
         self.assertEqual(
@@ -474,31 +497,66 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             properties={"$current_url": "test.com/step2/5?key=value3"},
         )
 
+        correct_response = [
+            {
+                "source": "1_test.com/step1",
+                "target": "2_test.com/step2/<id>",
+                "value": 3,
+                "average_conversion_time": 60000.0,
+            },
+            {
+                "source": "2_test.com/step2/<id>",
+                "target": "3_test.com/step2/<id><param>",
+                "value": 3,
+                "average_conversion_time": 60000.0,
+            },
+        ]
+
+        self.team.path_cleaning_filters = [
+            {"alias": "?<param>", "regex": "\\?(.*)"},
+            {"alias": "/<id>", "regex": "/\\d+(/|\\?)?"},
+        ]
+        self.team.save()
+
         data = {
             "insight": INSIGHT_FUNNELS,
             "include_event_types": ["$pageview"],
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "path_replacements": [{"?<param>": "\\?(.*)"}, {"/<id>": "/\\d+(/|\\?)?"}],
+            "path_replacements": True,
         }
         path_filter = PathFilter(data=data)
         response = ClickhousePaths(team=self.team, filter=path_filter).run()
         self.assertEqual(
-            response,
-            [
-                {
-                    "source": "1_test.com/step1",
-                    "target": "2_test.com/step2/<id>",
-                    "value": 3,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "2_test.com/step2/<id>",
-                    "target": "3_test.com/step2/<id><param>",
-                    "value": 3,
-                    "average_conversion_time": 60000.0,
-                },
-            ],
+            response, correct_response,
+        )
+
+        self.team.path_cleaning_filters = [
+            {"alias": "?<param>", "regex": "\\?(.*)"},
+        ]
+        self.team.save()
+
+        data.update({"local_path_cleaning_filters": [{"alias": "/<id>", "regex": "/\\d+(/|\\?)?"}]})
+        path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter).run()
+        self.assertEqual(
+            response, correct_response,
+        )
+
+        # overriding team filters
+        data.update(
+            {
+                "path_replacements": False,
+                "local_path_cleaning_filters": [
+                    {"alias": "?<param>", "regex": "\\?(.*)"},
+                    {"alias": "/<id>", "regex": "/\\d+(/|\\?)?"},
+                ],
+            }
+        )
+        path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter).run()
+        self.assertEqual(
+            response, correct_response,
         )
 
     def test_path_by_funnel_after_dropoff(self):

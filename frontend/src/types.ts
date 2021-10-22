@@ -181,6 +181,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
+    path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
 }
 
@@ -807,6 +808,8 @@ export interface FilterType {
     path_start_key?: string // Paths People Start Key
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
+    path_replacements?: boolean
+    local_path_cleaning_filters?: Record<string, any>[]
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
