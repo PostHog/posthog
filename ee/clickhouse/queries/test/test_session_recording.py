@@ -3,7 +3,7 @@ from uuid import uuid4
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording, join_with_session_recordings
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.queries.sessions.test.test_session_recording import session_recording_test_factory
+from posthog.queries.sessions.test.test_sessions_recording import session_recording_test_factory
 
 
 def _create_event(**kwargs):
