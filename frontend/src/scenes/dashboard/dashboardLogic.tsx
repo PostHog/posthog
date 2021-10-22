@@ -14,25 +14,38 @@ import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+export interface DashboardLogicProps {
+    id?: number
+    shareToken?: string
+    internal?: boolean
+}
+
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
-export const dashboardLogic = kea<dashboardLogicType>({
+export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
-    props: {} as { id?: number; shareToken?: string; internal?: boolean },
+    props: {} as DashboardLogicProps,
 
     key: (props) => props.id || 'dashboardLogic',
 
     actions: {
         addNewDashboard: true,
-        loadDashboardItems: ({ refresh, dive_source_id }: { refresh?: boolean; dive_source_id?: number } = {}) => ({
+        loadDashboardItems: ({
+            refresh,
+            dive_source_id,
+        }: {
+            refresh?: boolean
+            dive_source_id?: number
+        } = {}) => ({
             refresh,
             dive_source_id,
         }),
         triggerDashboardUpdate: (payload) => ({ payload }),
-        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }), // whether the dashboard is shared or not
-        // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
-        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }), // see DashboardMode
+        /** Whether the dashboard is shared or not. */
+        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }),
+        /** The current state in which the dashboard is being viewed, see DashboardMode. */
+        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
@@ -47,7 +60,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
             dateTo,
             reloadDashboard,
         }),
-        addGraph: true, // takes the user to insights to add a graph
+        /** Take the user to insights to add a graph. */
+        addGraph: true,
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -64,7 +78,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 loadDashboardItems: async ({
                     refresh,
                     dive_source_id,
-                }: { refresh?: boolean; dive_source_id?: number } = {}) => {
+                }: {
+                    refresh?: boolean
+                    dive_source_id?: number
+                } = {}) => {
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
                         return
@@ -191,7 +208,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         refreshStatus: [
-            {} as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
+            {} as Record<
+                number,
+                {
+                    loading?: boolean
+                    refreshed?: boolean
+                    error?: boolean
+                }
+            >,
             {
                 setRefreshStatus: (state, { id, loading }) => ({
                     ...state,
@@ -229,14 +253,17 @@ export const dashboardLogic = kea<dashboardLogicType>({
         lastDashboardModeSource: [
             null as DashboardEventSource | null,
             {
-                setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
+                setDashboardMode: (_, { source }) => source,
             },
         ],
         autoRefresh: [
             {
                 interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
                 enabled: false,
-            } as { interval: number; enabled: boolean },
+            } as {
+                interval: number
+                enabled: boolean
+            },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },

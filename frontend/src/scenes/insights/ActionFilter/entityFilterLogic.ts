@@ -42,10 +42,6 @@ export interface EntityFilterProps {
     addFilterDefaultOptions?: Record<string, any>
 }
 
-// required props:
-// - filters
-// - setFilters
-// - typeKey
 export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
     props: {} as EntityFilterProps,
     key: (props) => props.typeKey,

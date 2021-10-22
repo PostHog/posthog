@@ -11,7 +11,7 @@ describe('retentionTableLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname === 'api/insight') {
+        if (['api/insight', 'api/projects/85/actions/'].includes(pathname)) {
             return { results: [] }
         } else if (pathname === 'api/insight/retention/') {
             return { result: ['result from api'] }

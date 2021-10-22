@@ -193,6 +193,7 @@ export interface ActionType {
     last_calculated_at?: string
     name: string
     post_to_slack?: boolean
+    slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
 }

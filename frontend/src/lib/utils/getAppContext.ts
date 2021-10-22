@@ -7,7 +7,7 @@ declare global {
 }
 
 export function getAppContext(): AppContext | undefined {
-    return (window as any)['POSTHOG_APP_CONTEXT'] || undefined
+    return window.POSTHOG_APP_CONTEXT || undefined
 }
 
 export function getDefaultEventName(): string {

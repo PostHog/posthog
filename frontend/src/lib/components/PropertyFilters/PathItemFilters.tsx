@@ -8,8 +8,7 @@ import { Button, Row } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import { FilterButton } from './components/PropertyFilterButton'
 import { CloseButton } from '../CloseButton'
-import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { SimpleOption } from '../TaxonomicFilter/groups'
+import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 
 interface PropertyFiltersProps {
