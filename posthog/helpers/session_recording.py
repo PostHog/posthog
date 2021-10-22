@@ -3,7 +3,7 @@ import dataclasses
 import gzip
 import json
 from collections import defaultdict
-from typing import Dict, Generator, List, NamedTuple, Union, cast
+from typing import Dict, Generator, List, Union, cast
 
 from sentry_sdk.api import capture_exception, capture_message
 

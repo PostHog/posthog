@@ -4,6 +4,7 @@ from pytest_mock import MockerFixture
 from posthog.helpers.session_recording import (
     compress_and_chunk_snapshots,
     decompress_chunked_snapshot_data,
+    paginate_chunk_decompression,
     preprocess_session_recording_events,
 )
 
@@ -113,6 +114,29 @@ def test_decompress_ignores_if_not_enough_chunks(snapshot_events):
     )
 
     assert list(decompress_chunked_snapshot_data(1, "someid", snapshot_data)) == complete_snapshots
+
+
+def test_paginate_decompression(snapshot_events):
+    compressed_snapshot_events = list(compress_and_chunk_snapshots(snapshot_events, chunk_size=20)) + list(
+        compress_and_chunk_snapshots(list(reversed(snapshot_events)), chunk_size=20)
+    )
+    snapshot_data = [event["properties"]["$snapshot_data"] for event in compressed_snapshot_events]
+
+    has_next, first_item = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 0)
+    assert has_next == True
+    assert first_item[0]["type"] == 2
+
+    has_next, second_item = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 1)
+    assert has_next == False
+    assert second_item[0]["type"] == 3
+
+
+def test_paginate_decompression_leaves_events_untouched(snapshot_events):
+    snapshot_data = [event["properties"]["$snapshot_data"] for event in snapshot_events]
+
+    has_next, first_item = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 0)
+    assert has_next == True
+    assert first_item[0]["type"] == 2
 
 
 @pytest.fixture
