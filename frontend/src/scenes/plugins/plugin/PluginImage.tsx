@@ -16,12 +16,16 @@ export function PluginImage({
     const [state, setState] = useState({ image: imgPluginDefault })
     const pixelSize = size === 'large' ? 100 : 60
 
-    useEffect(() => {
-        if (url?.includes('github.com')) {
-            const { user, repo } = parseGithubRepoURL(url)
-            setState({ ...state, image: `https://raw.githubusercontent.com/${user}/${repo}/main/logo.png` })
-        }
-    }, [url])
+    useEffect(
+        () => {
+            if (url?.includes('github.com')) {
+                const { user, repo } = parseGithubRepoURL(url)
+                setState({ ...state, image: `https://raw.githubusercontent.com/${user}/${repo}/main/logo.png` })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [url]
+    )
 
     return pluginType === 'source' ? (
         <CodeOutlined style={{ fontSize: pixelSize }} className="plugin-image" />

@@ -209,10 +209,10 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             } else {
                 actions.setFilters([
                     {
-                        id: null,
-                        type: EntityTypes.NEW_ENTITY,
+                        id: '$pageview',
+                        type: 'events',
                         order: 0,
-                        name: null,
+                        name: '$pageview',
                         ...props.addFilterDefaultOptions,
                     },
                 ])

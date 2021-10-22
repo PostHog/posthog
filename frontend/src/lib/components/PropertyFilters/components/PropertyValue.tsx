@@ -72,16 +72,20 @@ export function PropertyValue({
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     // update the input field if passed a new `value` prop
-    useEffect(() => {
-        if (!value) {
-            setInput('')
-        } else if (value !== input) {
-            const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
-            if (valueObject) {
-                setInput(toString(valueObject.name))
+    useEffect(
+        () => {
+            if (!value) {
+                setInput('')
+            } else if (value !== input) {
+                const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
+                if (valueObject) {
+                    setInput(toString(valueObject.name))
+                }
             }
-        }
-    }, [value])
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [value]
+    )
 
     const loadPropertyValues = useThrottledCallback((newInput) => {
         if (type === 'cohort') {
@@ -119,9 +123,13 @@ export function PropertyValue({
         }
     }
 
-    useEffect(() => {
-        loadPropertyValues('')
-    }, [propertyKey])
+    useEffect(
+        () => {
+            loadPropertyValues('')
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [propertyKey]
+    )
 
     useEffect(() => {
         if (input === '' && shouldBlur) {

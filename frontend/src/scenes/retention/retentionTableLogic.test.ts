@@ -1,6 +1,6 @@
 import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic, initTeamLogic } from '~/test/init'
+import { initKeaTestLogic } from '~/test/init'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -21,7 +21,6 @@ describe('retentionTableLogic', () => {
 
     describe('syncs with insightLogic', () => {
         const props = { dashboardItemId: 123 }
-        initTeamLogic()
         initKeaTestLogic({
             logic: retentionTableLogic,
             props,
@@ -30,37 +29,37 @@ describe('retentionTableLogic', () => {
 
         it('setFilters calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ events: [{ id: 42 }] })
+                logic.actions.setFilters({ insight: 'RETENTION', period: 'Week' })
             })
                 .toDispatchActions([
                     (action) =>
                         action.type === insightLogic(props).actionTypes.setFilters &&
-                        action.payload.filters?.events?.[0]?.id === 42,
+                        action.payload.filters?.period === 'Week',
                 ])
                 .toMatchValues(logic, {
                     filters: expect.objectContaining({
-                        events: [{ id: 42 }],
+                        period: 'Week',
                     }),
                 })
                 .toMatchValues(insightLogic(props), {
                     filters: expect.objectContaining({
-                        events: [{ id: 42 }],
+                        period: 'Week',
                     }),
                 })
         })
 
         it('insightLogic.setFilters updates filters', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ events: [{ id: 42 }] })
+                insightLogic(props).actions.setFilters({ insight: 'RETENTION', period: 'Week' })
             })
                 .toMatchValues(logic, {
                     filters: expect.objectContaining({
-                        events: [{ id: 42 }],
+                        period: 'Week',
                     }),
                 })
                 .toMatchValues(insightLogic(props), {
                     filters: expect.objectContaining({
-                        events: [{ id: 42 }],
+                        period: 'Week',
                     }),
                 })
         })

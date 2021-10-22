@@ -1,6 +1,6 @@
 import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic, initTeamLogic } from '~/test/init'
+import { initKeaTestLogic } from '~/test/init'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -19,7 +19,6 @@ describe('pathsLogic', () => {
 
     describe('syncs with insightLogic', () => {
         const props = { dashboardItemId: 123 }
-        initTeamLogic()
         initKeaTestLogic({
             logic: pathsLogic,
             props,
@@ -29,6 +28,7 @@ describe('pathsLogic', () => {
         it('setFilter calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilter({
+                    insight: 'PATHS',
                     step_limit: 999,
                 })
             })
@@ -52,6 +52,7 @@ describe('pathsLogic', () => {
         it('insightLogic.setFilters updates filter', async () => {
             await expectLogic(logic, () => {
                 insightLogic(props).actions.setFilters({
+                    insight: 'PATHS',
                     step_limit: 999,
                 })
             })

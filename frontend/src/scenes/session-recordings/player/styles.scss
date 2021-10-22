@@ -1,0 +1,159 @@
+@import '~/vars';
+
+$player_container_bg: #797973;
+$player_bg: #797973;
+
+.session-player-v2 {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+
+    .session-player-body {
+        flex: 1;
+        overflow: hidden;
+        background-color: $player_container_bg;
+
+        .player-container {
+            position: relative;
+            padding: $default_spacing * 4 $default_spacing / 2;
+        }
+    }
+
+    .session-player-controller {
+        padding: $default_spacing / 2;
+        background-color: $player_container_bg;
+    }
+
+    .rrweb-player {
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+        border: 1px solid rgba(217, 217, 217, 0.25);
+        border-radius: $radius;
+        background-color: $bg_depth;
+        box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
+
+        position: relative;
+
+        .replayer-wrapper {
+            transform-origin: top left;
+        }
+
+        iframe {
+            border: 0px;
+            background-color: white;
+        }
+
+        .rrweb-overlay-container {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            bottom: 0;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            z-index: 10;
+
+            .rrweb-overlay {
+                position: absolute;
+
+                display: flex;
+                justify-content: center;
+                align-items: center;
+
+                height: 100%;
+                width: 100%;
+
+                background-color: #333;
+                opacity: 0.7;
+
+                font-size: 40px;
+                color: white;
+            }
+        }
+    }
+
+    .rrweb-timestamp {
+        white-space: nowrap;
+        font-size: 14px;
+        margin-right: $default_spacing;
+    }
+
+    .rrweb-progress {
+        width: 100%;
+        cursor: pointer;
+        margin-right: $default_spacing;
+    }
+
+    .rrweb-controller {
+        display: flex;
+        width: 100%;
+        background-color: $bg_light;
+        border-radius: $radius;
+        border: 1px solid $player_bg;
+        padding: 0 $default_spacing;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-around;
+        box-sizing: border-box;
+        height: 40px;
+        color: black;
+
+        > * {
+            user-select: none;
+        }
+
+        .rrweb-controller-icon {
+            margin-right: $default_spacing;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            &.rrweb-controller-icon-play-pause {
+                margin-right: 0px;
+            }
+
+            &.rrweb-controller-icon-seek {
+                height: 18px;
+                width: 18px;
+
+                span.seek-seconds {
+                    position: absolute;
+                    font-size: 6px;
+                }
+                .seek-icon {
+                    position: absolute;
+                    font-size: 18px;
+                }
+            }
+        }
+    }
+
+    .rrweb-speed-toggle {
+        cursor: pointer;
+        margin-right: $default_spacing;
+    }
+
+    .rrweb-inactivity-toggle {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        white-space: nowrap;
+
+        .inactivity-label {
+            font-size: 14px;
+            margin-right: $default_spacing / 2;
+        }
+    }
+}
+
+.ant-drawer.session-player-drawer-v2 {
+    .ant-drawer-body {
+        padding: 0;
+    }
+}

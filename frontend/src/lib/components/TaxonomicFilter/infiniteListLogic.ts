@@ -8,7 +8,6 @@ import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 import { InfiniteListLogicProps, ListFuse, ListStorage, LoaderOptions } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -170,9 +169,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
-            () => [
+            (selectors) => [
                 (state, props) => {
-                    const groups = (taxonomicFilterLogic(props) as taxonomicFilterLogicType).selectors.groups(state)
+                    const groups = selectors.groups(state)
                     const group = groups.find((g) => g.type === props.listGroupType)
                     if (group?.logic && group?.value) {
                         return group.logic.selectors[group.value]?.(state) || null

@@ -106,9 +106,13 @@ export function OldPaths({ dashboardItemId = null, color = 'white' }) {
     const { insightProps } = useValues(insightLogic)
     const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic(insightProps))
 
-    useEffect(() => {
-        renderPaths()
-    }, [paths, !pathsLoading, size, color])
+    useEffect(
+        () => {
+            renderPaths()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [paths, !pathsLoading, size, color]
+    )
 
     function renderPaths() {
         const elements = document

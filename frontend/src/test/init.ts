@@ -3,7 +3,6 @@ import { initKea } from '~/initKea'
 import { testUtilsPlugin, expectLogic } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
-import { teamLogic } from '../scenes/teamLogic'
 import { AppContext } from '../types'
 import { MOCK_TEAM_ID } from '../lib/api.mock'
 
@@ -12,14 +11,18 @@ export function initKeaTestLogic<L extends Logic = Logic>({
     props,
     onLogic,
 }: {
-    logic: LogicWrapper<L>
+    logic?: LogicWrapper<L>
     props?: LogicWrapper<L>['props']
     onLogic?: (l: BuiltLogic<L>) => any
-}): void {
-    let unmount: () => void
+} = {}): void {
     let builtLogic: BuiltLogic<L>
+    let unmount: () => void
 
     beforeEach(async () => {
+        window.POSTHOG_APP_CONTEXT = {
+            current_team: { id: MOCK_TEAM_ID },
+            ...window.POSTHOG_APP_CONTEXT,
+        } as unknown as AppContext
         posthog.init('no token', {
             api_host: 'borked',
             test: true,
@@ -36,18 +39,18 @@ export function initKeaTestLogic<L extends Logic = Logic>({
         ;(history as any).pushState = history.push
         ;(history as any).replaceState = history.replace
         initKea({ beforePlugins: [testUtilsPlugin], routerLocation: history.location, routerHistory: history })
-        builtLogic = logic.build({ ...props })
-        await onLogic?.(builtLogic)
-        unmount = builtLogic.mount()
+        if (logic) {
+            builtLogic = logic.build({ ...props })
+            await onLogic?.(builtLogic)
+            unmount = builtLogic.mount()
+        }
     })
 
     afterEach(async () => {
-        unmount()
-        await expectLogic(logic).toFinishAllListeners()
+        if (logic) {
+            unmount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        delete window.POSTHOG_APP_CONTEXT
     })
-}
-
-export function initTeamLogic(): void {
-    window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
-    initKeaTestLogic({ logic: teamLogic })
 }
