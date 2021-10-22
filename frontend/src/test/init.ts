@@ -19,7 +19,10 @@ export function initKeaTestLogic<L extends Logic = Logic>({
     let unmount: () => void
 
     beforeEach(async () => {
-        window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
+        window.POSTHOG_APP_CONTEXT = {
+            current_team: { id: MOCK_TEAM_ID },
+            ...window.POSTHOG_APP_CONTEXT,
+        } as unknown as AppContext
         posthog.init('no token', {
             api_host: 'borked',
             test: true,
