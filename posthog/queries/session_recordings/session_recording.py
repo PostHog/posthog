@@ -1,13 +1,11 @@
-import json
 from datetime import datetime, timedelta
 from typing import List, Optional, TypedDict, Union
 
 from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework.request import Request
-from sentry_sdk.api import capture_message
 
-from posthog.helpers.session_recording import SnapshotData, decompress, decompress_chunked_snapshot_data
+from posthog.helpers.session_recording import SnapshotData, paginate_chunk_decompression
 from posthog.models import SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.utils import format_query_params_absolute_url
@@ -52,84 +50,11 @@ class SessionRecording:
             "timestamp"
         )
 
-    def _get_paginated_chunks(self):
-        all_session_snapshots = self._query_recording_snapshots()
-        has_next = False
-        chunk_ids_passed = set()
-        chunk_ids_or_events_to_decompress = []
-        chunks_collector: dict[list] = {}
-        chunks_or_event_counter = 0
-
-        # Get the chunks/events that should be decompressed based on the limit/offset
-        for snapshot in all_session_snapshots:
-            chunk_id = snapshot.snapshot_data.get("chunk_id")
-
-            # If we haven't hit the offset, keep counting chunks/events until its hit
-            if chunks_or_event_counter < self._offset:
-                if not chunk_id:
-                    chunks_or_event_counter += 1
-                elif chunk_id not in chunk_ids_passed:
-                    chunk_ids_passed.add(chunk_id)
-                    chunks_or_event_counter += 1
-
-            # If we're past the offset and within the limit
-            elif chunks_or_event_counter < self._offset + self._limit:
-                if not chunk_id:
-                    chunks_or_event_counter += 1
-                    chunk_ids_or_events_to_decompress.append(snapshot)
-                elif chunk_id not in chunk_ids_passed:
-                    if chunk_id in chunks_collector.keys():
-                        chunks_collector[chunk_id].append(snapshot)
-                    else:
-                        chunks_or_event_counter += 1
-                        chunks_collector[chunk_id] = [snapshot]
-                        chunk_ids_or_events_to_decompress.append(chunk_id)
-
-            # If we're past the limit,
-            else:
-                # We encounter a new chunk_id or event
-                if not chunk_id or (chunk_id not in chunk_ids_passed and chunk_id not in chunks_collector.keys()):
-                    has_next = True
-                # We encounter a part of a previously added chunk
-                elif chunk_id in chunks_collector.keys():
-                    chunks_collector[chunk_id].append(snapshot)
-
-        # Decompress the chunks
-        decompressed_data_list = []
-        for chunk_id_or_event in chunk_ids_or_events_to_decompress:
-            # Chunk id
-            if type(chunk_id_or_event) == str:
-                chunks = chunks_collector[chunk_id_or_event]
-                if len(chunks) != chunks[0].snapshot_data["chunk_count"]:
-                    capture_message(
-                        "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} chunks".format(
-                            self._team,
-                            self._session_recording_id,
-                            chunk_id_or_event,
-                            len(chunks),
-                            chunks[0].snapshot_data["chunk_count"],
-                        )
-                    )
-                    continue
-
-                b64_compressed_data = "".join(
-                    chunk.snapshot_data["data"]
-                    for chunk in sorted(chunks, key=lambda c: c.snapshot_data["chunk_index"])
-                )
-                decompressed_data = json.loads(decompress(b64_compressed_data))
-
-                decompressed_data_list.extend(decompressed_data)
-
-            else:
-                decompressed_data_list.append(chunk_id_or_event.snapshot_data)
-
-        return (
-            has_next,
-            decompressed_data_list,
-        )
-
     def get_snapshots(self) -> RecordingSnapshots:
-        has_next, snapshots = self._get_paginated_chunks()
+        all_recording_snapshots = [event.snapshot_data for event in list(self._query_recording_snapshots())]
+        has_next, snapshots = paginate_chunk_decompression(
+            self._team, self._session_recording_id, all_recording_snapshots, self._limit, self._offset
+        )
 
         next_url = (
             format_query_params_absolute_url(self._request, self._offset + self._limit, self._limit)
@@ -137,37 +62,16 @@ class SessionRecording:
             else None
         )
 
-        return {
-            "snapshots": snapshots,
-            "next": next_url,
-        }
+        return RecordingSnapshots(next=next_url, snapshots=snapshots)
 
-    def _get_first_chunk_in_snapshot_list(self, snapshot_list):
-        if len(snapshot_list) == 0:
-            return []
-
-        first_chunk_snapshots = []
-        first_chunk_id = snapshot_list[0].snapshot_data.get("chunk_id")
-
-        # Not chunked - can happen on old data on postgres instances with long retention policies
-        if not first_chunk_id:
-            first_chunk_snapshots.append(snapshot_list[0])
-        else:
-            for snapshot in snapshot_list:
-                chunk_id = snapshot.snapshot_data.get("chunk_id")
-                if chunk_id == first_chunk_id:
-                    first_chunk_snapshots.append(snapshot)
-                else:
-                    break
-        return list(
-            decompress_chunked_snapshot_data(
-                self._team.pk, self._session_recording_id, [s.snapshot_data for s in first_chunk_snapshots]
-            )
+    def _get_first_and_last_chunk(self, all_recording_snapshots: List[SnapshotData]):
+        _, first_chunk = paginate_chunk_decompression(
+            self._team, self._session_recording_id, all_recording_snapshots, 1, 0
         )
 
-    def _get_first_and_last_chunk(self, all_recording_snapshots):
-        first_chunk = self._get_first_chunk_in_snapshot_list(all_recording_snapshots)
-        last_chunk = self._get_first_chunk_in_snapshot_list(list(reversed(all_recording_snapshots)))
+        _, last_chunk = paginate_chunk_decompression(
+            self._team, self._session_recording_id, list(reversed(all_recording_snapshots)), 1, 0
+        )
 
         return (
             first_chunk,
@@ -177,15 +81,10 @@ class SessionRecording:
     def get_metadata(self) -> RecordingMetadata:
         all_snapshots = self._query_recording_snapshots()
         if len(all_snapshots) == 0:
-            return {
-                "start_time": None,
-                "end_time": None,
-                "duration": None,
-                "session_id": None,
-                "distinct_id": None,
-            }
+            return RecordingMetadata(start_time=None, end_time=None, duration=None, session_id=None, distinct_id=None,)
 
-        first_chunk, last_chunk = self._get_first_and_last_chunk(all_snapshots)
+        snapshot_data_list = [event.snapshot_data for event in list(self._query_recording_snapshots())]
+        first_chunk, last_chunk = self._get_first_and_last_chunk(snapshot_data_list)
 
         first_event = first_chunk[0]
         first_event_timestamp = datetime.fromtimestamp(first_event.get("timestamp") / 1000, timezone.utc)
@@ -195,10 +94,10 @@ class SessionRecording:
 
         first_snapshot = all_snapshots[0]
 
-        return {
-            "start_time": first_event_timestamp,
-            "end_time": last_event_timestamp,
-            "duration": last_event_timestamp - first_event_timestamp,
-            "session_id": first_snapshot.session_id,
-            "distinct_id": first_snapshot.distinct_id,
-        }
+        return RecordingMetadata(
+            start_time=first_event_timestamp,
+            end_time=last_event_timestamp,
+            duration=last_event_timestamp - first_event_timestamp,
+            session_id=first_snapshot.session_id,
+            distinct_id=first_snapshot.distinct_id,
+        )
