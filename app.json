@@ -33,36 +33,5 @@
                 }
             }
         }
-    },
-    "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
-    "addons": [
-        "heroku-postgresql",
-        {
-            "plan": "heroku-redis",
-            "options": {
-                "maxmemory_policy": "allkeys-lru"
-            }
-        }
-    ],
-    "formation": {
-        "web": {
-            "quantity": 1
-        },
-        "worker": {
-            "quantity": 1
-        },
-        "celeryworker": {
-            "quantity": 0
-        },
-        "pluginworker": {
-            "quantity": 0
-        }
-    },
-    "env": {
-        "SECRET_KEY": {
-            "generator": "secret"
-        },
-        "DEPLOYMENT": "Heroku",
-        "SAML_DISABLED": true
     }
 }
