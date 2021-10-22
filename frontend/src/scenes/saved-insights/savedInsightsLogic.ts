@@ -8,6 +8,7 @@ import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
 import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 
 export interface InsightsResult {
@@ -42,6 +43,9 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         addGraph: (type: string) => ({ type }),
@@ -58,30 +62,31 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 await breakpoint(1)
                 const { filters } = values
                 const response = await api.get(
-                    'api/insight/?' +
-                        toParams({
-                            order: filters.order,
-                            limit: 15,
-                            saved: true,
-                            ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                            ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
-                            ...(filters.search && { search: filters.search }),
-                            ...(filters.insightType?.toLowerCase() !== 'all types' && {
-                                insight: filters.insightType?.toUpperCase(),
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                        order: filters.order,
+                        limit: 15,
+                        saved: true,
+                        ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                        ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                        ...(filters.search && { search: filters.search }),
+                        ...(filters.insightType?.toLowerCase() !== 'all types' && {
+                            insight: filters.insightType?.toUpperCase(),
+                        }),
+                        ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                        ...(filters.dateFrom &&
+                            filters.dateFrom !== 'all' && {
+                                date_from: filters.dateFrom,
+                                date_to: filters.dateTo,
                             }),
-                            ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
-                            ...(filters.dateFrom &&
-                                filters.dateFrom !== 'all' && {
-                                    date_from: filters.dateFrom,
-                                    date_to: filters.dateTo,
-                                }),
-                        })
+                    })}`
                 )
                 return response
             },
             loadPaginatedInsights: async (url: string) => await api.get(url),
             updateFavoritedInsight: async ({ id, favorited }) => {
-                const response = await api.update(`api/insight/${id}`, { favorited })
+                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, {
+                    favorited,
+                })
                 const updatedInsights = values.insights.results.map((insight) =>
                     insight.id === id ? response : insight
                 )
@@ -149,14 +154,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 value: name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    const insight = await api.update(`api/insight/${id}`, { name })
+                    const insight = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, {
+                        name,
+                    })
                     toast('Successfully renamed item')
                     actions.setInsight(insight)
                 },
             })
         },
         duplicateInsight: async ({ insight }) => {
-            await api.create('api/insight', insight)
+            await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
             actions.loadInsights()
         },
         setDates: () => {

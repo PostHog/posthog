@@ -13,6 +13,7 @@ import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from '../teamLogic'
 
 export interface DashboardLogicProps {
     id?: number
@@ -23,7 +24,10 @@ export interface DashboardLogicProps {
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
-    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+        logic: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+    },
 
     props: {} as DashboardLogicProps,
 
@@ -490,10 +494,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             })
         },
         updateItemColor: ({ id, color }) => {
-            api.update(`api/insight/${id}`, { color })
+            api.update(`api/projects/${values.currentTeamId}/insights/${id}`, { color })
         },
         setDiveDashboard: ({ id, dive_dashboard }) => {
-            api.update(`api/insight/${id}`, { dive_dashboard })
+            api.update(`api/projects/${values.currentTeamId}/insights/${id}`, { dive_dashboard })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval

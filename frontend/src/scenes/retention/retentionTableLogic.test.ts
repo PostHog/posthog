@@ -1,4 +1,4 @@
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
@@ -11,9 +11,9 @@ describe('retentionTableLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (['api/insight', 'api/projects/85/actions/'].includes(pathname)) {
+        if ([`api/projects/${MOCK_TEAM_ID}/insights/`, `api/projects/${MOCK_TEAM_ID}/actions/`].includes(pathname)) {
             return { results: [] }
-        } else if (['api/insight/retention/', 'api/insight/123'].includes(pathname)) {
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/retention/`) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)

@@ -11,7 +11,7 @@ const defaultValue = 'https://'
 
 export const appUrlsLogic = kea<appUrlsLogicType>({
     connect: {
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam', 'currentTeamId']],
     },
     actions: () => ({
         setAppUrls: (appUrls: string[]) => ({ appUrls }),
@@ -30,7 +30,9 @@ export const appUrlsLogic = kea<appUrlsLogicType>({
                     breakdown: '$current_url',
                     date_from: dayjs().subtract(3, 'days').toISOString(),
                 }
-                const result = (await api.get('api/insight/trend/?' + toParams(params))).result as TrendResult[]
+                const result = (
+                    await api.get(`api/projects/${values.currentTeamId}/insights/trend/?${toParams(params)}`)
+                ).result as TrendResult[]
                 if (result && result[0]?.count === 0) {
                     return []
                 }
