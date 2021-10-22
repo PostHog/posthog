@@ -6,7 +6,7 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { SceneComponent, sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
@@ -84,35 +84,49 @@ function Models(): null {
     return null
 }
 
+function OneScene({
+    Component,
+    sceneId,
+    params,
+}: {
+    Component: SceneComponent
+    activeSceneId: string
+    sceneId: string
+    params: Record<string, any>
+}): JSX.Element | null {
+    return <Component sceneId={sceneId} {...params} />
+}
+
+const MemoizedScene = React.memo(OneScene, (_, nextProps) => nextProps.activeSceneId !== nextProps.sceneId)
+
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { activeScene, loadedScenes, sceneConfig, sceneHistory } = useValues(sceneLogic)
+    const { activeScene, loadedScenes, sceneConfig, sceneHistory, activeSceneId } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const SceneComponent = (): JSX.Element => {
+    const sceneComponent = sceneHistory.history.map(({ scene, params, sceneId }, index) => {
+        const Component = loadedScenes[scene]?.component
         return (
-            <>
-                {sceneHistory.history.map(({ scene, params, sceneId }, index) => {
-                    const Component = loadedScenes[scene]?.component
-                    return (
-                        <React.Fragment key={sceneId}>
-                            {!!Component ? (
-                                <div
-                                    style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        display: sceneHistory.index === index ? 'block' : 'none',
-                                    }}
-                                >
-                                    <Component user={user} {...params} sceneId={sceneId} />
-                                </div>
-                            ) : null}
-                        </React.Fragment>
-                    )
-                })}
-            </>
+            <React.Fragment key={sceneId}>
+                {!!Component ? (
+                    <div
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            display: sceneHistory.index === index ? 'block' : 'none',
+                        }}
+                    >
+                        <MemoizedScene
+                            Component={Component}
+                            params={params}
+                            sceneId={sceneId}
+                            activeSceneId={activeSceneId || sceneId}
+                        />
+                    </div>
+                ) : null}
+            </React.Fragment>
         )
-    }
+    })
 
     const essentialElements = (
         // Components that should always be mounted inside Layout
@@ -125,7 +139,7 @@ function AppScene(): JSX.Element | null {
     if (!user) {
         return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent />
+                {sceneComponent}
                 {essentialElements}
             </Layout>
         ) : null
@@ -135,7 +149,7 @@ function AppScene(): JSX.Element | null {
         return (
             <Layout style={{ minHeight: '100vh' }}>
                 {!sceneConfig.hideTopNav && <TopNavigation />}
-                <SceneComponent />
+                {sceneComponent}
                 {essentialElements}
             </Layout>
         )
@@ -155,7 +169,7 @@ function AppScene(): JSX.Element | null {
                             ) : null}
                             <BillingAlerts />
                             <BackTo />
-                            <SceneComponent />
+                            {sceneComponent}
                         </Layout.Content>
                     ) : null}
                 </Layout>

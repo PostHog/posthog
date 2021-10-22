@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { AvailableFeature, UserType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
@@ -111,8 +111,10 @@ export const scenes: Record<Scene, () => any> = {
         import(/* webpackChunkName: 'passwordResetComplete' */ './authentication/PasswordResetComplete'),
 }
 
+export type SceneComponent = (params?: { sceneId: string }) => JSX.Element
+
 interface LoadedScene {
-    component: (params?: { sceneId: string; user: UserType | null }) => JSX.Element
+    component: SceneComponent
     logic?: LogicWrapper
 }
 
@@ -411,6 +413,10 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Method, Params, Scene,
             (scene: Scene): SceneConfig => {
                 return sceneConfigurations[scene] ?? {}
             },
+        ],
+        activeSceneId: [
+            (s) => [s.sceneHistory],
+            ({ index, history }) => (index >= 0 ? history[index]?.sceneId || null : null),
         ],
         activeScene: [
             (selectors) => [
