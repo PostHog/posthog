@@ -52,11 +52,11 @@ export enum InsightEventSource {
 }
 
 export enum RecordingWatchedSource {
-    Direct = 'direct',
+    Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
-    RecordingsList = 'recordings_list',
-    SessionsList = 'sessions_list',
-    SessionsListPlayAll = 'sessions_list_play_all',
+    RecordingsList = 'recordings_list', // New recordings list page
+    SessionsList = 'sessions_list', // DEPRECATED sessions list page
+    SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
 }
 
 interface RecordingViewedProps {
@@ -132,7 +132,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
-        properties_all: properties_global.concat(properties_local),
+        properties_all: properties_global.concat(properties_local), // Global and local properties together
     }
 }
 
@@ -151,7 +151,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             filters,
             isFirstLoad,
             fromDashboard,
-            delay,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
             changedFilters,
         }),
         reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
@@ -331,7 +331,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
                 ...sanitizeFilterParams(filters),
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
-                from_dashboard: fromDashboard,
+                from_dashboard: fromDashboard, // Whether the insight is on a dashboard
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
@@ -387,8 +387,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
                 has_breakdown_value: Boolean(breakdown_value),
                 save_original: saveOriginal,
                 has_search_term: Boolean(searchTerm),
-                count,
-                has_next: hasNext,
+                count, // Total count of persons
+                has_next: hasNext, // Whether there are other persons to be loaded (pagination)
             }
             posthog.capture('insight person modal viewed', properties)
         },
