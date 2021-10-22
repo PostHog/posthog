@@ -10,20 +10,21 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
-import { UserType } from '../../types'
+import { userLogic } from 'scenes/userLogic'
 
-export function Plugins({ user }: { user: UserType }): JSX.Element | null {
+export function Plugins(): JSX.Element | null {
+    const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
     const { TabPane } = Tabs
 
     useEffect(() => {
-        if (!canViewPlugins(user.organization)) {
+        if (!canViewPlugins(user?.organization)) {
             window.location.href = '/'
         }
     }, [user])
 
-    if (!canViewPlugins(user.organization)) {
+    if (!user || !canViewPlugins(user?.organization)) {
         return null
     }
 
