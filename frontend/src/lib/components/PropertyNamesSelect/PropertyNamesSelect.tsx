@@ -8,6 +8,7 @@ import React from 'react'
 import { PersonProperty } from '~/types'
 import './styles.scss'
 
+import { propertySelectLogicType } from './PropertyNamesSelectType'
 export const PropertyNamesSelect = ({
     onChange,
 }: {
@@ -177,26 +178,7 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
     }
 }
 
-interface Values {
-    isOpen: boolean
-    triggerElement: HTMLElement | null
-}
-
-interface Actions {
-    hide: () => boolean
-    open: () => boolean
-    toggle: () => boolean
-    setTriggerElement: (element: HTMLElement | null) => { triggerElement: HTMLElement }
-}
-
-interface Props {
-    selectionKey: string
-    onHide?: () => void
-}
-
-type PropertySelectLogicType = MakeLogicType<Values, Actions, Props>
-
-const propertySelectLogic = kea<PropertySelectLogicType>({
+const propertySelectLogic = kea<propertySelectLogicType>({
     key: (props) => props.selectionKey,
 
     actions: {
@@ -391,7 +373,7 @@ export const useSelectedPropertiesContext = () => {
     return context
 }
 
-/* 
+/*
 A propertiesSelectionContext provides:
 
     - selectedProperties: a set of selected property names
@@ -412,6 +394,8 @@ const propertiesSelectionContext = React.createContext<PropertiesSelectionContex
 export const SelectPropertiesProvider = ({
     children,
     ...methods
-}: PropertiesSelectionContextType & { children: JSX.Element[] | JSX.Element }): JSX.Element => {
+}: PropertiesSelectionContextType & {
+    children: JSX.Element[] | JSX.Element
+}): JSX.Element => {
     return <propertiesSelectionContext.Provider value={methods}>{children}</propertiesSelectionContext.Provider>
 }
