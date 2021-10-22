@@ -30,7 +30,7 @@ export function PathCleanFilterToggle({
                         marginRight: 10,
                     }}
                 >
-                    Apply path URL cleaning
+                    Apply global path URL cleaning
                 </label>
                 <Switch
                     disabled={!hasFilters}

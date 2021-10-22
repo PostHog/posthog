@@ -20,36 +20,23 @@ export function PathRegexPopup({ item, onComplete, onClose }: PathRegexPopupProp
                 <span>Alias</span>
                 <Input
                     defaultValue={alias}
-                    onChange={(e) => {
-                        setAlias(e.target.value)
-                    }}
-                    onPressEnter={() => {
-                        return false
-                    }}
+                    onChange={(e) => setAlias(e.target.value)}
+                    onPressEnter={() => false}
                     style={{ marginTop: 8, marginBottom: 12 }}
                 />
                 <span>Regex</span>
                 <Input
                     defaultValue={regex}
-                    onChange={(e) => {
-                        setRegex(e.target.value)
-                    }}
-                    onPressEnter={() => {
-                        return false
-                    }}
+                    onChange={(e) => setRegex(e.target.value)}
+                    onPressEnter={() => false}
                     style={{ marginTop: 8 }}
                 />
-                <Row style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                <Row style={{ width: '100%', justifyContent: 'flex-end', marginTop: 12 }}>
                     <Button onClick={onClose} type="link">
                         {' '}
                         Cancel{' '}
                     </Button>
-                    <Button
-                        onClick={() => {
-                            onComplete({ alias, regex })
-                        }}
-                        type="primary"
-                    >
+                    <Button onClick={() => onComplete({ alias, regex })} type="primary">
                         {' '}
                         Save{' '}
                     </Button>

@@ -543,6 +543,22 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             response, correct_response,
         )
 
+        # overriding team filters
+        data.update(
+            {
+                "path_replacements": False,
+                "local_path_cleaning_filters": [
+                    {"alias": "?<param>", "regex": "\\?(.*)"},
+                    {"alias": "/<id>", "regex": "/\\d+(/|\\?)?"},
+                ],
+            }
+        )
+        path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter).run()
+        self.assertEqual(
+            response, correct_response,
+        )
+
     def test_path_by_funnel_after_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
