@@ -37,7 +37,7 @@ def insight_test_factory(event_factory, person_factory):
             # create without user
             Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/", data={"user": "true"}).json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
             self.assertEqual(len(response["results"]), 1)
 
@@ -59,7 +59,9 @@ def insight_test_factory(event_factory, person_factory):
             # create without user
             Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/", data={"saved": "true", "user": "true"})
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/", data={"saved": "true", "user": "true"}
+            )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(len(response.json()["results"]), 1)
@@ -83,7 +85,7 @@ def insight_test_factory(event_factory, person_factory):
             # create without user
             Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/?favorited=true&user=true")
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/?favorited=true&user=true")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(len(response.json()["results"]), 1)
@@ -104,7 +106,7 @@ def insight_test_factory(event_factory, person_factory):
                 filters=Filter(data=filter_dict).to_dict(), team=new_team, short_id="12345678",
             )
 
-            response = self.client.get("/api/insight/?short_id=12345678")
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=12345678")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(len(response.json()["results"]), 1)
@@ -127,7 +129,7 @@ def insight_test_factory(event_factory, person_factory):
                 filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
             )
 
-            response = self.client.get("/api/insight/?basic=true")
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/?basic=true")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(len(response.json()["results"]), 2)
@@ -151,7 +153,7 @@ def insight_test_factory(event_factory, person_factory):
         def test_create_insight_items(self):
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post(
-                "/api/insight",
+                f"/api/projects/{self.team.id}/insights",
                 data={
                     "filters": {
                         "events": [{"id": "$pageview"}],
@@ -173,7 +175,7 @@ def insight_test_factory(event_factory, person_factory):
         def test_update_insight(self):
             insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
             response = self.client.patch(
-                f"/api/insight/{insight.id}",
+                f"/api/projects/{self.team.id}/insights/{insight.id}",
                 {
                     "name": "insight new name",
                     "tags": ["official", "engineering"],
@@ -205,7 +207,7 @@ def insight_test_factory(event_factory, person_factory):
                 ["Custom filter", 100, "", "  ", None], ["Custom filter", "100", None, None, None]
             ):
                 response = self.client.patch(
-                    f"/api/insight/{insight.id}",
+                    f"/api/projects/{self.team.id}/insights/{insight.id}",
                     {"filters": {"events": [{"id": "$pageview", "custom_name": custom_name}]}},
                 )
 
@@ -221,7 +223,7 @@ def insight_test_factory(event_factory, person_factory):
             dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)
 
             response = self.client.post(
-                "/api/insight",
+                f"/api/projects/{self.team.id}/insights",
                 data={
                     "filters": {
                         "insight": "FUNNELS",
@@ -276,7 +278,7 @@ def insight_test_factory(event_factory, person_factory):
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get(
-                    "/api/insight/trend/?events={}".format(json.dumps([{"id": "$pageview"}]))
+                    f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
                 ).json()
 
             self.assertEqual(response["result"][0]["count"], 2)
@@ -284,10 +286,10 @@ def insight_test_factory(event_factory, person_factory):
 
         def test_nonexistent_cohort_is_handled(self):
             response_nonexistent_property = self.client.get(
-                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
+                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
             )
             response_nonexistent_cohort = self.client.get(
-                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
+                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
             )  # This should not throw an error, just act like there's no event matches
 
             response_nonexistent_property_data = response_nonexistent_property.json()
@@ -302,10 +304,10 @@ def insight_test_factory(event_factory, person_factory):
             whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
 
             response_nonexistent_property = self.client.get(
-                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
+                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
             )
             response_cohort_without_match_groups = self.client.get(
-                f"/api/insight/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':whatever_cohort_without_match_groups.pk}])}"
+                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':whatever_cohort_without_match_groups.pk}])}"
             )  # This should not throw an error, just act like there's no event matches
 
             self.assertEqual(response_nonexistent_property.status_code, 200)
@@ -331,10 +333,10 @@ def insight_test_factory(event_factory, person_factory):
 
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
                 response_user_property = self.client.get(
-                    f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'person','key':'foo','value':'bar'}])}"
+                    f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'person','key':'foo','value':'bar'}])}"
                 )
                 response_precalculated_cohort = self.client.get(
-                    f"/api/insight/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':113}])}"
+                    f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':113}])}"
                 )
 
             self.assertEqual(response_precalculated_cohort.status_code, 200)
@@ -354,7 +356,7 @@ def insight_test_factory(event_factory, person_factory):
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get(
-                    "/api/insight/trend/",
+                    f"/api/projects/{self.team.id}/insights/trend/",
                     data={
                         "events": json.dumps([{"id": "$pageview"}]),
                         "breakdown": "$some_property",
@@ -394,10 +396,11 @@ def insight_test_factory(event_factory, person_factory):
             )
 
             get_response = self.client.get(
-                "/api/insight/path", data={"properties": json.dumps([{"key": "test", "value": "val"}]),}
+                f"/api/projects/{self.team.id}/insights/path",
+                data={"properties": json.dumps([{"key": "test", "value": "val"}]),},
             ).json()
             post_response = self.client.post(
-                "/api/insight/path", {"properties": [{"key": "test", "value": "val"}],}
+                f"/api/projects/{self.team.id}/insights/path", {"properties": [{"key": "test", "value": "val"}],}
             ).json()
             self.assertEqual(len(get_response["result"]), 1)
             self.assertEqual(len(post_response["result"]), 1)
@@ -407,7 +410,7 @@ def insight_test_factory(event_factory, person_factory):
             event_factory(team=self.team, event="user signed up", distinct_id="1")
             event_factory(team=self.team, event="user did things", distinct_id="1")
             response = self.client.post(
-                "/api/insight/funnel/",
+                f"/api/projects/{self.team.id}/insights/funnel/",
                 {
                     "events": [
                         {"id": "user signed up", "type": "events", "order": 0},
@@ -432,14 +435,7 @@ def insight_test_factory(event_factory, person_factory):
             event_factory(team=self.team, event="user signed up", distinct_id="1")
             event_factory(team=self.team, event="user did things", distinct_id="1")
             response = self.client.get(
-                "/api/insight/funnel/?funnel_window_days=14&events={}".format(
-                    json.dumps(
-                        [
-                            {"id": "user signed up", "type": "events", "order": 0},
-                            {"id": "user did things", "type": "events", "order": 1},
-                        ]
-                    )
-                )
+                f"/api/projects/{self.team.id}/insights/funnel/?funnel_window_days=14&events={json.dumps([{'id': 'user signed up', 'type': 'events', 'order': 0},{'id': 'user did things', 'type': 'events', 'order': 1},])}"
             ).json()
 
             # clickhouse funnels don't have a loading system
@@ -459,7 +455,7 @@ def insight_test_factory(event_factory, person_factory):
             event_factory(
                 team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=10),
             )
-            response = self.client.get("/api/insight/retention/",).json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/retention/",).json()
 
             self.assertEqual(len(response["result"]), 11)
 
@@ -484,14 +480,15 @@ def insight_test_factory(event_factory, person_factory):
 
             events_filter = json.dumps([{"id": "$pageview"}])
 
-            response_team1 = self.client.get(f"/api/insight/trend/?events={events_filter}")
+            response_team1 = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?events={events_filter}")
             response_team1_token = self.client.get(
-                f"/api/insight/trend/?events={events_filter}&token={self.user.team.api_token}"
+                f"/api/projects/{self.team.id}/insights/trend/?events={events_filter}&token={self.user.team.api_token}"
             )
 
             self.client.force_login(user2)
             response_team2 = self.client.get(
-                f"/api/insight/trend/?events={events_filter}", data={"token": user2.team.api_token}
+                f"/api/projects/{self.team.id}/insights/trend/?events={events_filter}",
+                data={"token": user2.team.api_token},
             )
 
             self.assertEqual(response_team1.status_code, 200)
@@ -499,7 +496,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response_team1.json()["result"], response_team1_token.json()["result"])
             self.assertNotEqual(len(response_team1.json()["result"]), len(response_team2.json()["result"]))
 
-            response_invalid_token = self.client.get(f"/api/insight/trend?token=invalid")
+            response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/insights/trend?token=invalid")
             self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestInsight

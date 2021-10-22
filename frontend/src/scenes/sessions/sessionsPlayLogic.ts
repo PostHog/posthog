@@ -8,13 +8,20 @@ import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
+
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
     connect: {
         logic: [eventUsageLogic],
-        values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
+        values: [
+            sessionsTableLogic,
+            ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents'],
+            teamLogic,
+            ['currentTeamId'],
+        ],
         actions: [
             sessionsTableLogic,
             ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer', 'loadSessionEvents'],
@@ -153,7 +160,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 } else {
                     // Very first call
                     const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
-                    response = await api.get(`api/event/session_recording?${params}`)
+                    response = await api.get(`api/projects/${values.currentTeamId}/events/session_recording?${params}`)
                     actions.reportUsage(response.result, performance.now() - startTime)
                 }
                 const currData = values.sessionPlayerData

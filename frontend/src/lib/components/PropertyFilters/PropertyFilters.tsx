@@ -1,5 +1,5 @@
 import React, { CSSProperties } from 'react'
-import { useValues, BindLogic } from 'kea'
+import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
 import 'scenes/actions/Actions.scss'
@@ -7,6 +7,7 @@ import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
+import { PropertyFilter } from '.'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -36,6 +37,7 @@ export function PropertyFilters({
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
+    const { remove } = useActions(propertyFilterLogic(logicProps))
 
     return (
         <div className="mb" style={style}>
@@ -54,8 +56,29 @@ export function PropertyFilters({
                                 disablePopover={disablePopover}
                                 popoverPlacement={popoverPlacement}
                                 taxonomicPopoverPlacement={taxonomicPopoverPlacement}
-                                groupTypes={groupTypes}
                                 showNestedArrow={showNestedArrow}
+                                label={'Add filter'}
+                                onRemove={remove}
+                                filterComponent={(onComplete) => {
+                                    const propertyFilterCommonProps = {
+                                        key: index,
+                                        pageKey,
+                                        index,
+                                        onComplete,
+                                        selectProps: {},
+                                        groupTypes,
+                                    }
+                                    return (
+                                        <PropertyFilter
+                                            {...propertyFilterCommonProps}
+                                            disablePopover={disablePopover}
+                                            selectProps={{
+                                                delayBeforeAutoOpen: 150,
+                                                placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                            }}
+                                        />
+                                    )
+                                }}
                             />
                         )
                     })}

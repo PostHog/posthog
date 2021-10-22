@@ -189,7 +189,11 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
                         Insights
                     </a>{' '}
                     -{' '}
-                    <a href={`${apiURL}/action/${response.id}`} target="_blank" rel="noreferrer noopener">
+                    <a
+                        href={`${apiURL}/projects/@current/actions/${response.id}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                    >
                         Actions
                     </a>
                 </>

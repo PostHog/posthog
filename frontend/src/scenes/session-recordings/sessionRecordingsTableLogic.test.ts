@@ -7,7 +7,7 @@ import {
 } from './sessionRecordingsTableLogic'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { BuiltLogic } from 'kea'
-import { mockAPI, defaultAPIMocks } from 'lib/api.mock'
+import { mockAPI, defaultAPIMocks, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
@@ -21,7 +21,7 @@ describe('sessionRecordingsTableLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname, searchParams } = url
-        if (pathname === 'api/projects/@current/session_recordings') {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/session_recordings`) {
             if (searchParams['events'].length > 0 && searchParams['events'][0]['id'] === '$autocapture') {
                 return {
                     results: ['List of recordings filtered by events'],
