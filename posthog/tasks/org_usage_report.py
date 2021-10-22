@@ -1,18 +1,11 @@
 import logging
 import os
+import time
 from datetime import datetime
-from typing import (
-    Any,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Dict, List, Literal, Optional, TypedDict, Union
 
-from sentry_sdk import capture_exception, configure_scope
+from django.db.models.manager import BaseManager
+from sentry_sdk import capture_exception
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
 from posthog.models import Event, OrganizationMembership, Team, User
@@ -24,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 
-OrgData = TypedDict("OrgData", {"teams": List[Union[str, int]], "name": str,},)
+OrgData = TypedDict("OrgData", {"teams": List[Union[str, int]], "user_count": int, "name": str, "created_at": str,},)
 
 OrgReportMetadata = TypedDict(
     "OrgReportMetadata",
@@ -64,6 +57,8 @@ OrgReport = TypedDict(
         "event_count_in_month": int,
         "organization_id": str,
         "organization_name": str,
+        "organization_created_at": str,
+        "organization_user_count": int,
         "team_count": int,
         "product": str,
     },
@@ -102,13 +97,16 @@ def send_all_reports(
     org_reports: List[OrgReport] = []
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
-        id = str(team.organization.id)
+        org = team.organization
+        id = str(org.id)
         if id in org_data:
             org_data[id]["teams"].append(team.id)
         else:
             org_data[id] = {
                 "teams": [team.id],
-                "name": team.organization.name,
+                "user_count": get_org_user_count(id),
+                "name": org.name,
+                "created_at": str(org.created_at),
             }
 
     for id, org in org_data.items():
@@ -130,6 +128,8 @@ def send_all_reports(
                 **usage,
                 "organization_id": id,
                 "organization_name": org["name"],
+                "organization_created_at": org["created_at"],
+                "organization_user_count": org["user_count"],
                 "team_count": len(org["teams"]),
             }
             org_reports.append(report)  # type: ignore
@@ -137,6 +137,7 @@ def send_all_reports(
             report_org_usage_failure(distinct_id, str(err))
         if not dry_run:
             report_org_usage(distinct_id, report)
+            time.sleep(0.25)
 
     return org_reports
 
@@ -181,12 +182,20 @@ def get_product_name(realm: str, license_keys: List[str]) -> str:
         return "unknown"
 
 
+def get_org_memberships(organization_id: str) -> BaseManager:
+    return OrganizationMembership.objects.filter(organization_id=organization_id)
+
+
+def get_org_user_count(organization_id: str) -> int:
+    return get_org_memberships(organization_id=organization_id).count()
+
+
 def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     # Find the membership object for the org owner
     user = None
-    membership = OrganizationMembership.objects.filter(
-        organization_id=organization_id, level=OrganizationMembership.Level.OWNER
-    ).first()
+    membership = (
+        get_org_memberships(organization_id=organization_id).filter(level=OrganizationMembership.Level.OWNER).first()
+    )
     if not membership:
         # If no owner membership is present, pick the first membership association we can find
         membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
