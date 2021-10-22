@@ -15,7 +15,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends 'nodejs=14.*' \
     && npm install -g yarn@1 \
     && yarn config set network-timeout 300000 \
-    && apt-get purge -y pkg-config && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 # install Python dependencies (production-level only)
