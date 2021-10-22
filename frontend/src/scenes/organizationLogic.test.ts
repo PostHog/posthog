@@ -8,7 +8,7 @@ import { organizationLogicType } from './organizationLogicType'
 
 jest.mock('lib/api')
 
-describe('entityFilterLogic', () => {
+describe('organizationLogic', () => {
     let logic: BuiltLogic<organizationLogicType<OrganizationUpdatePayload>>
 
     mockAPI(async (url) => {
@@ -19,9 +19,7 @@ describe('entityFilterLogic', () => {
         beforeEach(() => {
             window.POSTHOG_APP_CONTEXT = { current_user: { organization: { id: 'WXYZ' } } } as unknown as AppContext
         })
-        afterEach(() => {
-            delete window.POSTHOG_APP_CONTEXT
-        })
+
         initKeaTestLogic({
             logic: organizationLogic,
             onLogic: (l) => {

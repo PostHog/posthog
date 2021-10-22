@@ -6,6 +6,7 @@ import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { insightHistoryLogicType } from './insightHistoryLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { teamLogic } from '../../teamLogic'
 
 const updateInsightState = (
     state: DashboardItemType[],
@@ -39,17 +40,19 @@ const updateInsightState = (
 
 /* insightHistoryLogic - Handles all logic for saved insights and recent history */
 export const insightHistoryLogic = kea<insightHistoryLogicType>({
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     loaders: ({ actions }) => ({
         insights: {
             __default: [] as DashboardItemType[],
             loadInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
-                        toParams({
-                            order: '-created_at',
-                            limit: 25,
-                            user: true,
-                        })
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                        order: '-created_at',
+                        limit: 25,
+                        user: true,
+                    })}`
                 )
                 actions.setInsightsNext(response.next)
                 return response.results
@@ -59,13 +62,12 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>({
             __default: [] as DashboardItemType[],
             loadSavedInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
-                        toParams({
-                            order: '-created_at',
-                            saved: true,
-                            limit: 25,
-                            user: true,
-                        })
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                        order: '-created_at',
+                        saved: true,
+                        limit: 25,
+                        user: true,
+                    })}`
                 )
                 actions.setSavedInsightsNext(response.next)
                 return response.results
@@ -75,12 +77,11 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>({
             __default: [] as DashboardItemType[],
             loadTeamInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
-                        toParams({
-                            order: '-created_at',
-                            saved: true,
-                            limit: 25,
-                        })
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                        order: '-created_at',
+                        saved: true,
+                        limit: 25,
+                    })}`
                 )
                 actions.setTeamInsightsNext(response.next)
                 return response.results
@@ -159,13 +160,13 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>({
     },
     listeners: ({ actions, values }) => ({
         updateInsight: async ({ insight }) => {
-            await api.update(`api/insight/${insight.id}`, insight)
+            await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`, insight)
             toast('Saved Insight')
             actions.updateInsightSuccess(insight)
         },
         deleteInsight: ({ insight }) => {
             deleteWithUndo({
-                endpoint: 'insight',
+                endpoint: `api/projects/${values.currentTeamId}/insights`,
                 object: { name: insight.name, id: insight.id },
                 callback: () => actions.loadSavedInsights(),
             })

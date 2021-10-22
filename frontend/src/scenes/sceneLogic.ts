@@ -157,6 +157,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Sessions]: {
         projectBased: true,
     },
+    [Scene.SessionRecordings]: {
+        projectBased: true,
+    },
     [Scene.Person]: {
         projectBased: true,
     },

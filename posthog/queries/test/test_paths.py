@@ -91,25 +91,27 @@ def paths_test_factory(paths, event_factory, person_factory):
             with freeze_time("2012-01-15T03:21:34.000Z"):
                 date_from = now() - relativedelta(days=7)
                 response = self.client.get(
-                    "/api/insight/path/?insight=PATHS&date_from=" + date_from.strftime("%Y-%m-%d")
+                    f"/api/projects/{self.team.id}/insights/path/?insight=PATHS&date_from="
+                    + date_from.strftime("%Y-%m-%d")
                 ).json()
                 self.assertEqual(len(response["result"]), 4)
 
                 date_to = now()
                 response = self.client.get(
-                    "/api/insight/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
+                    f"/api/projects/{self.team.id}/insights/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
                 ).json()
                 self.assertEqual(len(response["result"]), 4)
 
                 date_from = now() + relativedelta(days=7)
                 response = self.client.get(
-                    "/api/insight/path/?insight=PATHS&date_from=" + date_from.strftime("%Y-%m-%d")
+                    f"/api/projects/{self.team.id}/insights/path/?insight=PATHS&date_from="
+                    + date_from.strftime("%Y-%m-%d")
                 ).json()
                 self.assertEqual(len(response["result"]), 0)
 
                 date_to = now() - relativedelta(days=7)
                 response = self.client.get(
-                    "/api/insight/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
+                    f"/api/projects/{self.team.id}/insights/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
                 ).json()
                 self.assertEqual(len(response["result"]), 0)
 
@@ -348,7 +350,9 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$current_url": "/help"}, distinct_id="person_5b", event="$pageview", team=self.team,
             )
 
-            response = self.client.get("/api/insight/path/?type=%24pageview&start=%2Fpricing").json()
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/path/?type=%24pageview&start=%2Fpricing"
+            ).json()
 
             filter = PathFilter(data={"path_type": "$pageview", "start_point": "/pricing"})
             response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)

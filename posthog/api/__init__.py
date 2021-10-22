@@ -42,7 +42,7 @@ router = DefaultRouterPlusPlus()
 
 # Legacy endpoints shared (to be removed eventually)
 router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
-router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)
+router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Should be completely unused now
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
 router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
@@ -112,8 +112,8 @@ if is_clickhouse_enabled():
 
     # Legacy endpoints CH (to be removed eventually)
     router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")  # Should be completely unused now
-    router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")
-    router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")
+    router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")  # Should be completely unused now
+    router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")  # Should be completely unused now
     router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
     router.register(r"paths", LegacyClickhousePathsViewSet, basename="paths")
     router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
@@ -131,10 +131,10 @@ if is_clickhouse_enabled():
     )
 else:
     # Legacy endpoints PG (to be removed eventually)
-    router.register(r"insight", insight.LegacyInsightViewSet)
+    router.register(r"insight", insight.LegacyInsightViewSet)  # Should be completely unused now
     router.register(r"action", action.LegacyActionViewSet)  # Should be completely unused now
     router.register(r"person", person.LegacyPersonViewSet)
-    router.register(r"event", event.LegacyEventViewSet)
+    router.register(r"event", event.LegacyEventViewSet)  # Should be completely unused now
     router.register(r"paths", paths.LegacyPathsViewSet, basename="paths")
     router.register(r"element", element.LegacyElementViewSet)
     router.register(r"cohort", cohort.LegacyCohortViewSet)
