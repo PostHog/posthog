@@ -116,7 +116,7 @@ def decompress(base64data: str) -> str:
     return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
 
 
-def paginate_chunks_to_decompress(
+def preprocess_chunks_for_paginated_decompression(
     all_recording_snapshots: Union[List[SnapshotData]], limit: int, offset: int
 ) -> PaginatedChunkInformation:
     has_next = False
@@ -168,7 +168,7 @@ def paginate_chunks_to_decompress(
 def paginate_chunk_decompression(
     team_id: int, session_recording_id: str, all_recording_snapshots: List[SnapshotData], limit: int, offset: int
 ):
-    paginated_chunk_information = paginate_chunks_to_decompress(all_recording_snapshots, limit, offset)
+    paginated_chunk_information = preprocess_chunks_for_paginated_decompression(all_recording_snapshots, limit, offset)
 
     # Decompress the chunks
     decompressed_data_list: List[SnapshotData] = []
