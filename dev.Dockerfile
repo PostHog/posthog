@@ -46,6 +46,8 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "musl-dev~=1.2" \
     "openssl-dev~=1.1" \
     "postgresql-dev~=13" \
+    "xmlsec~=1.2" \
+    "xmlsec-dev~=1.2" \
     && \
     pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir \
