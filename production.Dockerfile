@@ -9,6 +9,10 @@ ENV PYTHONUNBUFFERED 1
 
 WORKDIR /code
 
+# To remove SAML dependencies either set 'saml_disabled' or 'SAML_DISABLED' build variables
+ARG saml_disabled
+ARG SAML_DISABLED
+
 # Install OS dependencies needed to run PostHog
 #
 # Note: please add in this section runtime dependences only.
@@ -26,6 +30,21 @@ RUN apk --update --no-cache add \
     "npm~=7" \
     "libpq~=13.4" \
     && npm install -g yarn@1
+
+# Install SAML dependencies (unless disabled)
+#
+# Note: please add in this section runtime dependences only.
+# If you temporary need a package to build a Python or npm
+# dependency take a look at the sections below.
+RUN if [ "$SAML_DISABLED" ] && [ "$saml_disabled" ] ; then \
+    apk --update --no-cache add \
+    "libpq~=13.4" \
+    "libxml2-dev~=2.9" \
+    "xmlsec~=1.2" \
+    "xmlsec-dev~=1.2" \
+    && \
+    pip install python3-saml==1.12.0 --compile --no-cache-dir \
+    ; fi
 
 # Compile and install Python dependencies.
 #
