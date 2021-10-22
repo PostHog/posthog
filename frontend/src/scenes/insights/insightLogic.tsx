@@ -22,6 +22,7 @@ import { extractObjectDiffKeys } from './utils'
 import * as Sentry from '@sentry/browser'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -574,7 +575,23 @@ export const insightLogic = kea<insightLogicType>({
                         actions.setInsightMode(ItemMode.Edit, null)
                     }
                 } else if (hashParams.fromItem) {
-                    if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
+                    const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
+
+                    let loadedFromDashboard = false
+                    if (hashParams.fromDashboard && (!values.insight.result || insightIdChanged)) {
+                        const logic = dashboardLogic.build({ id: hashParams.fromDashboard }, false)
+                        if (logic.isMounted()) {
+                            const insight = logic.values.allItems?.items?.find(
+                                (item: DashboardItemType) => item.id === Number(hashParams.fromItem)
+                            )
+                            if (insight?.result) {
+                                actions.setInsight(insight, false)
+                                loadedFromDashboard = true
+                            }
+                        }
+                    }
+
+                    if (!loadedFromDashboard && insightIdChanged) {
                         // Do not load the result if missing, as setFilters below will do so anyway.
                         actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
                     }
