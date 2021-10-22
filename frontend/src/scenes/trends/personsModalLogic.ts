@@ -178,7 +178,10 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
 
                 if (filters.funnel_correlation_person_entity) {
                     const cleanedParams = cleanFilters(filters)
-                    people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
+                    const funnelCorrelationParams = toParams(cleanedParams)
+                    people = await api.create(
+                        `api/person/funnel/correlation/?${funnelCorrelationParams}${searchTermParam}`
+                    )
                 } else if (filters.insight === ViewType.LIFECYCLE) {
                     const filterParams = parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
@@ -210,7 +213,8 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === ViewType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
-                    people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+                    const pathParams = toParams(cleanedParams)
+                    people = await api.create(`api/person/path/?${pathParams}${searchTermParam}`)
                 } else {
                     const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
