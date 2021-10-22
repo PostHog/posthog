@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
 import pytest
+from django.core.cache import cache
 from django.test import Client
 from freezegun import freeze_time
 
@@ -36,6 +37,7 @@ def test_includes_only_intervals_within_range(client: Client):
     user = create_user("user", "pass", organization)
 
     client.force_login(user)
+    cache.clear()
 
     #  I'm creating a cohort here so that I can use as a breakdown, just because
     #  this is what was used demonstrated in
@@ -126,6 +128,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
     user = create_user("user", "pass", organization)
 
     client.force_login(user)
+    cache.clear()
 
     with freeze_time("2021-09-20T16:00:00"):
         #  First identify as a member of the cohort
@@ -355,6 +358,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
     user = create_user("user", "pass", organization)
 
     client.force_login(user)
+    cache.clear()
 
     with freeze_time("2021-09-20T16:00:00"):
         #  First identify as a member of the cohort
