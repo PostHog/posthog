@@ -1,6 +1,6 @@
 import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic, initTeamLogic } from '~/test/init'
+import { initKeaTestLogic } from '~/test/init'
 import { insightLogic } from './insightLogic'
 import { AvailableFeature, PropertyOperator, ViewType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -45,8 +45,6 @@ describe('insightLogic', () => {
         }
         return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
     })
-
-    initTeamLogic()
 
     it('requires props', () => {
         expect(() => {

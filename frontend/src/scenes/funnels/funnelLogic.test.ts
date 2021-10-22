@@ -1,7 +1,7 @@
 import { funnelLogic } from './funnelLogic'
 import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic, initTeamLogic } from '~/test/init'
+import { initKeaTestLogic } from '~/test/init'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'
@@ -28,7 +28,6 @@ describe('funnelLogic', () => {
         return defaultAPIMocks(url)
     })
 
-    initTeamLogic()
     initKeaTestLogic({
         logic: funnelLogic,
         props: {
