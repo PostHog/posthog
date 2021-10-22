@@ -20,7 +20,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             [] as CombinedFeatureFlagAndOverrideType[],
             {
                 getUserFlags: async (_, breakpoint) => {
-                    const response = await toolbarFetch('/api/feature_flag/my_flags')
+                    const response = await toolbarFetch('/api/projects/@current/feature_flags/my_flags')
                     breakpoint()
                     if (!response.ok) {
                         return []

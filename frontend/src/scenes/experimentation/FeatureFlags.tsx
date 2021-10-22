@@ -16,8 +16,10 @@ import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/
 import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/components/Tooltip'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { teamLogic } from '../teamLogic'
 
 export function FeatureFlags(): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)
     const { push } = useActions(router)
@@ -145,7 +147,7 @@ export function FeatureFlags(): JSX.Element {
                         </Link>
                         {featureFlag.id && (
                             <DeleteWithUndo
-                                endpoint="feature_flag"
+                                endpoint={`projects/${currentTeamId}/feature_flags`}
                                 object={{ name: featureFlag.name, id: featureFlag.id }}
                                 className="text-danger"
                                 style={{ marginLeft: 8 }}
