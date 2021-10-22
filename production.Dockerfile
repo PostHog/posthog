@@ -5,10 +5,6 @@ ENV PYTHONUNBUFFERED 1
 RUN mkdir /code
 WORKDIR /code
 
-# to remove SAML deps either SAML_DISABLED env var or saml_disabled build arg can be set
-ARG saml_disabled
-ARG SAML_DISABLED
-
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # install base dependencies, including node & yarn; remove unneeded build deps
@@ -20,16 +16,12 @@ RUN apt-get update \
     && yarn config set network-timeout 300000 \
     && rm -rf /var/lib/apt/lists/*
 
-
-# install SAML dependencies (unless disabled)
-RUN if [[ -z "${SAML_DISABLED}" ]] && [[ -z "$saml_disabled" ]] ; then \
-    apt-get update \
+# install SAML dependencies
+RUN apt-get update \
     && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
     && pip install python3-saml==1.12.0 --no-cache-dir --compile \
     && apt-get purge -y pkg-config && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* \
-    ; fi
-
+    && rm -rf /var/lib/apt/lists/*
 
 # install Python dependencies (production-level only)
 COPY requirements.txt /code/.
