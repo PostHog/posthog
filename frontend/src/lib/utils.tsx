@@ -386,11 +386,26 @@ export function formatLabel(label: string, action: ActionFilter): string {
             )
             .join(', ')})`
     }
-    return label
+    return label.trim()
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
+}
+
+/** Returns "response" from: obj2 = { ...obj1, ...response }  */
+export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
+    const response: Record<string, any> = { ...obj2 }
+    for (const key of Object.keys(obj1)) {
+        if (key in response) {
+            if (obj1[key] === response[key]) {
+                delete response[key]
+            }
+        } else {
+            response[key] = undefined
+        }
+    }
+    return response
 }
 
 export function idToKey(array: Record<string, any>[], keyField: string = 'id'): Record<string, any> {
