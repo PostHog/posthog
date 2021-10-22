@@ -15,16 +15,29 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { LoadedScene } from 'scenes/sceneTypes'
 
 interface Props {
-    id?: string
+    sceneId?: string
+    id?: number
     shareToken?: string
     internal?: boolean
 }
 
+export const scene: LoadedScene = {
+    Component: Dashboard,
+    logic: dashboardLogic,
+    propsTransform: ({ id }): Props => ({
+        id: id ? parseInt(id) : undefined,
+        shareToken: undefined,
+        internal: undefined,
+    }),
+}
+
 export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
+    // debugger
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, internal }}>
+        <BindLogic logic={dashboardLogic} props={{ id, shareToken, internal }}>
             <DashboardView />
         </BindLogic>
     )

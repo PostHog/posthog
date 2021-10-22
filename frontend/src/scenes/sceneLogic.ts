@@ -1,4 +1,4 @@
-import { kea, LogicWrapper } from 'kea'
+import { kea } from 'kea'
 import { router } from 'kea-router'
 import { identifierToHuman, delay, uuid, objectsEqual } from 'lib/utils'
 import { Error404 as Error404Component } from '~/layout/Error404'
@@ -15,6 +15,7 @@ import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { LocationChangedPayload } from 'kea-router/lib/types'
+import { LoadedScene } from 'scenes/sceneTypes'
 
 export enum Scene {
     Error404 = '404',
@@ -58,20 +59,20 @@ export enum Scene {
 
 const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.Error404]: {
-        component: Error404Component,
+        Component: Error404Component,
     },
     [Scene.ErrorNetwork]: {
-        component: ErrorNetworkComponent,
+        Component: ErrorNetworkComponent,
     },
     [Scene.ErrorProjectUnavailable]: {
-        component: ErrorProjectUnavailableComponent,
+        Component: ErrorProjectUnavailableComponent,
     },
 }
 
 export const scenes: Record<Scene, () => any> = {
-    [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
-    [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
-    [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
+    [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].Component }),
+    [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].Component }),
+    [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].Component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
@@ -109,13 +110,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.PasswordReset]: () => import(/* webpackChunkName: 'passwordReset' */ './authentication/PasswordReset'),
     [Scene.PasswordResetComplete]: () =>
         import(/* webpackChunkName: 'passwordResetComplete' */ './authentication/PasswordResetComplete'),
-}
-
-export type SceneComponent = (params?: { sceneId: string }) => JSX.Element
-
-interface LoadedScene {
-    component: SceneComponent
-    logic?: LogicWrapper
 }
 
 interface Params {
@@ -298,7 +292,7 @@ export const routes: Record<string, Scene> = {
 
 type Method = LocationChangedPayload['method']
 
-export const sceneLogic = kea<sceneLogicType<LoadedScene, Method, Params, Scene, SceneConfig, SceneHistory>>({
+export const sceneLogic = kea<sceneLogicType<Method, Params, Scene, SceneConfig, SceneHistory>>({
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
             else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
@@ -575,19 +569,21 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Method, Params, Scene,
                     }
                 }
                 breakpoint()
-                const { default: defaultExport, logic, ...others } = importedScene
+                const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
-                if (defaultExport) {
+                if (_scene) {
+                    loadedScene = _scene
+                } else if (defaultExport) {
                     loadedScene = {
-                        component: defaultExport,
+                        Component: defaultExport,
                         logic: logic,
                     }
                 } else {
                     loadedScene = {
-                        component:
+                        Component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
-                                : values.loadedScenes[Scene.Error404].component,
+                                : values.loadedScenes[Scene.Error404].Component,
                         logic: logic,
                     }
                     if (Object.keys(others).length > 1) {
@@ -596,19 +592,23 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Method, Params, Scene,
                 }
                 actions.setLoadedScene(scene, loadedScene)
             }
-            const { logic } = loadedScene
+            const { logic, propsTransform } = loadedScene
 
             let unmount
 
             if (logic) {
-                // initialize the logic
-                unmount = logic.build(params, false).mount()
-                try {
-                    await breakpoint(100)
-                } catch (e) {
-                    // if we change the scene while waiting these 100ms, unmount
-                    unmount()
-                    throw e
+                const props = propsTransform?.(params) || params || {}
+                const isMounted = logic.isMounted(props)
+                unmount = logic.build(props, false).mount()
+                if (!isMounted) {
+                    try {
+                        // give the scene a few moments to load
+                        await breakpoint(10)
+                    } catch (e) {
+                        // if we change the scene while waiting these 100ms, unmount
+                        unmount()
+                        throw e
+                    }
                 }
             }
 

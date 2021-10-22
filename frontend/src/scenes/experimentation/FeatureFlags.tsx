@@ -16,7 +16,12 @@ import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/
 import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/components/Tooltip'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { LoadedScene } from 'scenes/sceneTypes'
 
+export const scene: LoadedScene = {
+    Component: FeatureFlags,
+    logic: featureFlagsLogic,
+}
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)

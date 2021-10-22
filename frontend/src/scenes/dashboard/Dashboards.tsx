@@ -21,6 +21,12 @@ import { userLogic } from 'scenes/userLogic'
 import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
+import { LoadedScene } from 'scenes/sceneTypes'
+
+export const scene: LoadedScene = {
+    Component: Dashboards,
+    logic: dashboardsLogic,
+}
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)

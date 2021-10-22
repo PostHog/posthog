@@ -35,6 +35,7 @@ import dayjs from 'dayjs'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { LoadedScene } from 'scenes/sceneTypes'
 
 const { TabPane } = Tabs
 
@@ -47,7 +48,10 @@ export interface InsightItem {
     type: string
     description: string
 }
-
+export const scene: LoadedScene = {
+    Component: SavedInsights,
+    logic: savedInsightsLogic,
+}
 export function SavedInsights(): JSX.Element {
     const {
         loadInsights,

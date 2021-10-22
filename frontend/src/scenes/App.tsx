@@ -6,7 +6,7 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
-import { SceneComponent, sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
@@ -14,11 +14,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
-import { appLogicType } from './AppType'
+import { appLogicType, blankLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
+import { LoadedScene } from 'scenes/sceneTypes'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -84,20 +85,34 @@ function Models(): null {
     return null
 }
 
+const blankLogic = kea<blankLogicType>({})
+
 function OneScene({
-    Component,
+    loadedScene: { Component, logic, propsTransform },
     sceneId,
+    activeSceneId,
     params,
 }: {
-    Component: SceneComponent
+    loadedScene: LoadedScene
     activeSceneId: string
     sceneId: string
     params: Record<string, any>
 }): JSX.Element | null {
-    return <Component sceneId={sceneId} {...params} />
+    const finalParams = propsTransform?.(params) || params || {}
+    console.log({ finalParams })
+    useMountedLogic(logic ? logic(finalParams) : blankLogic)
+    if (activeSceneId === sceneId) {
+        return <Component sceneId={sceneId} {...finalParams} />
+    } else {
+        return null
+    }
 }
 
-const MemoizedScene = React.memo(OneScene, (_, nextProps) => nextProps.activeSceneId !== nextProps.sceneId)
+// const MemoizedScene = React.memo(
+//     OneScene,
+//     (prevProps, nextProps) =>
+//         prevProps.activeSceneId !== prevProps.sceneId || nextProps.activeSceneId !== nextProps.sceneId
+// )
 
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -105,10 +120,10 @@ function AppScene(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const sceneComponent = sceneHistory.history.map(({ scene, params, sceneId }, index) => {
-        const Component = loadedScenes[scene]?.component
+        const loadedScene = loadedScenes[scene]
         return (
             <React.Fragment key={sceneId}>
-                {!!Component ? (
+                {!!loadedScene ? (
                     <div
                         style={{
                             width: '100%',
@@ -116,8 +131,8 @@ function AppScene(): JSX.Element | null {
                             display: sceneHistory.index === index ? 'block' : 'none',
                         }}
                     >
-                        <MemoizedScene
-                            Component={Component}
+                        <OneScene
+                            loadedScene={loadedScene}
                             params={params}
                             sceneId={sceneId}
                             activeSceneId={activeSceneId || sceneId}
