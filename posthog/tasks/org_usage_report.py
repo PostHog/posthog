@@ -1,18 +1,10 @@
 import logging
 import os
+import time
 from datetime import datetime
-from typing import (
-    Any,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Dict, List, Literal, Optional, TypedDict, Union
 
-from sentry_sdk import capture_exception, configure_scope
+from sentry_sdk import capture_exception
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
 from posthog.models import Event, OrganizationMembership, Team, User
@@ -137,6 +129,7 @@ def send_all_reports(
             report_org_usage_failure(distinct_id, str(err))
         if not dry_run:
             report_org_usage(distinct_id, report)
+            time.sleep(0.25)
 
     return org_reports
 
