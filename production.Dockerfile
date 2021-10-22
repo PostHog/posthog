@@ -22,9 +22,10 @@ RUN apk --update --no-cache add \
     "bash~=5.1" \
     "g++~=10.3" \
     "gcc~=10.3" \
+    "libxslt~=1.1" \
+    "libxslt-dev~=1.1" \
     "make~=4.3" \
     "nodejs~=14" \
-    "libpq~=13.4" \
     "npm~=7" \
     && npm install -g yarn@1
 
@@ -33,11 +34,10 @@ RUN apk --update --no-cache add \
 # Note: please add in this section runtime dependences only.
 # If you temporary need a package to build a Python or npm
 # dependency take a look at the sections below.
-RUN if [ -z "${SAML_DISABLED}" ] && [ -z "$saml_disabled" ] ; then \
+RUN if [ "$SAML_DISABLED" ] && [ "$saml_disabled" ] ; then \
     apk --update --no-cache add \
+    "libpq~=13.4" \
     "libxml2-dev~=2.9" \
-    "libxslt~=1.1" \
-    "libxslt-dev~=1.1" \
     "xmlsec~=1.2" \
     "xmlsec-dev~=1.2" \
     && \
@@ -91,7 +91,8 @@ COPY . .
 RUN yarn install --frozen-lockfile --ignore-optional && \
     yarn build && \
     yarn cache clean && \
-    rm -rf node_modules
+    rm -rf ./node_modules ./plugins/node_modules
+
 
 # Generate Django's static files
 RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
