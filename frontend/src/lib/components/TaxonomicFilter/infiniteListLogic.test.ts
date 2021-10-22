@@ -6,8 +6,12 @@ import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
+import { teamLogic } from '../../../scenes/teamLogic'
+import { AppContext } from '../../../types'
 
 jest.mock('lib/api')
+
+window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>
@@ -24,6 +28,10 @@ describe('infiniteListLogic', () => {
             }
         }
         return defaultAPIMocks(url)
+    })
+
+    initKeaTestLogic({
+        logic: teamLogic,
     })
 
     initKeaTestLogic({

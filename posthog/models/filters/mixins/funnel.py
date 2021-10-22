@@ -19,6 +19,7 @@ from posthog.constants import (
     FUNNEL_CORRELATION_PERSON_LIMIT,
     FUNNEL_CORRELATION_PERSON_OFFSET,
     FUNNEL_CORRELATION_TYPE,
+    FUNNEL_CUSTOM_STEPS,
     FUNNEL_FROM_STEP,
     FUNNEL_LAYOUT,
     FUNNEL_ORDER_TYPE,
@@ -141,14 +142,33 @@ class FunnelPersonsStepMixin(BaseParamMixin):
             return None
         return _step
 
+    @cached_property
+    def funnel_custom_steps(self) -> List[int]:
+        """
+        Custom step numbers to get persons for. This overrides FunnelPersonsStepMixin::funnel_step
+        """
+        raw_steps = self._data.get(FUNNEL_CUSTOM_STEPS, [])
+        if isinstance(raw_steps, str):
+            return json.loads(raw_steps)
+
+        return raw_steps
+
     @include_dict
     def funnel_step_to_dict(self):
-        return {FUNNEL_STEP: self.funnel_step} if self.funnel_step else {}
+        result: dict = {}
+        if self.funnel_step:
+            result[FUNNEL_STEP] = self.funnel_step
+        if self.funnel_custom_steps:
+            result[FUNNEL_CUSTOM_STEPS] = self.funnel_custom_steps
+        return result
 
 
 class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
     @cached_property
     def funnel_step_breakdown(self) -> Optional[Union[str, int]]:
+        """
+        The breakdown value for which to get persons for.
+        """
         return self._data.get(FUNNEL_STEP_BREAKDOWN)
 
     @include_dict
