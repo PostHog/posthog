@@ -562,7 +562,7 @@ export const insightLogic = kea<insightLogicType>({
 
                     let loadedFromDashboard = false
                     if (hashParams.fromDashboard && (!values.insight.result || insightIdChanged)) {
-                        const logic = dashboardLogic.getIfMounted({ id: hashParams.fromDashboard })
+                        const logic = dashboardLogic.findMounted({ id: hashParams.fromDashboard })
                         if (logic) {
                             const insight = logic.values.allItems?.items?.find(
                                 (item: DashboardItemType) => item.id === Number(hashParams.fromItem)
