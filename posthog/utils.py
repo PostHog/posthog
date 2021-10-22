@@ -827,11 +827,16 @@ def get_helm_info_env() -> dict:
         return {}
 
 
-OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
-LIMIT_REGEX = re.compile(r"([&?]limit=)(\d+)")
+def format_query_params_absolute_url(
+    request: Request,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset_alias: Optional[str] = "offset",
+    limit_alias: Optional[str] = "limit",
+) -> Optional[str]:
+    OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
+    LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
 
-
-def format_query_params_absolute_url(request: Request, offset: Optional[int] = None, limit: Optional[int] = None):
     url_to_format = request.get_raw_uri()
 
     if not url_to_format:
@@ -841,13 +846,13 @@ def format_query_params_absolute_url(request: Request, offset: Optional[int] = N
         if OFFSET_REGEX.search(url_to_format):
             url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
         else:
-            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"offset={offset}"
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{offset_alias}={offset}"
 
     if limit:
         if LIMIT_REGEX.search(url_to_format):
             url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
         else:
-            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"limit={limit}"
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{limit_alias}={limit}"
 
     return url_to_format
 

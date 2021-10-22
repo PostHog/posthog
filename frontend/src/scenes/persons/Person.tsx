@@ -120,7 +120,7 @@ export function Person(): JSX.Element {
                     <Card className="card-elevated person-detail" data-test-person-details>
                         {person && (
                             <>
-                                <PersonHeader person={person} />
+                                <PersonHeader withIcon person={person} />
                                 <div className="item-group">
                                     <label>IDs</label>
                                     <div style={{ display: 'flex' }}>

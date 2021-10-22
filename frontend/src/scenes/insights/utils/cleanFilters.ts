@@ -72,6 +72,8 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             interval: autocorrectInterval(filters),
             breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
             breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
+            funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
+            funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
         }
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
@@ -91,6 +93,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
     } else if (filters.insight === ViewType.PATHS) {
         return {
             insight: ViewType.PATHS,
+            properties: filters.properties || [],
             start_point: filters.start_point || undefined,
             end_point: filters.end_point || undefined,
             step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,

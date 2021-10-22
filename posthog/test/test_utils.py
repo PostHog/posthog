@@ -42,7 +42,7 @@ class TestGeneralUtils(TestCase):
         build_req = HttpRequest()
         build_req.META = {"HTTP_HOST": "www.testserver"}
 
-        test_to_expected: List[Tuple[Optional[Sequence[Any]], Tuple[Optional[int], Optional[int]], str]] = [
+        test_to_expected: list = [
             (None, (50, None), "http://www.testserver?offset=50"),
             (None, (50, None), "http://www.testserver?offset=50"),
             (None, (None, 50), "http://www.testserver?limit=50"),
@@ -51,6 +51,19 @@ class TestGeneralUtils(TestCase):
             ("http://www.testserver?offset=20", (50, None), "http://www.testserver?offset=50"),
             ("http://www.testserver?limit=20", (None, 50), "http://www.testserver?limit=50"),
             ("http://www.testserver?offset=20&limit=20", (50, 50), "http://www.testserver?offset=50&limit=50"),
+            # test with alias
+            (None, (50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
+            (None, (50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
+            (None, (None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
+            (None, (50, 100, "off2", "lim2"), "http://www.testserver?off2=50&lim2=100"),
+            (None, (None, None, "off2", "lim2"), "http://www.testserver"),
+            ("http://www.testserver?off2=20", (50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
+            ("http://www.testserver?lim2=20", (None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
+            (
+                "http://www.testserver?off2=20&lim2=20",
+                (50, 50, "off2", "lim2"),
+                "http://www.testserver?off2=50&lim2=50",
+            ),
         ]
 
         for start_url, params, expected in test_to_expected:

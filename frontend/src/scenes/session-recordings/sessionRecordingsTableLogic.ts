@@ -239,7 +239,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         }
     },
 
-    urlToAction: ({ actions, values }) => {
+    urlToAction: ({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params): void => {
             const nulledSessionRecordingId = params.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.sessionRecordingId) {
@@ -268,10 +268,9 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                 }
             }
         }
-
+        const urlPattern = props.personUUID ? '/person/*' : '/recordings'
         return {
-            '/recordings': urlToAction,
-            '/person/*': urlToAction,
+            [urlPattern]: urlToAction,
         }
     },
 })
