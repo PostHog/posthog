@@ -4,7 +4,7 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationType } from '~/types'
+import { FunnelCorrelation, FunnelCorrelationType, FunnelStep } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
@@ -38,6 +38,17 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             }
         }
     }
+
+    // A sentinel node used to respect typings
+    const emptyFunnelStep: FunnelStep = {
+        action_id: '',
+        average_conversion_time: null,
+        count: 0,
+        name: '',
+        order: 0,
+        type: 'new_entity',
+    }
+
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
         const { breakdown, breakdown_value } = parseBreakdownValue(record.event || '')
 
@@ -45,7 +56,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             <ValueInspectorButton
                 onClick={() => {
                     openPersonsModal(
-                        { action_id: 'Correlation Breakdown', name: breakdown, type: 'events' },
+                        { ...emptyFunnelStep, name: breakdown },
                         stepsWithCount.length,
                         breakdown_value,
                         breakdown,
@@ -66,8 +77,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             <ValueInspectorButton
                 onClick={() => {
                     openPersonsModal(
-                        { action_id: 'Correlation Breakdown', name: breakdown, type: 'events' },
-                        -1,
+                        { ...emptyFunnelStep, name: breakdown },
+                        -2,
                         breakdown_value,
                         breakdown,
                         'person',
