@@ -19,7 +19,6 @@ RUN apt-get update \
 # install SAML dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
-    && pip install python3-saml==1.12.0 --no-cache-dir --compile \
     && apt-get purge -y pkg-config && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
