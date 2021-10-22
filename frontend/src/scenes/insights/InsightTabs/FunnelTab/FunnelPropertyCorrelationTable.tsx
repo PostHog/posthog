@@ -67,7 +67,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 onClick={() => {
                     openPersonsModal(
                         { action_id: 'Correlation Breakdown', name: breakdown, type: 'events' },
-                        1,
+                        -1,
                         breakdown_value,
                         breakdown,
                         'person',
