@@ -117,8 +117,8 @@ export const isSelectedPathStartOrEnd = (filter: Partial<FilterType>, pathItemCa
         (filter.start_point === cardName && isPathStart) ||
         (filter.end_point === cardName && isPathEnd) ||
         (filter.funnel_paths === FunnelPathType.between &&
-            ((cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 1].name && isPathEnd) ||
-                (cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 2].name && isPathStart)))
+            ((cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 1]?.name && isPathEnd) ||
+                (cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 2]?.name && isPathStart)))
     )
 }
 
