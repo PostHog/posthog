@@ -42,7 +42,9 @@ class ClickhouseTestInsights(
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?events={[{'id': '$pageview'}]}")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
+        )
         self.assertDictEqual(self.permission_denied_response("You don't have access to the project."), response.json())
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -54,7 +56,9 @@ class ClickhouseTestInsights(
         self_team_membership = ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?events={[{'id': '$pageview'}]}")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
