@@ -65,7 +65,7 @@ export function PersonsTable({
             key: 'identification',
             span: 6,
             render: function Render(person: PersonType) {
-                return <PersonHeader person={person} />
+                return <PersonHeader withIcon person={person} />
             },
         },
         {

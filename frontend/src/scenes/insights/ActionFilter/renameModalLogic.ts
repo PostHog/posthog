@@ -11,10 +11,10 @@ export interface RenameModalProps {
 
 export const renameModalLogic = kea<renameModalLogicType<RenameModalProps>>({
     props: {} as RenameModalProps,
+    key: (props) => props.typeKey,
     connect: {
         actions: [entityFilterLogic, ['selectFilter']],
     },
-    key: (props) => props.typeKey,
     actions: () => ({
         setName: (name: string) => ({ name }),
     }),

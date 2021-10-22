@@ -1,17 +1,25 @@
 import React from 'react'
 import { ActionEdit } from './ActionEdit'
-import { useActions, useValues } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import api from 'lib/api'
-import { kea } from 'kea'
 import { Spin } from 'antd'
 import { EventsTable } from 'scenes/events'
 import dayjs from 'dayjs'
 import { urls } from 'scenes/urls'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { teamLogic } from '../teamLogic'
+import { ActionType } from '../../types'
 
-const actionLogic = kea({
+import { actionLogicType } from './ActionType'
+interface ActionLogicProps {
+    id?: ActionType['id']
+    onComplete: () => void
+}
+
+const actionLogic = kea<actionLogicType<ActionLogicProps>>({
+    props: {} as ActionLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({
         checkIsFinished: (action) => ({ action }),
@@ -20,13 +28,13 @@ const actionLogic = kea({
     }),
     reducers: () => ({
         pollTimeout: [
-            null,
+            null as number | null,
             {
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
         isComplete: [
-            false,
+            false as boolean,
             {
                 setIsComplete: (_, { isComplete }) => isComplete,
             },
@@ -36,7 +44,7 @@ const actionLogic = kea({
         action: {
             loadAction: async () => {
                 actions.setIsComplete(false)
-                let action = await api.get('api/action/' + props.id)
+                const action = await api.get(`api/projects/${teamLogic.values.currentTeamId}/actions/${props.id}`)
                 actions.checkIsFinished(action)
                 return action
             },
@@ -49,23 +57,21 @@ const actionLogic = kea({
             } else {
                 props.onComplete()
                 actions.setIsComplete(new Date())
-                clearTimeout(values.pollTimeout)
+                values.pollTimeout && clearTimeout(values.pollTimeout)
             }
         },
     }),
     events: ({ values, actions, props }) => ({
-        afterMount: async () => {
-            if (props.id) {
-                actions.loadAction()
-            }
+        afterMount: () => {
+            props.id && actions.loadAction()
         },
         beforeUnmount: () => {
-            clearTimeout(values.pollTimeout)
+            values.pollTimeout && clearTimeout(values.pollTimeout)
         },
     }),
 })
 
-export function Action({ id }) {
+export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
@@ -79,8 +85,7 @@ export function Action({ id }) {
         <div>
             {(!id || action) && (
                 <ActionEdit
-                    apiURL=""
-                    actionId={id}
+                    id={id}
                     action={action}
                     onSave={(savedAction) => {
                         if (!id) {
@@ -118,7 +123,7 @@ export function Action({ id }) {
                             </p>{' '}
                         </>
                     ) : null}
-                    {id && <EventsTable key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />}
+                    {id && <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} />}
                 </div>
             )}
         </div>

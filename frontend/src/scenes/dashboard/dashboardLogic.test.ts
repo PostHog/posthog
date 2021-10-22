@@ -2,7 +2,7 @@ import { BuiltLogic } from 'kea'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import dashboardJson from './__mocks__/dashboard.json'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -13,7 +13,7 @@ import { DashboardItemType } from '~/types'
 jest.mock('lib/api')
 
 describe('dashboardLogic', () => {
-    let logic: BuiltLogic<dashboardLogicType>
+    let logic: BuiltLogic<dashboardLogicType<DashboardLogicProps>>
 
     mockAPI(async (url) => {
         const { pathname } = url

@@ -1,10 +1,21 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Optional, TypedDict, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    cast,
+)
+
+from sentry_sdk import capture_exception, configure_scope
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
-from posthog.models import Event, Team, User
+from posthog.models import Event, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day, is_clickhouse_enabled
 from posthog.version import VERSION
@@ -64,6 +75,16 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
     Creates and sends usage reports for all teams.
     Returns a list of all the successfully sent reports.
     """
+    return send_all_reports(dry_run=dry_run, data_source="postgres")
+
+
+def send_all_reports(
+    *, dry_run: bool = False, data_source: Literal["clickhouse", "postgres"] = "postgres"
+) -> List[OrgReport]:
+    """
+    Generic way to generate and send org usage reports.
+    Specify Postgres or ClickHouse for event queries.
+    """
     period_start, period_end = get_previous_day()
     realm = get_instance_realm()
     license_keys = get_instance_licenses()
@@ -91,11 +112,18 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
             }
 
     for id, org in org_data.items():
-        distinct_id = User.objects.filter(current_team_id__in=org["teams"]).first().distinct_id  # type: ignore
+        org_owner = get_org_owner_or_first_user(id)
+        if not org_owner:
+            continue
+        distinct_id = org_owner.distinct_id
         try:
             month_start = period_start.replace(day=1)
             usage = get_org_usage(
-                team_ids=org["teams"], period_start=period_start, period_end=period_end, month_start=month_start,
+                team_ids=org["teams"],
+                period_start=period_start,
+                period_end=period_end,
+                month_start=month_start,
+                data_source=data_source,
             )
             report: dict = {
                 **metadata,
@@ -114,7 +142,11 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
 
 
 def get_org_usage(
-    team_ids: List[Union[str, int]], period_start: datetime, period_end: datetime, month_start: datetime,
+    team_ids: List[Union[str, int]],
+    period_start: datetime,
+    period_end: datetime,
+    month_start: datetime,
+    data_source: Literal["clickhouse", "postgres"] = "postgres",
 ) -> OrgUsageData:
     default_usage: OrgUsageData = {
         "event_count_lifetime": None,
@@ -122,13 +154,20 @@ def get_org_usage(
         "event_count_in_month": None,
     }
     usage = default_usage
-    usage["event_count_lifetime"] = Event.objects.filter(team_id__in=team_ids).count()
-    usage["event_count_in_period"] = Event.objects.filter(
-        team_id__in=team_ids, timestamp__gte=period_start, timestamp__lte=period_end,
-    ).count()
-    usage["event_count_in_month"] = Event.objects.filter(
-        team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,
-    ).count()
+    if data_source == "clickhouse":
+        from ee.clickhouse.models.event import get_agg_event_count_for_teams, get_agg_event_count_for_teams_and_period
+
+        usage["event_count_lifetime"] = get_agg_event_count_for_teams(team_ids)
+        usage["event_count_in_period"] = get_agg_event_count_for_teams_and_period(team_ids, period_start, period_end)
+        usage["event_count_in_month"] = get_agg_event_count_for_teams_and_period(team_ids, month_start, period_end)
+    else:
+        usage["event_count_lifetime"] = Event.objects.filter(team_id__in=team_ids).count()
+        usage["event_count_in_period"] = Event.objects.filter(
+            team_id__in=team_ids, timestamp__gte=period_start, timestamp__lte=period_end,
+        ).count()
+        usage["event_count_in_month"] = Event.objects.filter(
+            team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,
+        ).count()
 
     return usage
 
@@ -140,3 +179,26 @@ def get_product_name(realm: str, license_keys: List[str]) -> str:
         return "scale" if len(license_keys) else "open source"
     else:
         return "unknown"
+
+
+def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
+    # Find the membership object for the org owner
+    user = None
+    membership = OrganizationMembership.objects.filter(
+        organization_id=organization_id, level=OrganizationMembership.Level.OWNER
+    ).first()
+    if not membership:
+        # If no owner membership is present, pick the first membership association we can find
+        membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
+    try:
+        user = membership.user  # type: ignore
+    except AttributeError:
+        # Report problem in next block
+        pass
+    finally:
+        if not user:
+            capture_exception(
+                Exception("No user found for org while generating report"),
+                {"org": {"organization_id": organization_id}},
+            )
+        return user  # type: ignore

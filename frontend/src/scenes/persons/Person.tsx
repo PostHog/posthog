@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
-import { SessionRecordingsTable } from 'scenes/sessionRecordings/SessionRecordingsTable'
+import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { PersonHeader } from './PersonHeader'
@@ -120,7 +120,7 @@ export function Person(): JSX.Element {
                     <Card className="card-elevated person-detail" data-test-person-details>
                         {person && (
                             <>
-                                <PersonHeader person={person} />
+                                <PersonHeader withIcon person={person} />
                                 <div className="item-group">
                                     <label>IDs</label>
                                     <div style={{ display: 'flex' }}>

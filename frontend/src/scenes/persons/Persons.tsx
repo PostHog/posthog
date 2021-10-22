@@ -17,12 +17,16 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
 
-    useEffect(() => {
-        if (cohort) {
-            setListFilters({ cohort: cohort.id })
-            loadPersons()
-        }
-    }, [])
+    useEffect(
+        () => {
+            if (cohort) {
+                setListFilters({ cohort: cohort.id })
+                loadPersons()
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        []
+    )
 
     return (
         <div className="persons-list">

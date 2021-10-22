@@ -18,7 +18,6 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { FunnelVizType } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
-import { CloseButton } from 'lib/components/CloseButton'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
 import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelExclusionsFilter'
 import { SavedFunnels } from 'scenes/insights/SavedCard'
@@ -29,7 +28,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 export function FunnelTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -37,6 +35,7 @@ export function FunnelTab(): JSX.Element {
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
+    useMountedLogic(funnelCommandLogic)
 
     const closeModal = (): void => setSavingModal(false)
     const onSubmit = (input: string): void => {
@@ -177,29 +176,9 @@ export function FunnelTab(): JSX.Element {
                                     <InfoCircleOutlined className="info-indicator" />
                                 </Tooltip>
                             </h4>
-                            {filters.breakdown_type === 'cohort' && filters.breakdown ? (
-                                <BreakdownFilter
-                                    filters={filters}
-                                    onChange={(breakdown, breakdown_type): void =>
-                                        setFilters({ breakdown, breakdown_type })
-                                    }
-                                />
-                            ) : (
-                                <Row align="middle">
-                                    <BreakdownFilter
-                                        filters={filters}
-                                        onChange={(breakdown, breakdown_type): void =>
-                                            setFilters({ breakdown, breakdown_type })
-                                        }
-                                    />
-                                    {filters.breakdown && (
-                                        <CloseButton
-                                            onClick={(): void => setFilters({ breakdown: null, breakdown_type: null })}
-                                            style={{ marginTop: 1, marginLeft: 5 }}
-                                        />
-                                    )}
-                                </Row>
-                            )}
+                            <Row align="middle">
+                                <BreakdownFilter filters={filters} setFilters={setFilters} />
+                            </Row>
                         </>
                     )}
                     <hr />
