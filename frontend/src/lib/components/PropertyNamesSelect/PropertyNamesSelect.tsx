@@ -2,6 +2,7 @@ import CaretDownFilled from '@ant-design/icons/lib/icons/CaretDownFilled'
 import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
 import WarningFilled from '@ant-design/icons/lib/icons/WarningFilled'
 import { Checkbox, Input } from 'antd'
+import { kea, MakeLogicType, useActions, useValues } from 'kea'
 import { usePersonProperties } from 'lib/api/person-properties'
 import React from 'react'
 import { PersonProperty } from '~/types'
@@ -159,76 +160,126 @@ const PropertyNamesSearch = (): JSX.Element => {
     )
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
 const usePopover = ({ onHide }: { onHide: () => void }) => {
-    /* Logic for handling arbitrary popover state */
-    const [isOpen, setIsOpen] = React.useState<boolean>(false)
+    // Provides logic for opening and closing the popover. Note that we wrap the
+    // logic such that we can generate a unique key and ensure for each
+    // invocation
 
-    const hide = React.useCallback((): void => {
-        setIsOpen(false)
-        onHide()
-    }, [onHide])
+    // Make sure to create a new state for each component
+    const propertySelectLogicKey = React.useMemo(() => Math.random().toString(), [])
 
-    const open = (): void => setIsOpen(true)
-
-    const toggle = (): void => {
-        if (isOpen) {
-            hide()
-        } else {
-            open()
-        }
-    }
-
-    // I use a ref to ensure we are able to close the popover when the user clicks outside of it.
-    const triggerRef = React.useRef<HTMLDivElement>(null)
-
-    React.useEffect(() => {
-        const checkIfClickedOutside = (event: MouseEvent): void => {
-            if (
-                isOpen &&
-                triggerRef.current &&
-                event.target instanceof Node &&
-                !triggerRef.current.contains(event.target)
-            ) {
-                hide()
-            }
-        }
-
-        document.addEventListener('mousedown', checkIfClickedOutside)
-
-        return () => {
-            // Cleanup the event listener
-            document.removeEventListener('mousedown', checkIfClickedOutside)
-        }
-    }, [isOpen, hide])
+    const logic = propertySelectLogic({ selectionKey: propertySelectLogicKey, onHide })
 
     return {
-        isOpen,
-        open,
-        hide,
-        toggle,
-        // Return props that should be on the actual popover. This is so we can
-        // position things correctly
-        popoverProps: {
-            onClick(event: React.MouseEvent): void {
-                // Avoid the click propogating to the trigger element. We need
-                // to do this in order to prevent popover clicks also triggering
-                // anything on containing elements
-                event.stopPropagation()
-            },
-        },
-        // Return propse that should be on the trigger. This is so we can attach
-        // any show, hide handlers etc.
-        triggerProps: { ref: triggerRef, onClick: toggle },
+        ...useActions(logic),
+        ...useValues(logic),
     }
 }
 
+interface Values {
+    isOpen: boolean
+    triggerElement: HTMLElement | null
+}
+
+interface Actions {
+    hide: () => boolean
+    open: () => boolean
+    toggle: () => boolean
+    setTriggerElement: (element: HTMLElement | null) => { triggerElement: HTMLElement }
+}
+
+interface Props {
+    selectionKey: string
+    onHide?: () => void
+}
+
+type PropertySelectLogicType = MakeLogicType<Values, Actions, Props>
+
+const propertySelectLogic = kea<PropertySelectLogicType>({
+    key: (props) => props.selectionKey,
+
+    actions: {
+        setTriggerElement: (triggerElement: HTMLElement | null) => ({ triggerElement }),
+        hide: () => ({}),
+        open: () => ({}),
+        toggle: () => ({}),
+    },
+
+    reducers: {
+        isOpen: [
+            false,
+            {
+                // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
+                hide: (_, {}) => false,
+                // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
+                open: (_, {}) => true,
+                toggle: (isOpen, {}) => !isOpen,
+            },
+        ],
+        triggerElement: [
+            null,
+            {
+                setTriggerElement: (_, { triggerElement }) => triggerElement,
+            },
+        ],
+    },
+
+    events: ({ cache, values, actions }) => ({
+        afterMount: () => {
+            cache.checkIfClickedOutside = (event: MouseEvent): void => {
+                if (
+                    values.isOpen &&
+                    values.triggerElement &&
+                    event.target instanceof Node &&
+                    !values.triggerElement.contains(event.target)
+                ) {
+                    actions.hide()
+                }
+            }
+            document.addEventListener('mousedown', cache.checkIfClickedOutside)
+        },
+        beforeUnmount: () => {
+            document.removeEventListener('mousedown', cache.checkIfClickedOutside)
+        },
+    }),
+
+    listeners: ({ props: { onHide } }) => ({
+        hide: () => {
+            if (onHide) {
+                onHide()
+            }
+        },
+    }),
+
+    selectors: ({ actions }) => ({
+        popoverProps: [
+            () => [],
+            () => ({
+                onClick(event: React.MouseEvent): void {
+                    // Avoid the click propogating to the trigger element. We need
+                    // to do this in order to prevent popover clicks also triggering
+                    // anything on containing elements
+                    event.stopPropagation()
+                },
+            }),
+        ],
+        triggerProps: [
+            () => [],
+            () => ({
+                onClick: actions.toggle,
+                ref: actions.setTriggerElement,
+            }),
+        ],
+    }),
+})
+
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 const usePropertySearch = (properties: PersonProperty[]) => {
-    /* 
+    /*
         Basic case insensitive substring search functionality for person property
         selection. It's pretty much this stackoverflow answer:
-        https://stackoverflow.com/a/43235785 
+        https://stackoverflow.com/a/43235785
     */
     const [query, setQuery] = React.useState<string>('')
     const filteredProperties = React.useMemo(() => {
