@@ -116,27 +116,79 @@ def test_decompress_ignores_if_not_enough_chunks(snapshot_events):
     assert list(decompress_chunked_snapshot_data(1, "someid", snapshot_data)) == complete_snapshots
 
 
-def test_paginate_decompression(snapshot_events):
-    compressed_snapshot_events = list(compress_and_chunk_snapshots(snapshot_events, chunk_size=20)) + list(
-        compress_and_chunk_snapshots(list(reversed(snapshot_events)), chunk_size=20)
+def test_paginate_decompression():
+    chunk_1_events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 4, "foo": "bar"},
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 2, "foo": "bar"},
+                "distinct_id": "abc123",
+            },
+        },
+    ]
+    chunk_2_events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 3, "foo": "bar"},
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 3, "foo": "bar"},
+                "distinct_id": "abc123",
+            },
+        },
+    ]
+    compressed_snapshot_events = list(compress_and_chunk_snapshots(chunk_1_events)) + list(
+        compress_and_chunk_snapshots(chunk_2_events)
     )
+
     snapshot_data = [event["properties"]["$snapshot_data"] for event in compressed_snapshot_events]
 
-    has_next, first_item = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 0)
-    assert has_next == True
-    assert first_item[0]["type"] == 2
+    # Get the first chunk
+    paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 0)
+    assert paginated_events.has_next == True
+    assert paginated_events.paginated_list[0]["type"] == 4
+    assert len(paginated_events.paginated_list) == 2  # 2 events in a chunk
 
-    has_next, second_item = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 1)
-    assert has_next == False
-    assert second_item[0]["type"] == 3
+    # Get the first chunk
+    paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 1)
+    assert paginated_events.has_next == False
+    assert paginated_events.paginated_list[0]["type"] == 3
+    assert len(paginated_events.paginated_list) == 2  # 2 events in a chunk
+
+    # Limit exceeds the length
+    paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data, 10, 0)
+    assert paginated_events.has_next == False
+    assert len(paginated_events.paginated_list) == 4
+
+    # Non sequential snapshots
+    snapshot_data = snapshot_data[-3:] + snapshot_data[0:-3]
+    paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data, 10, 0)
+    assert paginated_events.has_next == False
+    assert len(paginated_events.paginated_list) == 4
 
 
 def test_paginate_decompression_leaves_events_untouched(snapshot_events):
     snapshot_data = [event["properties"]["$snapshot_data"] for event in snapshot_events]
 
-    has_next, first_item = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 0)
-    assert has_next == True
-    assert first_item[0]["type"] == 2
+    paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data, 1, 0)
+    assert paginated_events.has_next == True
+    assert paginated_events.paginated_list[0]["type"] == 2
 
 
 @pytest.fixture

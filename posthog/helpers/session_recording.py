@@ -3,7 +3,7 @@ import dataclasses
 import gzip
 import json
 from collections import defaultdict
-from typing import Dict, Generator, List, Union, cast
+from typing import DefaultDict, Dict, Generator, List
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -14,10 +14,9 @@ SnapshotData = Dict
 
 
 @dataclasses.dataclass
-class PaginatedChunkInformation:
+class PaginatedSnapshotList:
     has_next: bool
-    chunk_ids_or_events_to_decompress: List[Union[str, SnapshotData]]
-    chunks_collector: Dict[str, List[SnapshotData]]
+    paginated_list: List[SnapshotData]
 
 
 FULL_SNAPSHOT = 2
@@ -116,83 +115,47 @@ def decompress(base64data: str) -> str:
     return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
 
 
-def preprocess_chunks_for_paginated_decompression(
-    all_recording_snapshots: Union[List[SnapshotData]], limit: int, offset: int
-) -> PaginatedChunkInformation:
-    has_next = False
-    chunk_ids_passed = set()
-    chunk_ids_or_events_to_decompress: List[Union[str, SnapshotData]] = []
-    chunks_collector: Dict[str, List[SnapshotData]] = {}
-    chunks_or_event_counter = 0
+def paginate_snapshot_list(list_to_paginate: List, limit: int, offset: int) -> PaginatedSnapshotList:
+    if offset + limit < len(list_to_paginate):
+        has_next = True
+        paginated_list = list_to_paginate[offset : offset + limit]
+    else:
+        has_next = False
+        paginated_list = list_to_paginate[offset:]
 
-    # Get the chunks/events that should be decompressed based on the limit/offset
-    for snapshot in all_recording_snapshots:
-        chunk_id = snapshot.get("chunk_id")
-
-        # If we haven't hit the offset, keep counting chunks/events until its hit
-        if chunks_or_event_counter < offset:
-            if not chunk_id:
-                chunks_or_event_counter += 1
-            elif chunk_id not in chunk_ids_passed:
-                chunk_ids_passed.add(chunk_id)
-                chunks_or_event_counter += 1
-
-        # If we're past the offset and within the limit
-        elif chunks_or_event_counter < offset + limit:
-            if not chunk_id:
-                chunks_or_event_counter += 1
-                chunk_ids_or_events_to_decompress.append(snapshot)
-            elif chunk_id not in chunk_ids_passed:
-                if chunk_id in chunks_collector.keys():
-                    chunks_collector[chunk_id].append(snapshot)
-                else:
-                    chunks_or_event_counter += 1
-                    chunks_collector[chunk_id] = [snapshot]
-                    chunk_ids_or_events_to_decompress.append(chunk_id)
-
-        # If we're past the limit,
-        else:
-            # We encounter a new chunk_id or event
-            if not chunk_id or (chunk_id not in chunk_ids_passed and chunk_id not in chunks_collector.keys()):
-                has_next = True
-            # We encounter a part of a previously added chunk
-            elif chunk_id in chunks_collector.keys():
-                chunks_collector[chunk_id].append(snapshot)
-    return PaginatedChunkInformation(
-        has_next=has_next,
-        chunk_ids_or_events_to_decompress=chunk_ids_or_events_to_decompress,
-        chunks_collector=chunks_collector,
-    )
+    return PaginatedSnapshotList(has_next=has_next, paginated_list=paginated_list)
 
 
 def paginate_chunk_decompression(
     team_id: int, session_recording_id: str, all_recording_snapshots: List[SnapshotData], limit: int, offset: int
-):
-    paginated_chunk_information = preprocess_chunks_for_paginated_decompression(all_recording_snapshots, limit, offset)
+) -> PaginatedSnapshotList:
+    if len(all_recording_snapshots) == 0:
+        return PaginatedSnapshotList(has_next=False, paginated_list=[])
 
-    # Decompress the chunks
+    # Simple case of unchunked and therefore uncompressed snapshots
+    if "chunk_id" not in all_recording_snapshots[0]:
+        return paginate_snapshot_list(all_recording_snapshots, limit, offset)
+
+    chunks_collector: DefaultDict[str, List[SnapshotData]] = defaultdict(list)
+
+    for snapshot in all_recording_snapshots:
+        chunks_collector[snapshot["chunk_id"]].append(snapshot)
+
+    paginated_chunks_list = paginate_snapshot_list(list(chunks_collector.values()), limit, offset)
+
     decompressed_data_list: List[SnapshotData] = []
-    for chunk_id_or_event in paginated_chunk_information.chunk_ids_or_events_to_decompress:
-        # Chunk id
-        if type(chunk_id_or_event) == str:
-            chunks = paginated_chunk_information.chunks_collector[cast(str, chunk_id_or_event)]
-            if len(chunks) != chunks[0]["chunk_count"]:
-                capture_message(
-                    "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} chunks".format(
-                        team_id, session_recording_id, chunk_id_or_event, len(chunks), chunks[0]["chunk_count"],
-                    )
+
+    for chunks in paginated_chunks_list.paginated_list:
+        if len(chunks) != chunks[0]["chunk_count"]:
+            capture_message(
+                "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} chunks".format(
+                    team_id, session_recording_id, chunks[0]["chunk_id"], len(chunks), chunks[0]["chunk_count"],
                 )
-                continue
+            )
+            continue
 
-            b64_compressed_data = "".join(chunk["data"] for chunk in sorted(chunks, key=lambda c: c["chunk_index"]))
-            decompressed_data = json.loads(decompress(b64_compressed_data))
+        b64_compressed_data = "".join(chunk["data"] for chunk in sorted(chunks, key=lambda c: c["chunk_index"]))
+        decompressed_data = json.loads(decompress(b64_compressed_data))
 
-            decompressed_data_list.extend(decompressed_data)
-
-        else:
-            decompressed_data_list.append(cast(SnapshotData, chunk_id_or_event))
-
-    return (
-        paginated_chunk_information.has_next,
-        decompressed_data_list,
-    )
+        decompressed_data_list.extend(decompressed_data)
+    return PaginatedSnapshotList(has_next=paginated_chunks_list.has_next, paginated_list=decompressed_data_list)

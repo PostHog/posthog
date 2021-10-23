@@ -52,30 +52,30 @@ class SessionRecording:
 
     def get_snapshots(self) -> RecordingSnapshots:
         all_recording_snapshots = [event.snapshot_data for event in list(self._query_recording_snapshots())]
-        has_next, snapshots = paginate_chunk_decompression(
+        paginated_chunks = paginate_chunk_decompression(
             self._team.pk, self._session_recording_id, all_recording_snapshots, self._limit, self._offset
         )
 
         next_url = (
             format_query_params_absolute_url(self._request, self._offset + self._limit, self._limit)
-            if has_next
+            if paginated_chunks.has_next
             else None
         )
 
-        return RecordingSnapshots(next=next_url, snapshots=snapshots)
+        return RecordingSnapshots(next=next_url, snapshots=paginated_chunks.paginated_list)
 
     def _get_first_and_last_chunk(self, all_recording_snapshots: List[SnapshotData]):
-        _, first_chunk = paginate_chunk_decompression(
+        paginated_list_with_first_chunk = paginate_chunk_decompression(
             self._team.pk, self._session_recording_id, all_recording_snapshots, 1, 0
         )
 
-        _, last_chunk = paginate_chunk_decompression(
+        paginated_list_with_last_chunk = paginate_chunk_decompression(
             self._team.pk, self._session_recording_id, list(reversed(all_recording_snapshots)), 1, 0
         )
 
         return (
-            first_chunk,
-            last_chunk,
+            paginated_list_with_first_chunk.paginated_list,
+            paginated_list_with_last_chunk.paginated_list,
         )
 
     def get_metadata(self) -> RecordingMetadata:
