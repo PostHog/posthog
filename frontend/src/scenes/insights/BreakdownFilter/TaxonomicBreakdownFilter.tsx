@@ -38,7 +38,14 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
         .map((t, index) => {
             const onClose =
                 typeof t === 'string' && t !== 'all'
-                    ? () => setFilters({ breakdown: undefined, breakdown_type: null })
+                    ? () => {
+                          if (featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]) {
+                              const newParts = breakdownParts.filter((_, i) => i !== index)
+                              setFilters({ breakdown: newParts, breakdown_type: breakdown_type })
+                          } else {
+                              setFilters({ breakdown: undefined, breakdown_type: null })
+                          }
+                      }
                     : () => {
                           const newParts = breakdownParts.filter((_, i) => i !== index)
                           if (newParts.length === 0) {
