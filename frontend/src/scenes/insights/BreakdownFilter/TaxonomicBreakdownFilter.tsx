@@ -1,6 +1,6 @@
 import React from 'react'
 import { Space, Tag } from 'antd'
-import { BreakdownType, FilterType } from '~/types'
+import { BreakdownType, FilterType, ViewType } from '~/types'
 import {
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
@@ -33,13 +33,17 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
     const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b) => !!b)
     const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))).filter((b) => !!b)
     const { cohorts } = useValues(cohortsModel)
+
+    const multiPropertyBreakdownIsEnabled =
+        filters.insight === ViewType.FUNNELS && featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+
     const tags = breakdownArray
         .filter((b) => !!b)
         .map((t, index) => {
             const onClose =
                 typeof t === 'string' && t !== 'all'
                     ? () => {
-                          if (featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]) {
+                          if (multiPropertyBreakdownIsEnabled) {
                               const newParts = breakdownParts.filter((_, i) => i !== index)
                               setFilters({ breakdown: newParts, breakdown_type: breakdown_type })
                           } else {
@@ -65,7 +69,7 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
             )
         })
 
-    const onChange = featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+    const onChange = multiPropertyBreakdownIsEnabled
         ? (changedBreakdown: TaxonomicFilterValue, groupType: TaxonomicFilterGroupType): void => {
               const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
 
@@ -74,7 +78,7 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
                       breakdown: [...breakdownParts, changedBreakdown],
                       breakdown_type: changedBreakdownType,
                   }
-                  console.log({ newFilters, breakdownParts, breakdownArray })
+
                   setFilters(newFilters)
               }
           }
@@ -95,7 +99,7 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
         <>
             <Space direction={'horizontal'} wrap={true}>
                 {tags}
-                {!hasSelectedBreakdown || featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] ? (
+                {!hasSelectedBreakdown || multiPropertyBreakdownIsEnabled ? (
                     <TaxonomicBreakdownButton breakdownType={breakdownType} onChange={onChange} />
                 ) : null}
             </Space>
