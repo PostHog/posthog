@@ -108,7 +108,10 @@ def get_breakdown_prop_values(
                 )
             )
 
-    return execute_results[0][0]
+        if len(execute_results) == 1:
+            return execute_results[0]
+        else:
+            return execute_results
 
 
 def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict]:

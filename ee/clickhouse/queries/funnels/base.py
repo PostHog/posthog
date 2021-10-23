@@ -10,6 +10,7 @@ from ee.clickhouse.models.property import get_property_string_expr, parse_prop_c
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
+from ee.clickhouse.queries.trends.util import is_iterable
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
@@ -288,10 +289,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         steps = ", ".join(all_step_cols)
 
-        # generates ', trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(breakdown)s)) AS prop' for e.g. breadkown = $browser
-        # generates ', value AS prop' for 1 cohort
         select_prop = self._get_breakdown_select_prop()
-        breakdown_conditions = ""
         extra_conditions = ""
         extra_join = ""
 
@@ -448,14 +446,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                # :TRICKY: We only support string breakdown for event/person properties
+                # :TRICKY: We only support string breakdown for person properties
                 assert isinstance(self._filter.breakdown, str)
                 expression, _ = get_property_string_expr(
                     "person", self._filter.breakdown, "%(breakdown)s", "person_props"
                 )
                 return f", {expression} AS prop"
             elif self._filter.breakdown_type == "event":
-                # :TRICKY: We only support string breakdown for event/person properties
                 if isinstance(self._filter.breakdown, str):
                     expression, _ = get_property_string_expr(
                         "events", self._filter.breakdown, "%(breakdown)s", "properties"
@@ -511,7 +508,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            if group_remaining and self._filter.breakdown_type != "cohort":
+            if group_remaining and self._filter.breakdown_type != "cohort" and not is_iterable(self._filter.breakdown):
                 return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
             else:
                 return ", prop"
