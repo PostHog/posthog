@@ -1,5 +1,5 @@
 import { BuiltLogic } from 'kea'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
@@ -17,9 +17,9 @@ describe('dashboardLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname === 'api/dashboard/5/') {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/5/`) {
             return dashboardJson
-        } else if (pathname === 'api/dashboard/6/') {
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/6/`) {
             return {
                 ...dashboardJson,
                 items: [

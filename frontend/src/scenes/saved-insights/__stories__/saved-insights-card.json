@@ -7522,8 +7522,8 @@
                 }
             },
             "rawDashboardsLoading": false,
-            "sharedDashboards": null,
-            "sharedDashboardsLoading": false,
+            "sharedDashboard": null,
+            "sharedDashboardLoading": false,
             "dashboard": null,
             "dashboardLoading": false,
             "redirect": true,

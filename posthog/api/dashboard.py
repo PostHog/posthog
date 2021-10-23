@@ -8,7 +8,7 @@ from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
-from rest_framework import authentication, response, serializers, viewsets
+from rest_framework import authentication, mixins, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -16,7 +16,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -166,7 +166,6 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Dashboard.objects.all()
     serializer_class = DashboardSerializer
     authentication_classes = [
-        PublicTokenAuthentication,
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
@@ -180,17 +179,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
         )
-        # See get_permissions() for share_token mechanics
-        if self.request.GET.get("share_token"):
-            return queryset.filter(share_token=self.request.GET["share_token"])
         return queryset
-
-    def get_permissions(self):
-        # Allow unauthenticated requests if share_token is provided
-        # but make sure that get_queryset() filters on share_token then!
-        if self.request.GET.get("share_token"):
-            return []
-        return super().get_permissions()
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
@@ -201,14 +190,22 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
         return response.Response(serializer.data)
 
-    def get_parents_query_dict(self) -> Dict[str, Any]:  # to be moved to a separate Legacy*ViewSet Class
-        if not self.request.user.is_authenticated or "share_token" in self.request.GET or not self.team_id:
+
+class LegacyDashboardsViewSet(DashboardsViewSet):
+    legacy_team_compatibility = True
+
+    def get_parents_query_dict(self) -> Dict[str, Any]:
+        if not self.request.user.is_authenticated or "share_token" in self.request.GET:
             return {}
         return {"team_id": self.team_id}
 
 
-class LegacyDashboardsViewSet(DashboardsViewSet):
-    legacy_team_compatibility = True
+class SharedDashboardsViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    queryset = Dashboard.objects.all()
+    serializer_class = DashboardSerializer
+    authentication_classes = []
+    permission_classes = []
+    lookup_field = "share_token"
 
 
 class DashboardItemSerializer(serializers.ModelSerializer):
@@ -360,13 +357,13 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response(serializer.data)
 
 
+class LegacyDashboardItemsViewSet(DashboardItemsViewSet):
+    legacy_team_compatibility = True
+
+
 @xframe_options_exempt
 def shared_dashboard(request: HttpRequest, share_token: str):
     dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
     return render_template(
         "shared_dashboard.html", request=request, context={"dashboard": dashboard, "team_name": dashboard.team.name},
     )
-
-
-class LegacyDashboardItemsViewSet(DashboardItemsViewSet):
-    legacy_team_compatibility = True
