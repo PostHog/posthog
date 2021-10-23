@@ -1,5 +1,14 @@
 from abc import ABC
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -445,12 +454,27 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _get_breakdown_select_prop(self) -> str:
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
+            # TODO undo the horrible duplication introduced here
             if self._filter.breakdown_type == "person":
-                # :TRICKY: We only support string breakdown for person properties
-                assert isinstance(self._filter.breakdown, str)
-                expression, _ = get_property_string_expr(
-                    "person", self._filter.breakdown, "%(breakdown)s", "person_props"
-                )
+                if isinstance(self._filter.breakdown, str):
+                    expression, _ = get_property_string_expr(
+                        "person", self._filter.breakdown, "%(breakdown)s", "person_props"
+                    )
+                else:
+                    if len(self._filter.breakdown) == 1:
+                        # TODO warning API input straight into a query
+                        expression, _ = get_property_string_expr(
+                            "person", self._filter.breakdown[0], f"'{self._filter.breakdown[0]}'", "person_props"
+                        )
+                    else:
+                        expressions = []
+                        for i, b in enumerate(self._filter.breakdown):
+                            # TODO warning API input straight into a query
+                            expr, _ = get_property_string_expr("person", b, f"'{b}'", "person_props")
+                            expressions.append(expr)
+
+                        delimiter = ", '::', "
+                        expression = f"concat({delimiter.join(expressions)})"
                 return f", {expression} AS prop"
             elif self._filter.breakdown_type == "event":
                 if isinstance(self._filter.breakdown, str):

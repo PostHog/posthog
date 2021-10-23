@@ -80,12 +80,13 @@ class ColumnOptimizer:
         # See ee/clickhouse/queries/trends/breakdown.py#get_query or
         # ee/clickhouse/queries/breakdown_props.py#get_breakdown_prop_values
         if self.filter.breakdown_type in ["person"]:
-            # :TRICKY: We only support string breakdown for event/person properties
-            assert isinstance(self.filter.breakdown, str)
-            counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
+            if isinstance(self.filter.breakdown, str):
+                counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
+            elif is_iterable(self.filter.breakdown):
+                for b in self.filter.breakdown:
+                    counter[(b, self.filter.breakdown_type)] += 1
 
         if self.filter.breakdown_type in ["event"]:
-            # :TRICKY: We only support string breakdown for event/person properties
             if isinstance(self.filter.breakdown, str):
                 counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
             elif is_iterable(self.filter.breakdown):

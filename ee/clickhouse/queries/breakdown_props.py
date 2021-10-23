@@ -43,13 +43,22 @@ def get_breakdown_prop_values(
     entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, table_name="e")
 
     if filter.breakdown_type == "person":
-        value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
+        if isinstance(filter.breakdown, str):
+            value_expression, _ = get_property_string_expr(
+                "person", cast(str, filter.breakdown), "%(key)s", "person_props"
+            )
+        elif is_iterable(filter.breakdown):
+            # TODO why does reading from the first index work?
+            value_expression, _ = get_property_string_expr(
+                "person", cast(str, filter.breakdown[0]), "%(key)s", "person_props"
+            )
     else:
         if isinstance(filter.breakdown, str):
             value_expression, _ = get_property_string_expr(
                 "events", cast(str, filter.breakdown), "%(key)s", "properties"
             )
         elif is_iterable(filter.breakdown):
+            # TODO why does reading from the first index work?
             value_expression, _ = get_property_string_expr(
                 "events", cast(str, filter.breakdown[0]), "%(key)s", "properties"
             )
