@@ -40,8 +40,14 @@ export enum Scene {
     Personalization = 'personalization',
 }
 
+export type SceneProps = {
+    sceneId?: string
+}
+
+export type SceneComponent = (params?: SceneProps) => JSX.Element | null
+
 export interface SceneExport {
-    component: () => JSX.Element
+    component: SceneComponent
     logic?: LogicWrapper
 }
 

@@ -242,14 +242,18 @@ export const sceneLogic = kea<sceneLogicType>({
                     }
                 }
                 breakpoint()
-                const { default: defaultExport, logic, ...others } = importedScene
+                const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
-                if (defaultExport) {
+                if (_scene) {
+                    loadedScene = _scene
+                } else if (defaultExport) {
+                    console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
                         component: defaultExport,
                         logic: logic,
                     }
                 } else {
+                    console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
                         component:
                             Object.keys(others).length === 1
