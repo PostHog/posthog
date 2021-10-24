@@ -212,11 +212,9 @@ const propertySelectLogic = kea<propertySelectLogicType>({
         isOpen: [
             false,
             {
-                // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
-                hide: (_, {}) => false,
-                // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
-                open: (_, {}) => true,
-                toggle: (isOpen, {}) => !isOpen,
+                hide: () => false,
+                open: () => true,
+                toggle: (isOpen) => !isOpen,
             },
         ],
         triggerElement: [
