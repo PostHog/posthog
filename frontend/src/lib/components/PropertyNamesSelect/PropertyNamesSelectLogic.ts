@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { PersonProperty } from '~/types'
 
 import { propertySelectLogicType } from './PropertyNamesSelectLogicType'
 
@@ -6,6 +7,12 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
     props: {
         selectionKey: '' as string,
         onHide: () => {},
+
+        properties: [] as PersonProperty[],
+        initialProperties: [] as string[],
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+        onChange: (_: string[]) => {},
     },
 
     key: (props) => props.selectionKey,
@@ -15,9 +22,17 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         hide: true,
         open: true,
         toggle: true,
+
+        setSelectedProperties: (newSelectedProperties: string[]) => ({
+            newSelectedProperties: new Set(newSelectedProperties),
+        }),
+
+        toggleProperty: (property: string) => ({ property }),
+        clearAll: true,
+        selectAll: true,
     },
 
-    reducers: {
+    reducers: ({ props }) => ({
         isOpen: [
             false,
             {
@@ -30,6 +45,32 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
             {
                 setTriggerElement: (_, { triggerElement }) => triggerElement,
             },
+        ],
+
+        selectedProperties: [
+            new Set(),
+            {
+                setSelectedProperties: (_, { newSelectedProperties }) => new Set(newSelectedProperties),
+                toggleProperty: (selectedProperties, { property }) => {
+                    const newSelectedProperties = new Set(selectedProperties)
+                    if (newSelectedProperties.has(property)) {
+                        newSelectedProperties.delete(property)
+                    } else {
+                        newSelectedProperties.add(property)
+                    }
+                    return newSelectedProperties
+                },
+                clearAll: () => new Set([]),
+                selectAll: () => new Set(props.properties.map((property) => property.name)),
+            },
+        ],
+    }),
+
+    selectors: {
+        selectState: [
+            [(selectors) => [selectors.selectedProperties, selectors.properties]],
+            (selectedProperties, properties) =>
+                selectedProperties.size === properties.length ? 'all' : selectedProperties.size === 0 ? 'none' : 'some',
         ],
     },
 
@@ -61,9 +102,9 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
             }
         },
         hide: () => {
-            if (props.onHide) {
-                props.onHide()
-            }
+            // When the popover is hidden, we want to notify onChange with the
+            // current selected properties
+            props.onChange(Array.from(values.selectedProperties))
         },
     }),
 })

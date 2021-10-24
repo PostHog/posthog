@@ -40,24 +40,23 @@ export const PropertyNamesSelectBox = ({
     initialProperties?: string[]
     onChange?: (selectedProperties: string[]) => void
 }): JSX.Element => {
-    const selectProps = useSelectedProperties({
+    const selectProps = usePropertyNamesSelectLogic({
         properties,
         initialProperties,
     })
 
-    const { selectedProperties, selectAll, clearAll, selectState } = selectProps
-
     const {
+        // popover actions/values
         isOpen: isSearchOpen,
         popoverProps,
         triggerProps,
-    } = usePopover({
-        onHide: () => {
-            if (onChange) {
-                onChange(Array.from(selectedProperties))
-            }
-        },
-    })
+
+        // selection actions/values
+        selectedProperties,
+        selectAll,
+        clearAll,
+        selectState,
+    } = selectProps
 
     return (
         <div className="property-names-select-container" {...triggerProps}>
@@ -117,9 +116,7 @@ export const PropertyNamesSelectBox = ({
             </div>
             {isSearchOpen ? (
                 <div className="popover" {...popoverProps}>
-                    <SelectPropertiesProvider {...selectProps}>
-                        <PropertyNamesSearch />
-                    </SelectPropertiesProvider>
+                    <PropertyNamesSearch />
                 </div>
             ) : null}
         </div>
@@ -127,7 +124,7 @@ export const PropertyNamesSelectBox = ({
 }
 
 const PropertyNamesSearch = (): JSX.Element => {
-    const { properties, toggleProperty, isSelected } = useSelectedPropertiesContext()
+    const { properties, toggleProperty, isSelected } = usePropertyNamesSelectLogicContext()
     const { filteredProperties, query, setQuery } = usePropertySearch(properties)
 
     return (
@@ -162,7 +159,17 @@ const PropertyNamesSearch = (): JSX.Element => {
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
-const usePopover = ({ onHide }: { onHide: () => void }) => {
+const usePropertyNamesSelectLogic = ({
+    onHide,
+    properties,
+    initialProperties,
+    onChange,
+}: {
+    onHide: () => void
+    properties: PersonProperty[]
+    initialProperties: string[]
+    onChange: (_: string[]) => void
+}) => {
     // Provides logic for opening and closing the popover. Note that we wrap the
     // logic such that we can generate a unique key and ensure for each
     // invocation. We also make the logic independent of React specifics
@@ -171,16 +178,31 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
 
     const propertySelectLogicKey = React.useMemo(() => Math.random().toString(), [])
 
-    const logic = propertySelectLogic({ selectionKey: propertySelectLogicKey, onHide })
+    const logic = propertySelectLogic({
+        selectionKey: propertySelectLogicKey,
+        onHide,
+        properties,
+        initialProperties,
+        onChange,
+    })
+
+    // popover actions/values
     const { toggle, setTriggerElement, hide, open } = useActions(logic)
     const { isOpen } = useValues(logic)
 
+    // selection actions/values
+    const { selectAll, clearAll, selectState } = useActions(logic)
+    const { selectedProperties } = useValues(logic)
+
     return {
+        // popover actions/values
         toggle,
         setTriggerElement,
         hide,
         open,
         isOpen,
+
+        // React prop specifics
         popoverProps: {
             onClick(event: React.MouseEvent): void {
                 // Avoid the click propogating to the trigger element. We need
@@ -193,6 +215,13 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
             onClick: toggle,
             ref: setTriggerElement,
         },
+
+        // selection actions/values
+        properties,
+        selectedProperties,
+        selectAll,
+        clearAll,
+        selectState,
     }
 }
 
@@ -241,101 +270,31 @@ const usePropertySearch = (properties: PersonProperty[]) => {
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
-export const useSelectedProperties = ({
-    properties,
-    initialProperties,
-    onChange,
-}: {
-    properties: PersonProperty[]
-    initialProperties?: string[]
-    onChange?: (selectedProperties: string[]) => void
-}) => {
-    const [selectedProperties, setSelectedPropertiesSet] = React.useState<Set<string>>(
-        new Set(initialProperties || properties.map((property) => property.name))
-    )
-
-    const setSelectedProperties = (newSelectedProperties: string[]): void => {
-        setAndNotify(new Set(newSelectedProperties))
-    }
-
-    const setAndNotify = (newSelectedProperties: Set<string>): void => {
-        setSelectedPropertiesSet(newSelectedProperties)
-
-        if (onChange) {
-            onChange(Array.from(newSelectedProperties))
-        }
-    }
-
-    const toggleProperty = (property: string): void => {
-        setAndNotify(
-            selectedProperties.has(property)
-                ? new Set(Array.from(selectedProperties).filter((p) => p !== property))
-                : new Set([...Array.from(selectedProperties), property])
-        )
-    }
-
-    const clearAll = (): void => {
-        setAndNotify(new Set())
-    }
-
-    const selectAll = (): void => {
-        setAndNotify(new Set(properties.map((property) => property.name)))
-    }
-
-    const isSelected = (property: string): boolean => selectedProperties.has(property)
-
-    const selectState: 'all' | 'none' | 'some' =
-        selectedProperties.size === properties.length ? 'all' : selectedProperties.size === 0 ? 'none' : 'some'
-
-    return {
-        properties,
-        selectedProperties,
-        setSelectedProperties,
-        toggleProperty,
-        clearAll,
-        selectAll,
-        selectState,
-        isSelected,
-    }
-}
-
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
-export const useSelectedPropertiesContext = () => {
+export const usePropertyNamesSelectLogicContext = () => {
     /* Provides functions for handling selected properties state */
-    const context = React.useContext(propertiesSelectionContext)
+    const logic = React.useContext(propertyNamesSelectLogicContext)
 
     // make typing happy, i.e. rule out the undefined case so we don't have to
     // check this everywhere
-    if (context === undefined) {
-        throw Error('No select React.Context found')
+    if (logic === undefined) {
+        throw Error('No select logic React.Context found')
     }
 
-    return context
+    return logic
 }
 
 /*
-A propertiesSelectionContext provides:
-
-    - selectedProperties: a set of selected property names
-    - state manipulation functions for modifying the set of selected properties
+    A propertyNamesSelectLogicContext provides a way to share logic with child
+    components
 */
-type PropertiesSelectionContextType = {
-    properties: PersonProperty[]
-    selectState: 'all' | 'none' | 'some'
-    selectedProperties: Set<string>
-    toggleProperty: (propertyName: string) => void
-    clearAll: () => void
-    selectAll: () => void
-    isSelected: (propertyName: string) => boolean
-}
 
-const propertiesSelectionContext = React.createContext<PropertiesSelectionContextType | undefined>(undefined)
+const propertyNamesSelectLogicContext = React.createContext<typeof propertySelectLogic | undefined>(undefined)
 
 export const SelectPropertiesProvider = ({
     children,
-    ...methods
-}: PropertiesSelectionContextType & {
+    logic,
+}: { logic: typeof propertySelectLogic } & {
     children: JSX.Element[] | JSX.Element
 }): JSX.Element => {
-    return <propertiesSelectionContext.Provider value={methods}>{children}</propertiesSelectionContext.Provider>
+    return <propertyNamesSelectLogicContext.Provider value={logic}>{children}</propertyNamesSelectLogicContext.Provider>
 }
