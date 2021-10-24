@@ -11,6 +11,12 @@ import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
 import { userLogic } from 'scenes/userLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: Plugins,
+    logic: pluginsLogic,
+}
 
 export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)

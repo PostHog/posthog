@@ -29,6 +29,11 @@ import { teamMembersLogic } from './teamMembersLogic'
 import { AccessControl } from './AccessControl'
 import { PathCleaningFiltersConfig } from './PathCleaningFiltersConfig'
 import { userLogic } from 'scenes/userLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: ProjectSettings,
+}
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)

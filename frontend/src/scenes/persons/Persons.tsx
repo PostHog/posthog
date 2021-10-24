@@ -12,8 +12,18 @@ import { ClockCircleFilled } from '@ant-design/icons'
 import { toParams } from 'lib/utils'
 import { PersonsSearch } from './PersonsSearch'
 import { IconExternalLink } from 'lib/components/icons'
+import { SceneExport, SceneProps } from 'scenes/sceneTypes'
 
-export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
+export const scene: SceneExport = {
+    component: Persons,
+    logic: personsLogic,
+}
+
+interface PersonsProps extends SceneProps {
+    cohort?: CohortType
+}
+
+export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
 

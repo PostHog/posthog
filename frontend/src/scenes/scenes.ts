@@ -21,17 +21,17 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
-    [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
-    [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
-    [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'),
+    [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'), // recheck
+    [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'), // TODO
+    [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'), // TODO
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     [Scene.SessionRecordings]: () =>
         import(/* webpackChunkName: 'sessionRecordings' */ './session-recordings/SessionRecordings'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
-    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
-    [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
+    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'), // recheck
+    [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'), // TODO
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.FeatureFlag]: () => import(/* webpackChunkName: 'featureFlag' */ './experimentation/FeatureFlag'),
     [Scene.OrganizationSettings]: () =>

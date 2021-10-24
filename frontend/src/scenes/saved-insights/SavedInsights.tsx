@@ -36,6 +36,7 @@ import dayjs from 'dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 
 const { TabPane } = Tabs
 
@@ -47,6 +48,11 @@ interface InsightType {
 export interface InsightItem {
     type: string
     description: string
+}
+
+export const scene: SceneExport = {
+    component: SavedInsights,
+    logic: savedInsightsLogic,
 }
 
 export function SavedInsights(): JSX.Element {

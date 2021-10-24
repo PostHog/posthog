@@ -11,6 +11,12 @@ import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: OrganizationSettings,
+    logic: organizationLogic,
+}
 
 function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)

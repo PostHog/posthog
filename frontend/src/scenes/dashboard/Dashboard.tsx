@@ -15,14 +15,20 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { SceneExport, SceneProps } from 'scenes/sceneTypes'
 
-interface Props {
+interface Props extends SceneProps {
     id?: string
     shareToken?: string
     internal?: boolean
 }
 
-export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
+export const scene: SceneExport = {
+    component: Dashboard,
+    logic: dashboardLogic,
+}
+
+export function Dashboard({ id, shareToken, internal }: Props = {}): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, internal }}>
             <DashboardView />

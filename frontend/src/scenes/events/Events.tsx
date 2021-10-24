@@ -7,6 +7,7 @@ import { EventsVolumeTable } from './EventsVolumeTable'
 import { PropertiesVolumeTable } from './PropertiesVolumeTable'
 import { eventsLogicType } from './EventsType'
 import { DefinitionDrawer } from './definitions/DefinitionDrawer'
+import { SceneExport } from 'scenes/sceneTypes'
 
 const eventsLogic = kea<eventsLogicType>({
     actions: {
@@ -55,4 +56,9 @@ export function ManageEvents(): JSX.Element {
             <DefinitionDrawer />
         </div>
     )
+}
+
+export const scene: SceneExport = {
+    component: ManageEvents,
+    logic: eventsLogic,
 }
