@@ -167,17 +167,20 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
     // logic such that we can generate a unique key and ensure for each
     // invocation. We also make the logic independent of React specifics
 
-    // Make sure to create a new state for each component
+    // Make sure to create a new state for each component.
+
     const propertySelectLogicKey = React.useMemo(() => Math.random().toString(), [])
 
     const logic = propertySelectLogic({ selectionKey: propertySelectLogicKey, onHide })
-    const { toggle, setTriggerElement, ...actions } = useActions(logic)
+    const { toggle, setTriggerElement, hide, open } = useActions(logic)
+    const { isOpen } = useValues(logic)
 
     return {
         toggle,
         setTriggerElement,
-        ...actions,
-        ...useValues(logic),
+        hide,
+        open,
+        isOpen,
         popoverProps: {
             onClick(event: React.MouseEvent): void {
                 // Avoid the click propogating to the trigger element. We need

@@ -23,7 +23,6 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
             {
                 hide: () => false,
                 open: () => true,
-                toggle: (isOpen) => !isOpen,
             },
         ],
         triggerElement: [
@@ -53,10 +52,17 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         },
     }),
 
-    listeners: ({ props: { onHide } }) => ({
+    listeners: ({ props, values, actions }) => ({
+        toggle: () => {
+            if (values.isOpen) {
+                actions.hide()
+            } else {
+                actions.open()
+            }
+        },
         hide: () => {
-            if (onHide) {
-                onHide()
+            if (props.onHide) {
+                props.onHide()
             }
         },
     }),
