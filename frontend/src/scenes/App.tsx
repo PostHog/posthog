@@ -14,11 +14,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
-import { appLogicType } from './AppType'
+import { appLogicType, noopLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -60,22 +61,42 @@ export const appLogic = kea<appLogicType>({
     }),
 })
 
+const noopLogic = kea<noopLogicType>({})
+
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { sceneConfig } = useValues(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (showApp) {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
+                {featureFlags[FEATURE_FLAGS.SCENE_ROUTER_HISTORY] ? <LoadedSceneLogics /> : null}
                 {(!sceneConfig.projectBased || currentTeamId) && <AppScene />}
             </>
         )
     }
 
     return showingDelayedSpinner ? <SceneLoading /> : null
+}
+
+function LoadedSceneLogic({ scene }: { scene: SceneExport }): null {
+    useMountedLogic(scene.logic || noopLogic)
+    return null
+}
+
+function LoadedSceneLogics(): JSX.Element {
+    const { loadedScenes } = useValues(sceneLogic)
+    return (
+        <>
+            {Object.entries(loadedScenes).map(([key, loadedScene]) => (
+                <LoadedSceneLogic key={key} scene={loadedScene} />
+            ))}
+        </>
+    )
 }
 
 /** Loads every logic in the "src/models" folder */
