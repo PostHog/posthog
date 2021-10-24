@@ -40,15 +40,22 @@ export enum Scene {
     Personalization = 'personalization',
 }
 
-export type SceneProps = {
-    sceneId?: string
-}
+export type SceneProps = Record<string, any>
 
 export type SceneComponent = (params?: SceneProps) => JSX.Element | null
 
 export interface SceneExport {
+    /** component to render for this scene */
     component: SceneComponent
+    /** logic to mount for this scene */
     logic?: LogicWrapper
+    /** convert URL parameters from scenes.ts into logic props */
+    paramsToProps?: (params: Record<string, string>) => SceneProps
+}
+
+export interface LoadedScene extends SceneExport {
+    name: string
+    params?: Record<string, any>
 }
 
 export interface Params {

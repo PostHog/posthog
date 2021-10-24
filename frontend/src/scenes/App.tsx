@@ -19,7 +19,7 @@ import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { LoadedScene } from 'scenes/sceneTypes'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -83,8 +83,8 @@ export function App(): JSX.Element | null {
     return showingDelayedSpinner ? <SceneLoading /> : null
 }
 
-function LoadedSceneLogic({ scene }: { scene: SceneExport }): null {
-    useMountedLogic(scene.logic || noopLogic)
+function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
+    useMountedLogic(scene.logic?.(scene.paramsToProps?.(scene.params || {})) || noopLogic)
     return null
 }
 

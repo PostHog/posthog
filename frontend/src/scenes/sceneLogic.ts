@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { identifierToHuman, delay } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -23,7 +23,7 @@ export const sceneLogic = kea<sceneLogicType>({
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         // 3. Set the `scene` reducer
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
-        setLoadedScene: (scene: Scene, loadedScene: SceneExport) => ({ scene, loadedScene }),
+        setLoadedScene: (scene: Scene, sceneExport: SceneExport, params: Params) => ({ scene, sceneExport, params }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         guardAvailableFeature: (
             featureKey: AvailableFeature,
@@ -49,16 +49,20 @@ export const sceneLogic = kea<sceneLogicType>({
                 setScene: (_, payload) => payload.scene,
             },
         ],
-        params: [
-            {} as Params,
-            {
-                setScene: (_, payload) => payload.params || {},
-            },
-        ],
         loadedScenes: [
             preloadedScenes,
             {
-                setLoadedScene: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
+                setScene: (state, { scene, params }) =>
+                    scene in state
+                        ? {
+                              ...state,
+                              [scene]: { ...state[scene], params },
+                          }
+                        : state,
+                setLoadedScene: (state, { scene, sceneExport, params }) => ({
+                    ...state,
+                    [scene]: { ...sceneExport, name: scene, params },
+                }),
             },
         ],
         loadingScene: [
@@ -97,6 +101,11 @@ export const sceneLogic = kea<sceneLogicType>({
                     ? Scene.ErrorProjectUnavailable
                     : baseActiveScene
             },
+        ],
+        params: [
+            (s) => [s.activeScene, s.loadedScenes],
+            (activeScene, loadedScenes): Record<string, string> =>
+                (activeScene && loadedScenes[activeScene]?.params) || {},
         ],
     },
     urlToAction: ({ actions }) => {
@@ -249,12 +258,14 @@ export const sceneLogic = kea<sceneLogicType>({
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
+                        name: scene,
                         component: defaultExport,
                         logic: logic,
                     }
                 } else {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
+                        name: scene,
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
@@ -265,32 +276,9 @@ export const sceneLogic = kea<sceneLogicType>({
                         console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
-                actions.setLoadedScene(scene, loadedScene)
+                actions.setLoadedScene(scene, loadedScene, params)
             }
-            const { logic } = loadedScene
-
-            let unmount
-
-            if (logic) {
-                // initialize the logic
-                unmount = logic.build(params, false).mount()
-                try {
-                    await breakpoint(100)
-                } catch (e) {
-                    // if we change the scene while waiting these 100ms, unmount
-                    unmount()
-                    throw e
-                }
-            }
-
             actions.setScene(scene, params)
-
-            if (unmount) {
-                // release our hold on this logic after 0.5s as it's by then surely mounted via React
-                // or we are anyway in a new scene and don't need it
-                await delay(500)
-                unmount()
-            }
         },
         setPageTitle: ({ title }) => {
             document.title = title ? `${title} • PostHog` : 'PostHog'

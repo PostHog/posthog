@@ -1,17 +1,20 @@
-import { SceneExport, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig, LoadedScene } from 'scenes/sceneTypes'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
 
-export const preloadedScenes: Record<string, SceneExport> = {
+export const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.Error404]: {
+        name: Scene.Error404,
         component: Error404Component,
     },
     [Scene.ErrorNetwork]: {
+        name: Scene.ErrorNetwork,
         component: ErrorNetworkComponent,
     },
     [Scene.ErrorProjectUnavailable]: {
+        name: Scene.ErrorProjectUnavailable,
         component: ErrorProjectUnavailableComponent,
     },
 }
@@ -21,7 +24,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
-    [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'), // TODO
+    [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'), // TODO
     [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'), // TODO
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
