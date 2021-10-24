@@ -171,10 +171,25 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
     const propertySelectLogicKey = React.useMemo(() => Math.random().toString(), [])
 
     const logic = propertySelectLogic({ selectionKey: propertySelectLogicKey, onHide })
+    const { toggle, setTriggerElement, ...actions } = useActions(logic)
 
     return {
-        ...useActions(logic),
+        toggle,
+        setTriggerElement,
+        ...actions,
         ...useValues(logic),
+        popoverProps: {
+            onClick(event: React.MouseEvent): void {
+                // Avoid the click propogating to the trigger element. We need
+                // to do this in order to prevent popover clicks also triggering
+                // anything on containing elements
+                event.stopPropagation()
+            },
+        },
+        triggerProps: {
+            onClick: toggle,
+            ref: setTriggerElement,
+        },
     }
 }
 
@@ -232,27 +247,6 @@ const propertySelectLogic = kea<propertySelectLogicType>({
                 onHide()
             }
         },
-    }),
-
-    selectors: ({ actions }) => ({
-        popoverProps: [
-            () => [],
-            () => ({
-                onClick(event: React.MouseEvent): void {
-                    // Avoid the click propogating to the trigger element. We need
-                    // to do this in order to prevent popover clicks also triggering
-                    // anything on containing elements
-                    event.stopPropagation()
-                },
-            }),
-        ],
-        triggerProps: [
-            () => [],
-            () => ({
-                onClick: actions.toggle,
-                ref: actions.setTriggerElement,
-            }),
-        ],
     }),
 })
 
