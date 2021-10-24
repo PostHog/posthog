@@ -40,7 +40,7 @@ export enum Scene {
     Personalization = 'personalization',
 }
 
-export interface LoadedScene {
+export interface SceneExport {
     component: () => JSX.Element
     logic?: LogicWrapper
 }

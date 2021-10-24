@@ -11,7 +11,7 @@ import { afterLoginRedirect } from './authentication/loginLogic'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
-import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SceneExport, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { preloadedScenes, redirects, routes, sceneConfigurations, scenes } from 'scenes/scenes'
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -23,7 +23,7 @@ export const sceneLogic = kea<sceneLogicType>({
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         // 3. Set the `scene` reducer
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
-        setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
+        setLoadedScene: (scene: Scene, loadedScene: SceneExport) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         guardAvailableFeature: (
             featureKey: AvailableFeature,

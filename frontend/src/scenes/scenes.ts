@@ -1,10 +1,10 @@
-import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SceneExport, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
 
-export const preloadedScenes: Record<string, LoadedScene> = {
+export const preloadedScenes: Record<string, SceneExport> = {
     [Scene.Error404]: {
         component: Error404Component,
     },
