@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from django.http.request import HttpRequest
+from rest_framework.request import Request
 
 from posthog.constants import INSIGHT_PATHS
 from posthog.models.filters.base_filter import BaseFilter
@@ -15,13 +15,16 @@ from posthog.models.filters.mixins.common import (
     LimitMixin,
     OffsetMixin,
 )
-from posthog.models.filters.mixins.funnel import FunnelPersonsStepMixin, FunnelWindowMixin
+from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin, FunnelPersonsStepMixin, FunnelWindowMixin
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
     EndPointMixin,
     FunnelPathsMixin,
+    LocalPathCleaningFiltersMixin,
     PathGroupingMixin,
+    PathLimitsMixin,
     PathPersonsMixin,
+    PathReplacementMixin,
     PathStepLimitMixin,
     PropTypeDerivedMixin,
     StartPointMixin,
@@ -29,6 +32,7 @@ from posthog.models.filters.mixins.paths import (
     TargetEventsMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 
 
 class PathFilter(
@@ -51,13 +55,18 @@ class PathFilter(
     FunnelWindowMixin,
     FunnelPersonsStepMixin,
     PathGroupingMixin,
+    PathReplacementMixin,
+    LocalPathCleaningFiltersMixin,
     PathPersonsMixin,
     LimitMixin,
     OffsetMixin,
+    PathLimitsMixin,
+    FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
+    SimplifyFilterMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         if data:
             data["insight"] = INSIGHT_PATHS
         else:

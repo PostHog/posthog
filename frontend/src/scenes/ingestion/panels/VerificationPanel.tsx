@@ -1,29 +1,26 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Row, Spin, Space, Popconfirm, Dropdown, Menu, Typography } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { DownOutlined, SlackSquareOutlined, ReadOutlined } from '@ant-design/icons'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
+import { teamLogic } from 'scenes/teamLogic'
 
 const { Text } = Typography
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function VerificationPanel(): JSX.Element {
-    const { loadUser } = useActions(userLogic)
-    const { user } = useValues(userLogic)
+    const { loadCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
     const { index, totalSteps } = useValues(ingestionLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [isPopConfirmShowing, setPopConfirmShowing] = useState(false)
     const [isHelpMenuShowing, setHelpMenuShowing] = useState(false)
 
     useInterval(() => {
-        if (!user?.team?.ingested_event && !isPopConfirmShowing && !isHelpMenuShowing) {
-            loadUser()
+        if (!currentTeam?.ingested_event && !isPopConfirmShowing && !isHelpMenuShowing) {
+            loadCurrentTeam()
         }
     }, 2000)
 
@@ -111,22 +108,9 @@ export function VerificationPanel(): JSX.Element {
         )
     }
 
-    function DefaultSkipCta(): JSX.Element {
-        return (
-            <b
-                data-attr="wizard-complete-button"
-                style={{ float: 'right' }}
-                className="button-border clickable"
-                onClick={completeOnboarding}
-            >
-                Continue without verifying
-            </b>
-        )
-    }
-
     return (
         <CardContainer index={index} totalSteps={totalSteps} onBack={() => setVerify(false)}>
-            {!user?.team?.ingested_event ? (
+            {!currentTeam?.ingested_event ? (
                 <>
                     <Row align="middle">
                         <Spin />
@@ -137,7 +121,7 @@ export function VerificationPanel(): JSX.Element {
                         Once you have integrated the snippet and sent an event, we will verify it sent properly and
                         continue.
                     </p>
-                    {featureFlags[FEATURE_FLAGS.INGESTION_HELP_BUTTON] ? <HelperButtonRow /> : <DefaultSkipCta />}
+                    <HelperButtonRow />
                 </>
             ) : (
                 <>

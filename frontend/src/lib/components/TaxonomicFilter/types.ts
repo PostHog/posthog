@@ -2,6 +2,10 @@ import { LogicWrapper } from 'kea'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 
+export interface SimpleOption {
+    name: string
+}
+
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
@@ -9,6 +13,7 @@ export interface TaxonomicFilterProps {
     onClose?: () => void
     groupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
+    optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
 }
 
 export type TaxonomicFilterValue = string | number
@@ -24,8 +29,9 @@ export interface TaxonomicFilterGroup {
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
-    getName: (object: any) => string
-    getValue: (object: any) => TaxonomicFilterValue
+    searchAlias?: string
+    getName: (instance: any) => string
+    getValue: (instance: any) => TaxonomicFilterValue
 }
 
 export enum TaxonomicFilterGroupType {
@@ -36,6 +42,10 @@ export enum TaxonomicFilterGroupType {
     Events = 'events',
     EventProperties = 'event_properties',
     PersonProperties = 'person_properties',
+    PageviewUrls = 'pageview_urls',
+    Screens = 'screens',
+    CustomEvents = 'custom_events',
+    Wildcards = 'wildcard',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

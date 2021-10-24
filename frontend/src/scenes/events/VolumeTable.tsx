@@ -11,8 +11,6 @@ import { AvailableFeature, EventDefinition, EventOrPropType, PropertyDefinition 
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitions/definitionDrawerLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Owner } from './Owner'
 import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -48,11 +46,8 @@ export function VolumeTable({
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
     const { openDrawer } = useActions(definitionDrawerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const hasTaxonomyFeatures =
-        featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
-        user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY)
+    const hasTaxonomyFeatures = user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY)
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -172,10 +167,10 @@ export function VolumeTable({
             : {},
     ]
 
-    useEffect(() => {
-        setDataWithWarnings(
-            data.map(
-                (eventOrProp: EventOrPropType): VolumeTableRecord => {
+    useEffect(
+        () => {
+            setDataWithWarnings(
+                data.map((eventOrProp: EventOrPropType): VolumeTableRecord => {
                     const record = { eventOrProp } as VolumeTableRecord
                     record.warnings = []
                     if (eventOrProp.name?.endsWith(' ')) {
@@ -185,10 +180,12 @@ export function VolumeTable({
                         record.warnings.push(`This ${type} starts with a space.`)
                     }
                     return record
-                }
-            ) || []
-        )
-    }, [data])
+                }) || []
+            )
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [data]
+    )
 
     return (
         <>

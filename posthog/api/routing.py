@@ -1,7 +1,7 @@
-from typing import Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
-from rest_framework_extensions.mixins import NestedViewSetMixin
+from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
@@ -9,6 +9,11 @@ from posthog.api.utils import get_token
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+
+if TYPE_CHECKING:
+    _GenericViewSet = GenericViewSet
+else:
+    _GenericViewSet = object
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -19,7 +24,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
         self.trailing_slash = r"/?"
 
 
-class StructuredViewSetMixin(NestedViewSetMixin):
+class StructuredViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     legacy_team_compatibility: bool = False
@@ -30,6 +35,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     _parents_query_dict: Optional[Dict[str, Any]]
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return self.filter_queryset_by_parents_lookups(queryset)
+
     @property
     def team_id(self) -> int:
         team_from_token = self._get_team_from_request()
@@ -37,7 +46,8 @@ class StructuredViewSetMixin(NestedViewSetMixin):
             return team_from_token.id
 
         if self.legacy_team_compatibility:
-            team = self.request.user.team
+            user = cast(User, self.request.user)
+            team = user.team
             assert team is not None
             return team.id
         return self.get_parents_query_dict()["team_id"]
@@ -115,12 +125,12 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                     if query_lookup == "team_id":
                         project = self.request.user.team
                         if project is None:
-                            raise NotFound("Current project not found.")
+                            raise NotFound("Project not found.")
                         query_value = project.id
                     elif query_lookup == "organization_id":
                         organization = self.request.user.organization
                         if organization is None:
-                            raise NotFound("Current organization not found.")
+                            raise NotFound("Organization not found.")
                         query_value = organization.id
                 elif query_lookup == "team_id":
                     try:
@@ -136,7 +146,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
-        token, _ = get_token(None, self.request)
+        token = get_token(None, self.request)
 
         if token:
             team = Team.objects.get_team_from_token(token)
@@ -146,3 +156,36 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                 raise AuthenticationFailed()
 
         return team_found
+
+    # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
+    # TODO: Delete below when no legacy endpoints are used anymore
+
+    # def create(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (create)")
+    #     return super_cls.create(*args, **kwargs)
+
+    # def retrieve(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (retrieve)")
+    #     return super_cls.retrieve(*args, **kwargs)
+
+    # def list(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (list)")
+    #     return super_cls.list(*args, **kwargs)
+
+    # def update(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (update)")
+    #     return super_cls.update(*args, **kwargs)
+
+    # def delete(self, *args, **kwargs):
+    #     super_cls = super()
+    #     if self.legacy_team_compatibility:
+    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (delete)")
+    #     return super_cls.delete(*args, **kwargs)

@@ -1,5 +1,4 @@
 import { clamp, compactNumber, humanFriendlyDuration } from 'lib/utils'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
 import api from 'lib/api'
 import {
@@ -13,6 +12,8 @@ import {
     BreakdownKeyType,
     FunnelsTimeConversionBins,
     FunnelAPIResponse,
+    FunnelStepReference,
+    TeamType,
 } from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
@@ -56,10 +57,14 @@ export function humanizeOrder(order: number): number {
     return order + 1
 }
 
-export function getSeriesColor(index?: number): string | undefined {
+export function getSeriesColor(index?: number, isSingleSeries: boolean = false, fallbackColor?: string): string {
+    if (isSingleSeries) {
+        return 'var(--primary)'
+    }
     if (typeof index === 'number' && index >= 0) {
         return getChartColors('white')[index]
     }
+    return fallbackColor ?? getChartColors('white')[0]
 }
 
 export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefined {
@@ -222,15 +227,19 @@ export function getVisibilityIndex(step: FunnelStep, key?: number | string): str
 export const SECONDS_TO_POLL = 3 * 60
 
 export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
+    teamId: TeamType['id'],
     apiParams: FunnelRequestParams
 ): Promise<FunnelResult<T>> {
     // Tricky: This API endpoint has wildly different return types depending on parameters.
     const { refresh, ...bodyParams } = apiParams
-    let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
+    let result = await api.create(
+        `api/projects/${teamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
+        bodyParams
+    )
     const start = window.performance.now()
     while (result.result?.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
-        result = await api.create('api/insight/funnel', bodyParams)
+        result = await api.create(`api/projects/${teamId}/insights/funnel`, bodyParams)
     }
     // if endpoint is still loading after 3 minutes just return default
     if (result.loading) {
@@ -241,6 +250,9 @@ export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
 
 export const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
+
+export const isStepsUndefined = (filters: FilterType): boolean =>
+    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
 
 export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {
@@ -281,4 +293,19 @@ export const getClampedStepRangeFilter = ({
             maxStepIndex
         ),
     }
+}
+
+export function getMeanAndStandardDeviation(values?: number[]): number[] {
+    if (!values?.length) {
+        return [0, 100]
+    }
+
+    const n = values.length
+    const average = values.reduce((acc, current) => current + acc, 0) / n
+    const squareDiffs = values.map((value) => {
+        const diff = value - average
+        return diff * diff
+    })
+    const avgSquareDiff = squareDiffs.reduce((acc, current) => current + acc, 0) / n
+    return [average, Math.sqrt(avgSquareDiff)]
 }

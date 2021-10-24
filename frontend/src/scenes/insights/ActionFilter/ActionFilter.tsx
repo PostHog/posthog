@@ -1,15 +1,16 @@
 import './ActionFilter.scss'
-import React, { useEffect, useState } from 'react'
-import { useActions, useValues, BindLogic } from 'kea'
+import React, { useEffect } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, FunnelStepRangeEntityFilter, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FilterRenameModal } from 'scenes/insights/ActionFilter/FilterRenameModal'
+import { RenameModal } from 'scenes/insights/ActionFilter/RenameModal'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from '../../teamLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -44,6 +45,8 @@ export interface ActionFilterProps {
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
     rowClassName?: string
+    propertyFilterWrapperClassName?: string
+    stripeActionRow?: boolean
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
     fullWidth?: boolean
@@ -84,6 +87,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             customRowPrefix,
             customRowSuffix,
             rowClassName,
+            propertyFilterWrapperClassName,
+            stripeActionRow = true,
             customActions,
             showNestedArrow = false,
             groupTypes,
@@ -92,18 +97,28 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         },
         ref
     ): JSX.Element => {
-        const logic = entityFilterLogic({ setFilters, filters, typeKey, addFilterDefaultOptions })
+        const { currentTeamId } = useValues(teamLogic)
+        const logic = entityFilterLogic({
+            teamId: currentTeamId,
+            setFilters,
+            filters,
+            typeKey,
+            addFilterDefaultOptions,
+        })
+        const { reportFunnelStepReordered } = useActions(eventUsageLogic)
 
         const { localFilters } = useValues(logic)
-        const { addFilter, setLocalFilters } = useActions(logic)
-
-        const [modalOpen, setModalOpen] = useState(false)
+        const { addFilter, setLocalFilters, showModal } = useActions(logic)
 
         // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
         // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
-        useEffect(() => {
-            setLocalFilters(filters)
-        }, [filters])
+        useEffect(
+            () => {
+                setLocalFilters(filters)
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [filters]
+        )
 
         function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
             function move(arr: LocalFilter[], from: number, to: number): LocalFilter[] {
@@ -113,7 +128,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             }
             setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
             if (oldIndex !== newIndex) {
-                posthog.capture('funnel step reordered')
+                reportFunnelStepReordered()
             }
         }
 
@@ -126,6 +141,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             customRowPrefix,
             customRowSuffix,
             rowClassName,
+            propertyFilterWrapperClassName,
+            stripeActionRow,
             hasBreakdown: !!filters.breakdown,
             fullWidth,
             groupTypes,
@@ -133,7 +150,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             disabled,
             renderRow,
             hideRename,
-            onRenameClick: () => setModalOpen(true),
+            onRenameClick: showModal,
         }
 
         return (
@@ -143,7 +160,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         logic={entityFilterLogic}
                         props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
                     >
-                        <FilterRenameModal visible={modalOpen} setModalOpen={setModalOpen} view={filters.insight} />
+                        <RenameModal view={filters.insight} typeKey={typeKey} />
                     </BindLogic>
                 )}
                 {localFilters ? (

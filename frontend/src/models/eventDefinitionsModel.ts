@@ -85,9 +85,14 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
             (s) => [s.eventDefinitions],
             (eventDefinitions): string[] => eventDefinitions.map((definition) => definition.name),
         ],
+        customEvents: [
+            (s) => [s.eventDefinitions],
+            (eventDefinitions): EventDefinition[] =>
+                eventDefinitions.filter((definition) => !definition.name.startsWith('$')),
+        ],
         customEventNames: [
             (s) => [s.eventNames],
-            (eventNames): string[] => eventNames.filter((event) => !event.startsWith('!')),
+            (eventNames): string[] => eventNames.filter((event) => !event.startsWith('$')),
         ],
         eventNamesGrouped: [
             (s) => [s.eventNames],

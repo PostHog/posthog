@@ -4,7 +4,6 @@ import { PluginLogEntry } from '~/types'
 import { pluginLogsLogicType } from './pluginLogsLogicType'
 
 export interface PluginLogsProps {
-    teamId: number
     pluginConfigId: number
 }
 
@@ -23,7 +22,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
             __default: [] as PluginLogEntry[],
             loadPluginLogsInitially: async () => {
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}`
+                    `api/projects/${teamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}`
                 )
                 cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
                 actions.clearPluginLogsBackground()
@@ -31,7 +30,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
             },
             loadPluginLogsSearch: async (searchTerm: string) => {
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}&search=${searchTerm}`
+                    `api/projects/${teamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}&search=${searchTerm}`
                 )
                 actions.clearPluginLogsBackground()
                 return response.results
@@ -40,7 +39,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
                 const before = values.trailingEntry ? '&before=' + values.trailingEntry.timestamp : ''
                 const search = values.searchTerm ? `&search=${values.searchTerm}` : ''
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}${before}${search}`
+                    `api/projects/${teamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}${before}${search}`
                 )
                 if (response.count < LOGS_PORTION_LIMIT) {
                     actions.markLogsEnd()
@@ -62,7 +61,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
                 const after = values.leadingEntry ? 'after=' + values.leadingEntry.timestamp : ''
                 const search = values.searchTerm ? `search=${values.searchTerm}` : ''
                 const response = await api.get(
-                    `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?${[after, search]
+                    `api/projects/${teamId}/plugin_configs/${pluginConfigId}/logs?${[after, search]
                         .filter(Boolean)
                         .join('&')}`
                 )

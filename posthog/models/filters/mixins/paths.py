@@ -5,10 +5,15 @@ from posthog.constants import (
     CUSTOM_EVENT,
     END_POINT,
     FUNNEL_PATHS,
+    LOCAL_PATH_CLEANING_FILTERS,
     PAGEVIEW_EVENT,
     PATH_DROPOFF_KEY,
+    PATH_EDGE_LIMIT,
     PATH_END_KEY,
     PATH_GROUPINGS,
+    PATH_MAX_EDGE_WEIGHT,
+    PATH_MIN_EDGE_WEIGHT,
+    PATH_REPLACEMENTS,
     PATH_START_KEY,
     PATH_TYPE,
     PATHS_EXCLUDE_EVENTS,
@@ -92,11 +97,17 @@ class TargetEventDerivedMixin(PropTypeDerivedMixin):
 class TargetEventsMixin(BaseParamMixin):
     @cached_property
     def target_events(self) -> List[str]:
-        return self._data.get(PATHS_INCLUDE_EVENT_TYPES, [])
+        target_events = self._data.get(PATHS_INCLUDE_EVENT_TYPES, [])
+        if isinstance(target_events, str):
+            return json.loads(target_events)
+        return target_events
 
     @cached_property
     def custom_events(self) -> List[str]:
-        return self._data.get(PATHS_INCLUDE_CUSTOM_EVENTS, [])
+        custom_events = self._data.get(PATHS_INCLUDE_CUSTOM_EVENTS, [])
+        if isinstance(custom_events, str):
+            return json.loads(custom_events)
+        return custom_events
 
     @cached_property
     def exclude_events(self) -> List[str]:
@@ -134,8 +145,10 @@ class TargetEventsMixin(BaseParamMixin):
 
 class PathStepLimitMixin(BaseParamMixin):
     @cached_property
-    def step_limit(self) -> Optional[str]:
-        return self._data.get(STEP_LIMIT, None)
+    def step_limit(self) -> Optional[int]:
+        if self._data.get(STEP_LIMIT) is not None:
+            return int(self._data[STEP_LIMIT])
+        return None
 
     @include_dict
     def step_limit_to_dict(self):
@@ -156,7 +169,7 @@ class FunnelPathsMixin(BaseParamMixin):
 class PathGroupingMixin(BaseParamMixin):
     @cached_property
     def path_groupings(self) -> Optional[List[str]]:
-        path_groupings = self._data.get(PATH_GROUPINGS, [])
+        path_groupings = self._data.get(PATH_GROUPINGS, None)
         if isinstance(path_groupings, str):
             return json.loads(path_groupings)
 
@@ -165,6 +178,41 @@ class PathGroupingMixin(BaseParamMixin):
     @include_dict
     def path_groupings_to_dict(self):
         return {PATH_GROUPINGS: self.path_groupings} if self.path_groupings else {}
+
+
+class PathReplacementMixin(BaseParamMixin):
+    @cached_property
+    def path_replacements(self) -> bool:
+        path_replacements = self._data.get(PATH_REPLACEMENTS)
+        if not path_replacements:
+            return False
+        if path_replacements == True:
+            return True
+
+        if isinstance(path_replacements, str) and path_replacements.lower() == "true":
+            return True
+
+        return False
+
+    @include_dict
+    def path_replacements_to_dict(self):
+        return {PATH_REPLACEMENTS: self.path_replacements} if self.path_replacements else {}
+
+
+class LocalPathCleaningFiltersMixin(BaseParamMixin):
+    @cached_property
+    def local_path_cleaning_filters(self) -> Optional[List[Dict[str, str]]]:
+        local_path_cleaning_filters = self._data.get(LOCAL_PATH_CLEANING_FILTERS, None)
+        if isinstance(local_path_cleaning_filters, str):
+            return json.loads(local_path_cleaning_filters)
+
+        return local_path_cleaning_filters
+
+    @include_dict
+    def local_path_cleaning_filters_to_dict(self):
+        return (
+            {LOCAL_PATH_CLEANING_FILTERS: self.local_path_cleaning_filters} if self.local_path_cleaning_filters else {}
+        )
 
 
 class PathPersonsMixin(BaseParamMixin):
@@ -191,5 +239,36 @@ class PathPersonsMixin(BaseParamMixin):
 
         if self.path_dropoff_key:
             result[PATH_DROPOFF_KEY] = self.path_dropoff_key
+
+        return result
+
+
+class PathLimitsMixin(BaseParamMixin):
+    @cached_property
+    def edge_limit(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_EDGE_LIMIT, None)
+        return int(raw_value) if raw_value is not None else None
+
+    @cached_property
+    def min_edge_weight(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_MIN_EDGE_WEIGHT, None)
+        return int(raw_value) if raw_value else None
+
+    @cached_property
+    def max_edge_weight(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_MAX_EDGE_WEIGHT, None)
+        return int(raw_value) if raw_value else None
+
+    @include_dict
+    def path_edge_limit_to_dict(self):
+        result = {}
+        if self.edge_limit:
+            result[PATH_EDGE_LIMIT] = self.edge_limit
+
+        if self.min_edge_weight:
+            result[PATH_MIN_EDGE_WEIGHT] = self.min_edge_weight
+
+        if self.max_edge_weight:
+            result[PATH_MAX_EDGE_WEIGHT] = self.max_edge_weight
 
         return result

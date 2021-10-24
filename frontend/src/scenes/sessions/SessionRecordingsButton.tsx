@@ -8,19 +8,18 @@ import { Button } from 'antd'
 import { Popup } from '../../lib/components/Popup/Popup'
 import clsx from 'clsx'
 import { Tooltip } from '../../lib/components/Tooltip'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 interface SessionRecordingsButtonProps {
     sessionRecordings: SessionRecordingType[]
+    source: RecordingWatchedSource
 }
 
-export function sessionPlayerUrl(sessionRecordingId: string): string {
-    return `/sessions?${toParams({
-        sessionRecordingId,
-        prev: location.href.substr(location.origin.length), // Absolute path with search params and hash
-    })}`
+export const sessionPlayerUrl = (sessionRecordingId: string, source: RecordingWatchedSource): string => {
+    return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId, source })}`
 }
 
-export function SessionRecordingsButton({ sessionRecordings }: SessionRecordingsButtonProps): JSX.Element {
+export function SessionRecordingsButton({ sessionRecordings, source }: SessionRecordingsButtonProps): JSX.Element {
     const [areRecordingsShown, setAreRecordingsShown] = useState(false)
 
     const wereAllRecordingsViewed = !sessionRecordings.some(({ viewed }) => !viewed)
@@ -30,40 +29,39 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
      * When there's only one recording, hovering over the button shows the dropdown, and clicking opens the recording.
      * When there are more recordings, hovering over the button does nothing, and clicking shows the dropdown.
      */
-    const ButtonWrapper: (props: {
-        setRef: (ref: HTMLElement | null) => void
-        children: ReactNode
-    }) => JSX.Element = useCallback(
-        ({ setRef, children }) => {
-            return isSingleRecording ? (
-                <div className="session-recordings-button__wrapper" ref={setRef}>
-                    <Link
-                        to={sessionPlayerUrl(sessionRecordings[0].id)}
+    const ButtonWrapper: (props: { setRef: (ref: HTMLElement | null) => void; children: ReactNode }) => JSX.Element =
+        useCallback(
+            ({ setRef, children }) => {
+                return isSingleRecording ? (
+                    <div className="session-recordings-button__wrapper" ref={setRef}>
+                        <Link
+                            to={sessionPlayerUrl(sessionRecordings[0].id, source)}
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                setAreRecordingsShown(false)
+                            }}
+                            onMouseEnter={() => setAreRecordingsShown(true)}
+                            onMouseLeave={() => setAreRecordingsShown(false)}
+                        >
+                            {children}
+                        </Link>
+                    </div>
+                ) : (
+                    <div
+                        ref={setRef}
+                        className="session-recordings-button__wrapper"
                         onClick={(event) => {
                             event.stopPropagation()
-                            setAreRecordingsShown(false)
+                            setAreRecordingsShown((previousValue) => !previousValue)
                         }}
-                        onMouseEnter={() => setAreRecordingsShown(true)}
-                        onMouseLeave={() => setAreRecordingsShown(false)}
                     >
                         {children}
-                    </Link>
-                </div>
-            ) : (
-                <div
-                    ref={setRef}
-                    className="session-recordings-button__wrapper"
-                    onClick={(event) => {
-                        event.stopPropagation()
-                        setAreRecordingsShown((previousValue) => !previousValue)
-                    }}
-                >
-                    {children}
-                </div>
-            )
-        },
-        [sessionRecordings, setAreRecordingsShown]
-    )
+                    </div>
+                )
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [sessionRecordings, setAreRecordingsShown]
+        )
 
     return (
         <Popup
@@ -74,7 +72,7 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
             overlay={sessionRecordings.map(({ id, viewed, recording_duration, start_time }, index) => (
                 <Link
                     key={id}
-                    to={sessionPlayerUrl(id)}
+                    to={sessionPlayerUrl(id, source)}
                     className={clsx(
                         'session-recordings-popup__link',
                         viewed && 'session-recordings-popup__link--viewed'

@@ -1,14 +1,57 @@
 name: Backend CI
 
 on:
-    - pull_request
+    push:
+        branches:
+            - master
+    pull_request:
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    SAML_DISABLED: 1
     TEST: 1
 
 jobs:
+    # Job to decide if we should run backend ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
+        runs-on: ubuntu-latest
+        name: Determine need to run backend checks
+        # Set job outputs to values from filter step
+        outputs:
+            backend: ${{ steps.filter.outputs.backend }}
+        steps:
+            # For pull requests it's not necessary to checkout the code, but we
+            # also want this to run on master so we need to checkout
+            - uses: actions/checkout@v2
+
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      backend:
+                        # Avoid running backend tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. We could make
+                        # the dependencies more clear if we separated the backend/frontend
+                        # code completely
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        # Make sure we run if someone is explicitly change the workflow
+                        - .github/workflows/ci-backend.yml
+
     backend-code-quality:
+        needs: changes
+        # Make sure we only run on backend changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Code quality checks
         runs-on: ubuntu-latest
 
@@ -60,12 +103,13 @@ jobs:
                   flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
 
             - name: Typecheck
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   mypy .
 
     django:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
 
@@ -79,7 +123,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse
+              run: docker-compose -f ee/docker-compose.ch.yml up -d db pgb clickhouse zookeeper kafka
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -99,48 +143,50 @@ jobs:
                   python -m pip install -r requirements.txt
 
             - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
-                  git diff --name-only origin/master..HEAD | grep migrations | python manage.py test_migrations_are_null
+                  git diff --name-only origin/master..HEAD | grep posthog/migrations | python manage.py test_migrations_are_null
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/
+                  pytest -m "not ee" posthog/ --cov --cov-report=xml:coverage-postgres.xml
             - name: Run EE tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
-                  SAML_DISABLED: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee -m "not saml_only"
+                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml
+                  pytest posthog -m "ee"
+            - uses: codecov/codecov-action@v2
+              with:
+                  files: ./coverage-postgres.xml,./coverage-clickhouse.xml
+                  fail_ci_if_error: false
+                  verbose: true
 
     saml:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – with SAML
         runs-on: ubuntu-latest
-
         steps:
             - uses: actions/checkout@v1
               with:
                   fetch-depth: 1
 
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse
+              run: docker-compose -f ee/docker-compose.ch.yml up -d db pgb clickhouse zookeeper kafka
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -163,9 +209,10 @@ jobs:
                   python -m pip install -r requirements.txt
                   python -m pip install python3-saml==1.12.0
 
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
             - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -174,19 +221,19 @@ jobs:
                   pytest -m "not ee" posthog/
             - name: Run EE tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
                   pytest ee/
+                  pytest posthog -m "ee"
 
     cloud:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – Cloud
         runs-on: ubuntu-latest
         steps:
@@ -206,7 +253,7 @@ jobs:
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
                   cat requirements.txt >> deploy/requirements.txt
             - name: Start stack with Docker Compose
-              run: docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse
+              run: docker-compose -f deploy/ee/docker-compose.ch.yml up -d db pgb clickhouse zookeeper kafka
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -227,8 +274,6 @@ jobs:
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   python deploy/manage.py migrate
                   rm -rf deploy
@@ -243,7 +288,7 @@ jobs:
                   cd deploy
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
 
             - name: Link posthog-cloud at current branch
               run: |
@@ -255,16 +300,15 @@ jobs:
                   cat requirements.txt >> deploy/requirements.txt
 
             - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   cd deploy
                   python manage.py makemigrations --check --dry-run
                   python manage.py migrate
 
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
             - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   cd deploy
                   mkdir -p frontend/dist
@@ -275,27 +319,23 @@ jobs:
 
             - name: Run cloud tests (posthog-cloud)
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
                   source .env.template
                   cd deploy
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
                   pytest ee -m "not skip_on_multitenancy"
+                  pytest posthog -m "ee and not skip_on_multitenancy"
 
     foss:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – FOSS
         runs-on: ubuntu-latest
 
@@ -336,13 +376,13 @@ jobs:
                   rm -rf ee/
 
             - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
               run: python manage.py makemigrations --check --dry-run
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Run tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
                   SAML_DISABLED: '1'
               run: |
                   mkdir -p frontend/dist

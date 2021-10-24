@@ -5,6 +5,10 @@ import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { NewPaths } from './NewPaths'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 // TODO: Replace with PathType enums when moving to TypeScript
 const PAGEVIEW = '$pageview'
@@ -87,13 +91,28 @@ function NoData() {
 const DEFAULT_PATHS_ID = 'default_paths'
 
 export function Paths({ dashboardItemId = null, filters = null, color = 'white' }) {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] ? (
+        <NewPaths dashboardItemId={dashboardItemId} filters={filters} color={color} />
+    ) : (
+        <OldPaths dashboardItemId={dashboardItemId} filters={filters} color={color} />
+    )
+}
+
+export function OldPaths({ dashboardItemId = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
+    const { insightProps } = useValues(insightLogic)
+    const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic(insightProps))
 
-    useEffect(() => {
-        renderPaths()
-    }, [paths, !pathsLoading, size, color])
+    useEffect(
+        () => {
+            renderPaths()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [paths, !pathsLoading, size, color]
+    )
 
     function renderPaths() {
         const elements = document

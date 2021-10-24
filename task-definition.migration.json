@@ -97,7 +97,7 @@
                     "value": "True"
                 },
                 {
-                    "name": "PLUGIN_SERVER_ACTION_MATCHING",
+                    "name": "MATERIALIZED_COLUMNS_ENABLED",
                     "value": "1"
                 },
                 {

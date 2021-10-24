@@ -1,15 +1,14 @@
 import datetime
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from posthog.models import Filter, SessionRecordingViewed, Team
+from posthog.models import Filter, SessionRecordingEvent, SessionRecordingViewed, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.sessions.session_recording import DistinctId
 from posthog.queries.sessions.session_recording import SessionRecording as BaseSessionRecording
-from posthog.queries.sessions.session_recording import Snapshots
 from posthog.queries.sessions.session_recording import join_with_session_recordings as _join_with_session_recordings
 
 OPERATORS = {"gt": ">", "lt": "<"}
@@ -72,13 +71,14 @@ SESSIONS_FOR_FUNNEL_PERSONS_QUERY = f"""
 
 
 class SessionRecording(BaseSessionRecording):
-    def query_recording_snapshots(
-        self, team: Team, session_id: str
-    ) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
-        response = sync_execute(SINGLE_RECORDING_QUERY, {"team_id": team.id, "session_id": session_id})
-        if len(response) == 0:
-            return None, None, []
-        return response[0][0], response[0][1], [json.loads(snapshot_data) for _, _, snapshot_data in response]
+    def query_recording_snapshots(self) -> List[SessionRecordingEvent]:
+        response = sync_execute(
+            SINGLE_RECORDING_QUERY, {"team_id": self._team.id, "session_id": self._session_recording_id,},
+        )
+        return [
+            SessionRecordingEvent(distinct_id=distinct_id, timestamp=timestamp, snapshot_data=json.loads(snapshot_data))
+            for distinct_id, timestamp, snapshot_data in response
+        ]
 
 
 def join_with_session_recordings(team: Team, sessions_results: List[Any], filter: SessionsFilter) -> List[Any]:

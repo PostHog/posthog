@@ -18,7 +18,7 @@ from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.stickiness import (
     stickiness_fetch_people,
     stickiness_format_intervals,
@@ -166,11 +166,9 @@ class CohortSerializer(serializers.ModelSerializer):
 
 
 class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -179,3 +177,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         queryset = queryset.annotate(count=Count("people"))
         return queryset.select_related("created_by").order_by("id")
+
+
+class LegacyCohortViewSet(CohortViewSet):
+    legacy_team_compatibility = True

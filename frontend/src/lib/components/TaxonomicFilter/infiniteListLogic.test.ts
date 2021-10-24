@@ -2,17 +2,23 @@ import { infiniteListLogic } from './infiniteListLogic'
 import { BuiltLogic } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { mockAPI } from 'lib/api.mock'
-import { initKeaTestLogic, expectLogic } from '~/test/kea-test-utils'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
+import { teamLogic } from '../../../scenes/teamLogic'
+import { AppContext } from '../../../types'
 
 jest.mock('lib/api')
+
+window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === 'api/projects/@current/event_definitions') {
+    mockAPI(async (url) => {
+        const { pathname, searchParams } = url
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {
             const results = searchParams.search
                 ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
                 : mockEventDefinitions
@@ -21,6 +27,11 @@ describe('infiniteListLogic', () => {
                 count: results.length,
             }
         }
+        return defaultAPIMocks(url)
+    })
+
+    initKeaTestLogic({
+        logic: teamLogic,
     })
 
     initKeaTestLogic({
@@ -111,5 +122,32 @@ describe('infiniteListLogic', () => {
                 expect.objectContaining({ name: 'event1' })
             ),
         ])
+    })
+})
+
+describe('infiniteListLogic with optionsFromProp', () => {
+    let logic: BuiltLogic<infiniteListLogicType>
+
+    initKeaTestLogic({
+        logic: infiniteListLogic,
+        props: {
+            taxonomicFilterLogicKey: 'testList',
+            listGroupType: TaxonomicFilterGroupType.Wildcards,
+            optionsFromProp: {
+                wildcard: [{ name: 'first' }, { name: 'second' }],
+            },
+        },
+        onLogic: (l) => (logic = l),
+    })
+
+    it('doesnt call loadRemoteItems on mount, loads results locally', async () => {
+        await expectLogic(logic)
+            .toDispatchActions([])
+            .toMatchValues({
+                results: expect.arrayContaining([
+                    expect.objectContaining({ name: 'first' }),
+                    expect.objectContaining({ name: 'second' }),
+                ]),
+            })
     })
 })

@@ -3,18 +3,22 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { PathStepPicker } from './PathTab/PathStepPicker'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
-    allFilters: FilterType
+    filters: FilterType
     activeView: ViewType
+    insightMode: ItemMode
     annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
@@ -76,12 +80,18 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
 }
 
 export function InsightDisplayConfig({
-    allFilters,
+    filters,
+    insightMode,
     activeView,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === ViewType.FUNNELS
-    const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(allFilters)
+    const showPathOptions = activeView === ViewType.PATHS
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const dateFilterDisabled =
+        (showFunnelBarOptions && isFunnelEmpty(filters)) ||
+        (!!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View)
 
     return (
         <div className="display-config-inner">
@@ -96,24 +106,30 @@ export function InsightDisplayConfig({
                                 clearAnnotationsToCreate()
                             }
                         }}
-                        filters={allFilters}
-                        disabled={allFilters.insight === ViewType.LIFECYCLE}
+                        filters={filters}
+                        disabled={filters.insight === ViewType.LIFECYCLE}
                     />
                 )}
-                {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
+                {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
-                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.Steps && (
+                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <FunnelDisplayLayoutPicker />
                         <FunnelStepReferencePicker />
                     </>
                 )}
 
-                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.TimeToConvert && (
+                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
                     <>
                         <FunnelBinsPicker />
+                    </>
+                )}
+
+                {showPathOptions && (
+                    <>
+                        <PathStepPicker />
                     </>
                 )}
 

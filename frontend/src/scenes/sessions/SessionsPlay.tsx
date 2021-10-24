@@ -49,7 +49,7 @@ export function SessionsPlay(): JSX.Element {
         session,
         sessionPlayerData,
         sessionPlayerDataLoading,
-        loadingNextRecording,
+        isPlayable,
         sessionDate,
         addingTagShown,
         addingTag,
@@ -61,9 +61,8 @@ export function SessionsPlay(): JSX.Element {
         shownPlayerEvents,
         shouldLoadSessionEvents,
     } = useValues(sessionsPlayLogic)
-    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious, loadSessionEvents } = useActions(
-        sessionsPlayLogic
-    )
+    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious, loadSessionEvents } =
+        useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
     const [playerTime, setCurrentPlayerTime] = useState(0)
@@ -72,8 +71,7 @@ export function SessionsPlay(): JSX.Element {
     const [recordingMetadata] = useMemo(() => eventIndex.getRecordingMetadata(playerTime), [eventIndex, playerTime])
     const activeIndex = useMemo(() => findCurrent(playerTime, shownPlayerEvents), [shownPlayerEvents, playerTime])[1]
 
-    const isLoadingSession = sessionPlayerDataLoading || loadingNextRecording
-    const isLoadingEvents = isLoadingSession || shouldLoadSessionEvents
+    const isLoadingEvents = !isPlayable || shouldLoadSessionEvents
 
     useEffect(() => {
         if (addingTagShown && addTagInput.current) {
@@ -81,11 +79,15 @@ export function SessionsPlay(): JSX.Element {
         }
     }, [addingTagShown])
 
-    useEffect(() => {
-        if (shouldLoadSessionEvents && session) {
-            loadSessionEvents(session)
-        }
-    }, [session])
+    useEffect(
+        () => {
+            if (shouldLoadSessionEvents && session) {
+                loadSessionEvents(session)
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [session]
+    )
 
     const seekEvent = (time: number): void => {
         setCurrentPlayerTime(time)
@@ -97,7 +99,7 @@ export function SessionsPlay(): JSX.Element {
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05" style={{ display: 'flex' }}>
-                        {isLoadingSession ? (
+                        {!isPlayable ? (
                             <Skeleton paragraph={{ rows: 0 }} active />
                         ) : (
                             <>
@@ -120,16 +122,19 @@ export function SessionsPlay(): JSX.Element {
                         )}
                     </div>
                     <div className="player-container">
-                        {isLoadingSession ? (
+                        {!isPlayable ? (
                             <Loading />
                         ) : (
                             <span className="ph-no-capture">
                                 <Player
-                                    ref={playerRef}
                                     events={sessionPlayerData?.snapshots || []}
+                                    ref={playerRef}
+                                    key="session-player"
                                     onPlayerTimeChange={setCurrentPlayerTime}
                                     onNext={showNext ? goToNext : undefined}
                                     onPrevious={showPrev ? goToPrevious : undefined}
+                                    duration={sessionPlayerData?.duration ?? 0}
+                                    isBuffering={sessionPlayerDataLoading}
                                 />
                             </span>
                         )}
@@ -138,7 +143,7 @@ export function SessionsPlay(): JSX.Element {
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
                         <h3 className="l3">Session Information</h3>
-                        {isLoadingSession ? (
+                        {!isPlayable ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 3 }} active />
                             </div>

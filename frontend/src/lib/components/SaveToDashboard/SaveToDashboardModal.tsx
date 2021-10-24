@@ -8,6 +8,7 @@ import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 const radioStyle: React.CSSProperties = {
     display: 'block',
@@ -35,7 +36,8 @@ export function SaveToDashboardModal({
     annotations,
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({ fromDashboard })
-    const { dashboards } = useValues(dashboardsModel)
+    const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { currentTeamId } = useValues(teamLogic)
     const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
     const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
@@ -43,15 +45,20 @@ export function SaveToDashboardModal({
     const [visible, setVisible] = useState(true)
     const [newItem, setNewItem] = useState(!fromItem)
     const fromDashboardName =
-        (fromDashboard ? dashboards.find((d) => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
+        (fromDashboard ? nameSortedDashboards.find((d) => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
 
     async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
         if (newItem) {
-            const response = await api.create('api/insight', { filters, name, saved: true, dashboard: dashboardId })
+            const response = await api.create(`api/projects/${currentTeamId}/insights`, {
+                filters,
+                name,
+                saved: true,
+                dashboard: dashboardId,
+            })
             if (annotations) {
                 for (const { content, date_marker, created_at, scope } of annotations) {
-                    await api.create('api/annotation', {
+                    await api.create(`api/projects/${currentTeamId}/annotations`, {
                         content,
                         date_marker: dayjs(date_marker),
                         created_at,
@@ -61,7 +68,7 @@ export function SaveToDashboardModal({
                 }
             }
         } else {
-            await api.update(`api/insight/${fromItem}`, { filters })
+            await api.update(`api/projects/${currentTeamId}/insights/${fromItem}`, { filters })
         }
         reportSavedInsightToDashboard()
         toast(
@@ -119,7 +126,7 @@ export function SaveToDashboardModal({
                             onChange={(id) => (id === 'new' ? addNewDashboard() : setDashboardId(id))}
                             style={{ width: '100%' }}
                         >
-                            {dashboards.map((dashboard) => (
+                            {nameSortedDashboards.map((dashboard) => (
                                 <Select.Option key={dashboard.id} value={dashboard.id}>
                                     {dashboard.name}
                                 </Select.Option>

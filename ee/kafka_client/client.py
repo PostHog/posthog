@@ -2,15 +2,15 @@ import io
 import json
 from typing import Any, Callable, Dict, Optional
 
-import kafka_helper
 from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
 from google.protobuf.json_format import MessageToJson
+from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
 
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.kafka_client import helper
 from ee.settings import KAFKA_ENABLED
-from posthog.settings import IS_HEROKU, KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
+from posthog.settings import KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
 
 
@@ -25,12 +25,33 @@ class TestKafkaProducer:
         return
 
 
+class TestKafkaConsumer:
+    def __init__(self, topic="test", max=0, **kwargs):
+        self.max = max
+        self.n = 0
+        self.topic = topic
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.n <= self.max:
+            self.n += 1
+            return f"message {self.n} from {self.topic} topic"
+        else:
+            raise StopIteration
+
+    def seek_to_beginning(self):
+        return
+
+    def seek_to_end(self):
+        return
+
+
 class _KafkaProducer:
-    def __init__(self):
-        if TEST:
+    def __init__(self, test=TEST):
+        if test:
             self.producer = TestKafkaProducer()
-        elif IS_HEROKU:
-            self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
         elif KAFKA_BASE64_KEYS:
             self.producer = helper.get_kafka_producer(value_serializer=lambda d: d)
         else:
@@ -56,9 +77,28 @@ class _KafkaProducer:
 KafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
+def build_kafka_consumer(
+    topic: str, value_deserializer=lambda v: json.loads(v.decode("utf-8")), auto_offset_reset="latest", test=TEST
+):
+    if test:
+        consumer = TestKafkaConsumer(topic=topic, auto_offset_reset=auto_offset_reset, max=10)
+    elif KAFKA_BASE64_KEYS:
+        consumer = helper.get_kafka_consumer(
+            topic=topic, auto_offset_reset=auto_offset_reset, value_deserializer=value_deserializer
+        )
+    else:
+        consumer = KC(
+            topic,
+            bootstrap_servers=KAFKA_HOSTS,
+            auto_offset_reset=auto_offset_reset,
+            value_deserializer=value_deserializer,
+        )
+    return consumer
+
+
 class ClickhouseProducer:
-    def __init__(self):
-        if KAFKA_ENABLED:
+    def __init__(self, kafka_enabled=KAFKA_ENABLED):
+        if kafka_enabled:
             self.send_to_kafka = True
             self.producer = KafkaProducer()
         else:

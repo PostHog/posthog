@@ -27,6 +27,8 @@ from posthog.models.filters.mixins.common import (
     ShownAsMixin,
 )
 from posthog.models.filters.mixins.funnel import (
+    FunnelCorrelationMixin,
+    FunnelCorrelationPersonsMixin,
     FunnelFromToStepsMixin,
     FunnelLayoutMixin,
     FunnelPersonsStepBreakdownMixin,
@@ -38,6 +40,7 @@ from posthog.models.filters.mixins.funnel import (
     HistogramMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 
 
 class Filter(
@@ -69,6 +72,9 @@ class Filter(
     FunnelLayoutMixin,
     FunnelTypeMixin,
     HistogramMixin,
+    FunnelCorrelationMixin,
+    FunnelCorrelationPersonsMixin,
+    SimplifyFilterMixin,
     BaseFilter,
 ):
     """
@@ -104,3 +110,7 @@ class Filter(
 
         self._data = data
         self.kwargs = kwargs
+
+        if "team" in kwargs and not self.is_simplified:
+            simplified_filter = self.simplify(kwargs["team"])
+            self._data = simplified_filter._data

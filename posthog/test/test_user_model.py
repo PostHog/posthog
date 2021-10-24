@@ -10,7 +10,6 @@ class TestUser(BaseTest):
         self.assertNotEqual(user.distinct_id, None)
 
     def test_analytics_metadata(self):
-
         # One org, one team, anonymized
         organization, team, user = User.objects.bootstrap(
             organization_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True,
@@ -42,16 +41,16 @@ class TestUser(BaseTest):
             )
 
         # Multiple teams, multiple members, completed onboarding
-        user = User.objects.create(email="test_org_2@posthog.com", email_opt_in=True)
-        OrganizationMembership.objects.create(user=user, organization=self.organization)
-        Team.objects.create(organization=self.organization)
         self.team.completed_snippet_onboarding = True
         self.team.ingested_event = True
         self.team.save()
+        team_2: Team = Team.objects.create(organization=self.organization)
+        user_2: User = User.objects.create(email="test_org_2@posthog.com", email_opt_in=True)
+        user_2.join(organization=self.organization)
 
         with self.settings(EE_AVAILABLE=False, MULTI_TENANCY=False):
             self.assertEqual(
-                user.get_analytics_metadata(),
+                user_2.get_analytics_metadata(),
                 {
                     "realm": "hosted",
                     "is_ee_available": False,
@@ -68,7 +67,7 @@ class TestUser(BaseTest):
                     "project_id": str(self.team.uuid),
                     "project_setup_complete": True,
                     "has_password_set": True,
-                    "joined_at": user.date_joined,
+                    "joined_at": user_2.date_joined,
                     "has_social_auth": False,
                     "social_providers": [],
                 },

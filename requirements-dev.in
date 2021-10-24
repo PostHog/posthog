@@ -4,7 +4,7 @@
 # is important as otherwise we could be running tests with different versions
 # than production.
 
--c requirements.txt 
+-c requirements.txt
 
 flake8>=3.8 # match minimum version to oldest Python version that PostHog currently supports
 flake8-bugbear
@@ -27,3 +27,5 @@ isort
 pytest
 pytest-django
 pytest-mock
+pytest-cov
+syrupy

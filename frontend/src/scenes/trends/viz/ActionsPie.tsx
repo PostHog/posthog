@@ -8,18 +8,18 @@ import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, TrendResultWithAggregate } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ActionsPie({
     dashboardItemId,
-    view,
     filters: filtersParam,
     color = 'white',
-    cachedResults,
     inSharedMode,
 }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
-    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
+    const { insightProps } = useValues(insightLogic)
+    const logic = trendsLogic(insightProps)
     const { loadPeople } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
@@ -47,11 +47,15 @@ export function ActionsPie({
         setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
-    useEffect(() => {
-        if (results) {
-            updateData()
-        }
-    }, [results, color])
+    useEffect(
+        () => {
+            if (results) {
+                updateData()
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [results, color]
+    )
 
     return data ? (
         data[0] && data[0].labels ? (

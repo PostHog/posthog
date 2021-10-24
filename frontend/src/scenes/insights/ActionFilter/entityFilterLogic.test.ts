@@ -7,30 +7,29 @@ import {
     LocalFilter,
     toLocalFilters,
 } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 
 jest.mock('lib/api')
 
 describe('entityFilterLogic', () => {
     let logic: BuiltLogic<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === 'api/action/') {
+    mockAPI(async (url) => {
+        const { pathname } = url
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/actions/`) {
             return {
                 results: filtersJson.actions,
             }
         } else if (pathname === 'api/projects/@current/event_definitions/') {
             return eventDefinitionsJson
-        } else if (pathname === '_preflight/') {
-            return { is_clickhouse_enabled: true }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({
@@ -44,7 +43,7 @@ describe('entityFilterLogic', () => {
     })
 
     describe('core assumptions', () => {
-        it('mounts all sorts of logics', async () => {
+        it('mounts other logics', async () => {
             await expectLogic(logic).toMount([actionsModel])
         })
 
@@ -55,26 +54,56 @@ describe('entityFilterLogic', () => {
         })
     })
 
-    it('renames an entity with a custom name', async () => {
-        const filterWithCustomName = {
-            id: '$pageview',
-            name: '$pageview',
-            custom_name: 'Custom event name',
-            order: 0,
-        }
-
-        await expectLogic(logic, () => {
-            logic.actions.renameFilter(filterWithCustomName)
-        }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
-
-        expect(logic.props.setFilters).toBeCalledWith(
-            expect.objectContaining({
-                events: expect.arrayContaining([
-                    expect.objectContaining({
-                        custom_name: filterWithCustomName.custom_name,
-                    }),
-                ]),
+    describe('renaming filters', () => {
+        it('renames successfully', async () => {
+            // Select a filter to rename first
+            await expectLogic(logic, () => {
+                logic.actions.selectFilter({
+                    id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                })
             })
-        )
+
+            await expectLogic(logic, () => {
+                logic.actions.renameFilter('Custom event name')
+            }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
+
+            expect(logic.props.setFilters).toBeCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({
+                            custom_name: 'Custom event name',
+                        }),
+                    ]),
+                })
+            )
+        })
+
+        it('closes modal after renaming', () => {
+            expectLogic(logic, () => {
+                logic.actions.renameFilter('Custom event name')
+            })
+                .toDispatchActions(['renameFilter', 'hideModal'])
+                .toMatchValues({ modalVisible: false })
+        })
+    })
+
+    describe('modal behavior', () => {
+        it('hides modal', () => {
+            expectLogic(logic, () => {
+                logic.actions.hideModal()
+            })
+                .toDispatchActions(['hideModal'])
+                .toMatchValues({ modalVisible: false })
+        })
+
+        it('shows modal', () => {
+            expectLogic(logic, () => {
+                logic.actions.showModal()
+            })
+                .toDispatchActions(['showModal'])
+                .toMatchValues({ modalVisible: true })
+        })
     })
 })

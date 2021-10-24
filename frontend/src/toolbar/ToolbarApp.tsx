@@ -7,10 +7,12 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { EditorProps } from '~/types'
 import { Slide, ToastContainer } from 'react-toastify'
 
+type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
+
 export function ToolbarApp(props: EditorProps = {}): JSX.Element {
     useMountedLogic(toolbarLogic(props))
 
-    const shadowRef = useRef(null as null | { shadowRoot: ShadowRoot })
+    const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
 
     // this runs after the shadow root has been added to the dom
     const didRender = useSecondRender(() => {
@@ -21,7 +23,7 @@ export function ToolbarApp(props: EditorProps = {}): JSX.Element {
         }
 
         // add styles that webpack has rendered until now
-        const styles = (((window as any)['__PHGTLB_STYLES__'] || []) as unknown) as HTMLStyleElement[]
+        const styles = ((window as any)['__PHGTLB_STYLES__'] || []) as unknown as HTMLStyleElement[]
         if (styles) {
             styles.forEach((element) => addStyleElementToShadowRoot(element))
         }

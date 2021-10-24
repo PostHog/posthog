@@ -29,7 +29,7 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 }
 
 export function ActionsTable(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamId } = useValues(teamLogic)
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
     const [searchTerm, setSearchTerm] = useState('')
@@ -152,7 +152,7 @@ export function ActionsTable(): JSX.Element {
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo
-                            endpoint="action"
+                            endpoint={`projects/${currentTeamId}/actions`}
                             object={action}
                             className="text-danger"
                             style={{ marginLeft: 8, marginRight: 8 }}
@@ -223,7 +223,7 @@ export function ActionsTable(): JSX.Element {
                         <div>
                             <div className="title">Retroactive</div>
                             <div className="description">
-                                We'll retroactive update your actions to match any past events.
+                                We'll retroactively update your actions to match any past events.
                             </div>
                         </div>
                     </div>

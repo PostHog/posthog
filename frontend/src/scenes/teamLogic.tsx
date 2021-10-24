@@ -6,6 +6,8 @@ import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
 import { identifierToHuman, resolveWebhookService } from 'lib/utils'
+import { organizationLogic } from './organizationLogic'
+import { getAppContext } from '../lib/utils/getAppContext'
 
 export const teamLogic = kea<teamLogicType>({
     actions: {
@@ -75,10 +77,32 @@ export const teamLogic = kea<teamLogicType>({
                     return patchedTeam
                 },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
-                resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
+                resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
     }),
+    selectors: {
+        currentTeamId: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
+        ],
+        isCurrentTeamUnavailable: [
+            (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
+            // If project has been loaded and is still null, it means the user just doesn't have access.
+            (currentTeam, currentTeamLoading): boolean => !currentTeam && !currentTeamLoading,
+        ],
+        demoOnlyProject: [
+            (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
+            (currentTeam, currentOrganization): boolean =>
+                (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
+        ],
+        pathCleaningFiltersWithNew: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): Record<string, any>[] => {
+                return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
+            },
+        ],
+    },
     listeners: ({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {
@@ -97,6 +121,16 @@ export const teamLogic = kea<teamLogicType>({
         },
     }),
     events: ({ actions }) => ({
-        afterMount: [actions.loadCurrentTeam],
+        afterMount: () => {
+            const appContext = getAppContext()
+            const contextualTeam = appContext?.current_team
+            if (contextualTeam) {
+                // If app context is available (it should be practically always) we can immediately know currentTeam
+                actions.loadCurrentTeamSuccess(contextualTeam)
+            } else {
+                // If app context is not available, a traditional request is needed
+                actions.loadCurrentTeam()
+            }
+        },
     }),
 })

@@ -2,25 +2,22 @@ import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogicType } from './userLogicType'
-import { UserType } from '~/types'
+import { AvailableFeature, UserType } from '~/types'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { teamLogic } from './teamLogic'
 
 export const userLogic = kea<userLogicType>({
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
-    }),
-    selectors: ({ selectors }) => ({
-        demoOnlyProject: [
-            () => [selectors.user],
-            (user): boolean =>
-                (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
-        ],
     }),
     loaders: ({ values, actions }) => ({
         user: [
@@ -81,7 +78,7 @@ export const userLogic = kea<userLogicType>({
                     })
 
                     posthog.register({
-                        is_demo_project: user.team?.is_demo,
+                        is_demo_project: teamLogic.values.currentTeam?.is_demo,
                     })
                 }
             }
@@ -115,6 +112,14 @@ export const userLogic = kea<userLogicType>({
             window.location.href = destination || '/'
         },
     }),
+    selectors: {
+        hasAvailableFeature: [
+            (s) => [s.user],
+            (user) => {
+                return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
+            },
+        ],
+    },
     events: ({ actions }) => ({
         afterMount: () => {
             const preloadedUser = getAppContext()?.current_user

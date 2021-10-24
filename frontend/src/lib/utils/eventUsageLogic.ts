@@ -17,10 +17,13 @@ import {
     ViewType,
     InsightType,
     PropertyFilter,
+    SessionPlayerData,
+    AvailableFeature,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonModalParams } from 'scenes/trends/personsModalLogic'
+import { EventIndex } from '@posthog/react-rrweb-player'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -46,6 +49,25 @@ export enum InsightEventSource {
     Toast = 'toast',
     Browser = 'browser',
     AddDescription = 'add_insight_description',
+}
+
+export enum RecordingWatchedSource {
+    Direct = 'direct', // Visiting the URL directly
+    Unknown = 'unknown',
+    RecordingsList = 'recordings_list', // New recordings list page
+    SessionsList = 'sessions_list', // DEPRECATED sessions list page
+    SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
+}
+
+interface RecordingViewedProps {
+    delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
+    load_time: number // How much time it took to load the session (backend) (milliseconds)
+    duration: number // How long is the total recording (milliseconds)
+    start_time?: string // Start time of the session
+    page_change_events_length: number
+    recording_width?: number
+    user_is_identified?: boolean
+    source: RecordingWatchedSource
 }
 
 function flattenProperties(properties: PropertyFilter[]): string[] {
@@ -114,7 +136,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
+export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, RecordingWatchedSource>>({
     connect: [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -123,12 +145,14 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             filters: Partial<FilterType>,
             isFirstLoad: boolean,
             fromDashboard: boolean,
-            delay?: number
+            delay?: number,
+            changedFilters?: Record<string, any>
         ) => ({
             filters,
             isFirstLoad,
             fromDashboard,
             delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            changedFilters,
         }),
         reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
             params,
@@ -164,6 +188,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             success,
             error,
         }),
+        reportFunnelStepReordered: true,
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -229,6 +254,14 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
+        reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
+        reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
+        reportRecordingViewed: (
+            recordingData: SessionPlayerData,
+            source: RecordingWatchedSource,
+            loadTime: number,
+            delay: number
+        ) => ({ recordingData, source, loadTime, delay }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -287,7 +320,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay }, breakpoint) => {
+        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay, changedFilters }, breakpoint) => {
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
             }
@@ -329,7 +362,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             } else if (insight === 'RETENTION') {
                 properties.period = filters.period
                 properties.date_to = filters.date_to
-                properties.retention_type = filters.retentionType
+                properties.retention_type = filters.retention_type
                 const cohortizingEvent = filters.target_entity
                 const retainingEvent = filters.returning_entity
                 properties.same_retention_and_cohortizing_event =
@@ -342,8 +375,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             }
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
-
-            posthog.capture(eventName, properties)
+            posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
         },
         reportPersonModalViewed: async ({ params, count, hasNext }) => {
             const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
@@ -443,6 +475,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 success: success,
                 error: error,
             })
+        },
+        reportFunnelStepReordered: async () => {
+            posthog.capture('funnel step reordered')
         },
         reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`person property ${action}`, {
@@ -566,6 +601,25 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         },
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
+        },
+        reportRecordingViewed: ({ recordingData, source, loadTime, delay }) => {
+            const eventIndex = new EventIndex(recordingData?.snapshots || [])
+            const payload: Partial<RecordingViewedProps> = {
+                load_time: loadTime,
+                duration: eventIndex.getDuration(),
+                start_time: recordingData?.start_time,
+                page_change_events_length: eventIndex.pageChangeEvents().length,
+                recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
+                user_is_identified: recordingData.person?.is_identified,
+                source: source,
+            }
+            posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, payload)
+        },
+        reportPayGateShown: (props) => {
+            posthog.capture('pay gate shown', props)
+        },
+        reportPayGateDismissed: (props) => {
+            posthog.capture('pay gate dismissed', props)
         },
     },
 })

@@ -1,6 +1,7 @@
 import uuid
 from unittest.mock import patch
 
+from django.utils.text import slugify
 from rest_framework import status
 
 from posthog.models import Team, User
@@ -65,8 +66,12 @@ class TestUserAPI(APIBaseTest):
         self.assertCountEqual(
             response_data["organizations"],
             [
-                {"id": str(self.organization.id), "name": self.organization.name},
-                {"id": str(self.new_org.id), "name": "New Organization"},
+                {
+                    "id": str(self.organization.id),
+                    "name": self.organization.name,
+                    "slug": slugify(self.organization.name),
+                },
+                {"id": str(self.new_org.id), "name": "New Organization", "slug": "new-organization"},
             ],
         )
 

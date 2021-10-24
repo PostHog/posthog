@@ -19,8 +19,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 function EnabledDisabledSwitch({
     value,
@@ -52,34 +50,31 @@ export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
-    const {
-        editPlugin,
-        savePluginConfig,
-        uninstallPlugin,
-        setEditingSource,
-        generateApiKeysIfNeeded,
-        patchPlugin,
-    } = useActions(pluginsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded, patchPlugin } =
+        useActions(pluginsLogic)
 
     const [form] = Form.useForm()
 
     const [invisibleFields, setInvisibleFields] = useState<string[]>([])
     const [requiredFields, setRequiredFields] = useState<string[]>([])
 
-    useEffect(() => {
-        if (editingPlugin) {
-            form.setFieldsValue({
-                ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
-                __enabled: editingPlugin.pluginConfig.enabled,
-                ...editingPluginInitialChanges,
-            })
-            generateApiKeysIfNeeded(form)
-        } else {
-            form.resetFields()
-        }
-        updateInvisibleAndRequiredFields()
-    }, [editingPlugin?.id, editingPlugin?.config_schema])
+    useEffect(
+        () => {
+            if (editingPlugin) {
+                form.setFieldsValue({
+                    ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
+                    __enabled: editingPlugin.pluginConfig.enabled,
+                    ...editingPluginInitialChanges,
+                })
+                generateApiKeysIfNeeded(form)
+            } else {
+                form.resetFields()
+            }
+            updateInvisibleAndRequiredFields()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [editingPlugin?.id, editingPlugin?.config_schema]
+    )
 
     const updateInvisibleAndRequiredFields = (): void => {
         determineAndSetInvisibleFields()
@@ -302,12 +297,12 @@ export function PluginDrawer(): JSX.Element {
                                 </>
                             ) : null}
 
-                            {featureFlags[FEATURE_FLAGS.PLUGINS_UI_JOBS] && editingPlugin.pluginConfig.id ? (
+                            {editingPlugin.pluginConfig.id && (
                                 <PluginJobOptions
                                     plugin={editingPlugin}
                                     pluginConfigId={editingPlugin.pluginConfig.id}
                                 />
-                            ) : null}
+                            )}
 
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration

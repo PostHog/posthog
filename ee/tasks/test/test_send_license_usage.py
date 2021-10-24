@@ -21,20 +21,31 @@ def _create_event(**kwargs):
 
 class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthoganalytics.capture")
     @patch("requests.post")
-    def test_send_license_usage(self, mock_post):
+    def test_send_license_usage(self, mock_post, mock_capture):
         team2 = Team.objects.create(organization=self.organization)
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
+        _create_event(
+            event="$$internal_metrics_shouldnt_be_billed",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
         _create_event(event="$pageview", team=team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
 
         send_license_usage()
-
         mock_post.assert_called_once_with(
             "https://license.posthog.com/licenses/usage",
             data={"date": "2021-10-09", "key": self.license.key, "events_count": 3},
+        )
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "send license usage data",
+            {"date": "2021-10-09", "events_count": 3, "license_keys": ["enterprise"], "organization_name": "Test"},
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
@@ -45,12 +56,20 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
+        _create_event(
+            event="$$internal_metrics_shouldnt_be_billed",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
         _create_event(event="$pageview", team=team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
 
         send_license_usage()
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "send license usage data error", {"error": "", "date": "2021-10-09"}
+            self.user.distinct_id,
+            "send license usage data error",
+            {"error": "", "date": "2021-10-09", "organization_name": "Test"},
         )
 
 

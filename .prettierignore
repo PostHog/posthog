@@ -1,0 +1,15 @@
+venv
+env
+.venv
+__pycache__/
+staticfiles
+.env
+*.code-workspace
+frontend/.cache/
+.mypy_cache
+frontend/dist/
+*Type.ts
+.idea
+.yalc
+.python-version
+storybook-static

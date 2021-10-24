@@ -14,7 +14,7 @@ export function EventsTableSnippet(): JSX.Element {
             title: 'Person',
             key: 'person',
             render: function renderPerson({ person }: { person: PersonType }) {
-                return person ? <PersonHeader person={person} /> : { props: { colSpan: 0 } }
+                return person ? <PersonHeader withIcon person={person} /> : { props: { colSpan: 0 } }
             },
         },
         {

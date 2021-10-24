@@ -37,10 +37,10 @@ class ClickhouseTestEventApi(
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
         patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d")]
-        response = self.client.get("/api/event/").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(patch_sync_execute.call_count, 2)
 
         patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d") for _ in range(0, 100)]
-        response = self.client.get("/api/event/").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(patch_sync_execute.call_count, 3)

@@ -3,7 +3,7 @@ import gzip
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Union
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
@@ -12,10 +12,14 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.constants import ENVIRONMENT_TEST
+from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import BaseTest
+
+
+def mocked_get_team_from_token(_: Any) -> None:
+    raise Exception("test exception")
 
 
 class TestCapture(BaseTest):
@@ -53,7 +57,6 @@ class TestCapture(BaseTest):
             "sent_at": sent_at,
         }
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_capture_event(self, patch_process_event_with_plugins):
         data = {
@@ -86,41 +89,54 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_test_api_key(self, patch_process_event_with_plugins):
-        api_token = "test_" + self.team.api_token
-        data: Dict[str, Any] = {
+    @patch("posthog.api.capture.configure_scope")
+    @patch("posthog.api.capture.celery_app.send_task", MagicMock())
+    def test_capture_event_adds_library_to_sentry(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        data = {
             "event": "$autocapture",
             "properties": {
+                "$lib": "web",
+                "$lib_version": "1.14.1",
                 "distinct_id": 2,
-                "token": api_token,
+                "token": self.team.api_token,
                 "$elements": [
                     {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
                     {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
                 ],
             },
         }
-        now = timezone.now()
-        with freeze_time(now):
-            with self.assertNumQueries(1):
-                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
-        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = self._to_arguments(patch_process_event_with_plugins)
-        arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
-        self.assertDictEqual(
-            arguments,
-            {
-                "distinct_id": "2",
-                "ip": "127.0.0.1",
-                "site_url": "http://testserver",
-                "data": {**data, "properties": {**data["properties"], "$environment": ENVIRONMENT_TEST}},
-                "team_id": self.team.pk,
-            },
-        )
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+            )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
+        mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
+
+    @patch("posthog.api.capture.configure_scope")
+    @patch("posthog.api.capture.celery_app.send_task", MagicMock())
+    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+            )
+
+        mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
+
     @patch("posthog.api.capture.celery_app.send_task")
     def test_personal_api_key(self, patch_process_event_with_plugins):
         key = PersonalAPIKey(label="X", user=self.user)
@@ -156,7 +172,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_personal_api_key_from_batch_request(self, patch_process_event_with_plugins):
         # Originally issue POSTHOG-2P8
@@ -206,7 +221,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_multiple_events(self, patch_process_event_with_plugins):
         self.client.post(
@@ -223,7 +237,6 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(patch_process_event_with_plugins.call_count, 2)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_emojis_in_text(self, patch_process_event_with_plugins):
         self.team.api_token = "xp9qT2VLY76JJg"
@@ -242,7 +255,6 @@ class TestCapture(BaseTest):
             "💻 Writing code",
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_js_gzip(self, patch_process_event_with_plugins):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
@@ -260,7 +272,6 @@ class TestCapture(BaseTest):
             patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["prop"], "💻 Writing code",
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_js_gzip_with_no_content_type(self, patch_process_event_with_plugins):
         "IE11 sometimes does not send content_type"
@@ -280,7 +291,6 @@ class TestCapture(BaseTest):
             patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["prop"], "💻 Writing code",
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_invalid_gzip(self, patch_process_event_with_plugins):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
@@ -300,7 +310,6 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_invalid_lz64(self, patch_process_event_with_plugins):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
@@ -317,7 +326,6 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_incorrect_padding(self, patch_process_event_with_plugins):
         response = self.client.get(
@@ -328,7 +336,6 @@ class TestCapture(BaseTest):
         self.assertEqual(response.json()["status"], 1)
         self.assertEqual(patch_process_event_with_plugins.call_args[1]["args"][3]["event"], "whatevefr")
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_empty_request_returns_an_error(self, patch_process_event_with_plugins):
         """
@@ -345,7 +352,6 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_batch(self, patch_process_event_with_plugins):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
@@ -366,7 +372,26 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_batch_with_invalid_event(self, patch_process_event_with_plugins):
+        data = [
+            {"type": "capture", "event": "event1", "distinct_id": "2"},
+            {"type": "capture", "event": "event2"},  # invalid
+            {"type": "capture", "event": "event3", "distinct_id": "2"},
+            {"type": "capture", "event": "event4", "distinct_id": "2"},
+            {"type": "capture", "event": "event5", "distinct_id": "2"},
+        ]
+        response = self.client.post(
+            "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json",
+        )
+
+        # We should return a 200 but not process the invalid event
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_process_event_with_plugins.call_count, 4)
+
+        events_processed = [call.kwargs["args"][3]["event"] for call in patch_process_event_with_plugins.call_args_list]
+        self.assertEqual(events_processed, ["event1", "event3", "event4", "event5"])  # event2 not processed
+
     @patch("posthog.api.capture.celery_app.send_task")
     def test_batch_gzip_header(self, patch_process_event_with_plugins):
         data = {
@@ -396,7 +421,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_batch_gzip_param(self, patch_process_event_with_plugins):
         data = {
@@ -425,7 +449,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_batch_lzstring(self, patch_process_event_with_plugins):
         data = {
@@ -504,22 +527,25 @@ class TestCapture(BaseTest):
             ),
         )
 
-    def test_batch_distinct_id_not_set(self):
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_batch_distinct_id_not_set(self, statsd_incr):
         response = self.client.post(
             "/batch/",
             data={"api_key": self.team.api_token, "batch": [{"type": "capture", "event": "user signed up",},],},
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            self.validation_error_response(
-                "You need to set user distinct ID field `distinct_id`.", code="required", attr="distinct_id"
-            ),
-        )
+        # An invalid distinct ID will not return an error code, instead we will capture an exception
+        # and will not ingest the event
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
+        # endpoint success metric + missing ID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
+        self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_distinct_id"}})
+
     @patch("posthog.api.capture.celery_app.send_task")
     def test_engage(self, patch_process_event_with_plugins):
         response = self.client.get(
@@ -548,7 +574,6 @@ class TestCapture(BaseTest):
             {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_python_library(self, patch_process_event_with_plugins):
         self.client.post(
@@ -561,7 +586,6 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["team_id"], self.team.pk)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_base64_decode_variations(self, patch_process_event_with_plugins):
         base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
@@ -587,7 +611,6 @@ class TestCapture(BaseTest):
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_js_library_underscore_sent_at(self, patch_process_event_with_plugins):
         now = timezone.now()
@@ -617,7 +640,6 @@ class TestCapture(BaseTest):
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_long_distinct_id(self, patch_process_event_with_plugins):
         now = timezone.now()
@@ -638,7 +660,6 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(len(arguments["distinct_id"]), 200)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_sent_at_field(self, patch_process_event_with_plugins):
         now = timezone.now()
@@ -677,7 +698,8 @@ class TestCapture(BaseTest):
             ),
         )
 
-    def test_nan(self):
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_distinct_id_nan(self, statsd_incr):
         response = self.client.post(
             "/track/",
             data={
@@ -686,28 +708,54 @@ class TestCapture(BaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            self.validation_error_response(
-                "Distinct ID field `distinct_id` must have a non-empty value.", code="required", attr="distinct_id"
-            ),
-        )
+        # An invalid distinct ID will not return an error code, instead we will capture an exception
+        # and will not ingest the event
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_distinct_id_set_but_null(self):
+        # endpoint success metric + invalid ID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
+        self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "invalid_distinct_id"}})
+
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_distinct_id_set_but_null(self, statsd_incr):
         response = self.client.post(
             "/e/",
             data={"api_key": self.team.api_token, "type": "capture", "event": "user signed up", "distinct_id": None},
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            self.validation_error_response(
-                "Distinct ID field `distinct_id` must have a non-empty value.", code="required", attr="distinct_id"
-            ),
+        # An invalid distinct ID will not return an error code, instead we will capture an exception
+        # and will not ingest the event
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # endpoint success metric + invalid ID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
+        self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "invalid_distinct_id"}})
+
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_event_name_missing(self, statsd_incr):
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "type": "capture", "event": "", "distinct_id": "a valid id"},
+            content_type="application/json",
         )
+
+        # An invalid distinct ID will not return an error code, instead we will capture an exception
+        # and will not ingest the event
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # endpoint success metric + invalid ID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
+        self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_event_name"}})
 
     @patch("posthog.api.capture.celery_app.send_task")
     def test_add_feature_flags_if_missing(self, patch_process_event_with_plugins) -> None:
@@ -775,3 +823,27 @@ class TestCapture(BaseTest):
                 "attr": None,
             },
         )
+
+    # On CH deployments the events sent would be added to a Kafka dead letter queue
+    # On Postgres deployments we return a 503: Service Unavailable, and capture an
+    # exception in Sentry
+    @patch("statshog.defaults.django.statsd.incr")
+    @patch("sentry_sdk.capture_exception")
+    @patch("posthog.models.Team.objects.get_team_from_token", side_effect=mocked_get_team_from_token)
+    def test_fetch_team_failure(self, get_team_from_token, capture_exception, statsd_incr):
+        response = self.client.post(
+            "/track/",
+            data={
+                "data": json.dumps(
+                    {"event": "some event", "properties": {"distinct_id": "valid id", "token": self.team.api_token,},},
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        # self.assertEqual(capture_exception.call_count, 1)
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.json()["code"], "fetch_team_fail")
+
+        self.assertEqual(get_team_from_token.call_args.args[0], "token123")
+        self.assertEqual(statsd_incr.call_args.args[0], "posthog_cloud_raw_endpoint_exception")

@@ -52,6 +52,7 @@ def get_list(text: str) -> List[str]:
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_from_env("DEBUG", False, type_cast=str_to_bool)
+DEBUG_QUERIES = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 TEST = (
     "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=str_to_bool)
 )  # type: bool
@@ -63,21 +64,27 @@ if E2E_TESTING:
         ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
     )
 
-# These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
+# These flags will be force-enabled on the frontend **and OVERRIDE all** flags from `/decide`
 # The features here are released, but the flags are just not yet removed from the code.
 # To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
 env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
 PERSISTED_FEATURE_FLAGS = []
-if env_feature_flags != "0" and env_feature_flags.lower() != "false":
+if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEBUG:
     PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
         # Add hard-coded feature flags for static releases here
+        "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
+        "5440-multivariate-support",
+        "6063-rename-filters",
+        "4141-event-columns",
+        "new-paths-ui",
+        "new-paths-ui-edge-weights",
     ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
 
-SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234/")
@@ -92,7 +99,6 @@ PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
 ).split(",") if not DISABLE_MMDB else []
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
-PLUGIN_SERVER_ACTION_MATCHING = get_from_env("PLUGIN_SERVER_ACTION_MATCHING", 2, type_cast=int)
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
@@ -183,8 +189,6 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_port = "8443"
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
-
-IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=str_to_bool)
 
 # Kafka configs
 KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
@@ -337,7 +341,7 @@ SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
-AUTHENTICATION_BACKENDS = [
+AUTHENTICATION_BACKENDS: List[str] = [
     "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
@@ -464,17 +468,7 @@ if not REDIS_URL:
 # NB! This is set to explicitly exclude the "posthog-plugins" queue, handled by a nodejs process
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
-CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
-
-if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
-    try:
-        from ee.apps import EnterpriseConfig  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
-        CELERY_IMPORTS.append("ee.tasks.materialized_columns")
-
+CELERY_IMPORTS = ["ee.tasks.materialized_columns"] if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE and EE_AVAILABLE else []
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
@@ -484,6 +478,7 @@ REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
+SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relatively short because cached result is used throughout the duration a session recording loads.
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -491,6 +486,8 @@ TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached r
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
+
+PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
 # shell_plus settings
 # https://django-extensions.readthedocs.io/en/latest/shell_plus.html
@@ -608,7 +605,7 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
         (
             "You are using the default SECRET_KEY in a production environment!",
             "For the safety of your instance, you must generate and set a unique key.",
-            "More information on https://posthog.com/docs/deployment/securing-posthog#secret-key",
+            "More information on https://posthog.com/docs/self-host/configure/securing-posthog",
         )
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
@@ -642,3 +639,6 @@ LOGGING = {
         "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
     },
 }
+
+# keep in sync with plugin-server
+EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"

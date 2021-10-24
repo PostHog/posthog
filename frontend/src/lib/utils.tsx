@@ -189,6 +189,26 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
     )
 }
 
+export function successToast(title?: string, message?: string): void {
+    /**
+     * Shows a standardized success message.
+     * @param title Title message of the toast
+     * @param message Body message on the toast
+     */
+    setTimeout(
+        () =>
+            toast.success(
+                <div data-attr="success-toast">
+                    <h1>
+                        <ExclamationCircleOutlined /> {title || 'Success!'}
+                    </h1>
+                    <p>{message || 'Your action was completed successfully.'}</p>
+                </div>
+            ),
+        100
+    )
+}
+
 export function Loading(props: Record<string, any>): JSX.Element {
     return (
         <div className="loading-overlay" style={props.style}>
@@ -366,11 +386,26 @@ export function formatLabel(label: string, action: ActionFilter): string {
             )
             .join(', ')})`
     }
-    return label
+    return label.trim()
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
+}
+
+/** Returns "response" from: obj2 = { ...obj1, ...response }  */
+export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
+    const response: Record<string, any> = { ...obj2 }
+    for (const key of Object.keys(obj1)) {
+        if (key in response) {
+            if (obj1[key] === response[key]) {
+                delete response[key]
+            }
+        } else {
+            response[key] = undefined
+        }
+    }
+    return response
 }
 
 export function idToKey(array: Record<string, any>[], keyField: string = 'id'): Record<string, any> {
@@ -556,7 +591,8 @@ export function isURL(input: any): boolean {
         return false
     }
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
-    const regexp = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
+    const regexp =
+        /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
     return !!input.match?.(regexp)
 }
 
@@ -565,7 +601,8 @@ export function isEmail(string: string): boolean {
         return false
     }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
-    const regexp = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+    const regexp =
+        /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
@@ -1078,4 +1115,8 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
     } catch (error) {
         return Promise.reject('Not valid JSON!')
     }
+}
+
+export function ensureStringIsNotBlank(s?: string | null): string | null {
+    return typeof s === 'string' && s.trim() !== '' ? s : null
 }

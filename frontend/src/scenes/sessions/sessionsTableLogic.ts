@@ -7,6 +7,10 @@ import { sessionsTableLogicType } from './sessionsTableLogicType'
 import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from '../teamLogic'
 
 type SessionRecordingId = string
 
@@ -21,6 +25,7 @@ interface Params {
     prev?: string
     sessionRecordingId?: SessionRecordingId
     filters?: Array<SessionsPropertyFilter>
+    source?: RecordingWatchedSource
 }
 
 export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>>({
@@ -46,7 +51,9 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                     properties: values.properties,
                 })
                 await breakpoint(10)
-                const response = await api.get(`api/event/sessions/?${params}`)
+                const response = await api.get(
+                    `api/projects/${teamLogic.values.currentTeamId}/events/sessions/?${params}`
+                )
                 breakpoint()
                 actions.setPagination(response.pagination)
                 return response.result
@@ -64,7 +71,11 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             properties,
             selectedDate,
         }),
-        setSessionRecordingId: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
+        setSessionRecordingId: (sessionRecordingId: SessionRecordingId | null, source?: RecordingWatchedSource) => ({
+            sessionRecordingId,
+            source,
+        }),
+        closeSessionPlayer: true,
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
         setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
@@ -199,7 +210,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 filters: values.filters,
                 properties: values.properties,
             })
-            const response = await api.get(`api/event/sessions/?${params}`)
+            const response = await api.get(`api/projects/${teamLogic.values.currentTeamId}/events/sessions/?${params}`)
             breakpoint()
             actions.setPagination(response.pagination)
             actions.appendNewSessions(response.result)
@@ -229,7 +240,9 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
 
                 await breakpoint(200)
 
-                const response = await api.get(`api/event/session_events?${toParams(params)}`)
+                const response = await api.get(
+                    `api/projects/${teamLogic.values.currentTeamId}/events/session_events?${toParams(params)}`
+                )
                 actions.addSessionEvents(session, response.result)
             }
         },
@@ -272,7 +285,8 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         return {
             setFilters: () => buildURL({}, true),
             loadSessions: () => buildURL({}, true),
-            setSessionRecordingId: () => buildURL(),
+            setSessionRecordingId: ({ source }) => buildURL({ source }),
+            closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
     },
     urlToAction: ({ actions, values }) => {
@@ -290,7 +304,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             }
 
             if (params.sessionRecordingId !== values.sessionRecordingId) {
-                actions.setSessionRecordingId(params.sessionRecordingId ?? null)
+                actions.setSessionRecordingId(
+                    params.sessionRecordingId ?? null,
+                    params.source || RecordingWatchedSource.Direct
+                )
             }
 
             if (JSON.stringify(params.filters || {}) !== JSON.stringify(values.filters)) {
@@ -301,7 +318,14 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
 
         return {
             '/sessions': urlToAction,
-            '/person/*': urlToAction,
+            '/person/*': (_: any, params: Params) => {
+                // Needed while the REMOVE_SESSIONS feature flag exists. Otherwise, this logic and
+                // the sessionRecordingsLogic both try to set the sessionRecordingId
+                // query param, and we end up with multiple navigations to the player page
+                if (!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]) {
+                    urlToAction(_, params)
+                }
+            },
         }
     },
 })

@@ -194,7 +194,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
                 "date_to": "2021-05-07 00:00:00",
                 "events": [{"id": "viewed", "order": 0},],
                 "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-            }
+            },
+            team=self.team,
         )
 
         self._run_query(filter)
@@ -213,7 +214,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
         self.team.save()
 
-        filter = Filter(data={"events": [{"id": "event_name", "order": 0},], "filter_test_accounts": True})
+        filter = Filter(
+            data={"events": [{"id": "event_name", "order": 0},], "filter_test_accounts": True}, team=self.team
+        )
 
         self._run_query(filter)
 

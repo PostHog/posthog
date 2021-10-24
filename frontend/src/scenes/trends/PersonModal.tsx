@@ -1,10 +1,9 @@
 import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, ViewType } from '~/types'
-import { personsModalLogic } from './personsModalLogic'
+import { parsePeopleParams, personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import './PersonModal.scss'
@@ -15,6 +14,7 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { SessionRecordingsButton } from '../sessions/SessionRecordingsButton'
 import { PersonHeader } from '../persons/PersonHeader'
+import { teamLogic } from '../teamLogic'
 
 export interface PersonModalProps {
     visible: boolean
@@ -24,17 +24,11 @@ export interface PersonModalProps {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
-    const {
-        people,
-        loadingMorePeople,
-        firstLoadedPeople,
-        searchTerm,
-        isInitialLoad,
-        clickhouseFeaturesEnabled,
-    } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
-        personsModalLogic
-    )
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad, clickhouseFeaturesEnabled } =
+        useValues(personsModalLogic)
+    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
+        useActions(personsModalLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { preflight } = useValues(preflightLogic)
     const title = useMemo(
         () =>
@@ -52,6 +46,11 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                     {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
                     {people?.breakdown_value !== undefined &&
                         `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                </>
+            ) : filters.insight === ViewType.PATHS ? (
+                <>
+                    {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
+                    <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
                 </>
             ) : (
                 <>
@@ -79,7 +78,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         {isDownloadCsvAvailable && (
                             <Button
                                 icon={<DownloadOutlined />}
-                                href={`/api/action/people.csv?${parsePeopleParams(
+                                href={`/api/projects/${currentTeamId}/actions/people.csv?${parsePeopleParams(
                                     {
                                         label: people.label,
                                         action: people.action,

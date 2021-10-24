@@ -19,7 +19,9 @@ class TestFeatureFlag(APIBaseTest):
     def test_cant_create_flag_with_duplicate_key(self):
         count = FeatureFlag.objects.count()
         # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post("/api/feature_flag", {"name": "Beta feature", "key": "red_button"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags", {"name": "Beta feature", "key": "red_button"}
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -37,7 +39,8 @@ class TestFeatureFlag(APIBaseTest):
             team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user,
         )
         response = self.client.patch(
-            f"/api/feature_flag/{another_feature_flag.pk}", {"name": "Beta feature", "key": "red_button"},
+            f"/api/projects/{self.team.id}/feature_flags/{another_feature_flag.pk}",
+            {"name": "Beta feature", "key": "red_button"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -54,7 +57,8 @@ class TestFeatureFlag(APIBaseTest):
 
         # Try updating the existing one
         response = self.client.patch(
-            f"/api/feature_flag/{self.feature_flag.id}/", {"name": "Beta feature 3", "key": "red_button"},
+            f"/api/projects/{self.team.id}/feature_flags/{self.feature_flag.id}/",
+            {"name": "Beta feature 3", "key": "red_button"},
         )
         self.assertEqual(response.status_code, 200)
         self.feature_flag.refresh_from_db()
@@ -62,7 +66,7 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_is_simple_flag(self):
         feature_flag = self.client.post(
-            "/api/feature_flag/",
+            f"/api/projects/{self.team.id}/feature_flags/",
             data={
                 "name": "Beta feature",
                 "key": "beta-feature",
@@ -86,7 +90,7 @@ class TestFeatureFlag(APIBaseTest):
     def test_create_feature_flag(self, mock_capture):
 
         response = self.client.post(
-            "/api/feature_flag/",
+            f"/api/projects/{self.team.id}/feature_flags/",
             {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
             format="json",
         )
@@ -112,7 +116,9 @@ class TestFeatureFlag(APIBaseTest):
     @patch("posthoganalytics.capture")
     def test_create_minimal_feature_flag(self, mock_capture):
 
-        response = self.client.post("/api/feature_flag/", {"key": "omega-feature"}, format="json")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"key": "omega-feature"}, format="json"
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], "omega-feature")
         self.assertEqual(response.json()["name"], "")
@@ -139,7 +145,7 @@ class TestFeatureFlag(APIBaseTest):
     def test_create_multivariate_feature_flag(self, mock_capture):
 
         response = self.client.post(
-            "/api/feature_flag/",
+            f"/api/projects/{self.team.id}/feature_flags/",
             {
                 "name": "Multivariate feature",
                 "key": "multivariate-feature",
@@ -177,7 +183,7 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_cant_create_multivariate_feature_flag_with_variant_rollout_lt_100(self):
         response = self.client.post(
-            "/api/feature_flag/",
+            f"/api/projects/{self.team.id}/feature_flags/",
             {
                 "name": "Multivariate feature",
                 "key": "multivariate-feature",
@@ -202,7 +208,7 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_cant_create_multivariate_feature_flag_with_variant_rollout_gt_100(self):
         response = self.client.post(
-            "/api/feature_flag/",
+            f"/api/projects/{self.team.id}/feature_flags/",
             {
                 "name": "Multivariate feature",
                 "key": "multivariate-feature",
@@ -227,7 +233,7 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_cant_create_feature_flag_without_key(self):
         count = FeatureFlag.objects.count()
-        response = self.client.post("/api/feature_flag/", format="json")
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -240,7 +246,7 @@ class TestFeatureFlag(APIBaseTest):
         instance = self.feature_flag
 
         response = self.client.patch(
-            f"/api/feature_flag/{instance.pk}",
+            f"/api/projects/{self.team.id}/feature_flags/{instance.pk}",
             {
                 "name": "Updated name",
                 "filters": {
@@ -283,7 +289,7 @@ class TestFeatureFlag(APIBaseTest):
         self.client.force_login(new_user)
 
         with patch("posthoganalytics.capture") as mock_capture:
-            response = self.client.delete(f"/api/feature_flag/{instance.pk}/")
+            response = self.client.delete(f"/api/projects/{self.team.id}/feature_flags/{instance.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FeatureFlag.objects.filter(pk=instance.pk).exists())
@@ -305,10 +311,10 @@ class TestFeatureFlag(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):
-        _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
-        self.client.force_login(user)
+        _, other_team, other_user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+        self.client.force_login(other_user)
 
-        response = self.client.delete(f"/api/feature_flag/{self.feature_flag.pk}/")
+        response = self.client.delete(f"/api/projects/{other_team.id}/feature_flags/{self.feature_flag.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(FeatureFlag.objects.filter(pk=self.feature_flag.pk).exists())
 
@@ -321,20 +327,22 @@ class TestFeatureFlag(APIBaseTest):
         assert self.team is not None
         self.assertNotEqual(user.team.id, self.team.id)
 
-        response_team_1 = self.client.get(f"/api/feature_flag")
-        response_team_1_token = self.client.get(f"/api/feature_flag?token={user.team.api_token}")
-        response_team_2 = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
+        response_team_1 = self.client.get(f"/api/projects/@current/feature_flags")
+        response_team_1_token = self.client.get(f"/api/projects/@current/feature_flags?token={user.team.api_token}")
+        response_team_2 = self.client.get(f"/api/projects/@current/feature_flags?token={self.team.api_token}")
 
         self.assertEqual(response_team_1.json(), response_team_1_token.json())
         self.assertNotEqual(response_team_1.json(), response_team_2.json())
 
-        response_invalid_token = self.client.get(f"/api/feature_flag?token=invalid")
+        response_invalid_token = self.client.get(f"/api/projects/@current/feature_flags?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
     def test_creating_a_feature_flag_with_same_team_and_key_after_deleting(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
 
-        response = self.client.post("/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"name": "Alpha feature", "key": "alpha-feature"}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.json()["id"])
         self.assertEqual(instance.key, "alpha-feature")
@@ -344,7 +352,9 @@ class TestFeatureFlag(APIBaseTest):
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
 
-        response = self.client.patch(f"/api/feature_flag/{instance.pk}", {"key": "alpha-feature",}, format="json",)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{instance.pk}", {"key": "alpha-feature",}, format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
         self.assertEqual(instance.key, "alpha-feature")
@@ -352,7 +362,7 @@ class TestFeatureFlag(APIBaseTest):
     @patch("posthoganalytics.capture")
     def test_my_flags(self, mock_capture):
         self.client.post(
-            "/api/feature_flag/",
+            f"/api/projects/{self.team.id}/feature_flags/",
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -375,7 +385,7 @@ class TestFeatureFlag(APIBaseTest):
         distinct_id_user.distinct_id = "distinct_id"
         distinct_id_user.save()
         self.client.force_login(distinct_id_user)
-        response = self.client.get("/api/feature_flag/my_flags")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data), 2)
@@ -395,7 +405,7 @@ class TestFeatureFlag(APIBaseTest):
         distinct_id_0_user.distinct_id = "distinct_id_0"
         distinct_id_0_user.save()
         self.client.force_login(distinct_id_0_user)
-        response = self.client.get("/api/feature_flag/my_flags")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data), 2)
@@ -432,7 +442,7 @@ class TestFeatureFlag(APIBaseTest):
             )
         )
 
-        response = self.client.get("/api/feature_flag/my_flags")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
@@ -456,7 +466,7 @@ class TestFeatureFlag(APIBaseTest):
             {"feature_flag": feature_flag_instance.id, "override_value": "hey-hey"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        response = self.client.get("/api/feature_flag/my_flags")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         first_flag = response_data[0]
@@ -469,7 +479,7 @@ class TestFeatureFlag(APIBaseTest):
             {"feature_flag": feature_flag_instance.id, "override_value": "new-override"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        response = self.client.get("/api/feature_flag/my_flags")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         first_flag = response_data[0]
@@ -489,7 +499,7 @@ class TestFeatureFlag(APIBaseTest):
             {"feature_flag": feature_flag_instance.id, "override_value": "hey-hey"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        response = self.client.get("/api/feature_flag/my_flags")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         first_flag = response_data[0]
@@ -501,7 +511,7 @@ class TestFeatureFlag(APIBaseTest):
         response = self.client.delete(f"/api/projects/@current/feature_flag_overrides/{existing_override_id}",)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        response = self.client.get("/api/feature_flag/my_flags")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         first_flag = response_data[0]

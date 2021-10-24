@@ -1,9 +1,10 @@
+// DEPRECATED in favor of SessionsRecordings.tsx
 import React, { useEffect, useRef } from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
-import { decodeParams, router } from 'kea-router'
+import { decodeParams } from 'kea-router'
 import { Button, Spin, Space, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
-import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDetailedTime, stripHTTP, pluralize, humanFriendlyDuration } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
 import dayjs from 'dayjs'
@@ -16,12 +17,10 @@ import {
     PlayCircleOutlined,
 } from '@ant-design/icons'
 import { SessionRecordingsButton, sessionPlayerUrl } from './SessionRecordingsButton'
-import { SessionsPlay } from './SessionsPlay'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
 import { SearchAllBox } from 'scenes/sessions/filters/SearchAllBox'
-import { Drawer } from 'lib/components/Drawer'
 import { Tooltip } from 'lib/components/Tooltip'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
@@ -30,22 +29,11 @@ import { ResizableTable, ResizableColumnType, ANTD_EXPAND_BUTTON_WIDTH } from 'l
 import { teamLogic } from 'scenes/teamLogic'
 import { IconEventsShort } from 'lib/components/icons'
 import { ExpandIcon } from 'lib/components/ExpandIcon'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { urls } from '../sceneLogic'
+import { urls } from 'scenes/urls'
+import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
-
-function SessionPlayerDrawer(): JSX.Element {
-    const { searchParams } = useValues(router)
-    const { push } = useActions(router)
-
-    return (
-        <Drawer destroyOnClose visible width="100%" onClose={() => push(searchParams.prev || urls.sessions())}>
-            <SessionsPlay />
-        </Drawer>
-    )
-}
 
 function getSessionRecordingsDurationSum(session: SessionType): number {
     return session.session_recordings.map(({ recording_duration }) => recording_duration).reduce((a, b) => a + b, 0)
@@ -71,7 +59,6 @@ export function SessionsView({ personIds }: SessionsTableProps): JSX.Element {
         expandedRowKeysProps,
         showOnlyMatches,
         filters,
-        rowExpandState,
     } = useValues(logic)
     const {
         fetchNextSessions,
@@ -79,12 +66,11 @@ export function SessionsView({ personIds }: SessionsTableProps): JSX.Element {
         nextDay,
         setFilters,
         applyFilters,
-        toggleExpandSessionRows,
         onExpandedRowsChange,
         setShowOnlyMatches,
+        closeSessionPlayer,
     } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const sessionsTableRef = useRef<HTMLInputElement>(null)
 
     const columns: ResizableColumnType<SessionType>[] = [
@@ -141,7 +127,7 @@ export function SessionsView({ personIds }: SessionsTableProps): JSX.Element {
                     title={
                         currentTeam?.session_recording_opt_in
                             ? 'Replay sessions as if you were right next to your users.'
-                            : 'Session recording is turned off for this project. Click to go to settings.'
+                            : 'Recordings is turned off for this project. Click to go to settings.'
                     }
                     delayMs={0}
                 >
@@ -162,7 +148,10 @@ export function SessionsView({ personIds }: SessionsTableProps): JSX.Element {
             ),
             render: function RenderEndPoint(session: SessionType) {
                 return session.session_recordings.length ? (
-                    <SessionRecordingsButton sessionRecordings={session.session_recordings} />
+                    <SessionRecordingsButton
+                        sessionRecordings={session.session_recordings}
+                        source={RecordingWatchedSource.SessionsList}
+                    />
                 ) : null
             },
             span: 4,
@@ -202,13 +191,6 @@ export function SessionsView({ personIds }: SessionsTableProps): JSX.Element {
 
             <div className="sessions-view-actions">
                 <div className="sessions-view-actions-left-items">
-                    <Row className="action">
-                        {featureFlags[FEATURE_FLAGS.SESSIONS_TABLE] && (
-                            <Button data-attr="sessions-expand-collapse" onClick={toggleExpandSessionRows}>
-                                {rowExpandState === ExpandState.Expanded ? 'Collapse' : 'Expand'} all
-                            </Button>
-                        )}
-                    </Row>
                     {filters.length > 0 && (
                         <Row className="action ml-05">
                             <Switch
@@ -230,11 +212,15 @@ export function SessionsView({ personIds }: SessionsTableProps): JSX.Element {
                                 ? 'No recordings found for this date.'
                                 : currentTeam?.session_recording_opt_in
                                 ? 'Play all recordings found for this date.'
-                                : 'Session recording is turned off for this project. Enable in Project Settings.'
+                                : 'Recordings is turned off for this project. Enable in Project Settings.'
                         }
                     >
                         <LinkButton
-                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                            to={
+                                firstRecordingId
+                                    ? sessionPlayerUrl(firstRecordingId, RecordingWatchedSource.SessionsListPlayAll)
+                                    : '#'
+                            }
                             type="primary"
                             data-attr="play-all-recordings"
                             disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
@@ -304,7 +290,7 @@ export function SessionsView({ personIds }: SessionsTableProps): JSX.Element {
                     ...expandedRowKeysProps,
                 }}
             />
-            {!!sessionRecordingId && <SessionPlayerDrawer />}
+            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} onClose={closeSessionPlayer} />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{

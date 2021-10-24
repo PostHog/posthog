@@ -3,13 +3,14 @@ import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
-import { IllustrationDanger, TrendUp } from 'lib/components/icons'
+import { IllustrationDanger, IconTrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -167,8 +168,9 @@ export function ErrorMessage(): JSX.Element {
 }
 
 export function FunnelInvalidFiltersEmptyState(): JSX.Element {
-    const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const { setFilters } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
@@ -269,13 +271,15 @@ const SAVED_INSIGHTS_COPY = {
 
 export function SavedInsightsEmptyState(): JSX.Element {
     const { addGraph } = useActions(savedInsightsLogic)
-    const { tab } = useValues(savedInsightsLogic)
+    const {
+        filters: { tab },
+    } = useValues(savedInsightsLogic)
 
     return (
         <div className="saved-insight-empty-state">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">
-                    <TrendUp />
+                    <IconTrendUp />
                 </div>
                 <h2 className="empty-state__title">{SAVED_INSIGHTS_COPY[tab].title}</h2>
                 <p className="empty-state__description">{SAVED_INSIGHTS_COPY[tab].description}</p>

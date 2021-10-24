@@ -2,7 +2,6 @@ from rest_framework import status
 
 from posthog.demo import create_demo_team
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
@@ -60,8 +59,7 @@ class TestTeamAPI(APIBaseTest):
             self.assertEqual(Team.objects.count(), 1)
 
     def test_retention_invalid_properties(self):
-        org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        _, _, team = Organization.objects.bootstrap(self.user, name="New Org")
 
         properties = "invalid_json"
         response = self.client.get(f"/api/projects/{team.pk}/actions/retention", data={"properties": properties})
@@ -110,10 +108,8 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(team.timezone, "UTC")
 
     def test_filter_permission(self):
-
         response = self.client.patch(
-            "/api/projects/%s/" % (self.user.team.pk if self.user.team else 0),
-            {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
+            f"/api/projects/{self.team.id}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -133,3 +129,16 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
+
+    def test_reset_token(self):
+        self.team.api_token = "xyz"
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/reset_token/")
+        response_data = response.json()
+
+        self.team.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotEqual(response_data["api_token"], "xyz")
+        self.assertEqual(response_data["api_token"], self.team.api_token)
+        self.assertTrue(response_data["api_token"].startswith("phc_"))

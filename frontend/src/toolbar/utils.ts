@@ -100,7 +100,7 @@ export function getShadowRoot(): ShadowRoot | null {
 }
 
 export function getShadowRootPopupContainer(): HTMLElement {
-    return (getShadowRoot() as unknown) as HTMLElement
+    return getShadowRoot() as unknown as HTMLElement
 }
 
 export function hasCursorPointer(element: HTMLElement): boolean {
@@ -170,9 +170,9 @@ export function inBounds(min: number, value: number, max: number): number {
 }
 
 export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoot = document): HTMLElement[] {
-    const elements = (startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown) as HTMLElement[]
+    const elements = startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown as HTMLElement[]
 
-    const allElements = [...((startNode.querySelectorAll('*') as unknown) as HTMLElement[])]
+    const allElements = [...(startNode.querySelectorAll('*') as unknown as HTMLElement[])]
     const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
 
     // loop through all elements and getComputedStyle
@@ -248,7 +248,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
 
     let elements = [] as HTMLElement[]
     try {
-        elements = [...((querySelectorAllDeep(selector || '*', document, allElements) as unknown) as HTMLElement[])]
+        elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
     } catch (e) {
         console.error('Can not use selector:', selector)
         return null
@@ -408,13 +408,8 @@ export async function toolbarFetch(
     method: string = 'GET',
     payload?: Record<string, any>
 ): Promise<Response> {
-    const params = {
-        temporary_token: toolbarLogic.values.temporaryToken,
-    }
-    const fullUrl = `${toolbarLogic.values.apiURL}${url.startsWith('/') ? url.substring(1) : url}${encodeParams(
-        params,
-        '?'
-    )}`
+    const params = { temporary_token: toolbarLogic.values.temporaryToken }
+    const fullUrl = `${toolbarLogic.values.apiURL}${url}${encodeParams(params, '?')}`
 
     const payloadData = payload
         ? {
@@ -430,7 +425,11 @@ export async function toolbarFetch(
         ...payloadData,
     })
     if (response.status === 403) {
-        toolbarLogic.actions.authenticate()
+        const responseData = await response.json()
+        // Do not try to authenticate if the user has no project access altogether
+        if (responseData.detail !== "You don't have access to the project.") {
+            toolbarLogic.actions.authenticate()
+        }
     }
     return response
 }

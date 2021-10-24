@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { kea, LogicWrapper } from 'kea'
 import { router } from 'kea-router'
 import { identifierToHuman, delay } from 'lib/utils'
@@ -8,13 +7,18 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { AvailableFeature, ViewType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
+import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
+import { teamLogic } from './teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
+    ErrorProjectUnavailable = 'projectUnavailable',
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
     Insights = 'insights',
@@ -22,6 +26,7 @@ export enum Scene {
     Cohorts = 'cohorts',
     Events = 'events',
     Sessions = 'sessions',
+    SessionRecordings = 'sessionRecordings',
     Person = 'person',
     Persons = 'persons',
     Action = 'action',
@@ -38,15 +43,16 @@ export enum Scene {
     Billing = 'billing',
     Plugins = 'plugins',
     SavedInsights = 'savedInsights',
-    // Onboarding / setup routes
+    // Authentication & onboarding routes
     Login = 'login',
-    PreflightCheck = 'preflightCheck',
     Signup = 'signup',
     InviteSignup = 'inviteSignup',
-    Personalization = 'personalization',
+    PasswordReset = 'passwordReset',
+    PasswordResetComplete = 'passwordResetComplete',
+    PreflightCheck = 'preflightCheck',
     Ingestion = 'ingestion',
     OnboardingSetup = 'onboardingSetup',
-    Home = 'home',
+    Personalization = 'personalization',
 }
 
 const preloadedScenes: Record<string, LoadedScene> = {
@@ -56,11 +62,15 @@ const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.ErrorNetwork]: {
         component: ErrorNetworkComponent,
     },
+    [Scene.ErrorProjectUnavailable]: {
+        component: ErrorProjectUnavailableComponent,
+    },
 }
 
 export const scenes: Record<Scene, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
+    [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
@@ -68,6 +78,8 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
+    [Scene.SessionRecordings]: () =>
+        import(/* webpackChunkName: 'sessionRecordings' */ './session-recordings/SessionRecordings'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
@@ -92,8 +104,10 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
-    [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
     [Scene.SavedInsights]: () => import(/* webpackChunkName: 'savedInsights' */ './saved-insights/SavedInsights'),
+    [Scene.PasswordReset]: () => import(/* webpackChunkName: 'passwordReset' */ './authentication/PasswordReset'),
+    [Scene.PasswordResetComplete]: () =>
+        import(/* webpackChunkName: 'passwordResetComplete' */ './authentication/PasswordResetComplete'),
 }
 
 interface LoadedScene {
@@ -106,18 +120,92 @@ interface Params {
 }
 
 interface SceneConfig {
-    onlyUnauthenticated?: boolean // Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too)
-    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too)
-    dark?: boolean // Background is $bg_mid
-    plain?: boolean // Only keeps the main content and the top navigation bar
-    hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
-    hideDemoWarnings?: boolean // Hides demo project warnings (DemoWarning.tsx)
+    /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
+    onlyUnauthenticated?: boolean
+    /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
+    allowUnauthenticated?: boolean
+    /** Background is $bg_mid */
+    dark?: boolean
+    /** Only keeps the main content and the top navigation bar */
+    plain?: boolean
+    /** Hides the top navigation bar (regardless of whether `plain` is `true` or not) */
+    hideTopNav?: boolean
+    /** Hides demo project warnings (DemoWarning.tsx) */
+    hideDemoWarnings?: boolean
+    /** Route requires project access */
+    projectBased?: boolean
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+    // Project-based routes
+    [Scene.Dashboards]: {
+        projectBased: true,
+    },
+    [Scene.Dashboard]: {
+        projectBased: true,
+    },
     [Scene.Insights]: {
+        projectBased: true,
         dark: true,
     },
+    [Scene.Cohorts]: {
+        projectBased: true,
+    },
+    [Scene.Events]: {
+        projectBased: true,
+    },
+    [Scene.Sessions]: {
+        projectBased: true,
+    },
+    [Scene.SessionRecordings]: {
+        projectBased: true,
+    },
+    [Scene.Person]: {
+        projectBased: true,
+    },
+    [Scene.Persons]: {
+        projectBased: true,
+    },
+    [Scene.Action]: {
+        projectBased: true,
+    },
+    [Scene.FeatureFlags]: {
+        projectBased: true,
+    },
+    [Scene.FeatureFlag]: {
+        projectBased: true,
+    },
+    [Scene.Annotations]: {
+        projectBased: true,
+    },
+    [Scene.Plugins]: {
+        projectBased: true,
+    },
+    [Scene.SavedInsights]: {
+        projectBased: true,
+    },
+    [Scene.ProjectSettings]: {
+        projectBased: true,
+        hideDemoWarnings: true,
+    },
+    [Scene.InsightRouter]: {
+        projectBased: true,
+        dark: true,
+    },
+    [Scene.Personalization]: {
+        projectBased: true,
+        plain: true,
+        hideTopNav: true,
+    },
+    [Scene.Ingestion]: {
+        projectBased: true,
+        plain: true,
+    },
+    [Scene.OnboardingSetup]: {
+        projectBased: true,
+        hideDemoWarnings: true,
+    },
+    // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
@@ -127,35 +215,25 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Billing]: {
         hideDemoWarnings: true,
     },
-    // Onboarding / setup routes
+    // Onboarding/setup routes
     [Scene.Login]: {
-        onlyUnauthenticated: true,
-    },
-    [Scene.PreflightCheck]: {
         onlyUnauthenticated: true,
     },
     [Scene.Signup]: {
         onlyUnauthenticated: true,
     },
+    [Scene.PreflightCheck]: {
+        onlyUnauthenticated: true,
+    },
+    [Scene.PasswordReset]: {
+        allowUnauthenticated: true,
+    },
+    [Scene.PasswordResetComplete]: {
+        allowUnauthenticated: true,
+    },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
         plain: true,
-    },
-    [Scene.Personalization]: {
-        plain: true,
-        hideTopNav: true,
-    },
-    [Scene.Ingestion]: {
-        plain: true,
-    },
-    [Scene.OnboardingSetup]: {
-        hideDemoWarnings: true,
-    },
-    [Scene.ProjectSettings]: {
-        hideDemoWarnings: true,
-    },
-    [Scene.InsightRouter]: {
-        dark: true,
     },
 }
 
@@ -165,48 +243,6 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
     '/organization/members': '/organization/settings',
-}
-
-export const urls = {
-    default: () => '/',
-    notFound: () => '404',
-    dashboards: () => '/dashboard',
-    dashboard: (id: string | number) => `/dashboard/${id}`,
-    createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
-    action: (id: string | number) => `/action/${id}`,
-    actions: () => '/actions',
-    insights: () => '/insights',
-    insightView: (view: ViewType) => `/insights?insight=${view}`,
-    insightRouter: (id: string) => `/i/${id}`,
-    savedInsights: () => '/saved_insights',
-    events: () => '/events',
-    sessions: () => '/sessions',
-    person: (id: string) => `/person/${id}`,
-    persons: () => '/persons',
-    cohort: (id: string | number) => `/cohorts/${id}`,
-    cohorts: () => '/cohorts',
-    featureFlags: () => '/feature_flags',
-    featureFlag: (id: string | number) => `/feature_flags/${id}`,
-    annotations: () => '/annotations',
-    plugins: () => '/project/plugins',
-    projectCreateFirst: () => '/project/create',
-    projectSettings: () => '/project/settings',
-    mySettings: () => '/me/settings',
-    organizationSettings: () => '/organization/settings',
-    organizationBilling: () => '/organization/billing',
-    organizationCreateFirst: () => '/organization/create',
-    instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
-    // Onboarding / setup routes
-    login: () => '/login',
-    preflight: () => '/preflight',
-    signup: () => '/signup',
-    inviteSignup: (id: string) => `/signup/${id}`,
-    personalization: () => '/personalization',
-    ingestion: () => '/ingestion',
-    onboardingSetup: () => '/setup',
-    home: () => '/home',
 }
 
 export const routes: Record<string, Scene> = {
@@ -219,6 +255,7 @@ export const routes: Record<string, Scene> = {
     [urls.events()]: Scene.Events,
     [urls.events() + '/*']: Scene.Events,
     [urls.sessions()]: Scene.Sessions,
+    [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*')]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.cohort(':id')]: Scene.Cohorts,
@@ -242,11 +279,12 @@ export const routes: Record<string, Scene> = {
     [urls.preflight()]: Scene.PreflightCheck,
     [urls.signup()]: Scene.Signup,
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
+    [urls.passwordReset()]: Scene.PasswordReset,
+    [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.personalization()]: Scene.Personalization,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.onboardingSetup()]: Scene.OnboardingSetup,
-    [urls.home()]: Scene.Home,
 }
 
 export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
@@ -319,7 +357,20 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 return sceneConfigurations[scene] ?? {}
             },
         ],
-        activeScene: [(s) => [s.loadingScene, s.scene], (loadingScene, scene) => loadingScene || scene],
+        activeScene: [
+            (selectors) => [
+                selectors.loadingScene,
+                selectors.scene,
+                teamLogic.selectors.isCurrentTeamUnavailable,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (loadingScene, scene, isCurrentTeamUnavailable) => {
+                const baseActiveScene = loadingScene || scene
+                return isCurrentTeamUnavailable && baseActiveScene && sceneConfigurations[baseActiveScene]?.projectBased
+                    ? Scene.ErrorProjectUnavailable
+                    : baseActiveScene
+            },
+        ],
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
@@ -344,16 +395,15 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         },
         guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
             const { preflight } = preflightLogic.values
-            const { user } = userLogic.values
             let featureAvailable: boolean
-            if (!preflight || !user) {
+            if (!preflight) {
                 featureAvailable = false
             } else if (!guardOn.cloud && preflight.cloud) {
                 featureAvailable = true
             } else if (!guardOn.selfHosted && !preflight.cloud) {
                 featureAvailable = true
             } else {
-                featureAvailable = !!user.organization?.available_features.includes(featureKey)
+                featureAvailable = userLogic.values.hasAvailableFeature(featureKey)
             }
             if (featureAvailable) {
                 featureAvailableCallback?.()
@@ -402,13 +452,14 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                             router.actions.replace(urls.organizationCreateFirst())
                             return
                         }
-                    } else if (!user.team) {
+                    } else if (teamLogic.values.isCurrentTeamUnavailable) {
                         if (location.pathname !== urls.projectCreateFirst()) {
                             router.actions.replace(urls.projectCreateFirst())
                             return
                         }
                     } else if (
-                        !user.team.completed_snippet_onboarding &&
+                        teamLogic.values.currentTeam &&
+                        !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/personalization')
                     ) {

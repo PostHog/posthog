@@ -5,18 +5,19 @@ import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 import { sceneLogic } from '../../sceneLogic'
-import { teamLogic } from '../../teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { LockOutlined, UnlockOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
 
 export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const projectPermissioningEnabled =
-        currentOrganization?.available_features.includes(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
-        currentTeam?.access_control
+        hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && currentTeam?.access_control
 
     return (
         <div>
@@ -47,7 +48,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
             </p>
             <Switch
                 // @ts-expect-error - id works just fine despite not being in CompoundedComponent
-                id="project-based-permissioning-switch"
+                id="access-control-switch"
                 onChange={(checked) => {
                     guardAvailableFeature(
                         AvailableFeature.PROJECT_BASED_PERMISSIONING,
@@ -64,7 +65,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                 style={{
                     marginLeft: '10px',
                 }}
-                htmlFor="project-based-permissioning-switch"
+                htmlFor="access-control-switch"
             >
                 Make project private
             </label>

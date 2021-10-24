@@ -26,10 +26,6 @@ class ClickhouseActionSerializer(ActionSerializer):
     def get_is_calculating(self, action: Action) -> bool:
         return False
 
-    def _calculate_action(self, action: Action) -> None:
-        # Don't calculate actions in Clickhouse as it's on the fly
-        pass
-
 
 class ClickhouseActionsViewSet(ActionViewSet):
     serializer_class = ClickhouseActionSerializer
@@ -40,9 +36,9 @@ class ClickhouseActionsViewSet(ActionViewSet):
         return Response({"results": actions_list})
 
     @action(methods=["GET"], detail=False)
-    def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         entity = get_target_entity(request)
 
         current_url = request.get_full_path()
@@ -85,7 +81,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         )
 
     @action(methods=["GET"], detail=True)
-    def count(self, request: Request, **kwargs) -> Response:
+    def count(self, request: Request, **kwargs) -> Response:  # type: ignore
         action = self.get_object()
         query, params = format_action_filter(action)
         if query == "":

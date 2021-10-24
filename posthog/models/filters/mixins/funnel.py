@@ -1,5 +1,9 @@
 import datetime
-from typing import Dict, Literal, Optional, Union
+import json
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
+
+if TYPE_CHECKING:
+    from posthog.models.entity import Entity
 
 from rest_framework.exceptions import ValidationError
 
@@ -8,6 +12,14 @@ from posthog.constants import (
     DISPLAY,
     DROP_OFF,
     ENTRANCE_PERIOD_START,
+    FUNNEL_CORRELATION_EVENT_NAMES,
+    FUNNEL_CORRELATION_NAMES,
+    FUNNEL_CORRELATION_PERSON_CONVERTED,
+    FUNNEL_CORRELATION_PERSON_ENTITY,
+    FUNNEL_CORRELATION_PERSON_LIMIT,
+    FUNNEL_CORRELATION_PERSON_OFFSET,
+    FUNNEL_CORRELATION_TYPE,
+    FUNNEL_CUSTOM_STEPS,
     FUNNEL_FROM_STEP,
     FUNNEL_LAYOUT,
     FUNNEL_ORDER_TYPE,
@@ -21,6 +33,7 @@ from posthog.constants import (
     INSIGHT,
     INSIGHT_FUNNELS,
     TRENDS_LINEAR,
+    FunnelCorrelationType,
     FunnelOrderType,
     FunnelVizType,
 )
@@ -130,19 +143,42 @@ class FunnelPersonsStepMixin(BaseParamMixin):
     # -1 means dropoff into step 1
     @cached_property
     def funnel_step(self) -> Optional[int]:
+        """
+        Specifies the step index within a funnel entities definition for which
+        we want to get the `timestamp` for, per person.
+        """
         _step = int(self._data.get(FUNNEL_STEP, "0"))
         if _step == 0:
             return None
         return _step
 
+    @cached_property
+    def funnel_custom_steps(self) -> List[int]:
+        """
+        Custom step numbers to get persons for. This overrides FunnelPersonsStepMixin::funnel_step
+        """
+        raw_steps = self._data.get(FUNNEL_CUSTOM_STEPS, [])
+        if isinstance(raw_steps, str):
+            return json.loads(raw_steps)
+
+        return raw_steps
+
     @include_dict
     def funnel_step_to_dict(self):
-        return {FUNNEL_STEP: self.funnel_step} if self.funnel_step else {}
+        result: dict = {}
+        if self.funnel_step:
+            result[FUNNEL_STEP] = self.funnel_step
+        if self.funnel_custom_steps:
+            result[FUNNEL_CUSTOM_STEPS] = self.funnel_custom_steps
+        return result
 
 
 class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
     @cached_property
     def funnel_step_breakdown(self) -> Optional[Union[str, int]]:
+        """
+        The breakdown value for which to get persons for.
+        """
         return self._data.get(FUNNEL_STEP_BREAKDOWN)
 
     @include_dict
@@ -217,4 +253,88 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
             result_dict[ENTRANCE_PERIOD_START] = self.entrance_period_start.isoformat()
         if self.drop_off is not None:
             result_dict[DROP_OFF] = self.drop_off
+        return result_dict
+
+
+class FunnelCorrelationMixin(BaseParamMixin):
+    @cached_property
+    def correlation_type(self) -> Optional[FunnelCorrelationType]:
+        raw_type = self._data.get(FUNNEL_CORRELATION_TYPE)
+        if raw_type:
+            try:
+                return FunnelCorrelationType(raw_type)
+            except ValueError:
+                return None
+
+        return None
+
+    @cached_property
+    def correlation_property_names(self) -> Optional[List[str]]:
+        property_names = self._data.get(FUNNEL_CORRELATION_NAMES, [])
+        if isinstance(property_names, str):
+            return json.loads(property_names)
+        return property_names
+
+    @cached_property
+    def correlation_event_names(self) -> Optional[List[str]]:
+        event_names = self._data.get(FUNNEL_CORRELATION_EVENT_NAMES, [])
+        if isinstance(event_names, str):
+            return json.loads(event_names)
+        return event_names
+
+    @include_dict
+    def funnel_correlation_to_dict(self):
+        result_dict: Dict = {}
+        if self.correlation_type:
+            result_dict[FUNNEL_CORRELATION_TYPE] = self.correlation_type
+        if self.correlation_property_names:
+            result_dict[FUNNEL_CORRELATION_NAMES] = self.correlation_property_names
+        if self.correlation_event_names:
+            result_dict[FUNNEL_CORRELATION_EVENT_NAMES] = self.correlation_event_names
+        return result_dict
+
+
+class FunnelCorrelationPersonsMixin(BaseParamMixin):
+    @cached_property
+    def correlation_person_entity(self) -> Optional["Entity"]:
+        from posthog.models.entity import Entity
+
+        raw_event = self._data.get(FUNNEL_CORRELATION_PERSON_ENTITY)
+        if isinstance(raw_event, str):
+            event = json.loads(raw_event)
+        else:
+            event = raw_event
+
+        return Entity(event) if event else None
+
+    @cached_property
+    def correlation_person_limit(self) -> int:
+        limit = self._data.get(FUNNEL_CORRELATION_PERSON_LIMIT)
+        return int(limit) if limit else 0
+
+    @cached_property
+    def correlation_person_offset(self) -> int:
+        offset = self._data.get(FUNNEL_CORRELATION_PERSON_OFFSET)
+        return int(offset) if offset else 0
+
+    @cached_property
+    def correlation_persons_converted(self) -> Optional[bool]:
+        converted = self._data.get(FUNNEL_CORRELATION_PERSON_CONVERTED)
+        if not converted:
+            return None
+        if converted.lower() == "true":
+            return True
+        return False
+
+    @include_dict
+    def funnel_correlation_persons_to_dict(self):
+        result_dict: Dict = {}
+        if self.correlation_person_entity:
+            result_dict[FUNNEL_CORRELATION_PERSON_ENTITY] = self.correlation_person_entity.to_dict()
+        if self.correlation_person_limit:
+            result_dict[FUNNEL_CORRELATION_PERSON_LIMIT] = self.correlation_person_limit
+        if self.correlation_person_offset:
+            result_dict[FUNNEL_CORRELATION_PERSON_OFFSET] = self.correlation_person_offset
+        if self.correlation_persons_converted is not None:
+            result_dict[FUNNEL_CORRELATION_PERSON_CONVERTED] = self.correlation_persons_converted
         return result_dict

@@ -114,6 +114,7 @@ class User(AbstractUser, UUIDClassicModel):
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
+    # DEPRECATED
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
     # Remove unused attributes from `AbstractUser`
@@ -132,6 +133,8 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def organization(self) -> Optional[Organization]:
         if self.current_organization is None:
+            if self.current_team is not None:
+                self.current_organization_id = self.current_team.organization_id
             self.current_organization = self.organizations.first()
             self.save()
         return self.current_organization
@@ -139,7 +142,7 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
-            self.current_team = self.organization.teams.first()
+            self.current_team = self.organization.teams.order_by("access_control", "id").first()  # Prefer open projects
             self.save()
         return self.current_team
 
