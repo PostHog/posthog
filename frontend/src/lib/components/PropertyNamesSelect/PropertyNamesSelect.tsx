@@ -2,13 +2,13 @@ import CaretDownFilled from '@ant-design/icons/lib/icons/CaretDownFilled'
 import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
 import WarningFilled from '@ant-design/icons/lib/icons/WarningFilled'
 import { Checkbox, Input } from 'antd'
-import { kea, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { usePersonProperties } from 'lib/api/person-properties'
 import React from 'react'
 import { PersonProperty } from '~/types'
+import { propertySelectLogic } from './PropertyNamesSelectLogic'
 import './styles.scss'
 
-import { propertySelectLogicType } from './PropertyNamesSelectType'
 export const PropertyNamesSelect = ({
     onChange,
 }: {
@@ -165,7 +165,7 @@ const PropertyNamesSearch = (): JSX.Element => {
 const usePopover = ({ onHide }: { onHide: () => void }) => {
     // Provides logic for opening and closing the popover. Note that we wrap the
     // logic such that we can generate a unique key and ensure for each
-    // invocation
+    // invocation. We also make the logic independent of React specifics
 
     // Make sure to create a new state for each component
     const propertySelectLogicKey = React.useMemo(() => Math.random().toString(), [])
@@ -192,66 +192,6 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
         },
     }
 }
-
-const propertySelectLogic = kea<propertySelectLogicType>({
-    props: {
-        selectionKey: '' as string,
-        onHide: () => {},
-    },
-
-    key: (props) => props.selectionKey,
-
-    actions: {
-        setTriggerElement: (triggerElement: HTMLElement | null) => ({ triggerElement }),
-        hide: true,
-        open: true,
-        toggle: true,
-    },
-
-    reducers: {
-        isOpen: [
-            false,
-            {
-                hide: () => false,
-                open: () => true,
-                toggle: (isOpen) => !isOpen,
-            },
-        ],
-        triggerElement: [
-            null as HTMLElement | null,
-            {
-                setTriggerElement: (_, { triggerElement }) => triggerElement,
-            },
-        ],
-    },
-
-    events: ({ cache, values, actions }) => ({
-        afterMount: () => {
-            cache.checkIfClickedOutside = (event: MouseEvent): void => {
-                if (
-                    values.isOpen &&
-                    values.triggerElement &&
-                    event.target instanceof Node &&
-                    !values.triggerElement.contains(event.target)
-                ) {
-                    actions.hide()
-                }
-            }
-            document.addEventListener('mousedown', cache.checkIfClickedOutside)
-        },
-        beforeUnmount: () => {
-            document.removeEventListener('mousedown', cache.checkIfClickedOutside)
-        },
-    }),
-
-    listeners: ({ props: { onHide } }) => ({
-        hide: () => {
-            if (onHide) {
-                onHide()
-            }
-        },
-    }),
-})
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 const usePropertySearch = (properties: PersonProperty[]) => {
