@@ -183,9 +183,9 @@ const propertySelectLogic = kea<propertySelectLogicType>({
 
     actions: {
         setTriggerElement: (triggerElement: HTMLElement | null) => ({ triggerElement }),
-        hide: () => ({}),
-        open: () => ({}),
-        toggle: () => ({}),
+        hide: true,
+        open: true,
+        toggle: true,
     },
 
     reducers: {
