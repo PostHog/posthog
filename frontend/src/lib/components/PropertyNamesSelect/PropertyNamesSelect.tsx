@@ -2,7 +2,7 @@ import CaretDownFilled from '@ant-design/icons/lib/icons/CaretDownFilled'
 import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
 import WarningFilled from '@ant-design/icons/lib/icons/WarningFilled'
 import { Checkbox, Input } from 'antd'
-import { kea, MakeLogicType, useActions, useValues } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { usePersonProperties } from 'lib/api/person-properties'
 import React from 'react'
 import { PersonProperty } from '~/types'
@@ -194,6 +194,11 @@ const usePopover = ({ onHide }: { onHide: () => void }) => {
 }
 
 const propertySelectLogic = kea<propertySelectLogicType>({
+    props: {
+        selectionKey: '' as string,
+        onHide: () => {},
+    },
+
     key: (props) => props.selectionKey,
 
     actions: {
@@ -215,7 +220,7 @@ const propertySelectLogic = kea<propertySelectLogicType>({
             },
         ],
         triggerElement: [
-            null,
+            null as HTMLElement | null,
             {
                 setTriggerElement: (_, { triggerElement }) => triggerElement,
             },
