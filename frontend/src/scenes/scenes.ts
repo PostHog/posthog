@@ -33,7 +33,12 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'),
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
-    [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'), // TODO
+
+    [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/EventsTable'),
+    [Scene.Actions]: () => import(/* webpackChunkName: 'events' */ './actions/ActionsTable'),
+    [Scene.EventStats]: () => import(/* webpackChunkName: 'events' */ './events/EventsVolumeTable'),
+    [Scene.EventPropertyStats]: () => import(/* webpackChunkName: 'events' */ './events/PropertiesVolumeTable'),
+
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     [Scene.SessionRecordings]: () =>
         import(/* webpackChunkName: 'sessionRecordings' */ './session-recordings/SessionRecordings'),
@@ -183,8 +188,10 @@ export const routes: Record<string, Scene> = {
     [urls.action(':id')]: Scene.Action,
     [urls.insights()]: Scene.Insights,
     [urls.insightRouter(':id')]: Scene.InsightRouter,
+    [urls.actions()]: Scene.Actions,
+    [urls.eventStats()]: Scene.EventStats,
+    [urls.eventPropertyStats()]: Scene.EventPropertyStats,
     [urls.events()]: Scene.Events,
-    [urls.events() + '/*']: Scene.Events,
     [urls.sessions()]: Scene.Sessions,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*')]: Scene.Person,
