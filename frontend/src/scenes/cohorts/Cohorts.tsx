@@ -61,7 +61,7 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
                 actions.setOpenCohort(cohort)
             } else if (cohortId === 'new') {
                 actions.setOpenCohort(NEW_COHORT)
-            } else {
+            } else if (!cohortId) {
                 actions.setOpenCohort(null)
             }
         },
