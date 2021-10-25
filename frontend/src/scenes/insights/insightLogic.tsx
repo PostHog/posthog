@@ -50,7 +50,7 @@ export const insightLogic = kea<insightLogicType>({
 
     connect: {
         values: [teamLogic, ['currentTeamId']],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [eventUsageLogic, dashboardsModel, featureFlagLogic],
     },
 
     actions: () => ({
