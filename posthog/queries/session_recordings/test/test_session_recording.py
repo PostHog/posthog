@@ -42,18 +42,18 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
 
                 req, filt = create_recording_request_and_filter("1")
-                session = session_recording(
+                recording = session_recording(
                     team=self.team, session_recording_id="1", request=req, filter=filt
                 ).get_snapshots()
                 self.assertEqual(
-                    session["snapshots"],
+                    recording["snapshots"],
                     [
                         {"timestamp": 1_600_000_000_000, "type": 2},
                         {"timestamp": 1_600_000_010_000, "type": 2},
                         {"timestamp": 1_600_000_030_000, "type": 2},
                     ],
                 )
-                self.assertEqual(session["next"], None)
+                self.assertEqual(recording["next"], None)
 
         def test_get_snapshots_does_not_leak_teams(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -62,19 +62,19 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 self.create_snapshot("user2", "1", now())
 
                 req, filt = create_recording_request_and_filter("1")
-                session = session_recording(
+                recording = session_recording(
                     team=self.team, session_recording_id="1", request=req, filter=filt
                 ).get_snapshots()
                 self.assertEqual(
-                    session["snapshots"], [{"timestamp": 1_600_000_000_000, "type": 2},],
+                    recording["snapshots"], [{"timestamp": 1_600_000_000_000, "type": 2},],
                 )
 
         def test_get_snapshots_with_no_such_session(self):
             req, filt = create_recording_request_and_filter("xxx")
-            session = session_recording(
+            recording = session_recording(
                 team=self.team, session_recording_id="xxx", request=req, filter=filt
             ).get_snapshots()
-            self.assertEqual(session, {"snapshots": [], "next": None})
+            self.assertEqual(recording, {"snapshots": [], "next": None})
 
         def test_get_chunked_snapshots(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -84,12 +84,12 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                     self.create_chunked_snapshots(snapshots_per_chunk, "user", chunked_session_id, now())
 
                 req, filt = create_recording_request_and_filter(chunked_session_id)
-                session = session_recording(
+                recording = session_recording(
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).get_snapshots()
-                self.assertEqual(len(session["snapshots"]), DEFAULT_RECORDING_CHUNK_LIMIT * snapshots_per_chunk)
-                self.assertIsNotNone(session["next"])
-                parsed_params = parse_qs(urlparse(session["next"]).query)
+                self.assertEqual(len(recording["snapshots"]), DEFAULT_RECORDING_CHUNK_LIMIT * snapshots_per_chunk)
+                self.assertIsNotNone(recording["next"])
+                parsed_params = parse_qs(urlparse(recording["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), DEFAULT_RECORDING_CHUNK_LIMIT)
                 self.assertEqual(int(parsed_params["limit"][0]), DEFAULT_RECORDING_CHUNK_LIMIT)
 
@@ -105,13 +105,13 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                     )
 
                 req, filt = create_recording_request_and_filter(chunked_session_id, chunk_limit, chunk_offset)
-                session = session_recording(
+                recording = session_recording(
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).get_snapshots()
-                self.assertEqual(len(session["snapshots"]), chunk_limit * snapshots_per_chunk)
-                self.assertEqual(session["snapshots"][0]["timestamp"], 1_600_000_300_000)
-                self.assertIsNotNone(session["next"])
-                parsed_params = parse_qs(urlparse(session["next"]).query)
+                self.assertEqual(len(recording["snapshots"]), chunk_limit * snapshots_per_chunk)
+                self.assertEqual(recording["snapshots"][0]["timestamp"], 1_600_000_300_000)
+                self.assertIsNotNone(recording["next"])
+                parsed_params = parse_qs(urlparse(recording["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), chunk_limit + chunk_offset)
                 self.assertEqual(int(parsed_params["limit"][0]), chunk_limit)
 
