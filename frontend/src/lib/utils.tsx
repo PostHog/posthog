@@ -747,6 +747,10 @@ export function clamp(value: number, min: number, max: number): number {
     return value > max ? max : value < min ? min : value
 }
 
+export function isTouchDevice(): boolean {
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || navigator.msMaxTouchPoints > 0
+}
+
 export function isMobile(): boolean {
     return navigator.userAgent.includes('Mobile')
 }
