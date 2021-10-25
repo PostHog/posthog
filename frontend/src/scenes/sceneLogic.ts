@@ -56,12 +56,12 @@ export const sceneLogic = kea<sceneLogicType>({
                     scene in state
                         ? {
                               ...state,
-                              [scene]: { ...state[scene], params },
+                              [scene]: { ...state[scene], params, lastTouch: new Date().valueOf() },
                           }
                         : state,
                 setLoadedScene: (state, { scene, sceneExport, params }) => ({
                     ...state,
-                    [scene]: { ...sceneExport, name: scene, params },
+                    [scene]: { ...sceneExport, name: scene, params, lastTouch: new Date().valueOf() },
                 }),
             },
         ],
