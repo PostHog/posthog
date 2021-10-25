@@ -224,7 +224,8 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
     Teams: 'office.com',
 }
 
-export const FEATURE_FLAGS: Record<string, string> = {
+/* do not add the type Record<string, string> here*/
+export const FEATURE_FLAGS = {
     // Cloud-only
     PAPERCUPS_ENABLED: 'papercups-enabled',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
