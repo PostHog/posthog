@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations, scenes } from 'scenes/scenes'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const sceneLogic = kea<sceneLogicType>({
     actions: {
@@ -97,8 +98,8 @@ export const sceneLogic = kea<sceneLogicType>({
                 teamLogic.selectors.isCurrentTeamUnavailable,
                 featureFlagLogic.selectors.featureFlags,
             ],
-            (loadingScene, scene, isCurrentTeamUnavailable) => {
-                const baseActiveScene = loadingScene || scene
+            (loadingScene, scene, isCurrentTeamUnavailable, featureFlags) => {
+                const baseActiveScene = featureFlags[FEATURE_FLAGS.SCENE_ROUTER_HISTORY] ? scene : loadingScene || scene
                 return isCurrentTeamUnavailable && baseActiveScene && sceneConfigurations[baseActiveScene]?.projectBased
                     ? Scene.ErrorProjectUnavailable
                     : baseActiveScene
@@ -280,6 +281,19 @@ export const sceneLogic = kea<sceneLogicType>({
                     }
                 }
                 actions.setLoadedScene(loadedScene)
+
+                let unmount
+                if (loadedScene.logic) {
+                    // initialize the logic and give it 50ms to load before opening the scene
+                    unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
+                    try {
+                        await breakpoint(50)
+                    } catch (e) {
+                        // if we change the scene while waiting these 50ms, unmount
+                        unmount()
+                        throw e
+                    }
+                }
             }
             actions.setScene(scene, params)
         },
