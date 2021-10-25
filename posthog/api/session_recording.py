@@ -125,7 +125,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             )
 
         return response.Response(
-            {"session_recording": session_recording_serializer.data, "person": PersonSerializer(instance=person).data,}
+            {
+                "result": {
+                    "session_recording": session_recording_serializer.data,
+                    "person": PersonSerializer(instance=person).data,
+                }
+            }
         )
 
     # Paginated endpoint that returns the snapshots for the recording
