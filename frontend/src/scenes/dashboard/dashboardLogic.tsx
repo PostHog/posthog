@@ -481,7 +481,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
-            await api.update(`api/dashboard_item/layouts`, {
+            await api.update(`api/projects/${values.currentTeamId}/insights/layouts`, {
                 items:
                     values.items?.map((item) => {
                         const layouts: Record<string, Layout> = {}
@@ -523,7 +523,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 try {
                     breakpoint()
                     const refreshedDashboardItem = await api.get(
-                        `api/dashboard_item/${dashboardItem.id}/?${toParams({
+                        `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             share_token: props.shareToken,
                             refresh: true,
                         })}`
