@@ -26,7 +26,7 @@ interface Props extends SceneProps {
 export const scene: SceneExport = {
     component: Dashboard,
     logic: dashboardLogic,
-    paramsToProps: ({ id }): DashboardLogicProps => ({ id: parseInt(id) }),
+    paramsToProps: ({ params: { id } }): DashboardLogicProps => ({ id: parseInt(id) }),
 }
 
 export function Dashboard({ id, shareToken, internal }: Props = {}): JSX.Element {

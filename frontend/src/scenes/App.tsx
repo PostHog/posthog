@@ -84,7 +84,7 @@ export function App(): JSX.Element | null {
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
-    useMountedLogic(scene.logic?.(scene.paramsToProps?.(scene.params || {})) || noopLogic)
+    useMountedLogic(scene.logic?.(scene.paramsToProps?.(scene.sceneParams)) || noopLogic)
     return null
 }
 

@@ -50,14 +50,20 @@ export interface SceneExport {
     /** logic to mount for this scene */
     logic?: LogicWrapper
     /** convert URL parameters from scenes.ts into logic props */
-    paramsToProps?: (params: Record<string, string>) => SceneProps
+    paramsToProps?: (params: SceneParams) => SceneProps
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
 
 export interface LoadedScene extends SceneExport {
     name: string
-    params?: Record<string, any>
+    sceneParams: SceneParams
+}
+
+export interface SceneParams {
+    params: Record<string, any>
+    searchParams: Record<string, any>
+    hashParams: Record<string, any>
 }
 
 export interface Params {

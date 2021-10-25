@@ -11,19 +11,23 @@ import { afterLoginRedirect } from './authentication/loginLogic'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
-import { SceneExport, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { preloadedScenes, redirects, routes, sceneConfigurations, scenes } from 'scenes/scenes'
+
+export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const sceneLogic = kea<sceneLogicType>({
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
             else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
-        openScene: (scene: Scene, params: Params) => ({ scene, params }),
+        openScene: (scene: Scene, params: SceneParams) => ({ scene, params }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
-        loadScene: (scene: Scene, params: Params) => ({ scene, params }),
+        loadScene: (scene: Scene, params: SceneParams) => ({ scene, params }),
         // 3. Set the `scene` reducer
-        setScene: (scene: Scene, params: Params) => ({ scene, params }),
-        setLoadedScene: (scene: Scene, sceneExport: SceneExport, params: Params) => ({ scene, sceneExport, params }),
+        setScene: (scene: Scene, params: SceneParams) => ({ scene, params }),
+        setLoadedScene: (loadedScene: LoadedScene) => ({
+            loadedScene,
+        }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         guardAvailableFeature: (
             featureKey: AvailableFeature,
@@ -56,12 +60,12 @@ export const sceneLogic = kea<sceneLogicType>({
                     scene in state
                         ? {
                               ...state,
-                              [scene]: { ...state[scene], params, lastTouch: new Date().valueOf() },
+                              [scene]: { ...state[scene], sceneParams: params, lastTouch: new Date().valueOf() },
                           }
                         : state,
-                setLoadedScene: (state, { scene, sceneExport, params }) => ({
+                setLoadedScene: (state, { loadedScene }) => ({
                     ...state,
-                    [scene]: { ...sceneExport, name: scene, params, lastTouch: new Date().valueOf() },
+                    [loadedScene.name]: { ...loadedScene, lastTouch: new Date().valueOf() },
                 }),
             },
         ],
@@ -83,15 +87,15 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     selectors: {
         sceneConfig: [
-            (selectors) => [selectors.scene],
+            (s) => [s.scene],
             (scene: Scene): SceneConfig => {
                 return sceneConfigurations[scene] ?? {}
             },
         ],
         activeScene: [
-            (selectors) => [
-                selectors.loadingScene,
-                selectors.scene,
+            (s) => [
+                s.loadingScene,
+                s.scene,
                 teamLogic.selectors.isCurrentTeamUnavailable,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -102,14 +106,21 @@ export const sceneLogic = kea<sceneLogicType>({
                     : baseActiveScene
             },
         ],
-        params: [
+        activeLoadedScene: [
             (s) => [s.activeScene, s.loadedScenes],
-            (activeScene, loadedScenes): Record<string, string> =>
-                (activeScene && loadedScenes[activeScene]?.params) || {},
+            (activeScene, loadedScenes) => (activeScene ? loadedScenes[activeScene] : null),
         ],
+        sceneParams: [
+            (s) => [s.activeLoadedScene],
+            (activeLoadedScene): SceneParams =>
+                activeLoadedScene?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
+        ],
+        params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
+        searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
+        hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
     },
     urlToAction: ({ actions }) => {
-        const mapping: Record<string, (params: Params) => any> = {}
+        const mapping: Record<string, (params: Params, searchParams: Params, hashParams: Params) => any> = {}
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
@@ -118,10 +129,11 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         }
         for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params) => actions.openScene(scene, params)
+            mapping[path] = (params, searchParams, hashParams) =>
+                actions.openScene(scene, { params, searchParams, hashParams })
         }
 
-        mapping['/*'] = () => actions.loadScene(Scene.Error404, {})
+        mapping['/*'] = () => actions.loadScene(Scene.Error404, emptySceneParams)
 
         return mapping
     },
@@ -208,23 +220,14 @@ export const sceneLogic = kea<sceneLogicType>({
 
             actions.loadScene(scene, params)
         },
-        loadScene: async (
-            {
-                scene,
-                params = {},
-            }: {
-                scene: Scene
-                params: Params
-            },
-            breakpoint
-        ) => {
+        loadScene: async ({ scene, params }, breakpoint) => {
             if (values.scene === scene) {
                 actions.setScene(scene, params)
                 return
             }
 
             if (!scenes[scene]) {
-                actions.setScene(Scene.Error404, {})
+                actions.setScene(Scene.Error404, emptySceneParams)
                 return
             }
 
@@ -244,7 +247,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         } else {
                             // First scene, show an error page
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene(Scene.ErrorNetwork, {})
+                            actions.setScene(Scene.ErrorNetwork, emptySceneParams)
                         }
                     } else {
                         throw error
@@ -254,13 +257,14 @@ export const sceneLogic = kea<sceneLogicType>({
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
-                    loadedScene = _scene
+                    loadedScene = { name: scene, ...(_scene as SceneExport), sceneParams: params }
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
                         name: scene,
                         component: defaultExport,
                         logic: logic,
+                        sceneParams: params,
                     }
                 } else {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
@@ -271,12 +275,13 @@ export const sceneLogic = kea<sceneLogicType>({
                                 ? others[Object.keys(others)[0]]
                                 : values.loadedScenes[Scene.Error404].component,
                         logic: logic,
+                        sceneParams: params,
                     }
                     if (Object.keys(others).length > 1) {
                         console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
-                actions.setLoadedScene(scene, loadedScene, params)
+                actions.setLoadedScene(loadedScene)
             }
             actions.setScene(scene, params)
         },
