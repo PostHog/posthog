@@ -1283,3 +1283,9 @@ export enum FunnelCorrelationType {
     Success = 'success',
     Failure = 'failure',
 }
+
+export enum HelpType {
+    Slack = 'slack',
+    Email = 'email',
+    Docs = 'docs',
+}

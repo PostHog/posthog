@@ -41,6 +41,7 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -351,6 +352,7 @@ export function TopNavigation(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
+                <HelpButton />
                 {user && (
                     <>
                         <Dropdown
