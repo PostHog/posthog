@@ -6,13 +6,12 @@ import { propertySelectLogicType } from './PropertyNamesSelectLogicType'
 export const propertySelectLogic = kea<propertySelectLogicType>({
     props: {
         selectionKey: '' as string,
-        onHide: () => {},
 
         properties: [] as PersonProperty[],
-        initialProperties: [] as string[],
+        initialProperties: undefined as string[] | undefined,
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
-        onChange: (_: string[]) => {},
+        onChange: undefined as ((_: string[]) => void) | undefined,
     },
 
     key: (props) => props.selectionKey,
@@ -66,13 +65,17 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         ],
     }),
 
-    selectors: {
+    selectors: ({ props }) => ({
         selectState: [
-            [(selectors) => [selectors.selectedProperties, selectors.properties]],
-            (selectedProperties, properties) =>
-                selectedProperties.size === properties.length ? 'all' : selectedProperties.size === 0 ? 'none' : 'some',
+            (selectors) => [selectors.selectedProperties],
+            (selectedProperties) =>
+                selectedProperties.size === props.properties.length
+                    ? 'all'
+                    : selectedProperties.size === 0
+                    ? 'none'
+                    : 'some',
         ],
-    },
+    }),
 
     events: ({ cache, values, actions }) => ({
         afterMount: () => {
@@ -104,7 +107,9 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         hide: () => {
             // When the popover is hidden, we want to notify onChange with the
             // current selected properties
-            props.onChange(Array.from(values.selectedProperties))
+            if (props.onChange) {
+                props.onChange(Array.from(values.selectedProperties))
+            }
         },
     }),
 })

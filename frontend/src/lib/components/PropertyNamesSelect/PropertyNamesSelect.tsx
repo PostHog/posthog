@@ -24,7 +24,7 @@ export const PropertyNamesSelect = ({
         <div className="property-names-select">
             <WarningFilled style={{ color: 'var(--warning)' }} /> Error loading properties!
         </div>
-    ) : properties ? (
+    ) : properties?.length ? (
         <PropertyNamesSelectBox onChange={onChange} properties={properties} />
     ) : (
         <div className="property-names-select">Loading properties...</div>
@@ -43,6 +43,7 @@ export const PropertyNamesSelectBox = ({
     const selectProps = usePropertyNamesSelectLogic({
         properties,
         initialProperties,
+        onChange,
     })
 
     const {
@@ -116,7 +117,9 @@ export const PropertyNamesSelectBox = ({
             </div>
             {isSearchOpen ? (
                 <div className="popover" {...popoverProps}>
-                    <PropertyNamesSearch />
+                    <SelectPropertiesProvider {...selectProps}>
+                        <PropertyNamesSearch />
+                    </SelectPropertiesProvider>
                 </div>
             ) : null}
         </div>
@@ -159,16 +162,14 @@ const PropertyNamesSearch = (): JSX.Element => {
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
-const usePropertyNamesSelectLogic = ({
-    onHide,
+export const usePropertyNamesSelectLogic = ({
     properties,
     initialProperties,
     onChange,
 }: {
-    onHide: () => void
     properties: PersonProperty[]
-    initialProperties: string[]
-    onChange: (_: string[]) => void
+    initialProperties?: string[]
+    onChange?: (_: string[]) => void
 }) => {
     // Provides logic for opening and closing the popover. Note that we wrap the
     // logic such that we can generate a unique key and ensure for each
@@ -180,7 +181,6 @@ const usePropertyNamesSelectLogic = ({
 
     const logic = propertySelectLogic({
         selectionKey: propertySelectLogicKey,
-        onHide,
         properties,
         initialProperties,
         onChange,
@@ -188,19 +188,26 @@ const usePropertyNamesSelectLogic = ({
 
     // popover actions/values
     const { toggle, setTriggerElement, hide, open } = useActions(logic)
-    const { isOpen } = useValues(logic)
+    const { isOpen, triggerElement } = useValues(logic)
 
     // selection actions/values
-    const { selectAll, clearAll, selectState } = useActions(logic)
-    const { selectedProperties } = useValues(logic)
+    const { selectAll, clearAll, toggleProperty, setSelectedProperties } = useActions(logic)
+    const { selectedProperties, selectState } = useValues(logic)
+
+    const isSelected = React.useCallback(
+        (propertyName: string) => selectedProperties.has(propertyName),
+        [selectedProperties]
+    )
 
     return {
         // popover actions/values
         toggle,
-        setTriggerElement,
         hide,
         open,
         isOpen,
+
+        setTriggerElement,
+        triggerElement,
 
         // React prop specifics
         popoverProps: {
@@ -222,6 +229,9 @@ const usePropertyNamesSelectLogic = ({
         selectAll,
         clearAll,
         selectState,
+        toggleProperty,
+        setSelectedProperties,
+        isSelected,
     }
 }
 
@@ -288,13 +298,19 @@ export const usePropertyNamesSelectLogicContext = () => {
     components
 */
 
-const propertyNamesSelectLogicContext = React.createContext<typeof propertySelectLogic | undefined>(undefined)
+type PropertyNamesSelectLogicContextType = ReturnType<typeof usePropertyNamesSelectLogic>
+
+const propertyNamesSelectLogicContext = React.createContext<PropertyNamesSelectLogicContextType | undefined>(undefined)
 
 export const SelectPropertiesProvider = ({
     children,
-    logic,
-}: { logic: typeof propertySelectLogic } & {
+    ...logicProps
+}: PropertyNamesSelectLogicContextType & {
     children: JSX.Element[] | JSX.Element
 }): JSX.Element => {
-    return <propertyNamesSelectLogicContext.Provider value={logic}>{children}</propertyNamesSelectLogicContext.Provider>
+    return (
+        <propertyNamesSelectLogicContext.Provider value={logicProps}>
+            {children}
+        </propertyNamesSelectLogicContext.Provider>
+    )
 }

@@ -10,8 +10,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     PropertyNamesSelectBox,
     SelectPropertiesProvider,
+    usePropertyNamesSelectLogic,
     usePropertyNamesSelectLogicContext,
-    usePropertyNamesSelect,
 } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { usePersonProperties } from 'lib/api/person-properties'
 
@@ -34,10 +34,11 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         }
     }
 
-    const selectProps = usePropertyNamesSelect({
+    const selectProps = usePropertyNamesSelectLogic({
         properties: personProperties || [],
         onChange: setExcludedPropertyNames,
     })
+
     const { setSelectedProperties } = selectProps
 
     if (!personProperties) {

@@ -83,7 +83,7 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
         )
     )
 
-    return keaStory(Insights, funnelsWithCorrelationJson)()
+    return keaStory(Insights, { kea: { router: funnelsWithCorrelationJson.kea.router } })()
 }
 
 const setFeatureFlags = (featureFlags: { [flag: string]: boolean }): void => {
