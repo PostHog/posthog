@@ -41,20 +41,20 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
         preflight?.is_clickhouse_enabled //breakdown is not available on postgres anyway but for completeness is checked here
 
     const tags = breakdownArray
-        .filter((b) => !!b)
+        .filter((b): b is string | number => !!b)
         .map((t, index) => {
             const onClose =
                 typeof t === 'string' && t !== 'all'
                     ? () => {
                           if (multiPropertyBreakdownIsEnabled) {
-                              const newParts = breakdownParts.filter((_, i) => i !== index)
+                              const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
                               setFilters({ breakdown: newParts, breakdown_type: breakdown_type })
                           } else {
                               setFilters({ breakdown: undefined, breakdown_type: null })
                           }
                       }
                     : () => {
-                          const newParts = breakdownParts.filter((_, i) => i !== index)
+                          const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
                           if (newParts.length === 0) {
                               setFilters({ breakdown: null, breakdown_type: null })
                           } else {
@@ -77,25 +77,26 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
               const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
 
               if (changedBreakdownType) {
-                  const newFilters = {
-                      breakdown: [...breakdownParts, changedBreakdown],
+                  const multiPropertyFilters: Partial<FilterType> = {
+                      breakdown: [...breakdownParts, changedBreakdown].filter((b): b is string | number => !!b),
                       breakdown_type: changedBreakdownType,
                   }
 
-                  setFilters(newFilters)
+                  setFilters(multiPropertyFilters)
               }
           }
         : (changedBreakdown: TaxonomicFilterValue, groupType: TaxonomicFilterGroupType): void => {
               const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
 
               if (changedBreakdownType) {
-                  setFilters({
+                  const singlePropertyFilters: Partial<FilterType> = {
                       breakdown:
                           groupType === TaxonomicFilterGroupType.CohortsWithAllUsers
-                              ? [...breakdownParts, changedBreakdown]
+                              ? [...breakdownParts, changedBreakdown].filter((b): b is string | number => !!b)
                               : changedBreakdown,
                       breakdown_type: changedBreakdownType,
-                  })
+                  }
+                  setFilters(singlePropertyFilters)
               }
           }
     return (
