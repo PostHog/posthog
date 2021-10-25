@@ -125,16 +125,20 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             )
 
         return response.Response(
-            {"session_recording": session_recording_serializer.data, "person": PersonSerializer(instance=person).data,}
+            {
+                "result": {
+                    "session_recording": session_recording_serializer.data,
+                    "person": PersonSerializer(instance=person).data,
+                }
+            }
         )
 
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
-        if request.method == "GET":
-            session_recording_id = kwargs["pk"]
-            filter = SessionRecordingsFilter(request=request)
-            session_recording_snapshots = self._get_session_recording_snapshots(request, filter, session_recording_id)
-            if len(session_recording_snapshots["snapshots"]) == 0:
-                raise exceptions.NotFound("Snapshots not found")
-            return response.Response({"result": session_recording_snapshots})
+        session_recording_id = kwargs["pk"]
+        filter = SessionRecordingsFilter(request=request)
+        session_recording_snapshots = self._get_session_recording_snapshots(request, filter, session_recording_id)
+        if len(session_recording_snapshots["snapshots"]) == 0:
+            raise exceptions.NotFound("Snapshots not found")
+        return response.Response({"result": session_recording_snapshots})

@@ -168,7 +168,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
             response_data = response.json()
             # In the metadata response too
-            self.assertEqual(response_data["session_recording"]["viewed"], True)
+            self.assertEqual(response_data["result"]["session_recording"]["viewed"], True)
 
         def test_get_single_session_recording_metadata(self):
             p = Person.objects.create(
@@ -180,18 +180,18 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.create_snapshot("d1", session_recording_id, base_time + relativedelta(seconds=30))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
             response_data = response.json()
-            self.assertEqual(response_data["person"]["id"], p.pk)
-            self.assertEqual(parse(response_data["session_recording"]["start_time"]), base_time)
+            self.assertEqual(response_data["result"]["person"]["id"], p.pk)
+            self.assertEqual(parse(response_data["result"]["session_recording"]["start_time"]), base_time)
             self.assertEqual(
-                parse(response_data["session_recording"]["end_time"]), base_time + relativedelta(seconds=30)
+                parse(response_data["result"]["session_recording"]["end_time"]), base_time + relativedelta(seconds=30)
             )
-            self.assertEqual(response_data["session_recording"]["recording_duration"], "30.0")
-            self.assertEqual(response_data["session_recording"]["viewed"], False)
-            self.assertEqual(response_data["session_recording"]["distinct_id"], "d1")
+            self.assertEqual(response_data["result"]["session_recording"]["recording_duration"], "30.0")
+            self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
+            self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
 
-        def test_get_default_limit_of_snapshots(self):
+        def test_get_default_limit_of_chunks(self):
             base_time = now()
-            num_snapshots = 30
+            num_snapshots = DEFAULT_RECORDING_CHUNK_LIMIT + 10
 
             for _ in range(num_snapshots):
                 self.create_snapshot("user", "1", base_time)
@@ -244,18 +244,18 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                     )
                 response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
                 response_data = response.json()
-                self.assertEqual(response_data["person"]["id"], p.pk)
-                self.assertEqual(parse(response_data["session_recording"]["start_time"]), now())
+                self.assertEqual(response_data["result"]["person"]["id"], p.pk)
+                self.assertEqual(parse(response_data["result"]["session_recording"]["start_time"]), now())
                 self.assertEqual(
-                    parse(response_data["session_recording"]["end_time"]),
+                    parse(response_data["result"]["session_recording"]["end_time"]),
                     now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1),
                 )
                 self.assertEqual(
-                    response_data["session_recording"]["recording_duration"],
+                    response_data["result"]["session_recording"]["recording_duration"],
                     str(timedelta(seconds=snapshots_per_chunk - 1, minutes=num_chunks - 1).total_seconds()),
                 )
-                self.assertEqual(response_data["session_recording"]["viewed"], False)
-                self.assertEqual(response_data["session_recording"]["distinct_id"], "d1")
+                self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
+                self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
 
         def test_single_session_recording_doesnt_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
@@ -270,7 +270,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.create_snapshot("d1", "id_no_person", now() - relativedelta(days=1))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
             response_data = response.json()
-            self.assertEqual(response_data["person"], {"properties": None, "is_identified": False})
+            self.assertEqual(response_data["result"]["person"], {"properties": None, "is_identified": False})
 
         def test_session_recording_doesnt_exist(self):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")
