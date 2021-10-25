@@ -37,6 +37,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMeta: (meta: playerMetaData) => ({ meta }),
         setMetaDuration: (duration: number) => ({ duration }),
         setCurrentTime: (time: number) => ({ time }),
+        setRealTime: (time: number) => ({ time }),
         setLastBufferedTime: (time: number) => ({ time }),
         setSpeed: (speed: number) => ({ speed }),
         togglePlayPause: true,
@@ -73,6 +74,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 seek: (state, { time }) => ({ ...state, current: time }),
                 setCurrentTime: (state, { time }) => ({ ...state, current: time }),
+                setRealTime: (state, { time }) => ({ ...state, current: time }),
             },
         ],
         speed: [
@@ -220,10 +222,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlay: () => {
             actions.stopAnimation()
             actions.seek(values.time.current, true)
+            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
         setPause: () => {
             actions.stopAnimation()
             values.replayer?.pause()
+            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
         setBuffer: () => {
             actions.stopAnimation()
@@ -295,6 +299,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
             }
+        },
+        clearLoadingState: () => {
+            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
     }),
 })

@@ -19,12 +19,7 @@ $thumb_size: 14px;
         height: $thumb_size;
         border: 2px solid $bg_light;
         background-color: $brand_red;
-        transition: transform 200ms;
         transform-origin: center;
-
-        &:hover {
-            transform: scale(1.2);
-        }
     }
 
     .slider,
