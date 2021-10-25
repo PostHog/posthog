@@ -117,6 +117,7 @@ export const funnelLogic = kea<funnelLogicType>({
         hideSkewWarning: true,
 
         setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
+        excludeProperty: (propertyName: string) => ({ propertyName }),
     }),
 
     loaders: ({ values }) => ({
@@ -194,7 +195,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         excludedPropertyNames: [
-            [] as string[],
+            new Set([]) as Set<string>,
             {
                 loadExcludedPropertyNames: async () => {
                     const excludedPropertyNamesJson = window.localStorage.getItem('excludedPropertyNames')
@@ -275,9 +276,14 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         },
-        excludedPropertyNames: {
-            setExcludedPropertyNames: (_, { excludedPropertyNames }) => excludedPropertyNames,
-        },
+        excludedPropertyNames: [
+            new Set([]) as Set<string>,
+            {
+                setExcludedPropertyNames: (_, { excludedPropertyNames }) => excludedPropertyNames,
+                excludeProperty: (excludedPropertyNames, { propertyName }) =>
+                    new Set([...Array.from(excludedPropertyNames), propertyName]),
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -823,6 +829,11 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
             },
+        ],
+
+        isSelected: [
+            () => [selectors.excludedPropertyNames],
+            (excludedPropertyNames: Set<string>) => (propertyName: string) => excludedPropertyNames.has(propertyName),
         ],
     }),
 
