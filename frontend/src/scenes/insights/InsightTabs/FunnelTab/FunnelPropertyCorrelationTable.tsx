@@ -13,7 +13,7 @@ import {
     usePropertyNamesSelectLogic,
     usePropertyNamesSelectLogicContext,
 } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
-import { usePersonProperties } from 'lib/api/person-properties'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -21,7 +21,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes, excludedPropertyNames } =
         useValues(logic)
     const { setPropertyCorrelationTypes, setExcludedPropertyNames } = useActions(logic)
-    const { properties: personProperties } = usePersonProperties()
+    const { personProperties } = useValues(personPropertiesModel)
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
             if (propertyCorrelationTypes.includes(correlationType)) {

@@ -1,10 +1,9 @@
 import CaretDownFilled from '@ant-design/icons/lib/icons/CaretDownFilled'
 import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
-import WarningFilled from '@ant-design/icons/lib/icons/WarningFilled'
 import { Checkbox, Input } from 'antd'
 import { useActions, useValues } from 'kea'
-import { usePersonProperties } from 'lib/api/person-properties'
 import React from 'react'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { PersonProperty } from '~/types'
 import { propertySelectLogic } from './PropertyNamesSelectLogic'
 import './styles.scss'
@@ -18,13 +17,12 @@ export const PropertyNamesSelect = ({
         Provides a super simple multiselect box for selecting property names.
     */
 
-    const { properties, error } = usePersonProperties()
+    const { personProperties: properties } = useValues(personPropertiesModel)
 
-    return error ? (
-        <div className="property-names-select">
-            <WarningFilled style={{ color: 'var(--warning)' }} /> Error loading properties!
-        </div>
-    ) : properties?.length ? (
+    // NOTE: I'm checking that length > 0 here, although this seems a little
+    // hacky. I'm doing this so when we instantiate the propertySelectLogic with
+    // props, we have the props to hand as they will not update on rerender
+    return properties?.length ? (
         <PropertyNamesSelectBox onChange={onChange} properties={properties} />
     ) : (
         <div className="property-names-select">Loading properties...</div>
