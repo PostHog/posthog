@@ -110,34 +110,48 @@ class ApiRequest {
 
 class Api extends Function {
     public actions = {
-        get: async (actionId: ActionType['id']) => (await new ApiRequest().actionsDetail(actionId).get()) as ActionType,
-        create: async (actionData: Partial<ActionType>, temporaryToken?: string) =>
-            (await new ApiRequest()
+        async get(actionId: ActionType['id']) {
+            return (await new ApiRequest().actionsDetail(actionId).get()) as ActionType
+        },
+        async create(actionData: Partial<ActionType>, temporaryToken?: string) {
+            return (await new ApiRequest()
                 .actionsList()
                 .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
-                .create({ data: actionData })) as ActionType,
-        update: async (actionId: ActionType['id'], actionData: Partial<ActionType>, temporaryToken?: string) =>
-            (await new ApiRequest()
+                .create({ data: actionData })) as ActionType
+        },
+        async update(actionId: ActionType['id'], actionData: Partial<ActionType>, temporaryToken?: string) {
+            return (await new ApiRequest()
                 .actionsDetail(actionId)
                 .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
-                .update({ data: actionData })) as ActionType,
-        list: async () => (await new ApiRequest().actionsList().get()) as PaginatedResponse<ActionType>,
-        getPeople: async (peopleParams: PeopleParamType, filters: Partial<FilterType>, searchTerm?: string) =>
-            (await new ApiRequest()
+                .update({ data: actionData })) as ActionType
+        },
+        async list() {
+            return (await new ApiRequest().actionsList().get()) as PaginatedResponse<ActionType>
+        },
+        async getPeople(peopleParams: PeopleParamType, filters: Partial<FilterType>, searchTerm?: string) {
+            return (await new ApiRequest()
                 .actionsList()
                 .withAction('people')
                 .withQueryString(
                     parsePeopleParams(peopleParams, filters) +
                         (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
                 )
-                .get()) as PaginatedResponse<{ people: PersonType[]; count: number }>,
-        determineDeleteEndpoint: (teamId: TeamType['id']) => new ApiRequest().actionsList(teamId).assembleEndpointUrl(),
-        determinePeopleCsvUrl: (teamId: TeamType['id'], peopleParams: PeopleParamType, filters: Partial<FilterType>) =>
-            new ApiRequest()
+                .get()) as PaginatedResponse<{ people: PersonType[]; count: number }>
+        },
+        async determineDeleteEndpoint(teamId: TeamType['id']) {
+            return new ApiRequest().actionsList(teamId).assembleEndpointUrl()
+        },
+        async determinePeopleCsvUrl(
+            teamId: TeamType['id'],
+            peopleParams: PeopleParamType,
+            filters: Partial<FilterType>
+        ) {
+            return new ApiRequest()
                 .actionsList(teamId)
                 .withAction('people.csv')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
-                .assembleFullUrl(true),
+                .assembleFullUrl(true)
+        },
     }
 
     public async get(url: string, signal?: AbortSignal): Promise<any> {
