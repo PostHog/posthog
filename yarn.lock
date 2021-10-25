@@ -10937,10 +10937,10 @@ kea-router@^1.0.2:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-test-utils@^0.1.2:
-  version "0.1.3"
-  resolved "https://registry.yarnpkg.com/kea-test-utils/-/kea-test-utils-0.1.3.tgz#a7af4be8105e8298d37396b8e732d580515a58aa"
-  integrity sha512-yPPpWCth3/4RPJTa7dbQVozOgG7MIVth5p/wsovHohHD5j7zGZ1AZaiBAkQDzal5BS5jALJ1tOhVjit1fC9gqw==
+kea-test-utils@^0.2.1:
+  version "0.2.1"
+  resolved "https://registry.yarnpkg.com/kea-test-utils/-/kea-test-utils-0.2.1.tgz#6fb0df3112424983a6748f8e3376def2fc40568e"
+  integrity sha512-7jZPSAVdVtcpeiXY9wNGMiHHJtX8pA/qzTE4S4y6NTjquWjGglqIMPEiqHlvrqrgX6te++gVgM1SQfiNK1+TaA==
   dependencies:
     kea-waitfor "^0.2.1"
 

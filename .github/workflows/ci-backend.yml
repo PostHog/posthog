@@ -146,7 +146,10 @@ jobs:
               run: |
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
-                  git diff --name-only origin/master..HEAD | grep posthog/migrations | python manage.py test_migrations_are_null
+                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
+                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
+                  # In this check we exclusively care about files that were added (A) in posthog/migrations/
+                  git diff --name-status origin/master..HEAD | grep "A\tposthog/migrations/" | awk '{print $2}' | python manage.py test_migrations_are_null
 
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts

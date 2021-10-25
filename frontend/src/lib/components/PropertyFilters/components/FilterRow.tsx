@@ -1,23 +1,19 @@
 import React, { useState } from 'react'
-import { PropertyFilter } from './PropertyFilter'
 import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
-import { useActions } from 'kea'
 import { Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
-import PropertyFilterButton from './PropertyFilterButton'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import 'scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
 
 interface FilterRowProps {
-    item: AnyPropertyFilter
+    item: Record<string, any>
     index: number
     filters: AnyPropertyFilter[]
     pageKey: string
@@ -26,8 +22,10 @@ interface FilterRowProps {
     disablePopover?: boolean
     popoverPlacement?: TooltipPlacement | null
     taxonomicPopoverPlacement?: Placement
-    groupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
+    filterComponent: (onComplete: () => void) => JSX.Element
+    label: string
+    onRemove: (index: number) => void
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -39,28 +37,20 @@ export const FilterRow = React.memo(function FilterRow({
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicPopoverPlacement = undefined,
-    groupTypes,
     showNestedArrow = false,
+    filterComponent,
+    label,
+    onRemove,
 }: FilterRowProps) {
-    const { remove } = useActions(propertyFilterLogic)
     const [open, setOpen] = useState(false)
 
     const { key } = item
 
     const handleVisibleChange = (visible: boolean): void => {
         if (!visible && isValidPropertyFilter(item) && !item.key) {
-            remove(index)
+            onRemove(index)
         }
         setOpen(visible)
-    }
-
-    const propertyFilterCommonProps = {
-        key: index,
-        pageKey,
-        index,
-        onComplete: () => setOpen(false),
-        selectProps: {},
-        groupTypes,
     }
 
     return (
@@ -77,10 +67,10 @@ export const FilterRow = React.memo(function FilterRow({
         >
             {disablePopover ? (
                 <>
-                    <PropertyFilter {...propertyFilterCommonProps} disablePopover={disablePopover} />
+                    {filterComponent(() => setOpen(false))}
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
-                            onClick={() => remove(index)}
+                            onClick={() => onRemove(index)}
                             style={{
                                 cursor: 'pointer',
                                 float: 'none',
@@ -98,16 +88,7 @@ export const FilterRow = React.memo(function FilterRow({
                         placement={taxonomicPopoverPlacement || 'bottom-end'}
                         fallbackPlacements={['bottom-start']}
                         onClickOutside={() => handleVisibleChange(false)}
-                        overlay={
-                            <PropertyFilter
-                                {...propertyFilterCommonProps}
-                                disablePopover={disablePopover}
-                                selectProps={{
-                                    delayBeforeAutoOpen: 150,
-                                    placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                }}
-                            />
-                        }
+                        overlay={filterComponent(() => setOpen(false))}
                     >
                         {({ setRef }) => {
                             return (
@@ -123,6 +104,10 @@ export const FilterRow = React.memo(function FilterRow({
                                             item={item}
                                             setRef={setRef}
                                         />
+                                    ) : isValidPathCleanFilter(item) ? (
+                                        <FilterButton onClick={() => setOpen(!open)} setRef={setRef}>
+                                            {`${item['alias']}::${item['regex']}`}
+                                        </FilterButton>
                                     ) : (
                                         <Button
                                             ref={setRef}
@@ -133,7 +118,7 @@ export const FilterRow = React.memo(function FilterRow({
                                             style={{ paddingLeft: 0 }}
                                             icon={<PlusCircleOutlined />}
                                         >
-                                            Add filter
+                                            {label}
                                         </Button>
                                     )}
                                 </>
@@ -143,7 +128,7 @@ export const FilterRow = React.memo(function FilterRow({
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
                             className="ml-1"
-                            onClick={() => remove(index)}
+                            onClick={() => onRemove(index)}
                             style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                         />
                     )}

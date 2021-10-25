@@ -152,9 +152,9 @@ def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
     Triggered daily by Celery scheduler.
     """
     posthoganalytics.capture(
-        distinct_id, "organization event usage report", properties,
+        distinct_id, "organization usage report", properties,
     )
 
 
 def report_org_usage_failure(distinct_id: str, err: str) -> None:
-    posthoganalytics.capture(distinct_id, "organization event usage report failure", properties={"error": err,})
+    posthoganalytics.capture(distinct_id, "organization usage report failure", properties={"error": err,})

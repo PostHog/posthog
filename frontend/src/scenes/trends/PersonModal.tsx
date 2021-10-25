@@ -13,6 +13,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
+import { teamLogic } from '../teamLogic'
 
 export interface PersonModalProps {
     visible: boolean
@@ -26,6 +27,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
         useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { preflight } = useValues(preflightLogic)
     const title = useMemo(
         () =>
@@ -75,7 +77,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         {isDownloadCsvAvailable && (
                             <Button
                                 icon={<DownloadOutlined />}
-                                href={`/api/action/people.csv?${parsePeopleParams(
+                                href={`/api/projects/${currentTeamId}/actions/people.csv?${parsePeopleParams(
                                     {
                                         label: people.label,
                                         action: people.action,

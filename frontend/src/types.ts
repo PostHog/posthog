@@ -181,6 +181,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
+    path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
 }
 
@@ -193,6 +194,7 @@ export interface ActionType {
     last_calculated_at?: string
     name: string
     post_to_slack?: boolean
+    slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
 }
@@ -579,7 +581,7 @@ export interface DashboardItemType {
     refreshing: boolean
     created_by: UserBasicType | null
     is_sample: boolean
-    dashboard: number
+    dashboard: number | null
     dive_dashboard?: number
     result: any | null
     updated_at: string
@@ -806,6 +808,8 @@ export interface FilterType {
     path_start_key?: string // Paths People Start Key
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
+    path_replacements?: boolean
+    local_path_cleaning_filters?: Record<string, any>[]
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
@@ -813,6 +817,7 @@ export interface FilterType {
     max_edge_weight?: number | undefined // Paths
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
 }
 
 export interface SystemStatusSubrows {

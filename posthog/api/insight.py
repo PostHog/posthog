@@ -24,7 +24,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Event, Filter, Team
+from posthog.models import Event, Filter, Insight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
@@ -32,6 +32,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
+from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 
@@ -41,7 +42,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
     """
 
     class Meta:
-        model = DashboardItem
+        model = Insight
         fields = [
             "id",
             "short_id",
@@ -71,7 +72,7 @@ class InsightSerializer(InsightBasicSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = DashboardItem
+        model = Insight
         fields = [
             "id",
             "short_id",
@@ -94,49 +95,61 @@ class InsightSerializer(InsightBasicSerializer):
             "favorited",
             "saved",
             "created_by",
+            "is_sample",
         ]
-        read_only_fields = (
-            "created_by",
-            "created_at",
-            "short_id",
-            "updated_at",
-        )
+        read_only_fields = ("created_by", "created_at", "short_id", "updated_at", "is_sample")
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
-        if not validated_data.get("dashboard", None):
-            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
+        if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
+            dashboard_item = Insight.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data,
+            dashboard_item = Insight.objects.create(
+                team=team, last_refresh=now(), created_by=created_by, **validated_data
             )
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def get_result(self, dashboard_item: DashboardItem):
-        if not dashboard_item.filters:
+    def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
+        # Remove is_sample if it's set as user has altered the sample configuration
+        validated_data["is_sample"] = False
+        return super().update(instance, validated_data)
+
+    def get_result(self, insight: Insight):
+        if not insight.filters:
             return None
-        result = get_safe_cache(dashboard_item.filters_hash)
+        result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
-        return result.get("data")
+        return result.get("result")
 
-    def validate_filters(self, value):
-        # :KLUDGE: Debug code to track down the cause of blank dashboards
-        if len(value) == 0 or ("from_dashboard" in value and len(value) == 1):
-            capture_exception(Exception("Saving dashbord_item with blank filters"))
-        return value
+    def get_last_refresh(self, insight: Insight):
+        result = self.get_result(insight)
+        if result is not None:
+            return insight.last_refresh
+        insight.last_refresh = None
+        insight.save()
+        return None
+
+    def to_representation(self, instance: Insight):
+        if self.context["request"].GET.get("refresh"):
+            update_dashboard_item_cache(instance, None)
+            instance.refresh_from_db()
+
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+        return representation
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = DashboardItem.objects.all()
+    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
@@ -186,19 +199,28 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(name__icontains=request.GET["search"])
         return queryset
 
+    @action(methods=["patch"], detail=False)
+    def layouts(self, request, **kwargs):
+        """Dashboard item layouts."""
+        queryset = self.get_queryset()
+        for data in request.data["items"]:
+            queryset.filter(pk=data["id"]).update(layouts=data["layouts"])
+        serializer = self.get_serializer(queryset.all(), many=True)
+        return Response(serializer.data)
+
     # ******************************************
     # Calculated Insight Endpoints
-    # /insight/trend
-    # /insight/session
-    # /insight/funnel
-    # /insight/retention
-    # /insight/path
+    # /projects/:id/insights/trend
+    # /projects/:id/insights/session
+    # /projects/:id/insights/funnel
+    # /projects/:id/insights/retention
+    # /projects/:id/insights/path
     #
     # Request parameteres and caching are handled here and passed onto respective .queries classes
     # ******************************************
 
     # ******************************************
-    # /insight/trend
+    # /projects/:id/insights/trend
     #
     # params:
     # - from_dashboard: (string) determines trend is being retrieved from dashboard item to update dashboard_item metadata
@@ -230,7 +252,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"result": result}
 
     # ******************************************
-    # /insight/session
+    # /projects/:id/insights/session
     #
     # params:
     # - session: (string: avg, dist) specifies session type
@@ -246,7 +268,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"result": result}
 
     # ******************************************
-    # /insight/funnel
+    # /projects/:id/insights/funnel
     # The funnel endpoint is asynchronously processed. When a request is received, the endpoint will
     # call an async task with an id that can be continually polled for 3 minutes.
     #
@@ -291,7 +313,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"result": result}
 
     # ******************************************
-    # /insight/retention
+    # /projects/:id/insights/retention
     # params:
     # - start_entity: (dict) specifies id and type of the entity to focus retention on
     # - **shared filter types
@@ -312,7 +334,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"result": result}
 
     # ******************************************
-    # /insight/path
+    # /projects/:id/insights/path
     # params:
     # - start: (string) specifies the name of the starting property or element
     # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type
@@ -334,7 +356,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def _refresh_dashboard(self, request) -> None:
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+            Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
 
 class LegacyInsightViewSet(InsightViewSet):

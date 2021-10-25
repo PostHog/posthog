@@ -26,7 +26,7 @@ xdescribe('<Insights /> trends', () => {
         cy.intercept('/api/action/', { fixture: 'api/action/actions' })
         cy.intercept('/api/cohort/', { fixture: 'api/cohort/cohorts' })
         cy.intercept('/api/person/properties/', { fixture: 'api/person/properties' })
-        cy.interceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends' })).as('api_insight')
+        cy.interceptLazy('/api/projects/2/insights/', () => ({ fixture: 'api/insight/trends' })).as('api_insight')
 
         helpers.mockPosthog()
     })
@@ -79,7 +79,7 @@ xdescribe('<Insights /> trends', () => {
     it('can render bar graphs', () => {
         mountAndCheckAPI()
 
-        cy.overrideInterceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends/breakdown' }))
+        cy.overrideInterceptLazy('/api/projects/2/insights/', () => ({ fixture: 'api/insight/trends/breakdown' }))
 
         cy.get('[data-attr=add-breakdown-button]').click()
         cy.get('[data-attr=prop-breakdown-select]').click().type('Browser').type('{enter}')
