@@ -43,7 +43,6 @@ RUN apk --update --no-cache add \
 #   https://github.com/PostHog/posthog/pull/6607
 #
 RUN apk --update --no-cache add \
-    "libpq~=13.4" \
     "libxml2-dev~=2.9" \
     "xmlsec~=1.2" \
     "xmlsec-dev~=1.2" \
