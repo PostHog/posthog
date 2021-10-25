@@ -4,7 +4,7 @@ import { TableProps } from 'antd'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
-import { FlagOutlined } from '@ant-design/icons'
+import { FlagOutlined, UserOutlined, UserDeleteOutlined } from '@ant-design/icons'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
 import { IconSize, InsightLabel } from 'lib/components/InsightLabel'
@@ -200,7 +200,11 @@ export function FunnelStepTable(): JSX.Element | null {
                             ) : (
                                 EmptyValue
                             ),
-                            renderSubColumnTitle('Completed'),
+                            renderSubColumnTitle(
+                                <>
+                                    <UserOutlined title="Unique users who completed this step" /> Completed
+                                </>
+                            ),
                             showLabels,
                             step,
                             dashboardItemId,
@@ -277,7 +281,11 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ) : (
                                     EmptyValue
                                 ),
-                                renderSubColumnTitle('Dropped'),
+                                renderSubColumnTitle(
+                                    <>
+                                        <UserDeleteOutlined title="Unique users who dropped off on this step" /> Dropped
+                                    </>
+                                ),
                                 showLabels,
                                 step,
                                 dashboardItemId,

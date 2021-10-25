@@ -1,7 +1,7 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import useSize from '@react-hook/size'
-import { compactNumber, humanFriendlyDuration, pluralize } from 'lib/utils'
+import { humanFriendlyDuration, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -190,7 +190,14 @@ export function BreakdownVerticalBarGroup({
                                     width: barWidth,
                                 }}
                             >
-                                {breakdown.count > 0 ? compactNumber(breakdown.count) : ''}
+                                {breakdown.count > 0
+                                    ? `${humanizeStepCount(breakdown.count)} ${pluralize(
+                                          breakdown.count,
+                                          'user',
+                                          undefined,
+                                          false
+                                      )}`
+                                    : ''}
                             </div>
                         )}
                     </div>
@@ -559,7 +566,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                     popoverMetrics={[
                                                         {
                                                             title: 'Completed step',
-                                                            value: breakdown.count,
+                                                            value: pluralize(breakdown.count, 'user', undefined),
                                                         },
                                                         {
                                                             title: 'Conversion rate (total)',
@@ -580,7 +587,11 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                         },
                                                         {
                                                             title: 'Dropped off',
-                                                            value: breakdown.droppedOffFromPrevious,
+                                                            value: pluralize(
+                                                                breakdown.droppedOffFromPrevious,
+                                                                'user',
+                                                                undefined
+                                                            ),
                                                             visible:
                                                                 step.order !== 0 &&
                                                                 breakdown.droppedOffFromPrevious > 0,
@@ -635,7 +646,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                             popoverMetrics={[
                                                 {
                                                     title: 'Completed step',
-                                                    value: step.count,
+                                                    value: pluralize(step.count, 'user', undefined),
                                                 },
                                                 {
                                                     title: 'Conversion rate (total)',
@@ -652,7 +663,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                 },
                                                 {
                                                     title: 'Dropped off',
-                                                    value: step.droppedOffFromPrevious,
+                                                    value: pluralize(step.droppedOffFromPrevious, 'user', undefined),
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
                                                 {
