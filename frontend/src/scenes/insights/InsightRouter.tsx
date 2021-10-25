@@ -8,6 +8,7 @@ import React from 'react'
 import { DashboardItemType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { insightRouterLogicType } from './InsightRouterType'
+import { SceneExport } from 'scenes/sceneTypes'
 
 const insightRouterLogic = kea<insightRouterLogicType>({
     actions: {
@@ -78,4 +79,9 @@ export function InsightRouter(): JSX.Element {
             )}
         </>
     )
+}
+
+export const scene: SceneExport = {
+    component: InsightRouter,
+    logic: insightRouterLogic,
 }
