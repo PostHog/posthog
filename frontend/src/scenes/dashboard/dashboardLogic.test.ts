@@ -17,9 +17,9 @@ describe('dashboardLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname === 'api/dashboard/5/') {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/5/`) {
             return dashboardJson
-        } else if (pathname === 'api/dashboard/6/') {
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/6/`) {
             return {
                 ...dashboardJson,
                 items: [

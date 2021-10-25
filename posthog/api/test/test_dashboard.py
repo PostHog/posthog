@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Dashboard, Filter, Insight, Team, User
-from posthog.models.organization import OrganizationMembership
 from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key
 
@@ -19,7 +18,7 @@ class TestDashboard(APIBaseTest):
         dashboard = Dashboard.objects.create(
             team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
         )
-        response = self.client.get(f"/api/dashboard/{dashboard.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
@@ -31,7 +30,7 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["creation_mode"], "default")
 
     def test_create_basic_dashboard(self):
-        response = self.client.post("/api/dashboard/", {"name": "My new dashboard"})
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "My new dashboard"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
         self.assertEqual(response_data["name"], "My new dashboard")
@@ -47,7 +46,7 @@ class TestDashboard(APIBaseTest):
             team=self.team, name="private dashboard", created_by=self.user, creation_mode="template",
         )
         response = self.client.patch(
-            f"/api/dashboard/{dashboard.id}",
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
             {
                 "name": "dashboard new name",
                 "creation_mode": "duplicate",
@@ -84,14 +83,31 @@ class TestDashboard(APIBaseTest):
         # Short ID is automatically generated
         self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
 
-    def test_token_auth(self):
+    def test_share_token_lookup_is_shared_true(self):
+        _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
+        dashboard = Dashboard.objects.create(
+            team=other_team, share_token="testtoken", name="public dashboard", is_shared=True
+        )
+        # Project-based endpoint while logged in, but not belonging to the same org
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        # Project-based endpoint while logged out
         self.client.logout()
-        dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
-        test_no_token = self.client.get(f"/api/dashboard/{dashboard.pk}/")
-        self.assertEqual(test_no_token.status_code, status.HTTP_403_FORBIDDEN)
-        response = self.client.get(f"/api/dashboard/{dashboard.pk}/?share_token=testtoken")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        # Shared dashboards endpoint while logged out
+        response = self.client.get(f"/api/shared_dashboards/testtoken")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "public dashboard")
+
+    def test_share_token_lookup_is_shared_false(self):
+        _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
+        dashboard = Dashboard.objects.create(
+            team=other_team, share_token="testtoken", name="public dashboard", is_shared=False
+        )
+        # Shared dashboards endpoint while logged out (dashboards should be unavailable as it's not shared)
+        response = self.client.get(f"/api/shared_dashboards/testtoken")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_shared_dashboard(self):
         self.client.logout()
@@ -103,7 +119,9 @@ class TestDashboard(APIBaseTest):
 
     def test_share_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        response = self.client.patch("/api/dashboard/%s/" % dashboard.pk, {"name": "dashboard 2", "is_shared": True},)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk, {"name": "dashboard 2", "is_shared": True},
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
@@ -120,7 +138,7 @@ class TestDashboard(APIBaseTest):
         Insight.objects.create(
             dashboard=dashboard, filters=filter.to_dict(), team=self.team,
         )
-        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
         self.assertEqual(response["items"][0]["result"], None)
 
         # cache results
@@ -137,7 +155,7 @@ class TestDashboard(APIBaseTest):
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
             # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
             # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item
-            response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
@@ -156,7 +174,7 @@ class TestDashboard(APIBaseTest):
             )
 
         with freeze_time("2020-01-20T13:00:01Z"):
-            response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
         self.assertEqual(response["items"][0]["result"], None)
         self.assertEqual(response["items"][0]["last_refresh"], None)
@@ -192,7 +210,7 @@ class TestDashboard(APIBaseTest):
             )
 
         with freeze_time("2020-01-20T13:00:01Z"):
-            response = self.client.get("/api/dashboard/%s?refresh=true" % dashboard.pk)
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s?refresh=true" % dashboard.pk)
 
             self.assertEqual(response.status_code, 200)
 
@@ -212,23 +230,23 @@ class TestDashboard(APIBaseTest):
 
     def test_dashboard_endpoints(self):
         # create
-        response = self.client.post("/api/dashboard/", {"name": "Default", "pinned": "true"},)
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Default", "pinned": "true"},)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Default")
         self.assertEqual(response.json()["creation_mode"], "default")
         self.assertEqual(response.json()["pinned"], True)
 
         # retrieve
-        response = self.client.get("/api/dashboard/").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
         pk = Dashboard.objects.first().pk  # type: ignore
         self.assertEqual(response["results"][0]["id"], pk)  # type: ignore
         self.assertEqual(response["results"][0]["name"], "Default")  # type: ignore
 
         # delete (soft)
         self.client.patch(
-            f"/api/dashboard/{pk}/", {"deleted": "true"},
+            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": "true"},
         )
-        response = self.client.get("/api/dashboard/").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
         self.assertEqual(len(response["results"]), 0)
 
     def test_dashboard_items(self):
@@ -238,7 +256,7 @@ class TestDashboard(APIBaseTest):
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboard": dashboard.pk, "name": "some_item"},
             format="json",
         )
-        response = self.client.get(f"/api/dashboard/{dashboard.pk}/").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
         self.assertEqual(len(response["items"]), 1)
         self.assertEqual(response["items"][0]["name"], "some_item")
         self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
@@ -306,7 +324,9 @@ class TestDashboard(APIBaseTest):
         self.assertTrue("lg" in items_response["layouts"])
 
     def test_dashboard_from_template(self):
-        response = self.client.post("/api/dashboard/", {"name": "another", "use_template": "DEFAULT_APP"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": "DEFAULT_APP"}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertGreater(Insight.objects.count(), 1)
         self.assertEqual(response.json()["creation_mode"], "template")
@@ -316,50 +336,63 @@ class TestDashboard(APIBaseTest):
 
         # invalid - both use_template and use_dashboard are set
         response = self.client.post(
-            "/api/dashboard", {"name": "another", "use_template": "DEFAULT_APP", "use_dashboard": 1,}
+            f"/api/projects/{self.team.id}/dashboards",
+            {"name": "another", "use_template": "DEFAULT_APP", "use_dashboard": 1,},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # invalid - use_template is set and use_dashboard empty string
         response = self.client.post(
-            "/api/dashboard", {"name": "another", "use_template": "DEFAULT_APP", "use_dashboard": "",}
+            f"/api/projects/{self.team.id}/dashboards",
+            {"name": "another", "use_template": "DEFAULT_APP", "use_dashboard": "",},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # valid - use_template empty and use_dashboard is not set
-        response = self.client.post("/api/dashboard", {"name": "another", "use_template": "",})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "",}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - only use_template is set
-        response = self.client.post("/api/dashboard", {"name": "another", "use_template": "DEFAULT_APP",})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "DEFAULT_APP",}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - only use_dashboard is set
-        response = self.client.post("/api/dashboard", {"name": "another", "use_dashboard": existing_dashboard.id,})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_dashboard": existing_dashboard.id,}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - use_dashboard is set and use_template empty string
         response = self.client.post(
-            "/api/dashboard", {"name": "another", "use_template": "", "use_dashboard": existing_dashboard.id,}
+            f"/api/projects/{self.team.id}/dashboards",
+            {"name": "another", "use_template": "", "use_dashboard": existing_dashboard.id,},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - both use_template and use_dashboard are not set
-        response = self.client.post("/api/dashboard", {"name": "another",})
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards", {"name": "another",})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_dashboard_creation_mode(self):
         # template
-        response = self.client.post("/api/dashboard/", {"name": "another", "use_template": "DEFAULT_APP"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": "DEFAULT_APP"}
+        )
         self.assertEqual(response.json()["creation_mode"], "template")
 
         # duplicate
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        response = self.client.post("/api/dashboard/", {"name": "another", "use_dashboard": existing_dashboard.id})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_dashboard": existing_dashboard.id}
+        )
         self.assertEqual(response.json()["creation_mode"], "duplicate")
 
         # default
-        response = self.client.post("/api/dashboard/", {"name": "another"})
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "another"})
         self.assertEqual(response.json()["creation_mode"], "default")
 
     def test_dashboard_duplication(self):
@@ -370,7 +403,9 @@ class TestDashboard(APIBaseTest):
         Insight.objects.create(
             dashboard=existing_dashboard, filters={"name": "test2"}, team=self.team, last_refresh=now(),
         )
-        response = self.client.post("/api/dashboard/", {"name": "another", "use_dashboard": existing_dashboard.id})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_dashboard": existing_dashboard.id}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["creation_mode"], "duplicate")
 
@@ -386,13 +421,18 @@ class TestDashboard(APIBaseTest):
 
     def test_invalid_dashboard_duplication(self):
         # pass a random number (non-existent dashboard id) as use_dashboard
-        response = self.client.post("/api/dashboard/", {"name": "another", "use_dashboard": 12345})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_dashboard": 12345}
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_duplication_fail_for_different_team(self):
         another_team = Team.objects.create(organization=self.organization)
         another_team_dashboard = Dashboard.objects.create(team=another_team, name="Another Team's Dashboard")
-        response = self.client.post("/api/dashboard/", {"name": "another", "use_dashboard": another_team_dashboard.id,})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "another", "use_dashboard": another_team_dashboard.id,},
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_return_cached_results_dashboard_has_filters(self):
@@ -414,7 +454,9 @@ class TestDashboard(APIBaseTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         patch_response = self.client.patch(
-            "/api/dashboard/%s/" % dashboard.pk, {"filters": {"date_from": "-24h"}}, format="json",
+            f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk,
+            {"filters": {"date_from": "-24h"}},
+            format="json",
         ).json()
         self.assertEqual(patch_response["items"][0]["result"], None)
 
@@ -426,7 +468,7 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         item = Insight.objects.get(pk=item.pk)
         # Expecting this to only have one day as per the dashboard filter
-        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
         self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
 
     def test_invalid_properties(self):

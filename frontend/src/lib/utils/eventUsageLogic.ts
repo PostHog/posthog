@@ -17,6 +17,7 @@ import {
     ViewType,
     InsightType,
     PropertyFilter,
+    HelpType,
     SessionPlayerData,
     AvailableFeature,
 } from '~/types'
@@ -262,6 +263,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             loadTime: number,
             delay: number
         ) => ({ recordingData, source, loadTime, delay }),
+        reportHelpButtonViewed: true,
+        reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -620,6 +623,12 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         },
         reportPayGateDismissed: (props) => {
             posthog.capture('pay gate dismissed', props)
+        },
+        reportHelpButtonViewed: () => {
+            posthog.capture('help button viewed')
+        },
+        reportHelpButtonUsed: (props) => {
+            posthog.capture('help button used', props)
         },
     },
 })

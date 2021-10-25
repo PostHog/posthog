@@ -8,7 +8,7 @@ xdescribe('<Sessions />', () => {
     beforeEach(() => {
         cy.intercept('/_preflight/', { fixture: '_preflight' })
         cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
-        cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
+        cy.intercept('/api/projects/2/dashboards/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
         cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
         cy.intercept('/api/person/properties/', { fixture: 'api/person/properties' })
