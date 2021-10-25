@@ -83,9 +83,11 @@ class TestDashboard(APIBaseTest):
         # Short ID is automatically generated
         self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
 
-    def test_token_auth(self):
+    def test_share_token_lookup_is_shared_true(self):
         _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
-        dashboard = Dashboard.objects.create(team=other_team, share_token="testtoken", name="public dashboard")
+        dashboard = Dashboard.objects.create(
+            team=other_team, share_token="testtoken", name="public dashboard", is_shared=True
+        )
         # Project-based endpoint while logged in, but not belonging to the same org
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -97,6 +99,15 @@ class TestDashboard(APIBaseTest):
         response = self.client.get(f"/api/shared_dashboards/testtoken")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "public dashboard")
+
+    def test_share_token_lookup_is_shared_false(self):
+        _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
+        dashboard = Dashboard.objects.create(
+            team=other_team, share_token="testtoken", name="public dashboard", is_shared=False
+        )
+        # Shared dashboards endpoint while logged out (dashboards should be unavailable as it's not shared)
+        response = self.client.get(f"/api/shared_dashboards/testtoken")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_shared_dashboard(self):
         self.client.logout()
