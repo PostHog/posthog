@@ -211,27 +211,10 @@ export class EventsProcessor {
         properties: Properties,
         propertiesOnce: Properties
     ): Promise<Properties> {
-        let personFound = await this.db.fetchPerson(teamId, distinctId)
-        if (!personFound) {
-            try {
-                personFound = await this.db.createPerson(
-                    DateTime.utc(),
-                    properties,
-                    teamId,
-                    null,
-                    false,
-                    new UUIDT().toString(),
-                    [distinctId]
-                )
-            } catch {
-                // Catch race condition where in between getting and creating,
-                // another request already created this person
-                personFound = await this.db.fetchPerson(teamId, distinctId)
-            }
-        }
+        const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
             throw new Error(
-                `Could not find person with distinct id "${distinctId}" in team "${teamId}", even after trying to insert them`
+                `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update properties`
             )
         }
 
@@ -268,23 +251,9 @@ export class EventsProcessor {
     }
 
     private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
-        let personFound = await this.db.fetchPerson(teamId, distinctId)
+        const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
-            try {
-                personFound = await this.db.createPerson(
-                    DateTime.utc(),
-                    {},
-                    teamId,
-                    null,
-                    true,
-                    new UUIDT().toString(),
-                    [distinctId]
-                )
-            } catch {
-                // Catch race condition where in between getting and creating,
-                // another request already created this person
-                personFound = await this.db.fetchPerson(teamId, distinctId)
-            }
+            throw new Error(`Could not find person with distinct id "${distinctId}" in team "${teamId}" to identify`)
         }
         if (personFound && !personFound.is_identified) {
             await this.db.updatePerson(personFound, { is_identified: isIdentified })
