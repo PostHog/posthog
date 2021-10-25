@@ -7,13 +7,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import {
-    PropertyNamesSelectBox,
-    SelectPropertiesProvider,
-    usePropertyNamesSelectLogic,
-    usePropertyNamesSelectLogicContext,
-} from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -21,7 +15,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes, excludedPropertyNames } =
         useValues(logic)
     const { setPropertyCorrelationTypes, setExcludedPropertyNames } = useActions(logic)
-    const { personProperties } = useValues(personPropertiesModel)
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
             if (propertyCorrelationTypes.includes(correlationType)) {
@@ -34,93 +27,79 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         }
     }
 
-    const selectProps = usePropertyNamesSelectLogic({
-        properties: personProperties || [],
-        onChange: setExcludedPropertyNames,
-    })
-
-    const { setSelectedProperties } = selectProps
-
-    if (!personProperties) {
-        return null
-    }
-
     return stepsWithCount.length > 1 ? (
-        <SelectPropertiesProvider {...selectProps}>
-            <Table
-                dataSource={propertyCorrelationValues}
-                scroll={{ x: 'max-content' }}
-                size="small"
-                rowKey="rowKey"
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                style={{ marginTop: '1rem' }}
-                title={() => (
-                    <Row align="middle">
-                        <Col xs={20} sm={20} xl={6}>
-                            <b>Correlation Analysis for:</b>
-                        </Col>
-                        <Col>
-                            Exclude:{' '}
-                            <PropertyNamesSelectBox
-                                // NOTE: we want to make sure that if the
-                                // selected propertyNames change, we reset the
-                                // internal state of the select
-                                key={excludedPropertyNames?.toString()}
-                                properties={personProperties}
-                                initialProperties={excludedPropertyNames}
-                                onChange={setSelectedProperties}
-                            />
-                        </Col>
-                        <Col
-                            xs={20}
-                            sm={20}
-                            xl={4}
-                            className="tab-btn left ant-btn"
-                            onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
+        <Table
+            dataSource={propertyCorrelationValues}
+            scroll={{ x: 'max-content' }}
+            size="small"
+            rowKey="rowKey"
+            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            style={{ marginTop: '1rem' }}
+            title={() => (
+                <Row align="middle">
+                    <Col xs={20} sm={20} xl={6}>
+                        <b>Correlation Analysis for:</b>
+                    </Col>
+                    <Col>
+                        Exclude:{' '}
+                        <PropertyNamesSelect
+                            // NOTE: we want to make sure that if the
+                            // selected propertyNames change, we reset the
+                            // internal state of the select
+                            key={excludedPropertyNames?.toString()}
+                            initialProperties={new Set(excludedPropertyNames)}
+                            onChange={setExcludedPropertyNames}
+                        />
+                    </Col>
+                    <Col
+                        xs={20}
+                        sm={20}
+                        xl={4}
+                        className="tab-btn left ant-btn"
+                        onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
+                    >
+                        <Checkbox
+                            checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
+                            style={{
+                                pointerEvents: 'none',
+                            }}
                         >
-                            <Checkbox
-                                checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
-                                style={{
-                                    pointerEvents: 'none',
-                                }}
-                            >
-                                Success
-                            </Checkbox>
-                        </Col>
-                        <Col
-                            xs={20}
-                            sm={20}
-                            xl={4}
-                            className="tab-btn left ant-btn"
-                            onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
+                            Success
+                        </Checkbox>
+                    </Col>
+                    <Col
+                        xs={20}
+                        sm={20}
+                        xl={4}
+                        className="tab-btn left ant-btn"
+                        onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
+                    >
+                        <Checkbox
+                            checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Failure)}
+                            style={{
+                                pointerEvents: 'none',
+                            }}
                         >
-                            <Checkbox
-                                checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Failure)}
-                                style={{
-                                    pointerEvents: 'none',
-                                }}
-                            >
-                                Dropoff
-                            </Checkbox>
-                        </Col>
-                    </Row>
-                )}
-            >
-                <Column
-                    title="Correlated Person Properties"
-                    key="propertName"
-                    render={(_, record: FunnelCorrelation) => <CorrelationPropertyCell record={record} />}
-                    align="left"
-                />
-                <Column title="Completed" dataIndex="success_count" width={90} align="center" />
-                <Column title="Dropped off" dataIndex="failure_count" width={100} align="center" />
-                <Column
-                    title="Actions"
-                    key="actions"
-                    render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
-                />
-            </Table>
-        </SelectPropertiesProvider>
+                            Dropoff
+                        </Checkbox>
+                    </Col>
+                </Row>
+            )}
+        >
+            <Column
+                title="Correlated Person Properties"
+                key="propertName"
+                render={(_, record: FunnelCorrelation) => <CorrelationPropertyCell record={record} />}
+                align="left"
+            />
+            <Column title="Completed" dataIndex="success_count" width={90} align="center" />
+            <Column title="Dropped off" dataIndex="failure_count" width={100} align="center" />
+            <Column
+                title="Actions"
+                key="actions"
+                render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+            />
+        </Table>
     ) : null
 }
 
@@ -155,11 +134,11 @@ const CorrelationPropertyCell = ({ record }: { record: FunnelCorrelation }): JSX
 }
 
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
-    const { toggleProperty, isSelected } = usePropertyNamesSelectLogicContext()
+    const { excludeProperty, isSelected } = useValues(funnelLogic)
     const propertyName = (record.event || '').split('::')[0]
 
     return (
-        <button disabled={isSelected(propertyName)} onClick={() => toggleProperty(propertyName)}>
+        <button disabled={isSelected(propertyName)} onClick={() => excludeProperty(propertyName)}>
             Exclude property
         </button>
     )

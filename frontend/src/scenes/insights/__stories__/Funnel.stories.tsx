@@ -11,6 +11,10 @@ import { worker } from '../../../mocks/browser'
 import { FunnelResult, FunnelStep } from '~/types'
 import posthog from 'posthog-js'
 import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
+import { createMemoryHistory } from 'history'
+import React from 'react'
+import { Provider } from 'kea'
+import { initKea } from '~/initKea'
 
 export default {
     title: 'PostHog/Scenes/Insights/Funnel',
@@ -80,10 +84,36 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
             req.body.funnel_correlation_type === 'properties'
                 ? res(ctx.json(samplePropertyCorrelationResponse))
                 : res(ctx.json(sampleEventCorrelationResponse))
-        )
+        ),
+        rest.get('/api/projects/:projectId/actions/?', (_, res, ctx) => res(ctx.json(sampleActions))),
+        rest.get('/api/insight/trend/', (_, res, ctx) => res(ctx.json(sampleInsights))),
+        rest.patch('/api/projects/:projectId/insights/', (_, res, ctx) => res(ctx.json(sampleInsights))),
+        // rest.get('/_preflight/', (_, res, ctx) => res(ctx.json({}))),
+        rest.get('/api/projects/@current/property_definitions/', (_, res, ctx) => res(ctx.json(sampleProperties))),
+        rest.get('/api/projects/@current/event_definitions/', (_, res, ctx) => res(ctx.json(sampleEvents))),
+        rest.get('/api/insight/471605/', (_, res, ctx) => res(ctx.json(sampleInsights)))
+        // rest.get('*', (_, res, ctx) => res(ctx.json({}))),
+        // rest.post('*', (_, res, ctx) => res(ctx.json({})))
     )
 
-    return keaStory(Insights, { kea: { router: funnelsWithCorrelationJson.kea.router } })()
+    const history = createMemoryHistory({
+        initialEntries: [
+            '/insights?insight=FUNNELS&properties=%5B%5D&filter_test_accounts=false&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A1%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A2%7D%5D&actions=%5B%5D&funnel_viz_type=steps&display=FunnelViz&interval=day&new_entity=%5B%5D&date_from=-14dinsight=FUNNELS&actions=%5B%5D&events=%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%2C%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A1%7D%5D&display=FunnelViz&interval=day&properties=%5B%5D&funnel_viz_type=steps&exclusions=%5B%5D&funnel_from_step=0&funnel_to_step=1#fromItem=471605',
+        ],
+    })
+
+    // @ts-ignore
+    history.pushState = history.push
+    // @ts-ignore
+    history.replaceState = history.replace
+
+    initKea({ routerHistory: history, routerLocation: history.location })
+
+    return (
+        <Provider>
+            <Insights />
+        </Provider>
+    )
 }
 
 const setFeatureFlags = (featureFlags: { [flag: string]: boolean }): void => {
@@ -273,4 +303,90 @@ const sampleSkewedFunnelResponse: FunnelResponse = {
     ],
     last_refresh: '2021-10-11T15:00:52.117340Z',
     is_cached: true,
+}
+
+const sampleActions = {
+    results: [],
+}
+
+const sampleInsights = {
+    id: 471605,
+    short_id: 'e2q24fy7',
+    name: null,
+    filters: {
+        insight: 'FUNNELS',
+        actions: [],
+        events: [
+            { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
+            { id: '$pageview', name: '$pageview', type: 'events', order: 1 },
+        ],
+        display: 'FunnelViz',
+        interval: 'day',
+        properties: [],
+        funnel_viz_type: 'steps',
+        exclusions: [],
+        funnel_from_step: 0,
+        funnel_to_step: 1,
+    },
+    filters_hash: 'cache_fcaabdbdff7df6efe226521758a91832',
+    order: null,
+    deleted: false,
+    dashboard: null,
+    dive_dashboard: null,
+    layouts: {},
+    color: null,
+    last_refresh: null,
+    refreshing: false,
+    result: [
+        {
+            action_id: '$pageview',
+            name: '$pageview',
+            custom_name: null,
+            order: 0,
+            people: ['017cb1ec-5939-0000-262b-c1149bb3adbd'],
+            count: 9936,
+            type: 'events',
+            average_conversion_time: null,
+            median_conversion_time: null,
+        },
+        {
+            action_id: '$pageview',
+            name: '$pageview',
+            custom_name: null,
+            order: 1,
+            people: ['017cb1ec-5939-0000-262b-c1149bb3adbd'],
+            count: 8470,
+            type: 'events',
+            average_conversion_time: 3259.2458615695127,
+            median_conversion_time: 2.0,
+        },
+    ],
+    created_at: '2021-10-25T17:25:58.388607Z',
+    description: null,
+    updated_at: '2021-10-25T17:37:48.876139Z',
+    tags: [],
+    favorited: false,
+    saved: false,
+    created_by: {
+        id: 4973,
+        uuid: '017bbadc-f13d-0000-da28-c962b0a6d89f',
+        distinct_id: 'E6wBts6SmoYJOx1LXgfbYWkVoUaxlHqV03nHMoMCYvX',
+        first_name: 'Harry',
+        email: 'harry@posthog.com',
+    },
+    is_sample: false,
+}
+
+const sampleProperties = {
+    count: 11668,
+    next: null,
+    previous: null,
+    results: [],
+}
+
+const sampleEvents = {
+    count: 292,
+    next: null,
+    previous: null,
+    results: [],
 }
