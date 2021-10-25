@@ -1040,6 +1040,7 @@ export interface InsightLogicProps {
 
 export interface SetInsightOptions {
     shouldMergeWithExisting?: boolean
+    /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
 }
 

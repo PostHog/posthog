@@ -245,13 +245,10 @@ export const insightLogic = kea<insightLogicType>({
                           result: null,
                           filters: {},
                       },
-            setInsight: (state, { insight, options: { shouldMergeWithExisting } }) =>
-                shouldMergeWithExisting
-                    ? {
-                          ...state,
-                          ...insight,
-                      }
-                    : insight,
+            setInsight: (state, { insight, options: { shouldMergeWithExisting } }) => ({
+                ...(shouldMergeWithExisting ? state : {}),
+                ...insight,
+            }),
             updateInsightFilters: (state, { filters }) => ({ ...state, filters }),
         },
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
@@ -293,6 +290,8 @@ export const insightLogic = kea<insightLogicType>({
             () => props.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (state, { filters }) => cleanFilters(filters, state),
+                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
+                    overrideFilter ? filters || {} : state,
                 loadInsightSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 loadResultsSuccess: (state, { insight }) =>
@@ -578,6 +577,7 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
+                let loadedFromDashboard = false
                 if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
                     if (values.insightMode !== ItemMode.Edit) {
                         actions.setInsightMode(ItemMode.Edit, null)
@@ -585,7 +585,6 @@ export const insightLogic = kea<insightLogicType>({
                 } else if (hashParams.fromItem) {
                     const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
 
-                    let loadedFromDashboard = false
                     if (hashParams.fromDashboard && (!values.insight.result || insightIdChanged)) {
                         const logic = dashboardLogic.findMounted({ id: hashParams.fromDashboard })
                         if (logic) {
@@ -593,7 +592,7 @@ export const insightLogic = kea<insightLogicType>({
                                 (item: DashboardItemType) => item.id === Number(hashParams.fromItem)
                             )
                             if (insight?.result) {
-                                actions.setInsight(insight, false)
+                                actions.setInsight(insight, { overrideFilter: true })
                                 loadedFromDashboard = true
                             }
                         }
@@ -606,7 +605,7 @@ export const insightLogic = kea<insightLogicType>({
                 }
 
                 const cleanSearchParams = cleanFilters(searchParams, values.filters)
-                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                if (!loadedFromDashboard && !objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams)
                 }
             }
@@ -623,7 +622,7 @@ export const insightLogic = kea<insightLogicType>({
                         const logic = dashboardLogic.findMounted({ id: router.values.hashParams.fromDashboard })
                         const insight = logic?.values.allItems?.items?.find((item) => item.id === props.dashboardItemId)
                         if (insight?.result) {
-                            actions.setInsight(insight, false)
+                            actions.setInsight(insight, { overrideFilter: true })
                             return
                         }
                     }
