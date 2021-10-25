@@ -3,6 +3,8 @@ import { initKea } from '~/initKea'
 import { testUtilsPlugin, expectLogic } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
+import { AppContext } from '../types'
+import { MOCK_TEAM_ID } from '../lib/api.mock'
 
 export function initKeaTestLogic<L extends Logic = Logic>({
     logic,
@@ -17,6 +19,10 @@ export function initKeaTestLogic<L extends Logic = Logic>({
     let unmount: () => void
 
     beforeEach(async () => {
+        window.POSTHOG_APP_CONTEXT = {
+            current_team: { id: MOCK_TEAM_ID },
+            ...window.POSTHOG_APP_CONTEXT,
+        } as unknown as AppContext
         posthog.init('no token', {
             api_host: 'borked',
             test: true,
@@ -45,5 +51,6 @@ export function initKeaTestLogic<L extends Logic = Logic>({
             unmount()
             await expectLogic(logic).toFinishAllListeners()
         }
+        delete window.POSTHOG_APP_CONTEXT
     })
 }

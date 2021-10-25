@@ -10,6 +10,7 @@ import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLog
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from '../teamLogic'
 
 type SessionRecordingId = string
 
@@ -49,7 +50,9 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                     properties: values.properties,
                 })
                 await breakpoint(10)
-                const response = await api.get(`api/event/sessions/?${params}`)
+                const response = await api.get(
+                    `api/projects/${teamLogic.values.currentTeamId}/events/sessions/?${params}`
+                )
                 breakpoint()
                 actions.setPagination(response.pagination)
                 return response.result
@@ -207,7 +210,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 filters: values.filters,
                 properties: values.properties,
             })
-            const response = await api.get(`api/event/sessions/?${params}`)
+            const response = await api.get(`api/projects/${teamLogic.values.currentTeamId}/events/sessions/?${params}`)
             breakpoint()
             actions.setPagination(response.pagination)
             actions.appendNewSessions(response.result)
@@ -237,7 +240,9 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
 
                 await breakpoint(200)
 
-                const response = await api.get(`api/event/session_events?${toParams(params)}`)
+                const response = await api.get(
+                    `api/projects/${teamLogic.values.currentTeamId}/events/session_events?${toParams(params)}`
+                )
                 actions.addSessionEvents(session, response.result)
             }
         },

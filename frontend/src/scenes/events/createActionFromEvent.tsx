@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { eventToName } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType } from '../../types'
+import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType, TeamType } from '../../types'
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
     const element = elements[index]
@@ -32,6 +32,7 @@ function elementsToAction(elements: ElementType[]): ActionStepType {
 }
 
 export async function createActionFromEvent(
+    teamId: TeamType['id'],
     event: EventType,
     increment: number,
     recurse: typeof createActionFromEvent = createActionFromEvent
@@ -68,10 +69,10 @@ export async function createActionFromEvent(
 
     let action: ActionType
     try {
-        action = await api.create('api/action', actionData)
+        action = await api.create(`api/projects/${teamId}/actions`, actionData)
     } catch (response) {
         if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
-            return recurse(event, increment + 1, recurse)
+            return recurse(teamId, event, increment + 1, recurse)
         } else {
             toast.error(
                 <>

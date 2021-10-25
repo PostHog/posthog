@@ -3,11 +3,12 @@ import { errorToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
-
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { teamLogic } from '../teamLogic'
+
 const POLL_TIMEOUT = 5000
 
 const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
@@ -35,7 +36,6 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
 
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
-    apiUrl?: string // = 'api/event/'
     key?: string
 }
 
@@ -57,10 +57,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
-        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.apiUrl || 'events', props.key]
+        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key]
             .filter((keyPart) => !!keyPart)
             .join('-'),
-
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: {
         setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter): { properties: AnyPropertyFilter[] } => {
             // there seem to be multiple representations of "empty" properties
@@ -187,9 +189,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             (events, newEvents) => formatEvents(events, newEvents),
         ],
         exportUrl: [
-            () => [selectors.eventFilter, selectors.orderBy, selectors.properties],
-            (eventFilter, orderBy, properties) =>
-                `/api/event.csv?${toParams({
+            () => [selectors.currentTeamId, selectors.eventFilter, selectors.orderBy, selectors.properties],
+            (teamId, eventFilter, orderBy, properties) =>
+                `/api/projects/${teamId}/events.csv?${toParams({
                     properties,
                     ...(props.fixedFilters || {}),
                     ...(eventFilter ? { event: eventFilter } : {}),
@@ -306,7 +308,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 let apiResponse = null
 
                 try {
-                    apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                    apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
                 } catch (error) {
                     actions.fetchOrPollFailure(error)
                     return
@@ -347,7 +349,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             let apiResponse = null
             try {
-                apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
             } catch (e) {
                 // We don't call fetchOrPollFailure because we don't to generate an error alert for this
                 return

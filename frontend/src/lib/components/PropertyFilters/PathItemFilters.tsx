@@ -8,8 +8,7 @@ import { Button, Row } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import { FilterButton } from './components/PropertyFilterButton'
 import { CloseButton } from '../CloseButton'
-import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { SimpleOption } from '../TaxonomicFilter/groups'
+import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 
 interface PropertyFiltersProps {
@@ -34,11 +33,15 @@ export function PathItemFilters({
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
-    useEffect(() => {
-        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
-            setFilters([...propertyFilters, {}])
-        }
-    }, [propertyFilters])
+    useEffect(
+        () => {
+            if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
+                setFilters([...propertyFilters, {}])
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [propertyFilters]
+    )
 
     return (
         <div className="mb" style={style}>

@@ -59,7 +59,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
         )
 
-        response = self.client.get("/api/insight/path",).json()
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/path",).json()
         self.assertEqual(len(response["result"]), 1)
 
     def test_insight_paths_basic_exclusions(self):
@@ -74,7 +74,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             distinct_id="person_1", event="third event", team=self.team,
         )
 
-        response = self.client.get("/api/insight/path", data={"exclude_events": '["second event"]'}).json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/path", data={"exclude_events": '["second event"]'}
+        ).json()
         self.assertEqual(len(response["result"]), 1)
 
     def test_backwards_compatible_path_types(self):
@@ -98,12 +100,18 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             distinct_id="person_1", event="custom2", team=self.team,
         )
-        response = self.client.get("/api/insight/path", data={"path_type": "$pageview", "insight": "PATHS",}).json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/path", data={"path_type": "$pageview", "insight": "PATHS",}
+        ).json()
         self.assertEqual(len(response["result"]), 2)
 
-        response = self.client.get("/api/insight/path", data={"path_type": "custom_event", "insight": "PATHS"}).json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/path", data={"path_type": "custom_event", "insight": "PATHS"}
+        ).json()
         self.assertEqual(len(response["result"]), 1)
-        response = self.client.get("/api/insight/path", data={"path_type": "$screen", "insight": "PATHS"}).json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/path", data={"path_type": "$screen", "insight": "PATHS"}
+        ).json()
         self.assertEqual(len(response["result"]), 0)
 
     def test_backwards_compatible_start_point(self):
@@ -131,16 +139,19 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             distinct_id="person_1", event="custom2", team=self.team,
         )
         response = self.client.get(
-            "/api/insight/path", data={"path_type": "$pageview", "insight": "PATHS", "start_point": "/about",}
+            f"/api/projects/{self.team.id}/insights/path",
+            data={"path_type": "$pageview", "insight": "PATHS", "start_point": "/about",},
         ).json()
         self.assertEqual(len(response["result"]), 1)
 
         response = self.client.get(
-            "/api/insight/path", data={"path_type": "custom_event", "insight": "PATHS", "start_point": "custom2",}
+            f"/api/projects/{self.team.id}/insights/path",
+            data={"path_type": "custom_event", "insight": "PATHS", "start_point": "custom2",},
         ).json()
         self.assertEqual(len(response["result"]), 0)
         response = self.client.get(
-            "/api/insight/path", data={"path_type": "$screen", "insight": "PATHS", "start_point": "/screen1",}
+            f"/api/projects/{self.team.id}/insights/path",
+            data={"path_type": "$screen", "insight": "PATHS", "start_point": "/screen1",},
         ).json()
         self.assertEqual(len(response["result"]), 1)
 
@@ -180,12 +191,14 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.get(
-            "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about*"])}
+            f"/api/projects/{self.team.id}/insights/path",
+            data={"insight": "PATHS", "path_groupings": json.dumps(["/about*"])},
         ).json()
         self.assertEqual(len(response["result"]), 2)
 
         response = self.client.get(
-            "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about_*"])}
+            f"/api/projects/{self.team.id}/insights/path",
+            data={"insight": "PATHS", "path_groupings": json.dumps(["/about_*"])},
         ).json()
         self.assertEqual(len(response["result"]), 3)
 
@@ -214,7 +227,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        post_response = self.client.post("/api/insight/path/", data={**request_data, "funnel_filter": funnel_filter})
+        post_response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/path/", data={**request_data, "funnel_filter": funnel_filter}
+        )
         self.assertEqual(post_response.status_code, status.HTTP_200_OK)
         post_j = post_response.json()
         self.assertEqual(

@@ -8,8 +8,8 @@ from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.models import User
-from posthog.models.dashboard_item import DashboardItem
 from posthog.models.filters.utils import get_filter
+from posthog.models.insight import Insight
 from posthog.settings import TEMP_CACHE_RESULTS_TTL
 from posthog.utils import should_refresh
 
@@ -61,7 +61,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                     cache_key, fresh_result_package, TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
-                    dashboard_items = DashboardItem.objects.filter(team_id=team.pk, filters_hash=cache_key)
+                    dashboard_items = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)
                     dashboard_items.update(last_refresh=now())
         return fresh_result_package
 

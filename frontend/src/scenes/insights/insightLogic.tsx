@@ -20,6 +20,7 @@ import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys } from './utils'
 import * as Sentry from '@sentry/browser'
+import { teamLogic } from '../teamLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -38,6 +39,7 @@ export const insightLogic = kea<insightLogicType>({
     key: keyForInsightLogicProps('new'),
 
     connect: {
+        values: [teamLogic, ['currentTeamId']],
         logic: [eventUsageLogic, dashboardsModel],
     },
 
@@ -94,13 +96,16 @@ export const insightLogic = kea<insightLogicType>({
             } as Partial<DashboardItemType>,
             {
                 loadInsight: async ({ id }) => {
-                    return await api.get(`api/insight/${id}`)
+                    return await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`)
                 },
                 updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
                     if (!Object.entries(payload).length) {
                         return
                     }
-                    const response = await api.update(`api/insight/${values.insight.id}`, payload)
+                    const response = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                        payload
+                    )
                     breakpoint()
                     return { ...response, result: response.result || values.insight.result }
                 },
@@ -127,6 +132,10 @@ export const insightLogic = kea<insightLogicType>({
                     }
 
                     let response
+                    const { currentTeamId } = values
+                    if (!currentTeamId) {
+                        throw new Error("Can't load insight before current project is determined.")
+                    }
                     try {
                         if (
                             insight === ViewType.TRENDS ||
@@ -134,23 +143,27 @@ export const insightLogic = kea<insightLogicType>({
                             insight === ViewType.LIFECYCLE
                         ) {
                             response = await api.get(
-                                `api/insight/trend/?${toParams(filterTrendsClientSideParams(params))}`,
+                                `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                                    filterTrendsClientSideParams(params)
+                                )}`,
                                 cache.abortController.signal
                             )
                         } else if (insight === ViewType.SESSIONS || filters?.session) {
                             response = await api.get(
-                                `api/insight/session/?${toParams(filterTrendsClientSideParams(params))}`,
+                                `api/projects/${currentTeamId}/insights/session/?${toParams(
+                                    filterTrendsClientSideParams(params)
+                                )}`,
                                 cache.abortController.signal
                             )
                         } else if (insight === ViewType.RETENTION) {
                             response = await api.get(
-                                `api/insight/retention/?${toParams(params)}`,
+                                `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
                                 cache.abortController.signal
                             )
                         } else if (insight === ViewType.FUNNELS) {
-                            response = await pollFunnel(params)
+                            response = await pollFunnel(currentTeamId, params)
                         } else if (insight === ViewType.PATHS) {
-                            response = await api.create(`api/insight/path`, params)
+                            response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
                         }
@@ -467,10 +480,13 @@ export const insightLogic = kea<insightLogicType>({
             actions.setInsight({ ...values.insight, tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
         saveInsight: async () => {
-            const savedInsight = await api.update(`api/insight/${values.insight.id}`, {
-                ...values.insight,
-                saved: true,
-            })
+            const savedInsight = await api.update(
+                `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                {
+                    ...values.insight,
+                    saved: true,
+                }
+            )
             actions.setInsight({ ...savedInsight, result: savedInsight.result || values.insight.result })
             actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             toast(
@@ -481,7 +497,7 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         loadInsightSuccess: async ({ payload, insight }) => {
-            // loaded `/api/insight`, but it didn't have `results`, so make another query
+            // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters && !payload?.doNotLoadResults) {
                 actions.loadResults()
             }
@@ -492,7 +508,7 @@ export const insightLogic = kea<insightLogicType>({
                 return
             }
             if (!insight.id) {
-                const createdInsight = await api.create('api/insight', {
+                const createdInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, {
                     filters: insight.filters,
                 })
                 breakpoint()
