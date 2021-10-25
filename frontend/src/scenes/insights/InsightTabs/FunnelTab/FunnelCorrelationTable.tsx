@@ -8,6 +8,7 @@ import { EntityTypes, FunnelCorrelation, FunnelCorrelationType, PropertyFilter, 
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -18,6 +19,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         correlationTypes,
         eventHasPropertyCorrelations,
         eventWithPropertyCorrelationsValues,
+        parseDisplayNameForCorrelation,
     } = useValues(logic)
     const { setCorrelationTypes, loadEventWithPropertyCorrelations, openCorrelationPersonsModal } = useActions(logic)
 
@@ -43,6 +45,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         }
         const is_success = record.correlation_type === FunnelCorrelationType.Success
 
+        const { first_value, second_value } = parseDisplayNameForCorrelation(record)
+
         return (
             <>
                 <h4>
@@ -51,7 +55,13 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     ) : (
                         <FallOutlined style={{ color: 'red' }} />
                     )}{' '}
-                    {record.event?.event}
+                    <PropertyKeyInfo value={first_value} />
+                    {second_value !== undefined && (
+                        <>
+                            {' :: '}
+                            <PropertyKeyInfo value={second_value} disablePopover />
+                        </>
+                    )}
                 </h4>
                 <div>
                     People who converted were{' '}
@@ -115,7 +125,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         if (!eventName) {
             return <p>Unable to find property correlations for event.</p>
         }
-        console.log(eventWithPropertyCorrelationsValues)
 
         return (
             <Table

@@ -602,7 +602,7 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToName(event: EventType): string {
+export function eventToName(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
