@@ -153,7 +153,7 @@ export function ActionsTable(): JSX.Element {
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo
-                            endpoint={api().actionsList(getCurrentTeamId(currentTeamId)).assembleEndpointUrl()}
+                            endpoint={api.actions.determineDeleteEndpoint(getCurrentTeamId(currentTeamId))}
                             object={action}
                             className="text-danger"
                             style={{ marginLeft: 8, marginRight: 8 }}

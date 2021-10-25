@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, ViewType } from '~/types'
-import { parsePeopleParams, personsModalLogic } from './personsModalLogic'
+import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import './PersonModal.scss'
@@ -13,7 +13,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
-import { teamLogic, getCurrentTeamId } from '../teamLogic'
+import { getCurrentTeamId, teamLogic } from '../teamLogic'
 import api from '../../lib/api'
 
 export interface PersonModalProps {
@@ -78,22 +78,17 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         {isDownloadCsvAvailable && (
                             <Button
                                 icon={<DownloadOutlined />}
-                                href={api()
-                                    .actionsList(getCurrentTeamId(currentTeamId))
-                                    .withAction('people.csv')
-                                    .withQueryString(
-                                        parsePeopleParams(
-                                            {
-                                                label: people.label,
-                                                action: people.action,
-                                                date_from: people.day,
-                                                date_to: people.day,
-                                                breakdown_value: people.breakdown_value,
-                                            },
-                                            filters
-                                        )
-                                    )
-                                    .assembleFullUrl(true)}
+                                href={api.actions.determinePeopleCsvUrl(
+                                    getCurrentTeamId(currentTeamId),
+                                    {
+                                        label: people.label,
+                                        action: people.action,
+                                        date_from: people.day,
+                                        date_to: people.day,
+                                        breakdown_value: people.breakdown_value,
+                                    },
+                                    filters
+                                )}
                                 style={{ marginRight: 8 }}
                                 data-attr="person-modal-download-csv"
                             >

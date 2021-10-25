@@ -1,6 +1,13 @@
 import posthog from 'posthog-js'
 import { getCurrentTeamId } from '../scenes/teamLogic'
-import { ActionType, TeamType } from '../types'
+import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
+import { ActionType, FilterType, PersonType, TeamType } from '../types'
+
+export interface PaginatedResponse<T> {
+    results: T[]
+    next?: string
+    previous?: string
+}
 
 export function getCookie(name: string): string | null {
     let cookieValue: string | null = null
@@ -102,14 +109,35 @@ class ApiRequest {
 }
 
 class Api extends Function {
-    // @ts-expect-error - we DON'T need or want to call super() here
-    constructor() {
-        function createApiRequest(): ApiRequest {
-            return new ApiRequest()
-        }
-        Object.setPrototypeOf(createApiRequest, Api.prototype)
-        // @ts-expect-error - this DOES in reality match the expected constructor signature
-        return createApiRequest
+    public actions = {
+        get: async (actionId: ActionType['id']) => (await new ApiRequest().actionsDetail(actionId).get()) as ActionType,
+        create: async (actionData: Partial<ActionType>, temporaryToken?: string) =>
+            (await new ApiRequest()
+                .actionsList()
+                .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
+                .create({ data: actionData })) as ActionType,
+        update: async (actionId: ActionType['id'], actionData: Partial<ActionType>, temporaryToken?: string) =>
+            (await new ApiRequest()
+                .actionsDetail(actionId)
+                .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
+                .update({ data: actionData })) as ActionType,
+        list: async () => (await new ApiRequest().actionsList().get()) as PaginatedResponse<ActionType>,
+        getPeople: async (peopleParams: PeopleParamType, filters: Partial<FilterType>, searchTerm?: string) =>
+            (await new ApiRequest()
+                .actionsList()
+                .withAction('people')
+                .withQueryString(
+                    parsePeopleParams(peopleParams, filters) +
+                        (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
+                )
+                .get()) as PaginatedResponse<{ people: PersonType[]; count: number }>,
+        determineDeleteEndpoint: (teamId: TeamType['id']) => new ApiRequest().actionsList(teamId).assembleEndpointUrl(),
+        determinePeopleCsvUrl: (teamId: TeamType['id'], peopleParams: PeopleParamType, filters: Partial<FilterType>) =>
+            new ApiRequest()
+                .actionsList(teamId)
+                .withAction('people.csv')
+                .withQueryString(parsePeopleParams(peopleParams, filters))
+                .assembleFullUrl(true),
     }
 
     public async get(url: string, signal?: AbortSignal): Promise<any> {
@@ -202,10 +230,6 @@ class Api extends Function {
         }
         return response
     }
-}
-
-interface Api {
-    (): ApiRequest
 }
 
 function reportError(method: string, url: string, response: Response, startTime: number): void {

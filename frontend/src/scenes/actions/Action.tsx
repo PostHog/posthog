@@ -46,7 +46,7 @@ const actionLogic = kea<actionLogicType<ActionLogicProps>>({
                 if (!props.id) {
                     throw new Error('Cannot fetch an unsaved action from the API.')
                 }
-                const action = await api().actionsDetail(props.id).get()
+                const action = await api.actions.get(props.id)
                 actions.checkIsFinished(action)
                 return action
             },

@@ -26,7 +26,7 @@ export interface PersonModalParams {
     pathsDropoff?: boolean
 }
 
-interface PeopleParamType {
+export interface PeopleParamType {
     action: ActionFilter | 'session'
     label: string
     date_to?: string | number
@@ -212,15 +212,11 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     const cleanedParams = cleanFilters(filters)
                     people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                 } else {
-                    const filterParams = parsePeopleParams(
+                    people = await api.actions.getPeople(
                         { label, action, date_from, date_to, breakdown_value },
-                        filters
+                        filters,
+                        searchTerm
                     )
-                    people = await api()
-                        .actionsList()
-                        .withAction('people')
-                        .withQueryString(filterParams + searchTermParam)
-                        .get()
                 }
                 breakpoint()
                 const peopleResult = {

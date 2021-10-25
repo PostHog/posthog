@@ -67,11 +67,10 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                   })
                 : []
             try {
-                const queryString = props.temporaryToken ? `?temporary_token=${props.temporaryToken}` : ''
                 if (action.id) {
-                    action = await api().actionsDetail(action.id).withQueryString(queryString).update({ data: action })
+                    action = await api.actions.update(action.id, action, props.temporaryToken)
                 } else {
-                    action = await api().actionsList().withQueryString(queryString).create({ data: action })
+                    action = await api.actions.create(action, props.temporaryToken)
                 }
             } catch (response) {
                 if (response.code === 'unique') {

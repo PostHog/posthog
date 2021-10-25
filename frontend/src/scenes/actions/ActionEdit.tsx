@@ -50,7 +50,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             icon={<DeleteOutlined />}
             onClick={() => {
                 deleteWithUndo({
-                    endpoint: api().actionsList(getCurrentTeamId(currentTeamId)).assembleEndpointUrl(),
+                    endpoint: api.actions.determineDeleteEndpoint(getCurrentTeamId(currentTeamId)),
                     object: action,
                     callback: () => {
                         router.actions.push('/events/actions')
