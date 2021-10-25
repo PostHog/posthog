@@ -30,7 +30,7 @@ class ClickhouseSessionsList(SessionsList):
 
         action_filters = format_action_filters(self.filter)
 
-        date_from, date_to, _ = parse_timestamps(self.filter, self.team.pk)
+        date_from, date_to, date_params = parse_timestamps(self.filter, self.team.pk)
         distinct_ids = self.fetch_distinct_ids(action_filters, date_from, date_to, limit, distinct_id_offset)
 
         query = SESSION_SQL.format(
@@ -49,6 +49,7 @@ class ClickhouseSessionsList(SessionsList):
                 "limit": limit,
                 "offset": offset,
                 "distinct_ids": distinct_ids,
+                **date_params,
             },
         )
         result = self._parse_list_results(query_result)
