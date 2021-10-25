@@ -12,6 +12,7 @@ import {
     InteractEvent,
     ReactInteractEvent,
     THUMB_OFFSET,
+    THUMB_SIZE,
     TOUCH_ENABLED,
 } from 'scenes/session-recordings/player/seekbarUtils'
 
@@ -35,7 +36,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
         setThumb: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
         endSeeking: true,
-        onResize: true,
     },
     reducers: {
         thumbLeftPos: [
@@ -137,13 +137,19 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 return
             }
             const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
+            console.log(
+                'HANDLE UP',
+                newX,
+                getXPos(event),
+                values.cursorDiff,
+                values.slider.getBoundingClientRect().left
+            )
             actions.handleSeek(newX)
             actions.clearLoadingState()
 
             if (TOUCH_ENABLED) {
                 document.removeEventListener('touchmove', actions.handleMove)
                 document.removeEventListener('touchend', actions.handleUp)
-                document.removeEventListener('touchcancel', actions.handleUp)
             } else {
                 document.removeEventListener('mousemove', actions.handleMove)
                 document.removeEventListener('mouseup', actions.handleUp)
@@ -155,26 +161,22 @@ export const seekbarLogic = kea<seekbarLogicType>({
             }
 
             actions.setScrub()
-            actions.setCursorDiff(getXPos(event) - values.thumb.getBoundingClientRect().left - THUMB_OFFSET)
+            const xPos = getXPos(event)
+            let diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
+            // If click is too far from thumb, move thumb to click position
+            if (Math.abs(diffFromThumb) > THUMB_SIZE) {
+                diffFromThumb = -THUMB_OFFSET
+            }
+            actions.setCursorDiff(diffFromThumb)
 
             if (TOUCH_ENABLED) {
                 document.addEventListener('touchmove', actions.handleMove)
                 document.addEventListener('touchend', actions.handleUp)
-                document.addEventListener('touchcancel', actions.handleUp)
             } else {
                 document.addEventListener('mousemove', actions.handleMove)
                 document.addEventListener('mouseup', actions.handleUp)
             }
         },
-        handleClick: ({ event }) => {
-            if (!values.slider) {
-                return
-            }
-            // jump thumb to click position
-            const newX = getXPos(event) - values.slider.getBoundingClientRect().left
-            actions.handleSeek(newX)
-        },
-        onResize: ({}) => {},
     }),
     events: ({ actions, values }) => ({
         afterMount: () => {

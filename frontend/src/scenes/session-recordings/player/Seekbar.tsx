@@ -6,7 +6,7 @@ import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 export function Seekbar(): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-    const { handleClick, handleDown, setSlider, setThumb } = useActions(seekbarLogic)
+    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic)
     const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic)
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
@@ -19,15 +19,9 @@ export function Seekbar(): JSX.Element {
     }, [sliderRef.current, thumbRef.current])
 
     return (
-        <div className="rrweb-controller-slider" ref={sliderRef} onClick={handleClick}>
+        <div className="rrweb-controller-slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
             <div className="slider" />
-            <div
-                className="thumb"
-                ref={thumbRef}
-                onMouseDown={handleDown}
-                onTouchStart={handleDown}
-                style={{ transform: `translateX(${thumbLeftPos}px)` }}
-            />
+            <div className="thumb" ref={thumbRef} style={{ transform: `translateX(${thumbLeftPos}px)` }} />
             <div className="current-bar" style={{ width: `${thumbLeftPos}px` }} />
             <div className="buffer-bar" style={{ width: `${bufferPercent}%` }} />
         </div>

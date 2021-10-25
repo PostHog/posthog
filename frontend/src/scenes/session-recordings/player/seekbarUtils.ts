@@ -29,7 +29,7 @@ export const convertValueToX = (value: number, containerWidth: number, start: nu
 
 export const getXPos = (event: ReactInteractEvent | InteractEvent): number => {
     if (isTouchEvent(event)) {
-        return event?.touches?.[0]?.pageX
+        return event?.touches?.[0]?.pageX ?? event?.changedTouches?.[0]?.pageX // x coordinates are in changedTouches on touchend
     }
     if (isMouseEvent(event)) {
         return event?.clientX

@@ -118,7 +118,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     selectors: {
         currentPlayerState: [
             (selectors) => [selectors.playingState, selectors.loadingState],
-            (playingState, loadingState) => loadingState ?? playingState,
+            (playingState, loadingState) => {
+                if (loadingState === SessionPlayerState.SCRUB) {
+                    // If scrubbing, playingState takes precedence
+                    return playingState
+                }
+                return loadingState ?? playingState
+            },
         ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
         snapshots: [
