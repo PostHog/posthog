@@ -1,24 +1,17 @@
-from string import ascii_lowercase
-from typing import Dict, List, Tuple, TypedDict
-from uuid import UUID
-
-from ee.clickhouse.materialized_columns import materialize
-from ee.clickhouse.queries.breakdown_props import ALL_USERS_COHORT_ID
+from typing import Dict, List, Tuple, TypedDict, Type
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models import Person
-from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def funnel_breakdown_by_multi_property_test_factory(
-    Funnel, FunnelPerson, _create_event, _create_action, _create_person
+    clickhouse_funnel: Type[ClickhouseFunnel], funnel_person, _create_event, _create_action, _create_person
 ):
     class TestFunnelMultiplePropertyBreakdown(APIBaseTest):
         def _get_people_at_step(self, filter, funnel_step, breakdown_value=None):
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            result = FunnelPerson(person_filter, self.team)._exec_query()
+            result = funnel_person(person_filter, self.team)._exec_query()
             return [row[0] for row in result]
 
         class EventTestCase(TypedDict):
@@ -32,6 +25,9 @@ def funnel_breakdown_by_multi_property_test_factory(
             The generated SQL does not order the people and so we cannot rely on that comprison
             This compares the lists without people, and then compares the people
             """
+            def flatten(list_of_lists):
+                return [item for sublist in list_of_lists for item in sublist]
+
             expected_copy = [e.copy() for e in expected]
             expected_people = [e.pop("people") for e in expected_copy]
 
@@ -39,7 +35,7 @@ def funnel_breakdown_by_multi_property_test_factory(
             actual_people = [a.pop("people") for a in actual_copy]
 
             self.assertEqual(expected_copy, actual_copy)
-            self.assertEqual(sorted(expected_people), sorted(actual_people))
+            self.assertEqual(sorted(flatten(expected_people)), sorted(flatten(actual_people)))
 
         def a_journey_for(self, person: str, events: List[EventTestCase], breakdown_properties: List[Tuple]) -> None:
             for event in events:
@@ -72,7 +68,7 @@ def funnel_breakdown_by_multi_property_test_factory(
             }
 
             filter = Filter(data=filters)
-            funnel = Funnel(filter, self.team)
+            funnel = clickhouse_funnel(filter, self.team)
 
             # event
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -105,7 +101,9 @@ def funnel_breakdown_by_multi_property_test_factory(
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [person1.uuid]
+                        if clickhouse_funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -118,7 +116,9 @@ def funnel_breakdown_by_multi_property_test_factory(
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [person1.uuid]
+                        if clickhouse_funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
@@ -131,7 +131,9 @@ def funnel_breakdown_by_multi_property_test_factory(
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [person1.uuid]
+                        if clickhouse_funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -151,7 +153,7 @@ def funnel_breakdown_by_multi_property_test_factory(
                         "custom_name": None,
                         "order": 0,
                         "people": [person2.uuid, person3.uuid]
-                        if Funnel == ClickhouseFunnel
+                        if clickhouse_funnel == ClickhouseFunnel
                         else [],  # backwards compatibility
                         "count": 2,
                         "type": "events",
@@ -165,7 +167,9 @@ def funnel_breakdown_by_multi_property_test_factory(
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [person2.uuid]
+                        if clickhouse_funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -208,7 +212,7 @@ def funnel_breakdown_by_multi_property_test_factory(
             }
 
             filter = Filter(data=filters)
-            funnel = Funnel(filter, self.team)
+            funnel = clickhouse_funnel(filter, self.team)
 
             # event
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -942,79 +946,106 @@ def funnel_breakdown_by_multi_property_test_factory(
         #     breakdown_vals = sorted([res[0]["breakdown"] for res in result])
         #     self.assertEqual(["5", "6", "7", "8", "9", "Other"], breakdown_vals)
         #
-        # @test_with_materialized_columns(["some_breakdown_val"])
-        # def test_funnel_step_custom_breakdown_limit_with_nulls(self):
-        #
-        #     filters = {
-        #         "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "date_from": "2020-01-01",
-        #         "date_to": "2020-01-08",
-        #         "funnel_window_days": 7,
-        #         "breakdown_type": "event",
-        #         "breakdown_limit": 3,
-        #         "breakdown": "some_breakdown_val",
-        #     }
-        #
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-        #
-        #     for num in range(5):
-        #         for i in range(num):
-        #             _create_person(distinct_ids=[f"person_{num}_{i}"], team_id=self.team.pk)
-        #             _create_event(
-        #                 team=self.team,
-        #                 event="sign up",
-        #                 distinct_id=f"person_{num}_{i}",
-        #                 properties={"key": "val", "some_breakdown_val": num},
-        #                 timestamp="2020-01-01T12:00:00Z",
-        #             )
-        #             _create_event(
-        #                 team=self.team,
-        #                 event="play movie",
-        #                 distinct_id=f"person_{num}_{i}",
-        #                 properties={"key": "val", "some_breakdown_val": num},
-        #                 timestamp="2020-01-01T13:00:00Z",
-        #             )
-        #             _create_event(
-        #                 team=self.team,
-        #                 event="buy",
-        #                 distinct_id=f"person_{num}_{i}",
-        #                 properties={"key": "val", "some_breakdown_val": num},
-        #                 timestamp="2020-01-01T15:00:00Z",
-        #             )
-        #
-        #     # no breakdown value for this guy
-        #     person0 = _create_person(distinct_ids=[f"person_null"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id=f"person_null",
-        #         properties={"key": "val"},
-        #         timestamp="2020-01-01T12:00:00Z",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="play movie",
-        #         distinct_id=f"person_null",
-        #         properties={"key": "val"},
-        #         timestamp="2020-01-01T13:00:00Z",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="buy",
-        #         distinct_id=f"person_null",
-        #         properties={"key": "val"},
-        #         timestamp="2020-01-01T15:00:00Z",
-        #     )
-        #
-        #     result = funnel.run()
-        #
-        #     breakdown_vals = sorted([res[0]["breakdown"] for res in result])
-        #     self.assertEqual(["2", "3", "4", "Other"], breakdown_vals)
-        #     # skipped 1 and '' because the limit was 3.
-        #     self.assertTrue(person0.uuid in self._get_people_at_step(filter, 1, "Other"))
-        #
+        @test_with_materialized_columns(["some_breakdown_val"])
+        def test_funnel_step_custom_breakdown_limit_with_nulls_with_one_property(self):
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown_limit": 3,
+                "breakdown": ["some_breakdown_val"],
+            }
+
+            filter = Filter(data=filters)
+            funnel = clickhouse_funnel(filter, self.team)
+
+            for num in range(5):
+                for i in range(num):
+                    person = f"person_{num}_{i}"
+                    _create_person(distinct_ids=[person], team_id=self.team.pk)
+                    self.a_journey_for(
+                        person,
+                        [
+                            {"event": "sign up", "day": 1, "hour": 12},
+                            {"event": "play movie", "day": 1, "hour": 13},
+                            {"event": "buy", "day": 1, "hour": 15},
+                        ],
+                        [("some_breakdown_val", num)],
+                    )
+
+            # no breakdown value for this guy
+            person0 = _create_person(distinct_ids=[f"person_null"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person_null",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                [],
+            )
+
+            result = funnel.run()
+
+            breakdown_vals = sorted([res[0]["breakdown"] for res in result])
+            self.assertEqual(["2", "3", "4", "Other"], breakdown_vals)
+            # skipped 1 and '' because the limit was 3.
+            self.assertTrue(person0.uuid in self._get_people_at_step(filter, 1, "Other"))
+
+        @test_with_materialized_columns(["some_breakdown_val"], verify_no_jsonextract=False)
+        def test_funnel_step_custom_breakdown_limit_with_nulls_with_two_properties(self):
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown_limit": 3,
+                "breakdown": ["some_breakdown_val", "another_breakdown_val"],
+            }
+
+            filter = Filter(data=filters)
+            funnel = clickhouse_funnel(filter, self.team)
+
+            for num in range(5):
+                for i in range(num):
+                    person = f"person_{num}_{i}"
+                    _create_person(distinct_ids=[person], team_id=self.team.pk)
+                    self.a_journey_for(
+                        person,
+                        [
+                            {"event": "sign up", "day": 1, "hour": 12},
+                            {"event": "play movie", "day": 1, "hour": 13},
+                            {"event": "buy", "day": 1, "hour": 15},
+                        ],
+                        [("some_breakdown_val", num), ("another_breakdown_val", num + 1)],
+                    )
+
+            # no breakdown value for this guy
+            person0 = _create_person(distinct_ids=[f"person_null"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person_null",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                [],
+            )
+
+            result = funnel.run()
+
+            breakdown_vals = sorted([res[0]["breakdown"] for res in result])
+            self.assertEqual(["2::3", "3::4", "4::5", "Other"], breakdown_vals)
+            # skipped 1 and '' because the limit was 3.
+            self.assertTrue(person0.uuid in self._get_people_at_step(filter, 1, "Other"))
+
         # @test_with_materialized_columns(["some_breakdown_val"])
         # def test_funnel_step_custom_breakdown_limit_with_nulls_included(self):
         #

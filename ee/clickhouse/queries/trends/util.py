@@ -112,16 +112,3 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
         )
         date_from += delta
     return time_range
-
-
-def is_iterable(potentially_iterable) -> bool:
-    """
-    Based on this very detailed answer https://stackoverflow.com/a/36407550/222163
-    It is not safe enough to check isInstance(thing, Iterable)
-    """
-    try:
-        iter(potentially_iterable)
-    except TypeError:
-        return False
-    else:
-        return True

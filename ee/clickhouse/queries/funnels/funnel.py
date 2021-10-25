@@ -122,6 +122,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             formatted_query = self.build_step_subquery(2, max_steps)
             breakdown_query = self._get_breakdown_prop()
         else:
+            # this here sets values from the side effecting call
+            # to _get_breakdown_conditions inside _get_inner_event_query
             formatted_query = self._get_inner_event_query()
             breakdown_query = self._get_breakdown_prop(group_remaining=True)
 

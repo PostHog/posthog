@@ -7,9 +7,10 @@ from typing import (
     List,
     Optional,
     Tuple,
-    cast,
+    cast, Literal,
 )
 
+from clickhouse_driver.util.escape import escape_param
 from django.utils import timezone
 from rest_framework import exceptions
 
@@ -250,6 +251,35 @@ def get_property_string_expr(
         return materialized_columns[property_name], True
 
     return f"trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, {var}))", False
+
+
+def get_single_or_multi_property_string_expr(
+        breakdown, table: Literal["events", "person"], prop_var: str, identifier: str
+):
+    """
+    When querying for breakdown properties:
+     * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
+     * If it is an array of strings, we extract each of those properties and concatenate them into a single value
+
+    clickhouse parameterizes into a query template from a flat list using % string formatting
+    values are escaped and inserted in the query here instead of adding new items to the flat list of values
+    """
+    if isinstance(breakdown, str):
+        expression, _ = get_property_string_expr(
+            table, breakdown, escape_param(breakdown), prop_var
+        )
+    else:
+        expressions = []
+        for i, b in enumerate(breakdown):
+            expr, _ = get_property_string_expr(table, b, escape_param(b), prop_var)
+            expressions.append(expr)
+
+        if len(expressions) == 1:
+            expression = expressions[0]
+        else:
+            delimiter = ", '::', "
+            expression = f"concat({delimiter.join(expressions)})"
+    return f"{expression} AS {identifier}"
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:

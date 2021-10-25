@@ -1,13 +1,15 @@
-from typing import Any, Dict, List, Literal, Optional, Tuple, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import (
+    parse_prop_clauses,
+    get_single_or_multi_property_string_expr,
+)
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
-from ee.clickhouse.queries.trends.util import is_iterable
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
@@ -62,54 +64,37 @@ def get_breakdown_prop_values(
         **entity_format_params,
     )
 
-    breakdown_properties = []
-    if is_iterable(filter.breakdown):
-        breakdown_properties = filter.breakdown
-    else:
-        breakdown_properties.append(filter.breakdown)
+    execute_results = sync_execute(
+        elements_query,
+        {
+            "limit": limit,
+            "team_id": team_id,
+            "offset": filter.offset,
+            **prop_filter_params,
+            **entity_params,
+            **person_join_params,
+            **extra_params,
+        },
+    )
 
-    execute_results = []
-
-    for b in breakdown_properties:
-        execute_results.append(
-            sync_execute(
-                elements_query,
-                {
-                    "key": b,
-                    "limit": limit,
-                    "team_id": team_id,
-                    "offset": filter.offset,
-                    **prop_filter_params,
-                    **entity_params,
-                    **person_join_params,
-                    **extra_params,
-                },
-            )
-        )
-
-    if len(execute_results) == 1:
-        return execute_results[0]
-    else:
-        return execute_results
+    return execute_results[0]
 
 
 def _to_value_expression(breakdown_type, breakdown):
-    value_expression = None
-
     if breakdown_type == "person":
-        table: Literal["person"] = "person"
-        prop_var = "person_props"
+        return get_single_or_multi_property_string_expr(
+            breakdown,
+            "person",
+            "person_props",
+            "value"
+        )
     else:
-        table: Literal["events"] = "events"
-        prop_var = "properties"
-
-    if isinstance(breakdown, str):
-        value_expression, _ = get_property_string_expr(table, cast(str, breakdown), "%(key)s", prop_var)
-    elif is_iterable(breakdown):
-        # why does reading from the first index work?
-        value_expression, _ = get_property_string_expr(table, cast(str, breakdown[0]), "%(key)s", prop_var)
-
-    return value_expression
+        return get_single_or_multi_property_string_expr(
+            breakdown,
+            "events",
+            "properties",
+            "value"
+        )
 
 
 def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict]:

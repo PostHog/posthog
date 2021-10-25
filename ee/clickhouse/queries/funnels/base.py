@@ -3,7 +3,6 @@ from typing import (
     Any,
     Dict,
     List,
-    Literal,
     Optional,
     Tuple,
     Union,
@@ -15,11 +14,13 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import (
+    parse_prop_clauses,
+    get_single_or_multi_property_string_expr,
+)
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
-from ee.clickhouse.queries.trends.util import is_iterable
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
@@ -298,7 +299,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         steps = ", ".join(all_step_cols)
 
-        select_prop = self._get_breakdown_select_prop()
+        select_prop = f", {self._get_breakdown_select_prop()}"
         extra_conditions = ""
         extra_join = ""
 
@@ -306,6 +307,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
             else:
+                # breakdown_conditions is only ever the empty string
+                # _get_breakdown_conditions is called for its values side-effect
                 breakdown_conditions = self._get_breakdown_conditions()
                 extra_conditions = f" AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
 
@@ -454,51 +457,16 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _get_breakdown_select_prop(self) -> str:
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
-            # TODO undo the horrible duplication introduced here
             if self._filter.breakdown_type == "person":
-                if isinstance(self._filter.breakdown, str):
-                    expression, _ = get_property_string_expr(
-                        "person", self._filter.breakdown, "%(breakdown)s", "person_props"
-                    )
-                else:
-                    if len(self._filter.breakdown) == 1:
-                        # TODO warning API input straight into a query
-                        expression, _ = get_property_string_expr(
-                            "person", self._filter.breakdown[0], f"'{self._filter.breakdown[0]}'", "person_props"
-                        )
-                    else:
-                        expressions = []
-                        for i, b in enumerate(self._filter.breakdown):
-                            # TODO warning API input straight into a query
-                            expr, _ = get_property_string_expr("person", b, f"'{b}'", "person_props")
-                            expressions.append(expr)
-
-                        delimiter = ", '::', "
-                        expression = f"concat({delimiter.join(expressions)})"
-                return f", {expression} AS prop"
+                return get_single_or_multi_property_string_expr(
+                    self._filter.breakdown, "person", "person_props", "prop"
+                )
             elif self._filter.breakdown_type == "event":
-                if isinstance(self._filter.breakdown, str):
-                    expression, _ = get_property_string_expr(
-                        "events", self._filter.breakdown, "%(breakdown)s", "properties"
-                    )
-                else:
-                    if len(self._filter.breakdown) == 1:
-                        # TODO warning API input straight into a query
-                        expression, _ = get_property_string_expr(
-                            "events", self._filter.breakdown[0], f"'{self._filter.breakdown[0]}'", "properties"
-                        )
-                    else:
-                        expressions = []
-                        for i, b in enumerate(self._filter.breakdown):
-                            # TODO warning API input straight into a query
-                            expr, _ = get_property_string_expr("events", b, f"'{b}'", "properties")
-                            expressions.append(expr)
-
-                        delimiter = ", '::', "
-                        expression = f"concat({delimiter.join(expressions)})"
-                return f", {expression} AS prop"
+                return get_single_or_multi_property_string_expr(
+                    self._filter.breakdown, "events", "properties", "prop"
+                )
             elif self._filter.breakdown_type == "cohort":
-                return ", value AS prop"
+                return "value AS prop"
 
         return ""
 
@@ -525,6 +493,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
             # and gives us the wrong breakdown values here, so we override it.
             # For events, we assume breakdown values remain stable across the funnel,
             # so using just the first entity to get breakdown values is ok.
+            # if this is a multi property breakdown then the breakdown values are misleading
+            # e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
+            # so the generated list here must be ["Chrome::95", "Safari""15"]
 
             self.params.update({"breakdown_values": values})
 
@@ -532,7 +503,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            if group_remaining and self._filter.breakdown_type != "cohort" and not is_iterable(self._filter.breakdown):
+            if group_remaining and self._filter.breakdown_type != "cohort":
                 return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
             else:
                 return ", prop"
