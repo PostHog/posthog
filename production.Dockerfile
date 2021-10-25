@@ -9,10 +9,6 @@ ENV PYTHONUNBUFFERED 1
 
 WORKDIR /code
 
-# To remove SAML dependencies either set 'saml_disabled' or 'SAML_DISABLED' build variables
-ARG saml_disabled
-ARG SAML_DISABLED
-
 # Install OS dependencies needed to run PostHog
 #
 # Note: please add in this section runtime dependences only.
@@ -22,29 +18,37 @@ RUN apk --update --no-cache add \
     "bash~=5.1" \
     "g++~=10.3" \
     "gcc~=10.3" \
+    "libpq~=13.4" \
     "libxml2-dev~=2.9" \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
     "make~=4.3" \
     "nodejs~=14" \
     "npm~=7" \
-    "libpq~=13.4" \
     && npm install -g yarn@1
 
-# Install SAML dependencies (unless disabled)
+# Install SAML dependencies
 #
-# Note: please add in this section runtime dependences only.
-# If you temporary need a package to build a Python or npm
-# dependency take a look at the sections below.
-RUN if [ "$SAML_DISABLED" ] && [ "$saml_disabled" ] ; then \
-    apk --update --no-cache add \
+# Notes:
+#
+# - please add in this section runtime dependences only.
+#   If you temporary need a package to build a Python or npm
+#   dependency take a look at the sections below.
+#
+# - we would like to include those dependencies + 'python3-saml'
+#   directly in the requirements.txt file but due to our CI/CD
+#   setup this is currently not possible. More context at:
+#   https://github.com/PostHog/posthog/pull/5870
+#   https://github.com/PostHog/posthog/pull/6575#discussion_r733457836
+#   https://github.com/PostHog/posthog/pull/6607
+#
+RUN apk --update --no-cache add \
     "libpq~=13.4" \
     "libxml2-dev~=2.9" \
     "xmlsec~=1.2" \
     "xmlsec-dev~=1.2" \
     && \
-    pip install python3-saml==1.12.0 --compile --no-cache-dir \
-    ; fi
+    pip install python3-saml==1.12.0 --compile --no-cache-dir
 
 # Compile and install Python dependencies.
 #
@@ -77,8 +81,8 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "gcc~=10.3" \
     && \
     yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile --ignore-optional && \
-    yarn install --frozen-lockfile --ignore-optional --cwd plugins && \
+    yarn install --frozen-lockfile && \
+    yarn install --frozen-lockfile --cwd plugins && \
     yarn cache clean \
     && \
     apk del .build-deps
@@ -90,7 +94,8 @@ COPY . .
 #
 # Note: we run the final install + build as a separate actions to increase
 # the cache hit ratio of the layers above.
-RUN yarn build && \
+RUN yarn install --frozen-lockfile && \
+    yarn build && \
     yarn cache clean && \
     rm -rf ./node_modules ./plugins/node_modules
 
