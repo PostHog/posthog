@@ -1038,6 +1038,11 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
 }
 
+export interface SetInsightOptions {
+    shouldMergeWithExisting?: boolean
+    overrideFilter?: boolean
+}
+
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null

@@ -3,7 +3,15 @@ import { errorToast, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import { DashboardItemType, FilterType, InsightLogicProps, InsightType, ItemMode, ViewType } from '~/types'
+import {
+    DashboardItemType,
+    FilterType,
+    InsightLogicProps,
+    InsightType,
+    ItemMode,
+    SetInsightOptions,
+    ViewType,
+} from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
@@ -72,9 +80,9 @@ export const insightLogic = kea<insightLogicType>({
         toggleControlsCollapsed: true,
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
-        setInsight: (insight: Partial<DashboardItemType>, shouldMergeWithExisting: boolean = false) => ({
+        setInsight: (insight: Partial<DashboardItemType>, options: SetInsightOptions = {}) => ({
             insight,
-            shouldMergeWithExisting,
+            options,
         }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
@@ -237,7 +245,7 @@ export const insightLogic = kea<insightLogicType>({
                           result: null,
                           filters: {},
                       },
-            setInsight: (state, { insight, shouldMergeWithExisting }) =>
+            setInsight: (state, { insight, options: { shouldMergeWithExisting } }) =>
                 shouldMergeWithExisting
                     ? {
                           ...state,
