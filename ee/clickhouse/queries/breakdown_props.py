@@ -62,13 +62,20 @@ def get_breakdown_prop_values(
         **entity_format_params,
     )
 
+    breakdown_properties = []
+    if is_iterable(filter.breakdown):
+        breakdown_properties = filter.breakdown
+    else:
+        breakdown_properties.append(filter.breakdown)
+
     execute_results = []
-    if isinstance(filter.breakdown, str):
+
+    for b in breakdown_properties:
         execute_results.append(
             sync_execute(
                 elements_query,
                 {
-                    "key": filter.breakdown,
+                    "key": b,
                     "limit": limit,
                     "team_id": team_id,
                     "offset": filter.offset,
@@ -79,28 +86,11 @@ def get_breakdown_prop_values(
                 },
             )
         )
-    elif is_iterable(filter.breakdown):
-        for b in filter.breakdown:
-            execute_results.append(
-                sync_execute(
-                    elements_query,
-                    {
-                        "key": b,
-                        "limit": limit,
-                        "team_id": team_id,
-                        "offset": filter.offset,
-                        **prop_filter_params,
-                        **entity_params,
-                        **person_join_params,
-                        **extra_params,
-                    },
-                )
-            )
 
-        if len(execute_results) == 1:
-            return execute_results[0]
-        else:
-            return execute_results
+    if len(execute_results) == 1:
+        return execute_results[0]
+    else:
+        return execute_results
 
 
 def _to_value_expression(breakdown_type, breakdown):
