@@ -130,7 +130,7 @@ function AppScene(): JSX.Element | null {
                     {activeScene ? (
                         <Layout.Content className="main-app-content" data-attr="layout-content">
                             {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
-                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] ? (
+                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                                 <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
                             ) : null}
                             <BillingAlerts />
