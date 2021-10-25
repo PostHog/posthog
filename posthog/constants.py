@@ -187,3 +187,4 @@ class RetentionQueryType(str, Enum):
 
 
 MAX_SLUG_LENGTH = 48
+GROUP_TYPES_LIMIT = 5
