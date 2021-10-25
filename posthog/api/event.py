@@ -1,4 +1,5 @@
 import json
+import urllib
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Union, cast
 
@@ -197,15 +198,27 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[: (limit + 1)]
             if len(events) < limit + 1:
                 events = queryset[: limit + 1]
-            path = request.get_full_path()
+
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
             if len(events) > limit:
+                params = request.GET.dict()
+                timestamp = events[limit - 1].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                try:
+                    del params["after"]
+                except KeyError:
+                    pass
+                try:
+                    del params["before"]
+                except KeyError:
+                    pass
+
                 next_url = request.build_absolute_uri(
-                    "{}{}{}={}".format(
-                        path,
-                        "&" if "?" in path else "?",
+                    "{}?{}{}{}={}".format(
+                        request.path,
+                        urllib.parse.urlencode(params),
+                        "&" if len(params) > 0 else "",
                         "after" if reverse else "before",
-                        events[limit - 1].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                        timestamp,
                     )
                 )
             events = self.paginator.paginate_queryset(events, request, view=self)  # type: ignore
