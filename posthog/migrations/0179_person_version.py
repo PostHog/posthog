@@ -13,4 +13,5 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="person", name="version", field=models.IntegerField(blank=True, default=0, null=True),
         ),
+        migrations.RunSQL("UPDATE posthog_person SET version = 0"),
     ]
