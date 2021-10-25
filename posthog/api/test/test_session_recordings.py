@@ -189,9 +189,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["session_recording"]["viewed"], False)
             self.assertEqual(response_data["session_recording"]["distinct_id"], "d1")
 
-        def test_get_default_limit_of_snapshots(self):
+        def test_get_default_limit_of_chunks(self):
             base_time = now()
-            num_snapshots = 30
+            num_snapshots = DEFAULT_RECORDING_CHUNK_LIMIT + 10
 
             for _ in range(num_snapshots):
                 self.create_snapshot("user", "1", base_time)
