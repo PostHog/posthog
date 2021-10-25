@@ -176,6 +176,11 @@ def test_paginate_decompression():
     assert paginated_events.has_next == False
     assert len(paginated_events.paginated_list) == 4
 
+    # Offset exceeds the length
+    paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data, 10, 2)
+    assert paginated_events.has_next == False
+    assert paginated_events.paginated_list == []
+
     # Non sequential snapshots
     snapshot_data = snapshot_data[-3:] + snapshot_data[0:-3]
     paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data, 10, 0)

@@ -119,6 +119,9 @@ def paginate_snapshot_list(list_to_paginate: List, limit: int, offset: int) -> P
     if offset + limit < len(list_to_paginate):
         has_next = True
         paginated_list = list_to_paginate[offset : offset + limit]
+    elif offset >= len(list_to_paginate):
+        has_next = False
+        paginated_list = []
     else:
         has_next = False
         paginated_list = list_to_paginate[offset:]
