@@ -51,5 +51,6 @@ jobs:
               with:
                   message: 'Sync and remove all non-FOSS parts'
                   remove: '["-r ee/"]'
+                  default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - run: echo # Empty step so that GitHub doesn't complain about an empty job on forks
