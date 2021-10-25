@@ -87,7 +87,7 @@ export const MATHS: Record<string, any> = {
         type: EVENT_MATH_TYPE,
     },
     weekly_active: {
-        name: 'Weekly Active',
+        name: 'Weekly active',
         description: (
             <>
                 Users active in the past week (7 days).
@@ -100,7 +100,7 @@ export const MATHS: Record<string, any> = {
         type: EVENT_MATH_TYPE,
     },
     monthly_active: {
-        name: 'Monthly Active',
+        name: 'Monthly active',
         description: (
             <>
                 Users active in the past month (30 days).
