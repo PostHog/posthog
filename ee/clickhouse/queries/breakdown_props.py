@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
@@ -14,7 +14,6 @@ from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
-from posthog.models.property import TableWithProperties
 
 ALL_USERS_COHORT_ID = 0
 
@@ -28,7 +27,7 @@ def get_breakdown_prop_values(
     extra_params={},
     column_optimizer: Optional[ColumnOptimizer] = None,
 ):
-    "Returns the top N breakdown prop values for event/person breakdown"
+    """Returns the top N breakdown prop values for event/person breakdown"""
 
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
@@ -42,26 +41,7 @@ def get_breakdown_prop_values(
 
     entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, table_name="e")
 
-    if filter.breakdown_type == "person":
-        if isinstance(filter.breakdown, str):
-            value_expression, _ = get_property_string_expr(
-                "person", cast(str, filter.breakdown), "%(key)s", "person_props"
-            )
-        elif is_iterable(filter.breakdown):
-            # TODO why does reading from the first index work?
-            value_expression, _ = get_property_string_expr(
-                "person", cast(str, filter.breakdown[0]), "%(key)s", "person_props"
-            )
-    else:
-        if isinstance(filter.breakdown, str):
-            value_expression, _ = get_property_string_expr(
-                "events", cast(str, filter.breakdown), "%(key)s", "properties"
-            )
-        elif is_iterable(filter.breakdown):
-            # TODO why does reading from the first index work?
-            value_expression, _ = get_property_string_expr(
-                "events", cast(str, filter.breakdown[0]), "%(key)s", "properties"
-            )
+    value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown)
     person_join_clauses = ""
     person_join_params: Dict = {}
     person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer, entity=entity)
@@ -121,6 +101,25 @@ def get_breakdown_prop_values(
             return execute_results[0]
         else:
             return execute_results
+
+
+def _to_value_expression(breakdown_type, breakdown):
+    value_expression = None
+
+    if breakdown_type == "person":
+        table: Literal["person"] = "person"
+        prop_var = "person_props"
+    else:
+        table: Literal["events"] = "events"
+        prop_var = "properties"
+
+    if isinstance(breakdown, str):
+        value_expression, _ = get_property_string_expr(table, cast(str, breakdown), "%(key)s", prop_var)
+    elif is_iterable(breakdown):
+        # why does reading from the first index work?
+        value_expression, _ = get_property_string_expr(table, cast(str, breakdown[0]), "%(key)s", prop_var)
+
+    return value_expression
 
 
 def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict]:
