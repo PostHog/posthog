@@ -38,7 +38,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.SessionRecordings]: () =>
         import(/* webpackChunkName: 'sessionRecordings' */ './session-recordings/SessionRecordings'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
-    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'), // recheck
+    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'), // TODO
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.FeatureFlag]: () => import(/* webpackChunkName: 'featureFlag' */ './experimentation/FeatureFlag'),
