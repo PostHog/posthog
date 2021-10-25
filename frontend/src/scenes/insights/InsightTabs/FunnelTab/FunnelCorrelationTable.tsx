@@ -4,9 +4,10 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationType } from '~/types'
+import { EntityTypes, FunnelCorrelation, FunnelCorrelationType, PropertyFilter, PropertyOperator } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -18,7 +19,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         eventHasPropertyCorrelations,
         eventWithPropertyCorrelationsValues,
     } = useValues(logic)
-    const { setCorrelationTypes, loadEventWithPropertyCorrelations } = useActions(logic)
+    const { setCorrelationTypes, loadEventWithPropertyCorrelations, openCorrelationPersonsModal } = useActions(logic)
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (correlationTypes) {
@@ -50,7 +51,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     ) : (
                         <FallOutlined style={{ color: 'red' }} />
                     )}{' '}
-                    {record.event}
+                    {record.event?.event}
                 </h4>
                 <div>
                     People who converted were{' '}
@@ -62,6 +63,51 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     to do this event
                 </div>
             </>
+        )
+    }
+
+    const parseEventAndProperty = (item: string): { name: string; property?: PropertyFilter } => {
+        const components = item.split('::')
+        if (components.length === 1) {
+            return { name: components[0] }
+        } else {
+            return {
+                name: components[0],
+                property: { key: components[1], operator: PropertyOperator.Exact, value: components[2], type: 'event' },
+            }
+        }
+    }
+    const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
+        const { name, property } = parseEventAndProperty(record.event?.event || '')
+
+        return (
+            <ValueInspectorButton
+                onClick={() => {
+                    openCorrelationPersonsModal(
+                        { id: name, type: EntityTypes.EVENTS, properties: property ? [property] : [] },
+                        true
+                    )
+                }}
+            >
+                {record.success_count}
+            </ValueInspectorButton>
+        )
+    }
+
+    const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
+        const { name, property } = parseEventAndProperty(record.event?.event || '')
+
+        return (
+            <ValueInspectorButton
+                onClick={() => {
+                    openCorrelationPersonsModal(
+                        { id: name, type: EntityTypes.EVENTS, properties: property ? [property] : [] },
+                        false
+                    )
+                }}
+            >
+                {record.failure_count}
+            </ValueInspectorButton>
         )
     }
 
@@ -83,8 +129,20 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                     align="left"
                 />
-                <Column title="Completed" dataIndex="success_count" width={90} align="center" />
-                <Column title="Dropped off" dataIndex="failure_count" width={100} align="center" />
+                <Column
+                    title="Completed"
+                    key="success_count"
+                    render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
+                    width={90}
+                    align="center"
+                />
+                <Column
+                    title="Dropped off"
+                    key="failure_count"
+                    render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
+                    width={100}
+                    align="center"
+                />
             </Table>
         )
     }
@@ -94,12 +152,12 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             dataSource={correlationValues}
             scroll={{ x: 'max-content' }}
             size="small"
-            rowKey={(record: FunnelCorrelation) => record.event || 'rowKey'}
+            rowKey={(record: FunnelCorrelation) => record.event?.event || 'rowKey'}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
             expandable={{
-                expandedRowRender: (record) => renderNestedTable(record.event),
-                rowExpandable: (record) => !!record.event && eventHasPropertyCorrelations(record.event),
+                expandedRowRender: (record) => renderNestedTable(record.event?.event),
+                rowExpandable: (record) => !!record.event?.event && eventHasPropertyCorrelations(record.event?.event),
             }}
             title={() => (
                 <>
@@ -148,14 +206,29 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 key="eventName"
                 render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                 align="left"
+                ellipsis
             />
-            <Column title="Completed" dataIndex="success_count" width={90} align="center" />
-            <Column title="Dropped off" dataIndex="failure_count" width={100} align="center" />
+            <Column
+                title="Completed"
+                key="success_count"
+                render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
+                width={90}
+                align="center"
+            />
+            <Column
+                title="Dropped off"
+                key="failure_count"
+                render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
+                width={100}
+                align="center"
+            />
             <Column
                 title="Property correlations"
                 key="operation"
                 render={(_, record: FunnelCorrelation) => (
-                    <a onClick={() => record.event && loadEventWithPropertyCorrelations(record.event)}>Run</a>
+                    <a onClick={() => record.event?.event && loadEventWithPropertyCorrelations(record.event?.event)}>
+                        Run
+                    </a>
                 )}
             />
         </Table>

@@ -4,6 +4,7 @@ import { toParams } from 'lib/utils'
 import { SavedFunnel, ViewType } from '~/types'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModelType } from './funnelsModelType'
+import { teamLogic } from '../scenes/teamLogic'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     return {
@@ -23,20 +24,19 @@ export const funnelsModel = kea<funnelsModelType>({
             __default: [] as SavedFunnel[],
             loadFunnels: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
-                        toParams({
-                            order: '-created_at',
-                            saved: true,
-                            limit: 5,
-                            insight: ViewType.FUNNELS,
-                        })
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                        order: '-created_at',
+                        saved: true,
+                        limit: 5,
+                        insight: ViewType.FUNNELS,
+                    })}`
                 )
                 const results = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
                 actions.setNext(response.next)
                 return results
             },
             deleteFunnel: async (funnelId: number) => {
-                await api.delete(`api/insight/${funnelId}`)
+                await api.delete(`api/projects/${teamLogic.values.currentTeamId}/insights/${funnelId}`)
                 return values.funnels.filter((funnel) => funnel.id !== funnelId)
             },
         },

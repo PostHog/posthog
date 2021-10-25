@@ -17,6 +17,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
+import { eventWithTime } from 'rrweb/typings/types'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -180,6 +181,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
+    path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
 }
 
@@ -192,6 +194,7 @@ export interface ActionType {
     last_calculated_at?: string
     name: string
     post_to_slack?: boolean
+    slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
 }
@@ -308,6 +311,28 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     type: 'cohort'
     key: 'id'
     value: number
+}
+
+export type SessionRecordingId = string
+
+export interface SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: string
+    next: string | null
+    duration: number
+}
+
+export enum SessionPlayerState {
+    BUFFER = 'buffer',
+    PLAY = 'play',
+    PAUSE = 'pause',
+    SKIP = 'skip',
+}
+
+export interface SessionPlayerTime {
+    current: number
+    lastBuffered: number
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -556,7 +581,7 @@ export interface DashboardItemType {
     refreshing: boolean
     created_by: UserBasicType | null
     is_sample: boolean
-    dashboard: number
+    dashboard: number | null
     dive_dashboard?: number
     result: any | null
     updated_at: string
@@ -783,11 +808,16 @@ export interface FilterType {
     path_start_key?: string // Paths People Start Key
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
+    path_replacements?: boolean
+    local_path_cleaning_filters?: Record<string, any>[]
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
+    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
+    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
 }
 
 export interface SystemStatusSubrows {
@@ -1097,6 +1127,8 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
+    /** Whether debug queries option should be shown on the command palette. */
+    debug_queries?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -1224,6 +1256,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
+    current_team: TeamType | null
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]
@@ -1238,7 +1271,7 @@ export interface PathEdgeParameters {
 }
 
 export interface FunnelCorrelation {
-    event?: string
+    event?: Partial<EventType>
     property?: string
     odds_ratio: number
     success_count: number

@@ -45,6 +45,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkButton } from 'lib/components/LinkButton'
 import { DiveIcon } from 'lib/components/icons'
+import { teamLogic } from '../teamLogic'
 
 dayjs.extend(relativeTime)
 
@@ -201,6 +202,7 @@ export function DashboardItem({
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
+    const { currentTeamId } = useValues(teamLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -253,11 +255,15 @@ export function DashboardItem({
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
-    useEffect(() => {
-        if (previousLoading && !insightLoading && !initialLoaded) {
-            setInitialLoaded(true)
-        }
-    }, [insightLoading])
+    useEffect(
+        () => {
+            if (previousLoading && !insightLoading && !initialLoaded) {
+                setInitialLoaded(true)
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [insightLoading]
+    )
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -584,7 +590,7 @@ export function DashboardItem({
                                                                 id: item.id,
                                                                 name: item.name,
                                                             },
-                                                            endpoint: 'insight',
+                                                            endpoint: `projects/${currentTeamId}/insights`,
                                                             callback: loadDashboardItems,
                                                         })
                                                     }

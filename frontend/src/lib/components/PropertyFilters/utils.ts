@@ -28,6 +28,10 @@ export function isValidPropertyFilter(filter: AnyPropertyFilter): filter is Prop
     )
 }
 
+export function isValidPathCleanFilter(filter: Record<string, any>): boolean {
+    return filter.alias && filter.regex
+}
+
 export function filterMatchesItem(
     filter?: AnyPropertyFilter | null,
     item?: EventDefinition | null,

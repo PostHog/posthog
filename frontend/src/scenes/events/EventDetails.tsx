@@ -9,9 +9,14 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
 import { Properties } from '@posthog/plugin-scaffold'
+import { useValues } from 'kea'
+import { teamLogic } from '../teamLogic'
+
 const { TabPane } = Tabs
 
 export function EventDetails({ event }: { event: EventType }): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
     const displayedEventProperties: Properties = {}
@@ -31,13 +36,15 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
 
     return (
         <>
-            <Button
-                onClick={() => createActionFromEvent(event, 0)}
-                style={{ float: 'right', zIndex: 1 }}
-                type="primary"
-            >
-                Create action from event
-            </Button>
+            {currentTeamId && (
+                <Button
+                    onClick={() => createActionFromEvent(currentTeamId, event, 0)}
+                    style={{ float: 'right', zIndex: 1 }}
+                    type="primary"
+                >
+                    Create action from event
+                </Button>
+            )}
 
             <Tabs
                 style={{ float: 'left', width: '100%', marginTop: -40 }}
