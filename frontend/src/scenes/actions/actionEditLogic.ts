@@ -51,7 +51,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
     loaders: ({ props }) => ({
         actionCount: {
             loadActionCount: async () => {
-                return (await api().actionsDetail(props.id).withAction('count').get()).count
+                return await api.actions.getCount(props.id)
             },
         },
     }),

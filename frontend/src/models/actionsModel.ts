@@ -13,7 +13,7 @@ export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
-                const response = await api().actionsList().withQueryString(props.params).get()
+                const response = await api.actions.list(props.params)
                 return response.results
             },
         },

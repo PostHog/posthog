@@ -13,8 +13,9 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
-import { getCurrentTeamId, teamLogic } from '../teamLogic'
+import { teamLogic } from '../teamLogic'
 import api from '../../lib/api'
+import { getCurrentTeamId } from '../../lib/utils/logics'
 
 export interface PersonModalProps {
     visible: boolean
@@ -62,7 +63,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     )
 
     const isDownloadCsvAvailable = view === ViewType.TRENDS
-    const isSaveAsCohortAvailable = !clickhouseFeaturesEnabled
+    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
 
     return (
         <Modal

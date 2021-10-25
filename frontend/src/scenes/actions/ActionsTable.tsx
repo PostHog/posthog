@@ -17,8 +17,9 @@ import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { PageHeader } from 'lib/components/PageHeader'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { ColumnType } from 'antd/lib/table'
-import { teamLogic, getCurrentTeamId } from '../teamLogic'
+import { teamLogic } from '../teamLogic'
 import api from '../../lib/api'
+import { getCurrentTeamId } from '../../lib/utils/logics'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {

@@ -12,9 +12,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models/actionsModel'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
-import { teamLogic, getCurrentTeamId } from 'scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import api from '../../lib/api'
+import { getCurrentTeamId } from '../../lib/utils/logics'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)

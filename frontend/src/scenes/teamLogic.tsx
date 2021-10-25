@@ -128,11 +128,3 @@ export const teamLogic = kea<teamLogicType>({
         },
     }),
 })
-
-export function getCurrentTeamId(providedMaybeTeamId?: TeamType['id'] | null): TeamType['id'] {
-    const maybeTeamId = providedMaybeTeamId !== undefined ? providedMaybeTeamId : teamLogic.values.currentTeamId
-    if (!maybeTeamId) {
-        throw new Error('Project ID is not known.')
-    }
-    return maybeTeamId
-}

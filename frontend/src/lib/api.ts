@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
-import { getCurrentTeamId } from '../scenes/teamLogic'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
 import { ActionType, FilterType, PersonType, TeamType } from '../types'
+import { getCurrentTeamId } from './utils/logics'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -108,53 +108,64 @@ class ApiRequest {
     }
 }
 
-class Api extends Function {
-    public actions = {
-        async get(actionId: ActionType['id']) {
-            return (await new ApiRequest().actionsDetail(actionId).get()) as ActionType
+const api = {
+    actions: {
+        async get(actionId: ActionType['id']): Promise<ActionType> {
+            return await new ApiRequest().actionsDetail(actionId).get()
         },
-        async create(actionData: Partial<ActionType>, temporaryToken?: string) {
-            return (await new ApiRequest()
+        async create(actionData: Partial<ActionType>, temporaryToken?: string): Promise<ActionType> {
+            return await new ApiRequest()
                 .actionsList()
                 .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
-                .create({ data: actionData })) as ActionType
+                .create({ data: actionData })
         },
-        async update(actionId: ActionType['id'], actionData: Partial<ActionType>, temporaryToken?: string) {
-            return (await new ApiRequest()
+        async update(
+            actionId: ActionType['id'],
+            actionData: Partial<ActionType>,
+            temporaryToken?: string
+        ): Promise<ActionType> {
+            return await new ApiRequest()
                 .actionsDetail(actionId)
                 .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
-                .update({ data: actionData })) as ActionType
+                .update({ data: actionData })
         },
-        async list() {
-            return (await new ApiRequest().actionsList().get()) as PaginatedResponse<ActionType>
+        async list(params?: string): Promise<PaginatedResponse<ActionType>> {
+            return await new ApiRequest().actionsList().withQueryString(params).get()
         },
-        async getPeople(peopleParams: PeopleParamType, filters: Partial<FilterType>, searchTerm?: string) {
-            return (await new ApiRequest()
+        async getPeople(
+            peopleParams: PeopleParamType,
+            filters: Partial<FilterType>,
+            searchTerm?: string
+        ): Promise<PaginatedResponse<{ people: PersonType[]; count: number }>> {
+            return await new ApiRequest()
                 .actionsList()
                 .withAction('people')
                 .withQueryString(
                     parsePeopleParams(peopleParams, filters) +
                         (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
                 )
-                .get()) as PaginatedResponse<{ people: PersonType[]; count: number }>
+                .get()
         },
-        async determineDeleteEndpoint(teamId: TeamType['id']) {
+        async getCount(actionId: ActionType['id']): Promise<number> {
+            return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
+        },
+        determineDeleteEndpoint(teamId: TeamType['id']): string {
             return new ApiRequest().actionsList(teamId).assembleEndpointUrl()
         },
-        async determinePeopleCsvUrl(
+        determinePeopleCsvUrl(
             teamId: TeamType['id'],
             peopleParams: PeopleParamType,
             filters: Partial<FilterType>
-        ) {
+        ): string {
             return new ApiRequest()
                 .actionsList(teamId)
                 .withAction('people.csv')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
         },
-    }
+    },
 
-    public async get(url: string, signal?: AbortSignal): Promise<any> {
+    async get(url: string, signal?: AbortSignal): Promise<any> {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
@@ -173,9 +184,9 @@ class Api extends Function {
             throw { status: response.status, ...data }
         }
         return await getJSONOrThrow(response)
-    }
+    },
 
-    public async update(url: string, data: any): Promise<any> {
+    async update(url: string, data: any): Promise<any> {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
@@ -198,9 +209,9 @@ class Api extends Function {
             throw { status: response.status, ...jsonData }
         }
         return await getJSONOrThrow(response)
-    }
+    },
 
-    public async create(url: string, data?: any): Promise<any> {
+    async create(url: string, data?: any): Promise<any> {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
@@ -223,9 +234,9 @@ class Api extends Function {
             throw { status: response.status, ...jsonData }
         }
         return await getJSONOrThrow(response)
-    }
+    },
 
-    public async delete(url: string): Promise<any> {
+    async delete(url: string): Promise<any> {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
@@ -243,7 +254,7 @@ class Api extends Function {
             throw { status: response.status, ...data }
         }
         return response
-    }
+    },
 }
 
 function reportError(method: string, url: string, response: Response, startTime: number): void {
@@ -252,5 +263,4 @@ function reportError(method: string, url: string, response: Response, startTime:
     posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
 }
 
-const api = new Api()
 export default api
