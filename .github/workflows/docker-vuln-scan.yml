@@ -24,6 +24,9 @@ jobs:
               uses: aquasecurity/trivy-action@master
               if: github.repository == 'PostHog/posthog'
               with:
+                  ignore-unfixed: true
+                  vuln-type: 'os,library'
+                  severity: 'CRITICAL,HIGH'
                   image-ref: 'posthog/posthog:vuln-scan-${{ github.sha }}'
                   format: 'template'
                   template: '@/contrib/sarif.tpl'
