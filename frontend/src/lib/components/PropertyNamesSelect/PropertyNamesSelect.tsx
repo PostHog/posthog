@@ -1,29 +1,41 @@
 import CaretDownFilled from '@ant-design/icons/lib/icons/CaretDownFilled'
 import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
 import { Checkbox, Input } from 'antd'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { PersonProperty } from '~/types'
 import { propertySelectLogic } from './PropertyNamesSelectLogic'
 import './styles.scss'
 
+// Incrementing counter to ensure uniqueness of logic for each component
+let propertyNameSelectCounter = 0
+
 export const PropertyNamesSelect = ({
     onChange,
+    initialProperties = new Set(),
 }: {
     onChange?: (selectedProperties: string[]) => void
+    initialProperties?: Set<string>
 }): JSX.Element => {
     /*
         Provides a super simple multiselect box for selecting property names.
     */
-
     const { personProperties: properties } = useValues(personPropertiesModel)
+
+    // Make a key that identifies the logic for this specific component instance
+    const propertySelectLogicKey = React.useMemo(() => propertyNameSelectCounter++, [])
 
     // NOTE: I'm checking that length > 0 here, although this seems a little
     // hacky. I'm doing this so when we instantiate the propertySelectLogic with
     // props, we have the props to hand as they will not update on rerender
     return properties?.length ? (
-        <PropertyNamesSelectBox onChange={onChange} properties={properties} />
+        <BindLogic
+            logic={propertySelectLogic}
+            props={{ properties, propertySelectLogicKey, initialProperties, onChange }}
+        >
+            <PropertyNamesSelectBox onChange={onChange} properties={properties} />
+        </BindLogic>
     ) : (
         <div className="property-names-select">Loading properties...</div>
     )
@@ -31,34 +43,32 @@ export const PropertyNamesSelect = ({
 
 export const PropertyNamesSelectBox = ({
     properties,
-    initialProperties,
     onChange,
 }: {
     properties: PersonProperty[]
-    initialProperties?: string[]
     onChange?: (selectedProperties: string[]) => void
 }): JSX.Element => {
-    const selectProps = usePropertyNamesSelectLogic({
-        properties,
-        initialProperties,
-        onChange,
-    })
-
     const {
         // popover actions/values
         isOpen: isSearchOpen,
-        popoverProps,
-        triggerProps,
 
         // selection actions/values
         selectedProperties,
+        selectState,
+    } = useValues(propertySelectLogic)
+
+    const {
+        // popover actions/values
+        toggle,
+        setTriggerElement,
+
+        // selection actions/values
         selectAll,
         clearAll,
-        selectState,
-    } = selectProps
+    } = useActions(propertySelectLogic)
 
     return (
-        <div className="property-names-select-container" {...triggerProps}>
+        <div className="property-names-select-container" onClick={toggle} ref={setTriggerElement}>
             <div className="property-names-select" role="combobox">
                 {properties ? (
                     <>
@@ -114,10 +124,16 @@ export const PropertyNamesSelectBox = ({
                 )}
             </div>
             {isSearchOpen ? (
-                <div className="popover" {...popoverProps}>
-                    <SelectPropertiesProvider {...selectProps}>
-                        <PropertyNamesSearch />
-                    </SelectPropertiesProvider>
+                <div
+                    className="popover"
+                    onClick={(event: React.MouseEvent) => {
+                        // Avoid the click propogating to the trigger element. We need
+                        // to do this in order to prevent popover clicks also triggering
+                        // anything on containing elements
+                        event.stopPropagation()
+                    }}
+                >
+                    <PropertyNamesSearch />
                 </div>
             ) : null}
         </div>
@@ -125,7 +141,9 @@ export const PropertyNamesSelectBox = ({
 }
 
 const PropertyNamesSearch = (): JSX.Element => {
-    const { properties, toggleProperty, isSelected } = usePropertyNamesSelectLogicContext()
+    const { properties, isSelected } = useValues(propertySelectLogic)
+    const { toggleProperty } = useActions(propertySelectLogic)
+
     const { filteredProperties, query, setQuery } = usePropertySearch(properties)
 
     return (
@@ -159,80 +177,7 @@ const PropertyNamesSearch = (): JSX.Element => {
     )
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
-export const usePropertyNamesSelectLogic = ({
-    properties,
-    initialProperties,
-    onChange,
-}: {
-    properties: PersonProperty[]
-    initialProperties?: string[]
-    onChange?: (_: string[]) => void
-}) => {
-    // Provides logic for opening and closing the popover. Note that we wrap the
-    // logic such that we can generate a unique key and ensure for each
-    // invocation. We also make the logic independent of React specifics
-
-    // Make sure to create a new state for each component.
-
-    const propertySelectLogicKey = React.useMemo(() => Math.random().toString(), [])
-
-    const logic = propertySelectLogic({
-        selectionKey: propertySelectLogicKey,
-        properties,
-        initialProperties,
-        onChange,
-    })
-
-    // popover actions/values
-    const { toggle, setTriggerElement, hide, open } = useActions(logic)
-    const { isOpen, triggerElement } = useValues(logic)
-
-    // selection actions/values
-    const { selectAll, clearAll, toggleProperty, setSelectedProperties } = useActions(logic)
-    const { selectedProperties, selectState } = useValues(logic)
-
-    const isSelected = React.useCallback(
-        (propertyName: string) => selectedProperties.has(propertyName),
-        [selectedProperties]
-    )
-
-    return {
-        // popover actions/values
-        toggle,
-        hide,
-        open,
-        isOpen,
-
-        setTriggerElement,
-        triggerElement,
-
-        // React prop specifics
-        popoverProps: {
-            onClick(event: React.MouseEvent): void {
-                // Avoid the click propogating to the trigger element. We need
-                // to do this in order to prevent popover clicks also triggering
-                // anything on containing elements
-                event.stopPropagation()
-            },
-        },
-        triggerProps: {
-            onClick: toggle,
-            ref: setTriggerElement,
-        },
-
-        // selection actions/values
-        properties,
-        selectedProperties,
-        selectAll,
-        clearAll,
-        selectState,
-        toggleProperty,
-        setSelectedProperties,
-        isSelected,
-    }
-}
-
+// TODO: move to logic
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 const usePropertySearch = (properties: PersonProperty[]) => {
     /*
@@ -275,40 +220,4 @@ const usePropertySearch = (properties: PersonProperty[]) => {
     }, [query, properties])
 
     return { filteredProperties, setQuery, query }
-}
-
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types
-export const usePropertyNamesSelectLogicContext = () => {
-    /* Provides functions for handling selected properties state */
-    const logic = React.useContext(propertyNamesSelectLogicContext)
-
-    // make typing happy, i.e. rule out the undefined case so we don't have to
-    // check this everywhere
-    if (logic === undefined) {
-        throw Error('No select logic React.Context found')
-    }
-
-    return logic
-}
-
-/*
-    A propertyNamesSelectLogicContext provides a way to share logic with child
-    components
-*/
-
-type PropertyNamesSelectLogicContextType = ReturnType<typeof usePropertyNamesSelectLogic>
-
-const propertyNamesSelectLogicContext = React.createContext<PropertyNamesSelectLogicContextType | undefined>(undefined)
-
-export const SelectPropertiesProvider = ({
-    children,
-    ...logicProps
-}: PropertyNamesSelectLogicContextType & {
-    children: JSX.Element[] | JSX.Element
-}): JSX.Element => {
-    return (
-        <propertyNamesSelectLogicContext.Provider value={logicProps}>
-            {children}
-        </propertyNamesSelectLogicContext.Provider>
-    )
 }

@@ -5,16 +5,16 @@ import { propertySelectLogicType } from './PropertyNamesSelectLogicType'
 
 export const propertySelectLogic = kea<propertySelectLogicType>({
     props: {
-        selectionKey: '' as string,
+        propertySelectLogicKey: '' as string,
 
         properties: [] as PersonProperty[],
-        initialProperties: undefined as string[] | undefined,
+        initialProperties: undefined as Set<string> | undefined,
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
         onChange: undefined as ((_: string[]) => void) | undefined,
     },
 
-    key: (props) => props.selectionKey,
+    key: (props) => props.propertySelectLogicKey,
 
     actions: {
         setTriggerElement: (triggerElement: HTMLElement | null) => ({ triggerElement }),
@@ -47,7 +47,7 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         ],
 
         selectedProperties: [
-            new Set(),
+            new Set(props.initialProperties || []),
             {
                 setSelectedProperties: (_, { newSelectedProperties }) => new Set(newSelectedProperties),
                 toggleProperty: (selectedProperties, { property }) => {
@@ -75,6 +75,13 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
                     ? 'none'
                     : 'some',
         ],
+
+        isSelected: [
+            (selectors) => [selectors.selectedProperties],
+            (selectedProperties: Set<string>) => (propertyName: string) => selectedProperties.has(propertyName),
+        ],
+
+        properties: [() => [], () => props.properties],
     }),
 
     events: ({ cache, values, actions }) => ({
