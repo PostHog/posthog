@@ -8,6 +8,7 @@ from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTab
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
@@ -81,7 +82,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
-        result = correlation.run()["events"]
+        result = correlation._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [11, 1 / 11]
@@ -168,7 +169,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             team=self.team, event="paid", distinct_id=f"user_succ", timestamp="2020-01-04T14:00:00Z",
         )
 
-        result = correlation.run()["events"]
+        result = correlation._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
 
@@ -252,10 +253,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
-        results = correlation.run()
-        self.assertFalse(results["skewed"])
+        results = correlation._run()
+        self.assertFalse(results[1])
 
-        result = results["events"]
+        result = results[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [9, 1 / 3]
@@ -308,7 +309,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         with self.assertRaises(ValidationError):
-            correlation.run()
+            correlation._run()
 
     @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
     def test_correlation_with_multiple_properties(self):
@@ -375,7 +376,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             team=self.team, event="paid", distinct_id=f"user_succ", timestamp="2020-01-04T14:00:00Z",
         )
 
-        result = correlation.run()["events"]
+        result = correlation._run()[0]
 
         # Success Total = 5 + 10 + 1 = 16
         # Failure Total = 5 + 1 = 6
@@ -442,11 +443,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(result, expected_result)
 
-        # Run property correlation with filter on all properties
+        # _run property correlation with filter on all properties
         filter = filter.with_data({"funnel_correlation_names": ["$all"]})
         correlation = FunnelCorrelation(filter, self.team)
 
-        new_result = correlation.run()["events"]
+        new_result = correlation._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
 
@@ -526,7 +527,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # Discard both due to %
         FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.11
         FunnelCorrelation.MIN_PERSON_COUNT = 25
-        result = correlation.run()["events"]
+        result = correlation._run()[0]
         self.assertEqual(len(result), 2)
 
     def test_events_within_conversion_window_for_correlation(self):
@@ -568,7 +569,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T14:15:00Z",  # event happened outside conversion window
         )
 
-        result = correlation.run()["events"]
+        result = correlation._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [4]
@@ -639,7 +640,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 )
                 # source: shazam occurs only once, so would be discarded from result set
 
-        result = correlation.run()["events"]
+        result = correlation._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [11, 5.5, 2 / 11]
@@ -683,6 +684,137 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             len(self._get_people_for_event(filter, "negatively_related", {"signup_source": "email"}, False)), 3
+        )
+
+    @test_with_materialized_columns(["$event_type", "signup_source"])
+    def test_funnel_correlation_with_event_properties_autocapture(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "event_with_properties",
+            "funnel_correlation_event_names": ["$autocapture"],
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        # Need a minimum of 3 hits to get a correlation result
+        for i in range(6):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id=f"user_{i}",
+                elements=[Element(nth_of_type=1, nth_child=0, tag_name="a", href="/movie")],
+                timestamp="2020-01-03T14:00:00Z",
+                properties={"signup_source": "email", "$event_type": "click"},
+            )
+            # Test two different types of autocapture elements, with different counts, so we can accurately test results
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="$autocapture",
+                    distinct_id=f"user_{i}",
+                    elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
+                    timestamp="2020-01-03T14:00:00Z",
+                    properties={"signup_source": "facebook", "$event_type": "submit"},
+                )
+
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        # Atleast one person that fails, to ensure we get results
+        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z",
+        )
+
+        result = correlation._run()[0]
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"',
+                    "success_count": 6,
+                    "failure_count": 0,
+                    "odds_ratio": 14.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$autocapture::signup_source::email",
+                    "success_count": 6,
+                    "failure_count": 0,
+                    "odds_ratio": 14.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$autocapture::$event_type::click",
+                    "success_count": 6,
+                    "failure_count": 0,
+                    "odds_ratio": 14.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": '$autocapture::elements_chain::submit__~~__button:nth-child="0"nth-of-type="1"text="Pay $10"',
+                    "success_count": 3,
+                    "failure_count": 0,
+                    "odds_ratio": 2.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$autocapture::$event_type::submit",
+                    "success_count": 3,
+                    "failure_count": 0,
+                    "odds_ratio": 2.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$autocapture::signup_source::facebook",
+                    "success_count": 3,
+                    "failure_count": 0,
+                    "odds_ratio": 2.0,
+                    "correlation_type": "success",
+                },
+            ],
+        )
+
+        self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"signup_source": "facebook"})), 3)
+        self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"$event_type": "click"})), 6)
+        self.assertEqual(
+            len(
+                self._get_people_for_event(
+                    filter,
+                    "$autocapture",
+                    [
+                        {"key": "tag_name", "operator": "exact", "type": "element", "value": "button"},
+                        {"key": "text", "operator": "exact", "type": "element", "value": "Pay $10"},
+                    ],
+                )
+            ),
+            3,
+        )
+        self.assertEqual(
+            len(
+                self._get_people_for_event(
+                    filter,
+                    "$autocapture",
+                    [
+                        {"key": "tag_name", "operator": "exact", "type": "element", "value": "a"},
+                        {"key": "href", "operator": "exact", "type": "element", "value": "/movie"},
+                    ],
+                )
+            ),
+            6,
         )
 
 

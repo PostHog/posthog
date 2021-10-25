@@ -1271,7 +1271,7 @@ export interface PathEdgeParameters {
 }
 
 export interface FunnelCorrelation {
-    event?: string
+    event?: Partial<EventType>
     property?: string
     odds_ratio: number
     success_count: number
