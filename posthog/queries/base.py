@@ -101,9 +101,7 @@ def filter_events(
     filters = Q()
     relativity = relativedelta(days=1)
     date_from = filter.date_from
-    date_to = datetime.combine(
-        filter.date_to, time()
-    )  # round time to start of day. Relativity addition will make sure the current day is included
+    date_to = filter.date_to
 
     if filter.interval == "hour":
         relativity = relativedelta(hours=1)
@@ -115,6 +113,10 @@ def filter_events(
     elif filter.interval == "month":
         relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
         date_from = filter.date_from.replace(day=1)
+    else:
+        date_to = datetime.combine(
+            filter.date_to, time()
+        )  # round time to start of day. Relativity addition will make sure the current day is included
 
     if filter.date_from and include_dates:
         filters &= Q(timestamp__gte=date_from)
