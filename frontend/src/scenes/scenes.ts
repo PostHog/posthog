@@ -4,18 +4,23 @@ import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
 
+export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
+
 export const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.Error404]: {
         name: Scene.Error404,
         component: Error404Component,
+        sceneParams: emptySceneParams,
     },
     [Scene.ErrorNetwork]: {
         name: Scene.ErrorNetwork,
         component: ErrorNetworkComponent,
+        sceneParams: emptySceneParams,
     },
     [Scene.ErrorProjectUnavailable]: {
         name: Scene.ErrorProjectUnavailable,
         component: ErrorProjectUnavailableComponent,
+        sceneParams: emptySceneParams,
     },
 }
 
@@ -25,10 +30,10 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
-    [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'), // TODO
+    [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'), // TODO
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
-    [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
+    [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'), // TODO
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     [Scene.SessionRecordings]: () =>
         import(/* webpackChunkName: 'sessionRecordings' */ './session-recordings/SessionRecordings'),

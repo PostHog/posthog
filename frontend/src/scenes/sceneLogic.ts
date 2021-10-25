@@ -12,9 +12,7 @@ import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
-import { preloadedScenes, redirects, routes, sceneConfigurations, scenes } from 'scenes/scenes'
-
-export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
+import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations, scenes } from 'scenes/scenes'
 
 export const sceneLogic = kea<sceneLogicType>({
     actions: {
