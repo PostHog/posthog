@@ -4,19 +4,11 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import {
-    EntityTypes,
-    FunnelCorrelation,
-    FunnelCorrelationResultsType,
-    FunnelCorrelationType,
-    PropertyFilter,
-    PropertyOperator,
-} from '~/types'
+import { EntityTypes, FunnelCorrelation, FunnelCorrelationType, PropertyFilter, PropertyOperator } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { eventToName } from 'lib/utils'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -27,6 +19,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         correlationTypes,
         eventHasPropertyCorrelations,
         eventWithPropertyCorrelationsValues,
+        parseDisplayNameForCorrelation,
     } = useValues(logic)
     const { setCorrelationTypes, loadEventWithPropertyCorrelations, openCorrelationPersonsModal } = useActions(logic)
 
@@ -52,30 +45,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         }
         const is_success = record.correlation_type === FunnelCorrelationType.Success
 
-        // TODO: refactor and fix into one function
-
-        let first_value: string | undefined =
-            record.result_type === FunnelCorrelationResultsType.Events
-                ? record.event.event
-                : record.result_type === FunnelCorrelationResultsType.Properties
-                ? record.event.event.split('::')[0]
-                : record.event.event.split('::')[1]
-
-        let second_value =
-            record.result_type === FunnelCorrelationResultsType.Events
-                ? undefined
-                : record.result_type === FunnelCorrelationResultsType.Properties
-                ? record.event.event.split('::')[1]
-                : record.event.event.split('::')[2]
-
-        console.log(record.event.event.split('::'))
-        if (
-            record.event.event.split('::')[0] === '$autocapture' &&
-            record.event.event.split('::')[1] === 'elements_chain'
-        ) {
-            first_value = undefined
-            second_value = eventToName({ ...record.event, event: '$autocapture' })
-        }
+        const { first_value, second_value } = parseDisplayNameForCorrelation(record)
 
         return (
             <>
@@ -85,10 +55,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     ) : (
                         <FallOutlined style={{ color: 'red' }} />
                     )}{' '}
-                    {first_value !== undefined && <PropertyKeyInfo value={first_value} />}
+                    <PropertyKeyInfo value={first_value} />
                     {second_value !== undefined && (
                         <>
-                            {first_value !== undefined && ' :: '}
+                            {' :: '}
                             <PropertyKeyInfo value={second_value} disablePopover />
                         </>
                     )}

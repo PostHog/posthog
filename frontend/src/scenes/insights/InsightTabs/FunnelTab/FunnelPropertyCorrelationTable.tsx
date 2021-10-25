@@ -4,7 +4,7 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, FunnelStep } from '~/types'
+import { FunnelCorrelation, FunnelCorrelationType, FunnelStep } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
@@ -14,7 +14,8 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes } = useValues(logic)
+    const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes, parseDisplayNameForCorrelation } =
+        useValues(logic)
     const { setPropertyCorrelationTypes, loadPropertyCorrelations, openPersonsModal } = useActions(logic)
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
@@ -103,19 +104,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
         const is_success = record.correlation_type === FunnelCorrelationType.Success
 
-        const first_value =
-            record.result_type === FunnelCorrelationResultsType.Events
-                ? record.event.event
-                : record.result_type === FunnelCorrelationResultsType.Properties
-                ? record.event.event.split('::')[0]
-                : record.event.event.split('::')[1]
-
-        const second_value =
-            record.result_type === FunnelCorrelationResultsType.Events
-                ? undefined
-                : record.result_type === FunnelCorrelationResultsType.Properties
-                ? record.event.event.split('::')[1]
-                : record.event.event.split('::')[2]
+        const { first_value, second_value } = parseDisplayNameForCorrelation(record)
 
         return (
             <>
@@ -126,8 +115,12 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         <FallOutlined style={{ color: 'red' }} />
                     )}{' '}
                     <PropertyKeyInfo value={first_value} />
-                    {' :: '}
-                    {second_value !== undefined && <PropertyKeyInfo value={second_value} disablePopover />}
+                    {second_value !== undefined && (
+                        <>
+                            {' :: '}
+                            <PropertyKeyInfo value={second_value} disablePopover />
+                        </>
+                    )}
                 </h4>
                 <div>
                     People who converted were{' '}

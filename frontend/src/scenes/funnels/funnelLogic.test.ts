@@ -7,7 +7,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { ViewType } from '~/types'
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, ViewType } from '~/types'
 
 jest.mock('lib/api')
 
@@ -225,6 +225,95 @@ describe('funnelLogic', () => {
                         events: [{ id: 42 }],
                     }),
                 })
+        })
+    })
+
+    describe('selectors', () => {
+        describe('Correlation Names parsing', () => {
+            const basicFunnelRecord: FunnelCorrelation = {
+                event: { event: '$pageview::bzzz', properties: {}, elements: [] },
+                odds_ratio: 1,
+                correlation_type: FunnelCorrelationType.Success,
+                success_count: 1,
+                failure_count: 1,
+                result_type: FunnelCorrelationResultsType.Events,
+            }
+            it('chooses the correct name based on Event type', async () => {
+                const result = logic.values.parseDisplayNameForCorrelation(basicFunnelRecord)
+                expect(result).toEqual({
+                    first_value: '$pageview::bzzz',
+                    second_value: undefined,
+                })
+            })
+
+            it('chooses the correct name based on Property type', async () => {
+                const result = logic.values.parseDisplayNameForCorrelation({
+                    ...basicFunnelRecord,
+                    result_type: FunnelCorrelationResultsType.Properties,
+                })
+                expect(result).toEqual({
+                    first_value: '$pageview',
+                    second_value: 'bzzz',
+                })
+            })
+
+            it('chooses the correct name based on EventWithProperty type', async () => {
+                const result = logic.values.parseDisplayNameForCorrelation({
+                    ...basicFunnelRecord,
+                    result_type: FunnelCorrelationResultsType.EventWithProperties,
+                    event: {
+                        event: '$pageview::library::1.2',
+                        properties: { random: 'x' },
+                        elements: [],
+                    },
+                })
+                expect(result).toEqual({
+                    first_value: 'library',
+                    second_value: '1.2',
+                })
+            })
+
+            it('handles autocapture events on EventWithProperty type', async () => {
+                const result = logic.values.parseDisplayNameForCorrelation({
+                    ...basicFunnelRecord,
+                    result_type: FunnelCorrelationResultsType.EventWithProperties,
+                    event: {
+                        event: '$autocapture::elements_chain::xyz_elements_a.link*',
+                        properties: { $event_type: 'click' },
+                        elements: [
+                            {
+                                tag_name: 'a',
+                                href: '#',
+                                attributes: { blah: 'https://example.com' },
+                                nth_child: 0,
+                                nth_of_type: 0,
+                                order: 0,
+                                text: 'bazinga',
+                            },
+                        ],
+                    },
+                })
+                expect(result).toEqual({
+                    first_value: 'clicked link with text "bazinga"',
+                    second_value: undefined,
+                })
+            })
+
+            it('handles autocapture events without elements_chain on EventWithProperty type', async () => {
+                const result = logic.values.parseDisplayNameForCorrelation({
+                    ...basicFunnelRecord,
+                    result_type: FunnelCorrelationResultsType.EventWithProperties,
+                    event: {
+                        event: '$autocapture::library::1.2',
+                        properties: { random: 'x' },
+                        elements: [],
+                    },
+                })
+                expect(result).toEqual({
+                    first_value: 'library',
+                    second_value: '1.2',
+                })
+            })
         })
     })
 })

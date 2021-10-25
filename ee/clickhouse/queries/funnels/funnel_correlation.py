@@ -236,7 +236,7 @@ class FunnelCorrelation:
             GROUP BY name
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
-            -- HAVING (success_count + failure_count) > 2
+            HAVING (success_count + failure_count) > 2
 
             UNION ALL
             -- To get the total success/failure numbers, we do an aggregation on
@@ -480,15 +480,15 @@ class FunnelCorrelation:
 
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
 
-        # if not success_total or not failure_total:
-        #     return [], True
+        if not success_total or not failure_total:
+            return [], True
 
         skewed_totals = False
 
         # If the ratio is greater than 1:10, then we have a skewed result, so we should
         # warn the user.
-        # if success_total / failure_total > 10 or failure_total / success_total > 10:
-        #     skewed_totals = True
+        if success_total / failure_total > 10 or failure_total / success_total > 10:
+            skewed_totals = True
 
         odds_ratios = [
             get_entity_odds_ratio(event_stats, FunnelCorrelation.PRIOR_COUNT)
@@ -509,7 +509,7 @@ class FunnelCorrelation:
         )
 
         # Return the top ten positively correlated events, and top then negatively correlated events
-        events = positively_correlated_events + negatively_correlated_events
+        events = positively_correlated_events[:10] + negatively_correlated_events[:10]
         return events, skewed_totals
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
