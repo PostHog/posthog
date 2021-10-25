@@ -78,7 +78,16 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
 
     def test_no_key(self):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "not_authenticated",
+                "detail": "Authentication credentials were not provided.",
+                "type": "authentication_error",
+            },
+        )
 
     def test_header_resilient(self):
         key = PersonalAPIKey(label="Test", user=self.user)
