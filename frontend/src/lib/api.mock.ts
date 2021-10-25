@@ -1,9 +1,12 @@
-import apiNoMock from 'lib/api'
+import apiReal from 'lib/api'
 import { combineUrl } from 'kea-router'
 import { AvailableFeature, OrganizationType, TeamType } from '~/types'
 
 type APIMockReturnType = {
-    [K in keyof typeof apiNoMock]: jest.Mock<ReturnType<typeof apiNoMock[K]>, Parameters<typeof apiNoMock[K]>>
+    [K in keyof Pick<typeof apiReal, 'create' | 'get' | 'update' | 'delete'>]: jest.Mock<
+        ReturnType<typeof apiReal[K]>,
+        Parameters<typeof apiReal[K]>
+    >
 }
 
 type APIRoute = {
@@ -24,13 +27,12 @@ interface APIMockOptions {
 export const MOCK_TEAM_ID: TeamType['id'] = 997
 export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
-export const api = apiNoMock as any as APIMockReturnType
+export const api = apiReal as any as APIMockReturnType
 
 export const mockAPI = (cb: (url: APIRoute) => any): void => {
     beforeEach(async () => {
         const methods = ['get', 'update', 'create', 'delete']
         for (const method of methods) {
-            // @ts-expect-error - mock implementation doesn't match original signature exactly but that's fine
             api[method as keyof typeof api].mockImplementation(async (url: string, data?: Record<string, any>) => {
                 return cb({ ...combineUrl(url), data, method })
             })

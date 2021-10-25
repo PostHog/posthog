@@ -1,9 +1,9 @@
 import dayjs from 'dayjs'
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { ActionFilter, FilterType, ViewType, FunnelVizType, PropertyFilter } from '~/types'
+import { ActionFilter, FilterType, ViewType, FunnelVizType, PropertyFilter, PersonType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -161,7 +161,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
-                let people = []
+                let people: PaginatedResponse<{ people: PersonType[]; count: number }> | null = null
                 const {
                     label,
                     action,
@@ -220,18 +220,18 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }
                 breakpoint()
                 const peopleResult = {
-                    people: people.results[0]?.people,
-                    count: people.results[0]?.count || 0,
+                    people: people?.results[0]?.people,
+                    count: people?.results[0]?.count || 0,
                     action,
                     label,
                     day: date_from,
                     breakdown_value,
-                    next: people.next,
+                    next: people?.next,
                     funnelStep,
                     pathsDropoff,
                 } as TrendPeople
 
-                eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people.next)
+                eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people?.next)
 
                 if (saveOriginal) {
                     actions.saveFirstLoadedPeople(peopleResult)
