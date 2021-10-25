@@ -117,6 +117,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
     ]
+    lookup_field = "id"
     ordering = "-created_by"
     organization: Optional[Organization] = None
 
