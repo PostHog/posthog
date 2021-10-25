@@ -13,6 +13,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import './TaxonomicBreakdownFilter.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -22,7 +23,7 @@ export interface TaxonomicBreakdownFilterProps {
 export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdown_type } = filters
     const { featureFlags } = useValues(featureFlagLogic)
-
+    const { preflight } = useValues(preflightLogic)
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
         breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
@@ -35,7 +36,9 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
     const { cohorts } = useValues(cohortsModel)
 
     const multiPropertyBreakdownIsEnabled =
-        filters.insight === ViewType.FUNNELS && featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+        filters.insight === ViewType.FUNNELS &&
+        featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] &&
+        preflight?.is_clickhouse_enabled //breakdown is not available on postgres anyway but for completeness is checked here
 
     const tags = breakdownArray
         .filter((b) => !!b)
