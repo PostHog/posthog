@@ -1,5 +1,5 @@
 import secrets
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional, Sequence, Type, Union
 
 import posthoganalytics
 from django.db.models import Model, Prefetch, QuerySet
@@ -11,7 +11,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
 from rest_framework.request import Request
 from sentry_sdk.api import capture_exception
 
@@ -207,8 +207,8 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 class SharedDashboardsViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = Dashboard.objects.filter(is_shared=True)
     serializer_class = DashboardSerializer
-    authentication_classes: List[BaseAuthentication] = []
-    permission_classes: List[BasePermission] = []
+    authentication_classes: Sequence[Type[BaseAuthentication]] = []
+    permission_classes: Sequence[Union[Type[BasePermission], OperandHolder, SingleOperandHolder]] = []
     lookup_field = "share_token"
 
 
