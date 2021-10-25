@@ -1292,3 +1292,9 @@ export enum FunnelCorrelationResultsType {
     Properties = 'properties',
     EventWithProperties = 'event_with_properties',
 }
+
+export enum HelpType {
+    Slack = 'slack',
+    Email = 'email',
+    Docs = 'docs',
+}

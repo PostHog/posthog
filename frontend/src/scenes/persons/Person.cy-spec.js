@@ -36,7 +36,7 @@ describe('<Person /> ', () => {
 
     describe('sessions tab', () => {
         beforeEach(() => {
-            cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
+            cy.intercept('/api/projects/2/dashboards/', { fixture: 'api/dashboard' })
             cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
             cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
             cy.intercept('/api/projects/2/events/sessions/', {
