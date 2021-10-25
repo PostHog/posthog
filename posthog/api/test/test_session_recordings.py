@@ -196,7 +196,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             for _ in range(num_snapshots):
                 self.create_snapshot("user", "1", base_time)
 
-            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
             response_data = response.json()
             self.assertEqual(len(response_data["result"]["snapshots"]), DEFAULT_RECORDING_CHUNK_LIMIT)
 
@@ -213,7 +213,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                         snapshots_per_chunk, "user", chunked_session_id, start_time + relativedelta(minutes=s),
                     )
 
-                next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}"
+                next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
 
                 for i in range(expected_num_requests):
                     response = self.client.get(next_url)
@@ -263,6 +263,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking/snapshots")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
         def test_session_recording_with_no_person(self):
             self.create_snapshot("d1", "id_no_person", now() - relativedelta(days=1))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
@@ -271,6 +274,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_session_recording_doesnt_exist(self):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id/snapshots")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     return TestSessionRecordings

@@ -98,7 +98,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_id = kwargs["pk"]
         filter = SessionRecordingsFilter(request=request)
         session_recording_meta_data = self._get_session_recording_meta_data(request, filter, session_recording_id)
-
         if not session_recording_meta_data.get("session_id"):
             raise exceptions.NotFound("Session not found")
 
@@ -136,4 +135,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             session_recording_id = kwargs["pk"]
             filter = SessionRecordingsFilter(request=request)
             session_recording_snapshots = self._get_session_recording_snapshots(request, filter, session_recording_id)
+            if len(session_recording_snapshots["snapshots"]) == 0:
+                raise exceptions.NotFound("Snapshots not found")
             return response.Response({"result": session_recording_snapshots})
