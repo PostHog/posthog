@@ -3,7 +3,14 @@ from typing import List, Tuple
 
 from freezegun import freeze_time
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_LIFECYCLE, TRENDS_TABLE
+from posthog.constants import (
+    ENTITY_ID,
+    ENTITY_TYPE,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_BAR_VALUE,
+    TRENDS_LIFECYCLE,
+    TRENDS_TABLE,
+)
 from posthog.models import (
     Action,
     ActionStep,
@@ -26,6 +33,16 @@ from posthog.utils import generate_cache_key, relative_date_parse
 def trend_test_factory(trends, event_factory, person_factory, action_factory, cohort_factory):
     class TestTrends(AbstractTimerangeTest, AbstractIntervalTest, APIBaseTest):
         maxDiff = None
+
+        def _get_trend_people(self, filter: Filter, entity: Entity):
+            data = filter.to_dict()
+            if data.get("events", None):
+                data.update({"events": json.dumps(data["events"])})
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/actions/people/",
+                data={**data, ENTITY_TYPE: entity.type, ENTITY_ID: entity.id,},
+            ).json()
+            return response["results"][0]["people"]
 
         def _create_events(self, use_time=False) -> Tuple[Action, Person]:
 
@@ -2113,6 +2130,33 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEntityResponseEqual(
                 event_response, action_response,
             )
+
+        def test_breakdown_by_property_pie(self):
+            self._create_multiple_people()
+            with freeze_time("2020-01-04T13:01:01Z"):
+                data = {
+                    "date_from": "-14d",
+                    "breakdown": "order",
+                    "breakdown_type": "event",
+                    "display": "ActionsPie",
+                    "events": [
+                        {"id": "watched movie", "name": "watched movie", "type": "events", "order": 0, "math": "dau",}
+                    ],
+                }
+                event_response = trends().run(Filter(data=data), self.team,)
+                event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
+
+                data.update({"breakdown_value": "1"})
+                people = self._get_trend_people(
+                    Filter(data=data), Entity({"id": "watched movie", "type": "events", "math": "dau"})
+                )
+                self.assertEqual(len(people), 3)
+
+                data.update({"breakdown_value": "2"})
+                people = self._get_trend_people(
+                    Filter(data=data), Entity({"id": "watched movie", "type": "events", "math": "dau"})
+                )
+                self.assertEqual(len(people), 2)
 
         @test_with_materialized_columns(person_properties=["name"])
         def test_breakdown_by_person_property_pie(self):

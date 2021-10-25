@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, time
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
@@ -100,6 +101,10 @@ def filter_events(
     filters = Q()
     relativity = relativedelta(days=1)
     date_from = filter.date_from
+    date_to = datetime.combine(
+        filter.date_to, time()
+    )  # round time to start of day. Relativity addition will make sure the current day is included
+
     if filter.interval == "hour":
         relativity = relativedelta(hours=1)
     elif filter.interval == "minute":
@@ -114,11 +119,12 @@ def filter_events(
     if filter.date_from and include_dates:
         filters &= Q(timestamp__gte=date_from)
     if include_dates:
-        filters &= Q(timestamp__lte=filter.date_to + relativity)
+        filters &= Q(timestamp__lte=date_to + relativity)
     if filter.properties:
         filters &= properties_to_Q(filter.properties, team_id=team_id)
     if entity and entity.properties:
         filters &= properties_to_Q(entity.properties, team_id=team_id)
+
     return filters
 
 

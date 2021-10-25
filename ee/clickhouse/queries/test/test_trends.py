@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.trends.person import TrendsPersonQuery
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import TRENDS_BAR_VALUE
 from posthog.models.action import Action
@@ -44,6 +45,10 @@ def _create_event(**kwargs):
 class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
 
     maxDiff = None
+
+    def _get_trend_people(self, filter, entity):
+        result = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_people()
+        return result
 
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):

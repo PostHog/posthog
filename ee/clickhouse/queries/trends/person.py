@@ -9,7 +9,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.sql.person import GET_PERSONS_FROM_EVENT_QUERY
-from posthog.constants import TRENDS_CUMULATIVE
+from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -42,7 +42,7 @@ class TrendsPersonQuery:
         self.entity = entity
         self.filter = filter
 
-        if self.filter.display != TRENDS_CUMULATIVE:
+        if self.filter.display != TRENDS_CUMULATIVE and not self.filter.display in TRENDS_DISPLAY_BY_VALUE:
             self.filter = _handle_date_interval(self.filter)
 
     def get_query(self) -> Tuple[str, Dict]:
