@@ -1,6 +1,6 @@
 import React from 'react'
 import { PropertyNamesSelect } from './PropertyNamesSelect'
-import { render, waitFor, waitForElementToBeRemoved, within } from '@testing-library/react'
+import { render, waitFor, within } from '@testing-library/react'
 import { setupServer } from 'msw/node'
 import userEvent from '@testing-library/user-event'
 import { ResponseResolver, RestRequest, RestContext, rest } from 'msw'
