@@ -585,7 +585,11 @@ export const insightLogic = kea<insightLogicType>({
                 } else if (hashParams.fromItem) {
                     const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
 
-                    if (hashParams.fromDashboard && (!values.insight.result || insightIdChanged)) {
+                    if (
+                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
+                        hashParams.fromDashboard &&
+                        (!values.insight.result || insightIdChanged)
+                    ) {
                         const logic = dashboardLogic.findMounted({ id: hashParams.fromDashboard })
                         if (logic) {
                             const insight = logic.values.allItems?.items?.find(
@@ -616,6 +620,7 @@ export const insightLogic = kea<insightLogicType>({
             if (!props.cachedResults) {
                 if (props.dashboardItemId && !props.filters) {
                     if (
+                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
                         router.values.hashParams.fromItem === props.dashboardItemId &&
                         router.values.hashParams.fromDashboard
                     ) {

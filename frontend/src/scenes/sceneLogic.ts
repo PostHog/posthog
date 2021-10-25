@@ -283,7 +283,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 actions.setLoadedScene(loadedScene)
 
                 let unmount
-                if (loadedScene.logic) {
+                if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] && loadedScene.logic) {
                     // initialize the logic and give it 50ms to load before opening the scene
                     unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
                     try {
