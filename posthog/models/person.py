@@ -78,6 +78,9 @@ class Person(models.Model):
     is_identified: models.BooleanField = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
 
+    # current version of the person, used to sync with ClickHouse and collapse rows correctly
+    version: models.IntegerField = models.IntegerField(null=True, blank=True, default=0)
+
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
 
