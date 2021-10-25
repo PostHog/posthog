@@ -19,13 +19,13 @@ RUN apk --update --no-cache add \
     "bash~=5.1" \
     "g++~=10.3" \
     "gcc~=10.3" \
+    "libpq~=13.4" \
     "libxml2-dev~=2.9" \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
     "make~=4.3" \
     "nodejs~=14" \
     "npm~=7" \
-    "libpq~=13.4" \
     && npm install -g yarn@1
 
 # Compile and install Python dependencies.
