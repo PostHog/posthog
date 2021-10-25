@@ -50,7 +50,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event || '')
+        const { breakdown, breakdown_value } = parseBreakdownValue(record.event?.event || '')
 
         return (
             <ValueInspectorButton
@@ -71,7 +71,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event || '')
+        const { breakdown, breakdown_value } = parseBreakdownValue(record.event?.event || '')
 
         return (
             <ValueInspectorButton
@@ -158,7 +158,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                 ) : (
                                     <FallOutlined style={{ color: 'red' }} />
                                 )}{' '}
-                                {record.event}
+                                {record.event?.event}
                             </h4>
                             <div>
                                 People who converted were{' '}

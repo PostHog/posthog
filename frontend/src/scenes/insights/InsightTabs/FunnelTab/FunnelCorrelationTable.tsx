@@ -51,7 +51,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     ) : (
                         <FallOutlined style={{ color: 'red' }} />
                     )}{' '}
-                    {record.event}
+                    {record.event?.event}
                 </h4>
                 <div>
                     People who converted were{' '}
@@ -78,7 +78,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         }
     }
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
-        const { name, property } = parseEventAndProperty(record.event || '')
+        const { name, property } = parseEventAndProperty(record.event?.event || '')
 
         return (
             <ValueInspectorButton
@@ -95,7 +95,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
-        const { name, property } = parseEventAndProperty(record.event || '')
+        const { name, property } = parseEventAndProperty(record.event?.event || '')
 
         return (
             <ValueInspectorButton
@@ -152,12 +152,12 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             dataSource={correlationValues}
             scroll={{ x: 'max-content' }}
             size="small"
-            rowKey={(record: FunnelCorrelation) => record.event || 'rowKey'}
+            rowKey={(record: FunnelCorrelation) => record.event?.event || 'rowKey'}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
             expandable={{
-                expandedRowRender: (record) => renderNestedTable(record.event),
-                rowExpandable: (record) => !!record.event && eventHasPropertyCorrelations(record.event),
+                expandedRowRender: (record) => renderNestedTable(record.event?.event),
+                rowExpandable: (record) => !!record.event?.event && eventHasPropertyCorrelations(record.event?.event),
             }}
             title={() => (
                 <>
@@ -226,7 +226,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 title="Property correlations"
                 key="operation"
                 render={(_, record: FunnelCorrelation) => (
-                    <a onClick={() => record.event && loadEventWithPropertyCorrelations(record.event)}>Run</a>
+                    <a onClick={() => record.event?.event && loadEventWithPropertyCorrelations(record.event?.event)}>
+                        Run
+                    </a>
                 )}
             />
         </Table>
