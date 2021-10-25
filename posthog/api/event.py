@@ -280,7 +280,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         return [{"name": convert_property_value(value)} for value in flattened]
 
     # ******************************************
-    # /event/sessions
+    # /events/sessions
     #
     # params:
     # - pagination: (dict) Object containing information about pagination (offset, last page info)
@@ -306,7 +306,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
-    # /event/session_recording
+    # /events/session_recording
     # params:
     # - session_recording_id: (string) id of the session recording
     # - save_view: (boolean) save view of the recording

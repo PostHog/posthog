@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
-import { uuid, deleteWithUndo } from 'lib/utils'
+import { uuid, deleteWithUndo, compactNumber } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
-import { actionEditLogic } from './actionEditLogic.ts'
+import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import './Actions.scss'
-import { ActionStep } from './ActionStep.tsx'
+import { ActionStep } from './ActionStep'
 import { Button, Col, Input, Row } from 'antd'
 import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined, LoadingOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
@@ -12,19 +12,19 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models/actionsModel'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
-import { compactNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-export function ActionEdit({ action: loadedAction, actionId, onSave, temporaryToken }) {
-    let logic = actionEditLogic({
-        id: actionId,
+export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const relevantActionEditLogic = actionEditLogic({
+        id: id,
         action: loadedAction,
-        onSave: (action, createNew) => onSave(action, !actionId, createNew),
+        onSave: (action) => onSave(action),
         temporaryToken,
     })
-    const { action, errorActionId, actionCount, actionCountLoading } = useValues(logic)
-    const { setAction, saveAction } = useActions(logic)
+    const { action, errorActionId, actionCount, actionCountLoading } = useValues(relevantActionEditLogic)
+    const { setAction, saveAction } = useActions(relevantActionEditLogic)
     const { loadActions } = useActions(actionsModel)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -32,24 +32,24 @@ export function ActionEdit({ action: loadedAction, actionId, onSave, temporaryTo
     const [edited, setEdited] = useState(false)
     const slackEnabled = currentTeam?.slack_incoming_webhook
 
-    const newAction = () => {
-        setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
+    function addMatchGroup(): void {
+        setAction({ ...action, steps: [...(action.steps || []), { isNew: uuid() }] })
     }
 
     const addGroup = (
-        <Button onClick={newAction} size="small">
+        <Button onClick={addMatchGroup} size="small">
             Add another match group
         </Button>
     )
 
-    const deleteAction = actionId ? (
+    const deleteAction = id ? (
         <Button
             data-attr="delete-action"
             danger
             icon={<DeleteOutlined />}
             onClick={() => {
                 deleteWithUndo({
-                    endpoint: 'action',
+                    endpoint: `projects/${currentTeamId}/actions`,
                     object: action,
                     callback: () => {
                         router.actions.push('/events/actions')
@@ -64,7 +64,7 @@ export function ActionEdit({ action: loadedAction, actionId, onSave, temporaryTo
 
     return (
         <div className="action-edit-container">
-            <PageHeader title={actionId ? 'Editing action' : 'Creating action'} buttons={deleteAction} />
+            <PageHeader title={id ? 'Editing action' : 'Creating action'} buttons={deleteAction} />
             <form
                 onSubmit={(e) => {
                     e.preventDefault()
@@ -85,23 +85,18 @@ export function ActionEdit({ action: loadedAction, actionId, onSave, temporaryTo
                         data-attr="edit-action-input"
                         id="actionName"
                     />
-                    {actionId && (
+                    {id && (
                         <div>
                             <span className="text-muted mb-05">
                                 {actionCountLoading && <LoadingOutlined />}
                                 {actionCount !== null && actionCount > -1 && (
                                     <>
                                         This action matches <b>{compactNumber(actionCount)}</b> events
-                                        {preflight.db_backend !== 'clickhouse' && (
+                                        {preflight?.db_backend !== 'clickhouse' && action.last_calculated_at && (
                                             <>
-                                                {' '}
-                                                (last calculated{' '}
-                                                {action.last_calculated_at ? (
-                                                    <b>{dayjs(action.last_calculated_at).fromNow()}</b>
-                                                ) : (
-                                                    'a while ago'
-                                                )}
-                                                )
+                                                {' (last calculated '}
+                                                <b>{dayjs(action.last_calculated_at).fromNow()}</b>
+                                                {')'}
                                             </>
                                         )}
                                     </>
@@ -122,27 +117,26 @@ export function ActionEdit({ action: loadedAction, actionId, onSave, temporaryTo
                     <div style={{ textAlign: 'right', marginBottom: 12 }}>{addGroup}</div>
 
                     <Row gutter={[24, 24]}>
-                        {action.steps.map((step, index) => (
+                        {action.steps?.map((step, index) => (
                             <ActionStep
                                 key={step.id || step.isNew}
-                                identifier={step.id || step.isNew}
+                                identifier={String(step.id || step.isNew)}
                                 index={index}
                                 step={step}
-                                isEditor={false}
-                                actionId={action.id}
-                                isOnlyStep={action.steps.length === 1}
+                                actionId={action.id || 0}
+                                isOnlyStep={!!action.steps && action.steps.length === 1}
                                 onDelete={() => {
                                     const identifier = step.id ? 'id' : 'isNew'
                                     setAction({
                                         ...action,
-                                        steps: action.steps.filter((s) => s[identifier] !== step[identifier]),
+                                        steps: action.steps?.filter((s) => s[identifier] !== step[identifier]),
                                     })
                                     setEdited(true)
                                 }}
                                 onChange={(newStep) => {
                                     setAction({
                                         ...action,
-                                        steps: action.steps.map((s) =>
+                                        steps: action.steps?.map((s) =>
                                             (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
                                                 ? {
                                                       id: step.id,
@@ -157,7 +151,7 @@ export function ActionEdit({ action: loadedAction, actionId, onSave, temporaryTo
                             />
                         ))}
                         <Col span={24} md={12}>
-                            <div className="match-group-add-skeleton" onClick={newAction}>
+                            <div className="match-group-add-skeleton" onClick={addMatchGroup}>
                                 <PlusOutlined style={{ fontSize: 28, color: '#666666' }} />
                             </div>
                         </Col>

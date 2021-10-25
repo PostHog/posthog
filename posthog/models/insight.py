@@ -16,8 +16,7 @@ def generate_short_id():
     return secrets.token_urlsafe(6)  # will result in 8-char strings (after encoding)
 
 
-# TODO: Rename model to something more accurate like `Insight`
-class DashboardItem(models.Model):
+class Insight(models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.
@@ -60,6 +59,7 @@ class DashboardItem(models.Model):
     funnel: models.ForeignKey = deprecate_field(models.IntegerField(null=True, blank=True))
 
     class Meta:
+        db_table = "posthog_dashboarditem"
         unique_together = (
             "team",
             "short_id",
@@ -81,8 +81,8 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
         item.save()
 
 
-@receiver(pre_save, sender=DashboardItem)
-def dashboard_item_saved(sender, instance: DashboardItem, dashboard=None, **kwargs):
+@receiver(pre_save, sender=Insight)
+def dashboard_item_saved(sender, instance: Insight, dashboard=None, **kwargs):
     if instance.filters and instance.filters != {}:
         filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
 

@@ -41,10 +41,10 @@ def api_not_found(request):
 router = DefaultRouterPlusPlus()
 
 # Legacy endpoints shared (to be removed eventually)
-router.register(r"annotation", annotation.LegacyAnnotationsViewSet)
-router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)
-router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
-router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
+router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
+router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Should be completely unused now
+router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be completely unused now
+router.register(r"dashboard_item", dashboard.LegacyDashboardItemViewSet)  # To be deleted - unified into insight viewset
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 router.register(r"sessions_filter", sessions_filter.LegacySessionsFilterViewSet)
 
@@ -62,7 +62,6 @@ projects_router.register(
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
 projects_router.register(r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"])
-projects_router.register(r"dashboard_items", dashboard.DashboardItemsViewSet, "project_dashboard_items", ["team_id"])
 projects_router.register(
     r"sessions_filters", sessions_filter.SessionsFilterViewSet, "project_session_filters", ["team_id"]
 )
@@ -99,6 +98,7 @@ router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
+router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 
 if is_clickhouse_enabled():
     from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
@@ -111,9 +111,9 @@ if is_clickhouse_enabled():
     from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
 
     # Legacy endpoints CH (to be removed eventually)
-    router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")
-    router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")
-    router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")
+    router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")  # Should be completely unused now
+    router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")  # Should be completely unused now
+    router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")  # Should be completely unused now
     router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
     router.register(r"paths", LegacyClickhousePathsViewSet, basename="paths")
     router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
@@ -131,10 +131,10 @@ if is_clickhouse_enabled():
     )
 else:
     # Legacy endpoints PG (to be removed eventually)
-    router.register(r"insight", insight.LegacyInsightViewSet)
-    router.register(r"action", action.LegacyActionViewSet)
+    router.register(r"insight", insight.LegacyInsightViewSet)  # Should be completely unused now
+    router.register(r"action", action.LegacyActionViewSet)  # Should be completely unused now
     router.register(r"person", person.LegacyPersonViewSet)
-    router.register(r"event", event.LegacyEventViewSet)
+    router.register(r"event", event.LegacyEventViewSet)  # Should be completely unused now
     router.register(r"paths", paths.LegacyPathsViewSet, basename="paths")
     router.register(r"element", element.LegacyElementViewSet)
     router.register(r"cohort", cohort.LegacyCohortViewSet)

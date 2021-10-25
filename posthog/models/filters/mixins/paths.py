@@ -5,6 +5,7 @@ from posthog.constants import (
     CUSTOM_EVENT,
     END_POINT,
     FUNNEL_PATHS,
+    LOCAL_PATH_CLEANING_FILTERS,
     PAGEVIEW_EVENT,
     PATH_DROPOFF_KEY,
     PATH_EDGE_LIMIT,
@@ -181,16 +182,37 @@ class PathGroupingMixin(BaseParamMixin):
 
 class PathReplacementMixin(BaseParamMixin):
     @cached_property
-    def path_replacements(self) -> Optional[List[Dict[str, str]]]:
-        path_replacements = self._data.get(PATH_REPLACEMENTS, None)
-        if isinstance(path_replacements, str):
-            return json.loads(path_replacements)
+    def path_replacements(self) -> bool:
+        path_replacements = self._data.get(PATH_REPLACEMENTS)
+        if not path_replacements:
+            return False
+        if path_replacements == True:
+            return True
 
-        return path_replacements
+        if isinstance(path_replacements, str) and path_replacements.lower() == "true":
+            return True
+
+        return False
 
     @include_dict
     def path_replacements_to_dict(self):
         return {PATH_REPLACEMENTS: self.path_replacements} if self.path_replacements else {}
+
+
+class LocalPathCleaningFiltersMixin(BaseParamMixin):
+    @cached_property
+    def local_path_cleaning_filters(self) -> Optional[List[Dict[str, str]]]:
+        local_path_cleaning_filters = self._data.get(LOCAL_PATH_CLEANING_FILTERS, None)
+        if isinstance(local_path_cleaning_filters, str):
+            return json.loads(local_path_cleaning_filters)
+
+        return local_path_cleaning_filters
+
+    @include_dict
+    def local_path_cleaning_filters_to_dict(self):
+        return (
+            {LOCAL_PATH_CLEANING_FILTERS: self.local_path_cleaning_filters} if self.local_path_cleaning_filters else {}
+        )
 
 
 class PathPersonsMixin(BaseParamMixin):

@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
 import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
 import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
-import { mockAPI } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
@@ -52,7 +52,7 @@ describe('eventsTableLogic', () => {
     })
 
     it('sets a key', () => {
-        expect(logic.key).toEqual('all-events-test-key')
+        expect(logic.key).toEqual('all-test-key')
     })
 
     it('starts with known defaults', async () => {
@@ -362,7 +362,7 @@ describe('eventsTableLogic', () => {
 
         it('can build the export URL when there are no properties or filters', async () => {
             await expectLogic(logic, () => {}).toMatchValues({
-                exportUrl: '/api/event.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D',
+                exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,
             })
         })
 
@@ -370,8 +370,7 @@ describe('eventsTableLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setProperties([makePropertyFilter('fixed value')])
             }).toMatchValues({
-                exportUrl:
-                    '/api/event.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D',
+                exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D`,
             })
         })
 
@@ -379,7 +378,7 @@ describe('eventsTableLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.flipSort()
             }).toMatchValues({
-                exportUrl: '/api/event.csv?properties=%5B%5D&orderBy=%5B%22timestamp%22%5D',
+                exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22timestamp%22%5D`,
             })
         })
     })

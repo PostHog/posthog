@@ -12,6 +12,7 @@ import { TrendPeople } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { teamLogic } from '../teamLogic'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -178,7 +179,10 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
 
                 if (filters.funnel_correlation_person_entity) {
                     const cleanedParams = cleanFilters(filters)
-                    people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
+                    const funnelCorrelationParams = toParams(cleanedParams)
+                    people = await api.create(
+                        `api/person/funnel/correlation/?${funnelCorrelationParams}${searchTermParam}`
+                    )
                 } else if (filters.insight === ViewType.LIFECYCLE) {
                     const filterParams = parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
@@ -210,13 +214,16 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === ViewType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
-                    people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+                    const pathParams = toParams(cleanedParams)
+                    people = await api.create(`api/person/path/?${pathParams}${searchTermParam}`)
                 } else {
                     const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
                         filters
                     )
-                    people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
+                    people = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/actions/people/?${filterParams}${searchTermParam}`
+                    )
                 }
                 breakpoint()
                 const peopleResult = {

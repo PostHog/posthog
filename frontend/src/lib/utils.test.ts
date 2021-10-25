@@ -1,30 +1,32 @@
 import dayjs from 'dayjs'
 import {
-    formatLabel,
-    identifierToHuman,
-    midEllipsis,
-    isURL,
-    capitalizeFirstLetter,
-    compactNumber,
-    pluralize,
-    endWithPunctation,
-    dateFilterToText,
-    hexToRGBA,
-    average,
-    median,
-    humanFriendlyDuration,
-    colonDelimitedDuration,
     areObjectValuesEmpty,
-    toParams,
+    average,
+    capitalizeFirstLetter,
+    colonDelimitedDuration,
+    compactNumber,
+    dateFilterToText,
+    endWithPunctation,
     ensureStringIsNotBlank,
+    formatLabel,
+    hexToRGBA,
+    humanFriendlyDuration,
+    identifierToHuman,
+    isURL,
+    median,
+    midEllipsis,
+    objectDiffShallow,
+    pluralize,
+    toParams,
 } from './utils'
+import { ActionFilter, PropertyOperator } from '~/types'
 
 describe('toParams', () => {
     it('handles unusual input', () => {
         expect(toParams({})).toEqual('')
         expect(toParams([])).toEqual('')
-        expect(toParams(undefined)).toEqual('')
-        expect(toParams(null)).toEqual('')
+        expect(toParams(undefined as any)).toEqual('')
+        expect(toParams(null as any)).toEqual('')
     })
 
     it('is tolerant of empty objects', () => {
@@ -58,41 +60,37 @@ describe('identifierToHuman()', () => {
 })
 
 describe('formatLabel()', () => {
-    given('subject', () => formatLabel('some_event', given.action))
-
-    given('action', () => ({}))
+    const action: ActionFilter = {
+        id: 123,
+        name: 'Test Action',
+        properties: [],
+        type: 'actions',
+    }
 
     it('formats the label', () => {
-        expect(given.subject).toEqual('some_event')
+        expect(formatLabel('some_event', action)).toEqual('some_event')
     })
 
-    describe('DAU queries', () => {
-        given('action', () => ({ math: 'dau' }))
-
-        it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (Unique users) ')
-        })
+    it('DAU queries', () => {
+        expect(formatLabel('some_event', { ...action, math: 'dau' })).toEqual('some_event (Unique users)')
     })
 
-    describe('summing by property', () => {
-        given('action', () => ({ math: 'sum', math_property: 'event_property' }))
-
-        it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (sum of event_property) ')
-        })
+    it('summing by property', () => {
+        expect(formatLabel('some_event', { ...action, math: 'sum', math_property: 'event_property' })).toEqual(
+            'some_event (sum of event_property)'
+        )
     })
 
-    describe('action with properties', () => {
-        given('action', () => ({
-            properties: [
-                { value: 'hello', key: 'greeting' },
-                { operator: 'gt', value: 5 },
-            ],
-        }))
-
-        it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (greeting = hello, > 5)')
-        })
+    it('action with properties', () => {
+        expect(
+            formatLabel('some_event', {
+                ...action,
+                properties: [
+                    { value: 'hello', key: 'greeting', operator: PropertyOperator.Exact, type: '' },
+                    { operator: PropertyOperator.GreaterThan, value: 5, key: '', type: '' },
+                ],
+            })
+        ).toEqual('some_event (greeting = hello, > 5)')
     })
 })
 
@@ -145,12 +143,12 @@ describe('pluralize()', () => {
     it('handles singular cases', () => {
         expect(pluralize(1, 'member')).toEqual('1 member')
         expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
-        expect(pluralize(1, 'word', null, false)).toEqual('word')
+        expect(pluralize(1, 'word', undefined, false)).toEqual('word')
     })
     it('handles plural cases', () => {
         expect(pluralize(28321, 'member')).toEqual('28321 members')
         expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
-        expect(pluralize(3, 'word', null, false)).toEqual('words')
+        expect(pluralize(3, 'word', undefined, false)).toEqual('words')
     })
 })
 
@@ -295,17 +293,17 @@ describe('areObjectValuesEmpty()', () => {
     it('returns correct value for objects with at least one non-empty value', () => {
         expect(areObjectValuesEmpty({ a: '', b: null, c: 'hello' })).toEqual(false)
         expect(areObjectValuesEmpty({ a: true, b: 'hello' })).toEqual(false)
-        expect(areObjectValuesEmpty('hello')).toEqual(false)
-        expect(areObjectValuesEmpty(null)).toEqual(false)
+        expect(areObjectValuesEmpty('hello' as any)).toEqual(false)
+        expect(areObjectValuesEmpty(null as any)).toEqual(false)
     })
 })
 
 describe('ensureStringIsNotBlank()', () => {
     it('handles unusual input', () => {
         expect(ensureStringIsNotBlank(null)).toEqual(null)
-        expect(ensureStringIsNotBlank({})).toEqual(null)
+        expect(ensureStringIsNotBlank({} as any)).toEqual(null)
         expect(ensureStringIsNotBlank(undefined)).toEqual(null)
-        expect(ensureStringIsNotBlank(true)).toEqual(null)
+        expect(ensureStringIsNotBlank(true as any)).toEqual(null)
     })
     it('handles blank strings as expected', () => {
         expect(ensureStringIsNotBlank('')).toEqual(null)
@@ -314,5 +312,16 @@ describe('ensureStringIsNotBlank()', () => {
     it('handles happy case', () => {
         expect(ensureStringIsNotBlank('happyboy')).toEqual('happyboy')
         expect(ensureStringIsNotBlank('  happy boy  ')).toEqual('  happy boy  ')
+    })
+})
+
+describe('objectDiffShallow()', () => {
+    it('obj1 + result = obj2', () => {
+        expect(objectDiffShallow({ b: '4' }, { b: '3', a: '2' })).toStrictEqual({ b: '3', a: '2' })
+        expect(objectDiffShallow({ b: '4', c: '12' }, { b: '3', a: '2' })).toStrictEqual({
+            b: '3',
+            a: '2',
+            c: undefined,
+        })
     })
 })

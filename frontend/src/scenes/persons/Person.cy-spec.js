@@ -7,9 +7,10 @@ describe('<Person /> ', () => {
 
     beforeEach(() => {
         cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
         cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
         cy.intercept('/api/person/', { fixture: 'api/person' }).as('api_person')
-        cy.intercept('/api/event/?', { fixture: 'api/event/single_person_events' }).as('api_event')
+        cy.intercept('/api/projects/2/events/?', { fixture: 'api/event/single_person_events' }).as('api_event')
 
         helpers.mockPosthog()
         helpers.setLocation('/person/01779064-53be-000c-683f-23b1a8c8eb4c')
@@ -35,13 +36,13 @@ describe('<Person /> ', () => {
 
     describe('sessions tab', () => {
         beforeEach(() => {
-            cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
+            cy.intercept('/api/projects/2/dashboards/', { fixture: 'api/dashboard' })
             cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
             cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
-            cy.intercept('/api/event/sessions/', { fixture: 'api/event/sessions/session_with_recording' }).as(
-                'api_sessions'
-            )
-            cy.intercept('/api/event/session_recording', { fixture: 'api/event/session_recording' }).as(
+            cy.intercept('/api/projects/2/events/sessions/', {
+                fixture: 'api/event/sessions/session_with_recording',
+            }).as('api_sessions')
+            cy.intercept('/api/projects/2/events/session_recording', { fixture: 'api/event/session_recording' }).as(
                 'api_session_recording'
             )
         })

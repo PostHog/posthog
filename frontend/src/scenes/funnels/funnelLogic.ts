@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { average, sum } from 'lib/utils'
+import { average, eventToName, sum } from 'lib/utils'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -28,6 +28,8 @@ import {
     FunnelStepReference,
     FunnelAPIResponse,
     TrendResult,
+    BreakdownType,
+    FunnelCorrelationResultsType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -48,6 +50,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { teamLogic } from '../teamLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -59,7 +62,7 @@ export const funnelLogic = kea<funnelLogicType>({
     key: keyForInsightLogicProps('insight_funnel'),
 
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading']],
+        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], teamLogic, ['currentTeamId']],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
@@ -81,11 +84,17 @@ export const funnelLogic = kea<funnelLogicType>({
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
-            breakdown_value?: string | number
+            breakdown_value?: string | number,
+            breakdown?: string,
+            breakdown_type?: BreakdownType,
+            customSteps?: number[]
         ) => ({
             step,
             stepNumber,
             breakdown_value,
+            breakdown,
+            breakdown_type,
+            customSteps,
         }),
         openCorrelationPersonsModal: (entity: Record<string, any>, converted: boolean) => ({
             entity,
@@ -121,12 +130,19 @@ export const funnelLogic = kea<funnelLogicType>({
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
                 loadCorrelations: async () => {
-                    return (
-                        await api.create('api/insight/funnel/correlation', {
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'events',
                         })
-                    ).result
+                    ).result?.events
+
+                    return {
+                        events: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.Events,
+                        })),
+                    }
                 },
             },
         ],
@@ -136,8 +152,8 @@ export const funnelLogic = kea<funnelLogicType>({
             } as Record<'events', FunnelCorrelation[]>,
             {
                 loadPropertyCorrelations: async (propertyNames: string[]) => {
-                    return (
-                        await api.create('api/insight/funnel/correlation', {
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
                             // Name is comma separated list of property names
@@ -145,7 +161,14 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ? propertyNames.map((name: string) => name.trim())
                                 : ['$all'],
                         })
-                    ).result
+                    ).result?.events
+
+                    return {
+                        events: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.Properties,
+                        })),
+                    }
                 },
             },
         ],
@@ -153,15 +176,20 @@ export const funnelLogic = kea<funnelLogicType>({
             {} as Record<string, FunnelCorrelation[]>,
             {
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
-                    const results = (
-                        await api.create('api/insight/funnel/correlation', {
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'event_with_properties',
                             funnel_correlation_event_names: [eventName],
                         })
                     ).result?.events
 
-                    return { [eventName]: results }
+                    return {
+                        [eventName]: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.EventWithProperties,
+                        })),
+                    }
                 },
             },
         ],
@@ -754,6 +782,33 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
+        parseDisplayNameForCorrelation: [
+            () => [],
+            (): ((record: FunnelCorrelation) => { first_value: string; second_value?: string }) => {
+                return (record) => {
+                    let first_value = undefined
+                    let second_value = undefined
+                    const values = record.event.event.split('::')
+
+                    if (record.result_type === FunnelCorrelationResultsType.Events) {
+                        first_value = record.event.event
+                        return { first_value, second_value }
+                    } else if (record.result_type === FunnelCorrelationResultsType.Properties) {
+                        first_value = values[0]
+                        second_value = values[1]
+                        return { first_value, second_value }
+                    } else if (values[0] === '$autocapture' && values[1] === 'elements_chain') {
+                        // special case for autocapture elements_chain
+                        first_value = eventToName({ ...record.event, event: '$autocapture' })
+                        return { first_value, second_value }
+                    } else {
+                        // FunnelCorrelationResultsType.EventWithProperties
+                        // Events here come in the form of event::property::value
+                        return { first_value: values[1], second_value: values[2] }
+                    }
+                }
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -847,21 +902,21 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
         saveFunnelInsight: async ({ name }) => {
-            await api.create('api/insight', {
+            await api.create(`api/projects/${values.currentTeamId}/insights`, {
                 filters: values.filters,
                 name,
                 saved: true,
             })
             actions.loadFunnels()
         },
-        openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
+        openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
             personsModalLogic.actions.loadPeople({
-                action: { id: step.action_id, name: step.name, properties: [], type: step.type },
+                action: 'session',
                 breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
                 label: step.name,
                 date_from: '',
                 date_to: '',
-                filters: values.filters,
+                filters: { ...values.filters, breakdown, breakdown_type, funnel_custom_steps: customSteps },
                 saveOriginal: true,
                 funnelStep: stepNumber,
             })
