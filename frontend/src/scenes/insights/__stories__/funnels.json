@@ -1745,8 +1745,8 @@
                 }
             },
             "rawDashboardsLoading": false,
-            "sharedDashboards": null,
-            "sharedDashboardsLoading": false,
+            "sharedDashboard": null,
+            "sharedDashboardLoading": false,
             "dashboard": null,
             "dashboardLoading": false,
             "redirect": true,
@@ -3344,7 +3344,7 @@
                 }
             ],
             "funnelsLoading": false,
-            "next": "http://localhost:8000/api/insight/?insight=FUNNELS&limit=5&offset=5&order=-created_at&saved=true",
+            "next": "http://localhost:8000/api/projects/${currentTeamId}/insights/?insight=FUNNELS&limit=5&offset=5&order=-created_at&saved=true",
             "loadingMore": false
         }
     },

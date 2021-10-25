@@ -6,6 +6,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { DashboardItemType } from '~/types'
+import { teamLogic } from '../teamLogic'
 import { insightRouterLogicType } from './InsightRouterType'
 
 const insightRouterLogic = kea<insightRouterLogicType>({
@@ -23,7 +24,7 @@ const insightRouterLogic = kea<insightRouterLogicType>({
     },
     listeners: ({ actions }) => ({
         loadInsight: async ({ id }) => {
-            const response = await api.get(`api/insight/?short_id=${id}`)
+            const response = await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${id}`)
             if (response.results.length) {
                 const item = response.results[0] as DashboardItemType
                 eventUsageLogic.actions.reportInsightShortUrlVisited(true, item.filters.insight || null)

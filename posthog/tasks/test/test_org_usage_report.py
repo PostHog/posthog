@@ -52,6 +52,8 @@ def factory_org_usage_report(
                 self.assertEqual(org_report["event_count_in_month"], 4)
                 self.assertIsNotNone(org_report["organization_id"])
                 self.assertIsNotNone(org_report["organization_name"])
+                self.assertIsNotNone(org_report["organization_created_at"])
+                self.assertGreaterEqual(org_report["organization_user_count"], 1)
                 self.assertEqual(org_report["team_count"], 1)
 
             with self.settings(**_instance_settings):

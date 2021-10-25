@@ -259,14 +259,14 @@ class FunnelCorrelationMixin(BaseParamMixin):
         return None
 
     @cached_property
-    def correlation_property_names(self) -> Optional[List[str]]:
+    def correlation_property_names(self) -> List[str]:
         property_names = self._data.get(FUNNEL_CORRELATION_NAMES, [])
         if isinstance(property_names, str):
             return json.loads(property_names)
         return property_names
 
     @cached_property
-    def correlation_event_names(self) -> Optional[List[str]]:
+    def correlation_event_names(self) -> List[str]:
         event_names = self._data.get(FUNNEL_CORRELATION_EVENT_NAMES, [])
         if isinstance(event_names, str):
             return json.loads(event_names)

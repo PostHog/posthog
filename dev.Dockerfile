@@ -1,6 +1,8 @@
 #
 # This Dockerfile is used for self-hosted development builds.
 #
+# Note: for 'posthog/posthog-cloud' remember to update 'dev.Dockerfile' as appropriate
+#
 FROM python:3.8-alpine3.14
 
 ENV PYTHONUNBUFFERED 1
@@ -17,13 +19,13 @@ RUN apk --update --no-cache add \
     "bash~=5.1" \
     "g++~=10.3" \
     "gcc~=10.3" \
+    "libpq~=13.4" \
+    "libxml2-dev~=2.9" \
+    "libxslt~=1.1" \
+    "libxslt-dev~=1.1" \
     "make~=4.3" \
     "nodejs~=14" \
     "npm~=7" \
-    "postgresql-client~=13" \
-    "libxslt~=1.1" \
-    "libxslt-dev~=1.1" \
-    "libxml2-dev~=2.9" \
     && npm install -g yarn@1
 
 # Compile and install Python dependencies.
@@ -37,13 +39,13 @@ RUN apk --update --no-cache add \
 #   and then uninstall them when the compilation is completed.
 COPY requirements.txt requirements-dev.txt ./
 RUN apk --update --no-cache --virtual .build-deps add \
-    "linux-headers~=5.10" \
-    "musl-dev~=1.2" \
+    "cargo~=1.52" \
     "git~=2" \
     "libffi-dev~=3.3" \
-    "postgresql-dev~=13" \
+    "linux-headers~=5.10" \
+    "musl-dev~=1.2" \
     "openssl-dev~=1.1" \
-    "cargo~=1.52" \
+    "postgresql-dev~=13" \
     && \
     pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir \

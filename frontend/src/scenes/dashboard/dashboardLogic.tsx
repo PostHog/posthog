@@ -13,6 +13,7 @@ import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from '../teamLogic'
 
 export interface DashboardLogicProps {
     id?: number
@@ -23,7 +24,10 @@ export interface DashboardLogicProps {
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
-    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+        logic: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+    },
 
     props: {} as DashboardLogicProps,
 
@@ -88,13 +92,13 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     }
 
                     try {
-                        const dashboard = await api.get(
-                            `api/dashboard/${props.id}/?${toParams({
-                                share_token: props.shareToken,
-                                refresh,
-                                dive_source_id,
-                            })}`
-                        )
+                        const apiUrl = props.shareToken
+                            ? `api/shared_dashboards/${props.shareToken}`
+                            : `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/?${toParams({
+                                  refresh,
+                                  dive_source_id,
+                              })}`
+                        const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         actions.setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
@@ -107,10 +111,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     }
                 },
                 updateDashboard: async (filters) => {
-                    return await api.update(
-                        `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`,
-                        { filters }
-                    )
+                    return await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
+                        filters,
+                    })
                 },
             },
         ],
@@ -299,12 +302,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.nameSortedDashboards],
-            (sharedDashboards, dashboards): DashboardType | null => {
-                if (sharedDashboards && props.id && !!sharedDashboards[props.id]) {
-                    return sharedDashboards[props.id]
-                }
-                return dashboards.find((d) => d.id === props.id) ?? null
+            () => [dashboardsModel.selectors.sharedDashboard, dashboardsModel.selectors.nameSortedDashboards],
+            (sharedDashboard, dashboards): DashboardType | null => {
+                return props.shareToken ? sharedDashboard : dashboards.find((d) => d.id === props.id) || null
             },
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 } as Record<DashboardLayoutSize, number>)],
@@ -450,7 +450,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
     }),
-    listeners: ({ actions, values, key, cache, props }) => ({
+    listeners: ({ actions, values, key, cache }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
@@ -477,7 +477,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
-            await api.update(`api/dashboard_item/layouts`, {
+            await api.update(`api/projects/${values.currentTeamId}/insights/layouts`, {
                 items:
                     values.items?.map((item) => {
                         const layouts: Record<string, Layout> = {}
@@ -490,10 +490,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             })
         },
         updateItemColor: ({ id, color }) => {
-            api.update(`api/insight/${id}`, { color })
+            api.update(`api/projects/${values.currentTeamId}/insights/${id}`, { color })
         },
         setDiveDashboard: ({ id, dive_dashboard }) => {
-            api.update(`api/insight/${id}`, { dive_dashboard })
+            api.update(`api/projects/${values.currentTeamId}/insights/${id}`, { dive_dashboard })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
@@ -519,8 +519,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 try {
                     breakpoint()
                     const refreshedDashboardItem = await api.get(
-                        `api/dashboard_item/${dashboardItem.id}/?${toParams({
-                            share_token: props.shareToken,
+                        `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             refresh: true,
                         })}`
                     )

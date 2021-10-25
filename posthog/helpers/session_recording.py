@@ -1,8 +1,9 @@
 import base64
+import dataclasses
 import gzip
 import json
 from collections import defaultdict
-from typing import Dict, Generator, List
+from typing import DefaultDict, Dict, Generator, List
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -10,6 +11,13 @@ from posthog.models import utils
 
 Event = Dict
 SnapshotData = Dict
+
+
+@dataclasses.dataclass
+class PaginatedSnapshotList:
+    has_next: bool
+    paginated_list: List[SnapshotData]
+
 
 FULL_SNAPSHOT = 2
 
@@ -105,3 +113,49 @@ def compress_to_string(json_string: str) -> str:
 def decompress(base64data: str) -> str:
     compressed_bytes = base64.b64decode(base64data)
     return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
+
+
+def paginate_snapshot_list(list_to_paginate: List, limit: int, offset: int) -> PaginatedSnapshotList:
+    if offset + limit < len(list_to_paginate):
+        has_next = True
+        paginated_list = list_to_paginate[offset : offset + limit]
+    else:
+        has_next = False
+        paginated_list = list_to_paginate[offset:]
+
+    return PaginatedSnapshotList(has_next=has_next, paginated_list=paginated_list)
+
+
+def paginate_chunk_decompression(
+    team_id: int, session_recording_id: str, all_recording_snapshots: List[SnapshotData], limit: int, offset: int
+) -> PaginatedSnapshotList:
+    if len(all_recording_snapshots) == 0:
+        return PaginatedSnapshotList(has_next=False, paginated_list=[])
+
+    # Simple case of unchunked and therefore uncompressed snapshots
+    if "chunk_id" not in all_recording_snapshots[0]:
+        return paginate_snapshot_list(all_recording_snapshots, limit, offset)
+
+    chunks_collector: DefaultDict[str, List[SnapshotData]] = defaultdict(list)
+
+    for snapshot in all_recording_snapshots:
+        chunks_collector[snapshot["chunk_id"]].append(snapshot)
+
+    paginated_chunks_list = paginate_snapshot_list(list(chunks_collector.values()), limit, offset)
+
+    decompressed_data_list: List[SnapshotData] = []
+
+    for chunks in paginated_chunks_list.paginated_list:
+        if len(chunks) != chunks[0]["chunk_count"]:
+            capture_message(
+                "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} chunks".format(
+                    team_id, session_recording_id, chunks[0]["chunk_id"], len(chunks), chunks[0]["chunk_count"],
+                )
+            )
+            continue
+
+        b64_compressed_data = "".join(chunk["data"] for chunk in sorted(chunks, key=lambda c: c["chunk_index"]))
+        decompressed_data = json.loads(decompress(b64_compressed_data))
+
+        decompressed_data_list.extend(decompressed_data)
+    return PaginatedSnapshotList(has_next=paginated_chunks_list.has_next, paginated_list=decompressed_data_list)

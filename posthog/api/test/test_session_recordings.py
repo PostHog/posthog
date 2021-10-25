@@ -1,4 +1,3 @@
-import json
 from datetime import timedelta
 
 from dateutil.parser import parse
@@ -7,11 +6,11 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.helpers.session_recording import compress_to_string
+from posthog.helpers.session_recording import Event, compress_and_chunk_snapshots
 from posthog.models import Person, SessionRecordingEvent
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
-from posthog.queries.sessions.session_recording import RECORDINGS_NUM_SNAPSHOTS_LIMIT
+from posthog.queries.session_recordings.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.test.base import APIBaseTest
 
 
@@ -28,24 +27,51 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type},
             )
 
-        def create_chunked_snapshot(
-            self, distinct_id, session_id, timestamp, snapshot_index, chunk_size=5, has_full_snapshot=True
-        ):
-            session_recording_event_factory(
-                team_id=self.team.pk,
-                distinct_id=distinct_id,
-                timestamp=timestamp,
-                session_id=session_id,
-                snapshot_data={
-                    "chunk_id": f"chunky_{snapshot_index}",
-                    "chunk_index": snapshot_index,
-                    "chunk_count": 1,
-                    "data": compress_to_string(
-                        json.dumps([{"timestamp": timestamp.timestamp() * 1000, "type": 2}] * chunk_size)
-                    ),
-                    "has_full_snapshot": has_full_snapshot,
-                },
-            )
+        def create_chunked_snapshots(self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True):
+            snapshot = []
+            for index in range(snapshot_count):
+                event: Event = {
+                    "event": "$snapshot",
+                    "properties": {
+                        "$snapshot_data": {
+                            "type": 2 if has_full_snapshot else 3,
+                            "data": {
+                                "source": 0,
+                                "texts": [],
+                                "attributes": [],
+                                "removes": [],
+                                "adds": [
+                                    {
+                                        "parentId": 4,
+                                        "nextId": 386,
+                                        "node": {
+                                            "type": 2,
+                                            "tagName": "style",
+                                            "attributes": {"data-emotion": "css"},
+                                            "childNodes": [],
+                                            "id": 729,
+                                        },
+                                    },
+                                ],
+                            },
+                            "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
+                        },
+                        "$session_id": session_id,
+                        "distinct_id": distinct_id,
+                    },
+                }
+                snapshot.append(event)
+            chunked_snapshots = compress_and_chunk_snapshots(
+                snapshot, chunk_size=15
+            )  # Small chunk size makes sure the snapshots are chunked for the test
+            for snapshot_chunk in chunked_snapshots:
+                session_recording_event_factory(
+                    team_id=self.team.pk,
+                    distinct_id=distinct_id,
+                    timestamp=timestamp,
+                    session_id=session_id,
+                    snapshot_data=snapshot_chunk["properties"].get("$snapshot_data"),
+                )
 
         def test_get_session_recordings(self):
             p = Person.objects.create(
@@ -57,7 +83,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.create_snapshot("user2", "2", base_time + relativedelta(seconds=20))
             self.create_snapshot("user", "1", base_time + relativedelta(seconds=30))
 
-            response = self.client.get("/api/projects/@current/session_recordings")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
             self.assertEqual(len(response_data["results"]), 2)
@@ -86,7 +112,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=another_team.pk)
             self.create_snapshot("user", "2", now() - relativedelta(days=1))
 
-            response = self.client.get("/api/projects/@current/session_recordings")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
             self.assertEqual(len(response_data["results"]), 1)
@@ -101,7 +127,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             )
             self.create_snapshot("d1", "1", base_time)
             self.create_snapshot("d2", "2", base_time + relativedelta(seconds=30))
-            response = self.client.get("/api/projects/@current/session_recordings")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
             response_data = response.json()
             self.assertEqual(len(response_data["results"]), 2)
             self.assertEqual(response_data["results"][0]["person"]["id"], p.pk)
@@ -112,7 +138,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
             self.create_snapshot("u1", "1", base_time)
             self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
-            response = self.client.get("/api/projects/@current/session_recordings")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
             response_data = response.json()
             self.assertEqual(len(response_data["results"]), 2)
             self.assertEqual(response_data["results"][0]["id"], "2")
@@ -120,7 +146,31 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][1]["id"], "1")
             self.assertEqual(response_data["results"][1]["viewed"], True)
 
-        def test_get_single_session_recording(self):
+        def test_setting_viewed_state_of_session_recording(self):
+            self.create_snapshot("u1", "1", now() - relativedelta(days=1))
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+            response_data = response.json()
+            # Make sure it starts not viewed
+            self.assertEqual(response_data["results"][0]["viewed"], False)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+            response_data = response.json()
+            # Make sure it remains not viewed
+            self.assertEqual(response_data["results"][0]["viewed"], False)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1?save_view=True")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+            response_data = response.json()
+            # Make sure the query param sets it to viewed
+            self.assertEqual(response_data["results"][0]["viewed"], True)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+            response_data = response.json()
+            # In the metadata response too
+            self.assertEqual(response_data["result"]["session_recording"]["viewed"], True)
+
+        def test_get_single_session_recording_metadata(self):
             p = Person.objects.create(
                 team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
@@ -128,115 +178,106 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             base_time = now() - relativedelta(days=1)
             self.create_snapshot("d1", session_recording_id, base_time)
             self.create_snapshot("d1", session_recording_id, base_time + relativedelta(seconds=30))
-            response = self.client.get(f"/api/projects/@current/session_recordings/{session_recording_id}")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
             response_data = response.json()
-            self.assertEqual(
-                response_data["result"]["snapshots"][0], {"timestamp": base_time.timestamp() * 1000, "type": 2}
-            )
-            self.assertEqual(
-                response_data["result"]["snapshots"][1],
-                {"timestamp": (base_time + relativedelta(seconds=30)).timestamp() * 1000, "type": 2},
-            )
             self.assertEqual(response_data["result"]["person"]["id"], p.pk)
-            self.assertEqual(parse(response_data["result"]["start_time"]), base_time)
+            self.assertEqual(parse(response_data["result"]["session_recording"]["start_time"]), base_time)
+            self.assertEqual(
+                parse(response_data["result"]["session_recording"]["end_time"]), base_time + relativedelta(seconds=30)
+            )
+            self.assertEqual(response_data["result"]["session_recording"]["recording_duration"], "30.0")
+            self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
+            self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
 
-        def test_get_max_limit_of_snapshots(self):
+        def test_get_default_limit_of_chunks(self):
             base_time = now()
-            num_snapshots = 1000
+            num_snapshots = DEFAULT_RECORDING_CHUNK_LIMIT + 10
 
-            for s in range(num_snapshots):
+            for _ in range(num_snapshots):
                 self.create_snapshot("user", "1", base_time)
 
-            response = self.client.get("/api/projects/@current/session_recordings/1")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
             response_data = response.json()
-            self.assertEqual(len(response_data["result"]["snapshots"]), num_snapshots)
+            self.assertEqual(len(response_data["result"]["snapshots"]), DEFAULT_RECORDING_CHUNK_LIMIT)
 
-        def test_get_single_chunked_session_recording(self):
-            p = Person.objects.create(
-                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
-            )
+        def test_get_snapshots_for_chunked_session_recording(self):
             chunked_session_id = "chunk_id"
-            chunk_size = 5
-            expected_num_requests = 1
-            num_snapshots = 1000
-            num_chunks = int(num_snapshots / chunk_size) * expected_num_requests
+            expected_num_requests = 3
+            num_chunks = 60
+            snapshots_per_chunk = 2
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 start_time = now()
                 for s in range(num_chunks):
-                    self.create_chunked_snapshot(
-                        "user", chunked_session_id, start_time + relativedelta(seconds=s), s, chunk_size
+                    self.create_chunked_snapshots(
+                        snapshots_per_chunk, "user", chunked_session_id, start_time + relativedelta(minutes=s),
                     )
 
-                next_url = f"/api/projects/@current/session_recordings/{chunked_session_id}"
+                next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
 
                 for i in range(expected_num_requests):
                     response = self.client.get(next_url)
                     response_data = response.json()
 
-                    self.assertEqual(len(response_data["result"]["snapshots"]), num_snapshots)
-                    self.assertEqual(response_data["result"]["duration"], (num_chunks - 1) * 1000)
-
+                    self.assertEqual(
+                        len(response_data["result"]["snapshots"]), snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT
+                    )
                     if i == expected_num_requests - 1:
                         self.assertIsNone(response_data["result"]["next"])
                     else:
                         self.assertIsNotNone(response_data["result"]["next"])
-                        self.assertIn("timestamp", response_data["result"]["snapshots"][0])
-                        self.assertIn("type", response_data["result"]["snapshots"][0])
-                        self.assertEqual(response_data["result"]["person"]["id"], p.pk)
 
                     next_url = response_data["result"]["next"]
 
-        def test_get_max_limit_of_chunked_snapshots(self):
-            chunked_session_id = "chunk_2"
-            base_time = now()
-            chunk_size = 5
-            num_snapshots = 1000
-            num_chunks = int(num_snapshots / chunk_size)
+        def test_get_metadata_for_chunked_session_recording(self):
 
-            for s in range(num_chunks):
-                self.create_chunked_snapshot(
-                    "user", chunked_session_id, base_time + relativedelta(seconds=s), s, chunk_size
+            with freeze_time("2020-09-13T12:26:40.000Z"):
+                p = Person.objects.create(
+                    team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
                 )
-
-            response = self.client.get(f"/api/projects/@current/session_recordings/{chunked_session_id}")
-            response_data = response.json()
-            self.assertEqual(len(response_data["result"]["snapshots"]), num_snapshots)
+                chunked_session_id = "chunk_id"
+                num_chunks = 60
+                snapshots_per_chunk = 2
+                for index in range(num_chunks):
+                    self.create_chunked_snapshots(
+                        snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index),
+                    )
+                response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
+                response_data = response.json()
+                self.assertEqual(response_data["result"]["person"]["id"], p.pk)
+                self.assertEqual(parse(response_data["result"]["session_recording"]["start_time"]), now())
+                self.assertEqual(
+                    parse(response_data["result"]["session_recording"]["end_time"]),
+                    now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1),
+                )
+                self.assertEqual(
+                    response_data["result"]["session_recording"]["recording_duration"],
+                    str(timedelta(seconds=snapshots_per_chunk - 1, minutes=num_chunks - 1).total_seconds()),
+                )
+                self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
+                self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
 
         def test_single_session_recording_doesnt_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
             self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
-            response = self.client.get("/api/projects/@current/session_recordings/id_no_team_leaking")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking/snapshots")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         def test_session_recording_with_no_person(self):
             self.create_snapshot("d1", "id_no_person", now() - relativedelta(days=1))
-            response = self.client.get("/api/projects/@current/session_recordings/id_no_person")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
             response_data = response.json()
-            self.assertEqual(response_data["result"]["person"], None)
+            self.assertEqual(response_data["result"]["person"], {"properties": None, "is_identified": False})
 
         def test_session_recording_doesnt_exist(self):
-            response = self.client.get("/api/projects/@current/session_recordings/non_existent_id")
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-        def test_setting_viewed_state_of_session_recording(self):
-            self.create_snapshot("u1", "1", now() - relativedelta(days=1))
-            response = self.client.get("/api/projects/@current/session_recordings")
-            response_data = response.json()
-            # Make sure it starts not viewed
-            self.assertEqual(response_data["results"][0]["viewed"], False)
-
-            response = self.client.get("/api/projects/@current/session_recordings/1")
-            response = self.client.get("/api/projects/@current/session_recordings")
-            response_data = response.json()
-            # Make sure it remains not viewed
-            self.assertEqual(response_data["results"][0]["viewed"], False)
-
-            response = self.client.get("/api/projects/@current/session_recordings/1?save_view=True")
-            response = self.client.get("/api/projects/@current/session_recordings")
-            response_data = response.json()
-            # Make sure the query param sets it to viewed
-            self.assertEqual(response_data["results"][0]["viewed"], True)
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id/snapshots")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     return TestSessionRecordings
 

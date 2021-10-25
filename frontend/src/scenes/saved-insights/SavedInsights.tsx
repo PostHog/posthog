@@ -35,6 +35,7 @@ import dayjs from 'dayjs'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { teamLogic } from '../teamLogic'
 
 const { TabPane } = Tabs
 
@@ -64,6 +65,7 @@ export function SavedInsights(): JSX.Element {
 
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
     const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo } = filters
     const insightTypes: InsightType[] = [
@@ -210,7 +212,7 @@ export function SavedInsights(): JSX.Element {
                                         onClick={() =>
                                             deleteWithUndo({
                                                 object: item,
-                                                endpoint: 'insight',
+                                                endpoint: `api/projects/${currentTeamId}/insights`,
                                                 callback: loadInsights,
                                             })
                                         }

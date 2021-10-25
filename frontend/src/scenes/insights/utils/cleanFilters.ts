@@ -112,6 +112,8 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             path_dropoff_key: filters.path_dropoff_key || undefined,
             funnel_filter: filters.funnel_filter || { date_from: filters.date_from },
             funnel_paths: filters.funnel_paths,
+            path_replacements: filters.path_replacements || undefined,
+            local_path_cleaning_filters: filters.local_path_cleaning_filters || [],
         }
     } else if (isTrendsInsight(filters.insight) || !filters.insight) {
         const cleanSearchParams: Partial<FilterType> = {

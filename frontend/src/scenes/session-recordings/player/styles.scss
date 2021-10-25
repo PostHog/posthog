@@ -59,6 +59,7 @@ $player_bg: #797973;
             z-index: 10;
 
             .rrweb-overlay {
+                transition: all 200ms;
                 position: absolute;
 
                 display: flex;
@@ -68,11 +69,23 @@ $player_bg: #797973;
                 height: 100%;
                 width: 100%;
 
-                background-color: #333;
-                opacity: 0.7;
+                background-color: $bg_overlay;
+                opacity: 0.2;
 
                 font-size: 40px;
                 color: white;
+                cursor: pointer;
+
+                &:hover {
+                    opacity: 0.5;
+                }
+
+                .rrweb-overlay-play-icon {
+                    svg {
+                        width: 5rem;
+                        height: 5rem;
+                    }
+                }
             }
         }
     }

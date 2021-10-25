@@ -45,6 +45,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkButton } from 'lib/components/LinkButton'
 import { DiveIcon } from 'lib/components/icons'
+import { teamLogic } from '../teamLogic'
 
 dayjs.extend(relativeTime)
 
@@ -201,6 +202,7 @@ export function DashboardItem({
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
+    const { currentTeamId } = useValues(teamLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -588,7 +590,7 @@ export function DashboardItem({
                                                                 id: item.id,
                                                                 name: item.name,
                                                             },
-                                                            endpoint: 'insight',
+                                                            endpoint: `projects/${currentTeamId}/insights`,
                                                             callback: loadDashboardItems,
                                                         })
                                                     }

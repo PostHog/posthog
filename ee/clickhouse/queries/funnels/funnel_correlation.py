@@ -3,16 +3,25 @@ from os import stat
 from typing import Any, Dict, List, Literal, Tuple, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError
+from rest_framework.utils.serializer_helpers import ReturnList
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.element import chain_to_elements
+from ee.clickhouse.models.event import ElementSerializer
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from posthog.constants import FunnelCorrelationType
+from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
 from posthog.models import Filter, Team
 from posthog.models.filters import Filter
+
+
+class EventDefinition(TypedDict):
+    event: str
+    properties: Dict[str, Any]
+    elements: list
 
 
 class EventOddsRatio(TypedDict):
@@ -25,6 +34,14 @@ class EventOddsRatio(TypedDict):
     correlation_type: Literal["success", "failure"]
 
 
+class EventOddsRatioSerialized(TypedDict):
+    event: EventDefinition
+    success_count: int
+    failure_count: int
+    odds_ratio: float
+    correlation_type: Literal["success", "failure"]
+
+
 class FunnelCorrelationResponse(TypedDict):
     """
     The structure that the diagnose response will be returned in.
@@ -32,7 +49,7 @@ class FunnelCorrelationResponse(TypedDict):
     queries, but we could use, for example, a dataclass
     """
 
-    events: List[EventOddsRatio]
+    events: List[EventOddsRatioSerialized]
     skewed: bool
 
 
@@ -61,6 +78,8 @@ class EventContingencyTable:
 class FunnelCorrelation:
 
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
+    ELEMENTS_DIVIDER = "__~~__"
+    AUTOCAPTURE_EVENT_TYPE = "$event_type"
     MIN_PERSON_COUNT = 25
     MIN_PERSON_PERCENTAGE = 0.02
     PRIOR_COUNT = 1
@@ -86,6 +105,14 @@ class FunnelCorrelation:
             include_preceding_timestamp=False,
             no_person_limit=True,
         )
+
+    def support_autocapture_elements(self) -> bool:
+        if (
+            self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES
+            and AUTOCAPTURE_EVENT in self._filter.correlation_event_names
+        ):
+            return True
+        return False
 
     def get_contingency_table_query(self) -> Tuple[str, Dict[str, Any]]:
         """
@@ -171,6 +198,17 @@ class FunnelCorrelation:
 
         event_join_query = self._get_events_join_query()
 
+        if self.support_autocapture_elements():
+            array_join_query = f"""
+                arrayPushBack(prop_keys, 'elements_chain') as prop_keys_with_elements,
+                arrayPushBack(prop_values, concat(trim(BOTH '"' FROM JSONExtractRaw(properties, '{self.AUTOCAPTURE_EVENT_TYPE}')), '{self.ELEMENTS_DIVIDER}', elements_chain)) as prop_values_with_elements,
+                arrayJoin(arrayZip(prop_keys_with_elements, prop_values_with_elements)) as prop
+            """
+        else:
+            array_join_query = f"""
+                arrayJoin(arrayZip(prop_keys, prop_values)) as prop
+            """
+
         query = f"""
             WITH
                 funnel_people as ({funnel_persons_query}),
@@ -189,12 +227,8 @@ class FunnelCorrelation:
                     events.event as event_name,
                     -- Same as what we do in $all property queries
                     arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-                    arrayJoin(
-                        arrayZip(
-                            prop_keys,
-                            arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw(properties, x)), prop_keys)
-                            )
-                        ) as prop
+                    arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw(properties, x)), prop_keys) as prop_values,
+                    {array_join_query}
                 FROM events AS event
                     {event_join_query}
                     AND event.event IN %(event_names)s
@@ -385,7 +419,7 @@ class FunnelCorrelation:
                 person_property_params,
             )
 
-    def run(self) -> FunnelCorrelationResponse:
+    def _run(self) -> Tuple[List[EventOddsRatio], bool]:
         """
         Run the diagnose query.
 
@@ -443,13 +477,11 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
-        if not self._filter.entities:
-            return FunnelCorrelationResponse(events=[], skewed=False)
 
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
 
         if not success_total or not failure_total:
-            return {"events": [], "skewed": True}
+            return [], True
 
         skewed_totals = False
 
@@ -477,10 +509,29 @@ class FunnelCorrelation:
         )
 
         # Return the top ten positively correlated events, and top then negatively correlated events
+        events = positively_correlated_events[:10] + negatively_correlated_events[:10]
+        return events, skewed_totals
+
+    def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         return {
-            "events": positively_correlated_events[:10] + negatively_correlated_events[:10],
-            "skewed": skewed_totals,
+            "events": [
+                {
+                    "success_count": odds_ratio["success_count"],
+                    "failure_count": odds_ratio["failure_count"],
+                    "odds_ratio": odds_ratio["odds_ratio"],
+                    "correlation_type": odds_ratio["correlation_type"],
+                    "event": self.serialize_event_with_property(odds_ratio["event"]),
+                }
+                for odds_ratio in results[0]
+            ],
+            "skewed": results[1],
         }
+
+    def run(self) -> FunnelCorrelationResponse:
+        if not self._filter.entities:
+            return FunnelCorrelationResponse(events=[], skewed=False)
+
+        return self.format_results(self._run())
 
     def get_partial_event_contingency_tables(self) -> Tuple[List[EventContingencyTable], int, int]:
         """
@@ -539,6 +590,25 @@ class FunnelCorrelation:
             return True
 
         return False
+
+    def serialize_event_with_property(self, event: str) -> EventDefinition:
+        """
+        Format the event name for display.
+        """
+        if not self.support_autocapture_elements():
+            return EventDefinition(event=event, properties={}, elements=[])
+
+        event_name, property_name, property_value = event.split("::")
+        if event_name == AUTOCAPTURE_EVENT and property_name == "elements_chain":
+
+            event_type, elements_chain = property_value.split(self.ELEMENTS_DIVIDER)
+            return EventDefinition(
+                event=event,
+                properties={self.AUTOCAPTURE_EVENT_TYPE: event_type},
+                elements=cast(list, ElementSerializer(chain_to_elements(elements_chain), many=True).data),
+            )
+
+        return EventDefinition(event=event, properties={}, elements=[])
 
 
 def get_entity_odds_ratio(event_contingency_table: EventContingencyTable, prior_counts: int) -> EventOddsRatio:
