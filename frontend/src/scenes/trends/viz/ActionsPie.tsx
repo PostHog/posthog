@@ -24,7 +24,7 @@ export function ActionsPie({
     const { results } = useValues(logic)
 
     function updateData(): void {
-        const _data = results as TrendResultWithAggregate[]
+        const _data = [...results] as TrendResultWithAggregate[]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
         const days = results.length > 0 ? results[0].days : []
 
