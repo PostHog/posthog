@@ -15,17 +15,25 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v2
 
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v1
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v1
+
             - name: Build image
+              uses: docker/build-push-action@v2
               if: github.repository == 'PostHog/posthog'
-              run: |
-                  docker build -t posthog/posthog:vuln-scan-${{ github.sha }} .
+              with:
+                  push: false
+                  tags: posthog/posthog:vuln-scan-${{ github.sha }}
 
             - name: Run Trivy vulnerability scanner
               uses: aquasecurity/trivy-action@master
               if: github.repository == 'PostHog/posthog'
               with:
-                  ignore-unfixed: true
                   image-ref: 'posthog/posthog:vuln-scan-${{ github.sha }}'
+                  ignore-unfixed: true
                   format: 'template'
                   template: '@/contrib/sarif.tpl'
                   output: 'trivy-results.sarif'
