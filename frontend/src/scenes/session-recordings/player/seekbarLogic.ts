@@ -137,13 +137,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 return
             }
             const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
-            console.log(
-                'HANDLE UP',
-                newX,
-                getXPos(event),
-                values.cursorDiff,
-                values.slider.getBoundingClientRect().left
-            )
             actions.handleSeek(newX)
             actions.clearLoadingState()
 
