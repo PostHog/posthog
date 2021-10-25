@@ -48,7 +48,7 @@ export function initKeaTestLogic<L extends Logic = Logic>({
 
     afterEach(async () => {
         if (logic) {
-            unmount()
+            unmount?.()
             await expectLogic(logic).toFinishAllListeners()
         }
         delete window.POSTHOG_APP_CONTEXT
