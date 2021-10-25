@@ -99,7 +99,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 featureFlagLogic.selectors.featureFlags,
             ],
             (loadingScene, scene, isCurrentTeamUnavailable, featureFlags) => {
-                const baseActiveScene = featureFlags[FEATURE_FLAGS.SCENE_ROUTER_HISTORY] ? scene : loadingScene || scene
+                const baseActiveScene = featureFlags[FEATURE_FLAGS.TURBO_MODE] ? scene : loadingScene || scene
                 return isCurrentTeamUnavailable && baseActiveScene && sceneConfigurations[baseActiveScene]?.projectBased
                     ? Scene.ErrorProjectUnavailable
                     : baseActiveScene

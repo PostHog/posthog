@@ -74,7 +74,7 @@ export function App(): JSX.Element | null {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
-                {featureFlags[FEATURE_FLAGS.SCENE_ROUTER_HISTORY] ? <LoadedSceneLogics /> : null}
+                {featureFlags[FEATURE_FLAGS.TURBO_MODE] ? <LoadedSceneLogics /> : null}
                 {(!sceneConfig.projectBased || currentTeamId) && <AppScene />}
             </>
         )
