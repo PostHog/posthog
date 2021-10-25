@@ -1860,6 +1860,28 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 0)
 
+        @test_with_materialized_columns(person_properties=["name"])
+        def test_entity_person_property_filtering(self):
+            self._create_multiple_people()
+            with freeze_time("2020-01-04"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "events": [
+                                {
+                                    "id": "watched movie",
+                                    "properties": [{"key": "name", "value": "person1", "type": "person",}],
+                                }
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+            self.assertEqual(response[0]["data"][4], 1.0)
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
+            self.assertEqual(response[0]["data"][5], 0)
+
         def test_breakdown_by_empty_cohort(self):
             p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             event_factory(

@@ -1,7 +1,8 @@
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Counter, Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
+from ee.clickhouse.models.util import PersonPropertiesMode
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
@@ -14,7 +15,7 @@ def format_action_filter(
     use_loop: bool = False,
     filter_by_team=True,
     table_name: str = "",
-    person_properties_column: Optional[str] = None,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
 ) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
@@ -48,7 +49,7 @@ def format_action_filter(
                 team_id=action.team.pk if filter_by_team else None,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
-                person_properties_column=person_properties_column,
+                person_properties_mode=person_properties_mode,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -105,15 +106,15 @@ def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team
     return entity_filter, params
 
 
-def get_action_tables_and_properties(action: Action) -> Set[Tuple[PropertyName, PropertyType]]:
+def get_action_tables_and_properties(action: Action) -> Counter[Tuple[PropertyName, PropertyType]]:
     from ee.clickhouse.models.property import extract_tables_and_properties
 
-    result: Set[Tuple[PropertyName, PropertyType]] = set()
+    result: Counter[Tuple[PropertyName, PropertyType]] = Counter()
 
     for action_step in action.steps.all():
         if action_step.url:
-            result.add(("$current_url", "event"))
-        result |= extract_tables_and_properties(Filter(data={"properties": action_step.properties or []}).properties)
+            result[("$current_url", "event")] += 1
+        result += extract_tables_and_properties(Filter(data={"properties": action_step.properties or []}).properties)
 
     return result
 

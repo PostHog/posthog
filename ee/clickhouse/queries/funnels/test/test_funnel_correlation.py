@@ -5,11 +5,12 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, BaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def _create_person(**kwargs):
@@ -25,6 +26,16 @@ def _create_event(**kwargs):
 class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
     maxDiff = None
+
+    def _get_people_for_event(self, filter: Filter, event_name: str, properties=None, success=True):
+        person_filter = filter.with_data(
+            {
+                "funnel_correlation_person_entity": {"id": event_name, "type": "events", "properties": properties},
+                "funnel_correlation_person_converted": "TrUe" if success else "falSE",
+            }
+        )
+        results, _ = FunnelCorrelationPersons(person_filter, self.team).run()
+        return [row["uuid"] for row in results]
 
     def test_basic_funnel_correlation_with_events(self):
         filters = {
@@ -97,6 +108,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+        self.assertEqual(len(self._get_people_for_event(filter, "positively_related")), 5)
+        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", success=False)), 0)
+        self.assertEqual(len(self._get_people_for_event(filter, "negatively_related", success=False)), 5)
+        self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
 
     @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
     def test_basic_funnel_correlation_with_properties(self):
@@ -553,7 +569,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = correlation.run()["events"]
-        print(result)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [4]
@@ -572,6 +587,102 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     "correlation_type": "success",
                 },
             ],
+        )
+
+    @test_with_materialized_columns(["blah", "signup_source"])
+    def test_funnel_correlation_with_event_properties(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "event_with_properties",
+            "funnel_correlation_event_names": ["positively_related", "negatively_related"],
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="positively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                    properties={"signup_source": "facebook" if i % 4 == 0 else "email", "blah": "value_bleh"},
+                )
+                # source: email occurs only twice, so would be discarded from result set
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        for i in range(10, 20):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                    properties={"signup_source": "shazam" if i % 6 == 0 else "email"},
+                )
+                # source: shazam occurs only once, so would be discarded from result set
+
+        result = correlation.run()["events"]
+
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        expected_odds_ratios = [11, 5.5, 2 / 11]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positively_related::blah::value_bleh",
+                    "success_count": 5,
+                    "failure_count": 0,
+                    # "odds_ratio": 11.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "positively_related::signup_source::facebook",
+                    "success_count": 3,
+                    "failure_count": 0,
+                    # "odds_ratio": 5.5,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "negatively_related::signup_source::email",
+                    "success_count": 0,
+                    "failure_count": 3,
+                    # "odds_ratio": 0.18181818181818182,
+                    "correlation_type": "failure",
+                },
+            ],
+        )
+
+        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", {"blah": "value_bleh"})), 5)
+        self.assertEqual(
+            len(self._get_people_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
+        )
+        self.assertEqual(
+            len(self._get_people_for_event(filter, "positively_related", {"signup_source": "facebook"}, False)), 0
+        )
+        self.assertEqual(
+            len(self._get_people_for_event(filter, "negatively_related", {"signup_source": "email"}, False)), 3
         )
 
 

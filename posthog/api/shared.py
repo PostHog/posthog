@@ -55,4 +55,5 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "slug",
         ]

@@ -1,23 +1,23 @@
 #!/bin/bash
 
-echo "Refreshing typegen and running 'tsc -p tsconfig.strict.json'..."
-echo ""
+echo "Refreshing Kea logic types and running the TypeScript compiler in dry mode..."
+echo
+
+IGNORED_SPECS=('Type.ts') # *Type.ts* files are ignored, as they are generally created by kea-typegen
 
 yarn typegen:write &> /dev/null
 
 ALL_ERRORS=$(yarn typescript:check --strict 2> /dev/null | grep error | grep frontend)
 ERRORS_COUNT=$(echo "${ALL_ERRORS}" | wc -l)
-NEW_ERRORS=$(echo "${ALL_ERRORS}" | grep --invert-match --fixed-strings --file=.ts-strict-blacklist)
+NEW_ERRORS=$(echo "${ALL_ERRORS}" | grep --invert-match --fixed-strings ${IGNORED_SPECS})
 NEW_ERRORS_COUNT="$(echo "${NEW_ERRORS}" | wc -l)"
-
-echo "In total there are ${ERRORS_COUNT} typescript errors."
 
 if test -z "${NEW_ERRORS}"
 then
-    echo "No new typescript errors found in this PR! 🚀"
+    echo "No TypeScript errors found in this PR! 🚀"
     exit 0
 else
-    echo "Found ${NEW_ERRORS_COUNT} new typescript errors in this PR! 💥"
+    echo "Found ${NEW_ERRORS_COUNT} TypeScript errors in this PR! 💥"
     echo "${NEW_ERRORS}"
     exit 1
 fi

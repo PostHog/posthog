@@ -3,13 +3,12 @@ import { errorToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
-import { userLogic } from 'scenes/userLogic'
-
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { teamLogic } from '../teamLogic'
+
 const POLL_TIMEOUT = 5000
 
 const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
@@ -37,8 +36,6 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
 
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
-    apiUrl?: string // = 'api/event/'
-    live?: boolean // = false
     key?: string
 }
 
@@ -60,15 +57,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
-        [
-            props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all',
-            props.apiUrl || 'events',
-            props.live ? 'live' : '',
-            props.key,
-        ]
+        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key]
             .filter((keyPart) => !!keyPart)
             .join('-'),
-
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: {
         setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter): { properties: AnyPropertyFilter[] } => {
             // there seem to be multiple representations of "empty" properties
@@ -84,8 +78,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 return { properties: [properties] }
             }
         },
-        setColumnConfig: (columnConfig: string[]) => ({ columnConfig }),
-        setColumnConfigSaving: (saving: boolean) => ({ saving }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
@@ -183,12 +175,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 setPollTimeout: (_, payload) => payload.pollTimeout,
             },
         ],
-        columnConfigSaving: [
-            false,
-            {
-                setColumnConfigSaving: (_, { saving }) => saving,
-            },
-        ],
         automaticLoadEnabled: [
             false,
             {
@@ -202,11 +188,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents),
         ],
-        columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
         exportUrl: [
-            () => [selectors.eventFilter, selectors.orderBy, selectors.properties],
-            (eventFilter, orderBy, properties) =>
-                `/api/event.csv?${toParams({
+            () => [selectors.currentTeamId, selectors.eventFilter, selectors.orderBy, selectors.properties],
+            (teamId, eventFilter, orderBy, properties) =>
+                `/api/projects/${teamId}/events.csv?${toParams({
                     properties,
                     ...(props.fixedFilters || {}),
                     ...(eventFilter ? { event: eventFilter } : {}),
@@ -286,10 +271,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     }),
 
     listeners: ({ actions, values, props }) => ({
-        setColumnConfig: ({ columnConfig }) => {
-            actions.setColumnConfigSaving(true)
-            userLogic.actions.updateUser({ events_column_config: { active: columnConfig } })
-        },
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
@@ -327,7 +308,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 let apiResponse = null
 
                 try {
-                    apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                    apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
                 } catch (error) {
                     actions.fetchOrPollFailure(error)
                     return
@@ -368,7 +349,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             let apiResponse = null
             try {
-                apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
             } catch (e) {
                 // We don't call fetchOrPollFailure because we don't to generate an error alert for this
                 return
@@ -376,7 +357,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             breakpoint()
 
-            if (values.automaticLoadEnabled || props.live) {
+            if (values.automaticLoadEnabled) {
                 actions.prependNewEvents(apiResponse.results)
             } else {
                 actions.pollEventsSuccess(apiResponse.results)
@@ -393,13 +374,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 error.statusText,
                 error.status
             )
-        },
-        [userLogic.actionTypes.updateUserSuccess]: () => {
-            actions.setColumnConfigSaving(false)
-            tableConfigLogic.actions.setState(null)
-        },
-        [userLogic.actionTypes.updateUserFailure]: () => {
-            actions.setColumnConfigSaving(false)
         },
         toggleAutomaticLoad: ({ automaticLoadEnabled }) => {
             if (automaticLoadEnabled && values.newEvents.length > 0) {

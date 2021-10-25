@@ -115,7 +115,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
 function Option(props: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
-    item: keyof ActionStepType
+    item: keyof Pick<ActionStepType, 'href' | 'text' | 'selector' | 'url'>
     label: JSX.Element | string
     placeholder?: string
     caption?: JSX.Element | string

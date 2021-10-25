@@ -47,21 +47,6 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             {event_filter_event_where_clause}
     """
 
-    def _get_entity_clause(self) -> Tuple[Dict[str, Any], str]:
-        entity_clause = ""
-        entity_params: Dict[str, Any] = {}
-        if self._has_entity_filters():
-            entity = self._filter.entities[0]
-            entity_params, entity_content_sql_params = get_entity_filtering_params(
-                entity,
-                self._team.pk,
-                table_name="events",
-                person_properties_column=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
-                with_prop_filters=True,
-            )
-            entity_clause = entity_content_sql_params.get("entity_query", "")
-        return entity_params, entity_clause
-
     def _get_distinct_id_clause(self) -> Tuple[Dict[str, Any], str]:
         distinct_id_clause = ""
         distinct_id_params = {}

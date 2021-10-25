@@ -1,5 +1,4 @@
-import re
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 from rest_framework import request, status
 from sentry_sdk import capture_exception
@@ -39,23 +38,6 @@ def format_next_url(request: request.Request, offset: int, page_size: int):
             "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + page_size)
         )
     return next_url
-
-
-OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
-
-
-def format_offset_absolute_url(request: request.Request, offset: int):
-    url_to_format = request.get_raw_uri()
-
-    if not url_to_format:
-        return None
-
-    if OFFSET_REGEX.match(url_to_format):
-        url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
-    else:
-        url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"offset={offset}"
-
-    return url_to_format
 
 
 def get_token(data, request) -> Optional[str]:

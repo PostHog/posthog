@@ -1,43 +1,41 @@
-# .github/workflows/chromatic.yml
-
-# Workflow name
 name: 'Storybook Deployment'
 
-# Event for the workflow
 on:
     push:
         branches:
             - master
             - main
 
-# List of jobs
 jobs:
     storybook-deployment:
-        # Operating System
         runs-on: ubuntu-latest
-        # Job steps
         steps:
             - name: Check out PostHog/posthog repo
               uses: actions/checkout@v2
               with:
                   path: posthog
                   fetch-depth: 0
+
             - name: Install dependencies (yarn)
               run: cd posthog && yarn
+
             - name: Build storybook
               run: cd posthog && yarn build-storybook
+
             - name: Check out PostHog/storybook-build repo
               uses: actions/checkout@v2
               with:
                   path: storybook-build
                   repository: PostHog/storybook-build
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
             - name: Copy built changes to PostHog/storybook-build repo
               run: |
                   # keep the CNAME file, but discard all the rest
                   cp storybook-build/docs/CNAME posthog/storybook-static/
                   rm -rf storybook-build/docs
                   cp -a posthog/storybook-static storybook-build/docs
+
             - name: Commit update
               if: github.repository == 'PostHog/posthog'
               uses: stefanzweifel/git-auto-commit-action@v4

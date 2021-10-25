@@ -29,7 +29,10 @@ describe('Invite Signup', () => {
     })
 
     it('New user can use invite', () => {
-        const target_email = `newuser+${Math.floor(Math.random() * 10000)}@posthog.com`
+        const target_email = `newuser+${Math.floor(Math.random() * 10000)
+            .toString()
+            // Ensure we have a fixed width
+            .padStart(4, '0')}@posthog.com`
         cy.request({
             method: 'POST',
             url: '/api/organizations/@current/invites/',
@@ -61,7 +64,7 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=invite-teammate-button]').first().click()
         // Enter invite the user
         cy.get('[data-attr=invite-email-input]').type(`fake+${Math.floor(Math.random() * 10000)}@posthog.com`)
-        cy.get('[data-attr=invite-team-member-submit]').click()
+        cy.get('[data-attr=invite-team-member-submit]').should('not.be.disabled').click()
 
         // Log in as invited user
         cy.get('[data-attr=invite-link]')

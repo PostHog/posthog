@@ -145,7 +145,7 @@ export function TopNavigation(): JSX.Element {
             {preflight?.cloud && billing?.should_display_current_bill && (
                 <Link to={urls.organizationBilling()} data-attr="top-menu-billing-usage">
                     <Card
-                        bodyStyle={{ padding: 4, fontWeight: 'bold' }}
+                        bodyStyle={{ padding: '8px 16px', fontWeight: 'bold' }}
                         style={{ marginBottom: 16, cursor: 'pointer' }}
                     >
                         <span className="text-small text-muted">

@@ -42,10 +42,6 @@ export interface EntityFilterProps {
     addFilterDefaultOptions?: Record<string, any>
 }
 
-// required props:
-// - filters
-// - setFilters
-// - typeKey
 export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
     props: {} as EntityFilterProps,
     key: (props) => props.typeKey,
@@ -213,10 +209,10 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             } else {
                 actions.setFilters([
                     {
-                        id: null,
-                        type: EntityTypes.NEW_ENTITY,
+                        id: '$pageview',
+                        type: 'events',
                         order: 0,
-                        name: null,
+                        name: '$pageview',
                         ...props.addFilterDefaultOptions,
                     },
                 ])

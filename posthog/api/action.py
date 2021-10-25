@@ -27,10 +27,10 @@ from posthog.models import (
     Action,
     ActionStep,
     CohortPeople,
-    DashboardItem,
     Entity,
     Event,
     Filter,
+    Insight,
     Person,
     RetentionFilter,
 )
@@ -102,9 +102,15 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             attrs["team_id"] = self.context["view"].team_id
             include_args = {"team_id": attrs["team_id"]}
 
-        if Action.objects.filter(name=attrs["name"], deleted=False, **include_args).exclude(**exclude_args).exists():
+        colliding_action_ids = list(
+            Action.objects.filter(name=attrs["name"], deleted=False, **include_args)
+            .exclude(**exclude_args)[:1]
+            .values_list("id", flat=True)
+        )
+        if colliding_action_ids:
             raise serializers.ValidationError(
-                {"name": "This project already has an action with that name."}, code="unique"
+                {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
+                code="unique",
             )
 
         return attrs
@@ -213,7 +219,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         dashboard_id = request.GET.get("from_dashboard", None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+            Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
         return result
 
@@ -267,7 +273,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+            Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
         return Response(result)
 

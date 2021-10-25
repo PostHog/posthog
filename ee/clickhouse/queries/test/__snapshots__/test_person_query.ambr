@@ -1,0 +1,77 @@
+# name: test_person_query
+  '
+  
+              SELECT id
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0 
+          
+  '
+---
+# name: test_person_query.1
+  '
+  
+              SELECT id
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_1)s
+          
+  '
+---
+# name: test_person_query_with_entity_filters
+  '
+  
+              SELECT id, argMax(pmat_email, _timestamp) as pmat_email
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0 
+          
+  '
+---
+# name: test_person_query_with_entity_filters.1
+  '
+  
+              SELECT id
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+          
+  '
+---
+# name: test_person_query_with_extra_fields
+  '
+  
+              SELECT id, argMax(pmat_email, _timestamp) as pmat_email , argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+          
+  '
+---
+# name: test_person_query_with_extra_requested_fields
+  '
+  
+              SELECT id, argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+          
+  '
+---
+# name: test_person_query_with_extra_requested_fields.1
+  '
+  
+              SELECT id, argMax(pmat_email, _timestamp) as pmat_email
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+          
+  '
+---

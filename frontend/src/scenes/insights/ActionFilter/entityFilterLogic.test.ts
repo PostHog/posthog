@@ -7,12 +7,13 @@ import {
     LocalFilter,
     toLocalFilters,
 } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 
 jest.mock('lib/api')
 
@@ -21,7 +22,7 @@ describe('entityFilterLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname === 'api/action/') {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/actions/`) {
             return {
                 results: filtersJson.actions,
             }

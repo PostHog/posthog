@@ -189,6 +189,26 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
     )
 }
 
+export function successToast(title?: string, message?: string): void {
+    /**
+     * Shows a standardized success message.
+     * @param title Title message of the toast
+     * @param message Body message on the toast
+     */
+    setTimeout(
+        () =>
+            toast.success(
+                <div data-attr="success-toast">
+                    <h1>
+                        <ExclamationCircleOutlined /> {title || 'Success!'}
+                    </h1>
+                    <p>{message || 'Your action was completed successfully.'}</p>
+                </div>
+            ),
+        100
+    )
+}
+
 export function Loading(props: Record<string, any>): JSX.Element {
     return (
         <div className="loading-overlay" style={props.style}>
@@ -366,11 +386,26 @@ export function formatLabel(label: string, action: ActionFilter): string {
             )
             .join(', ')})`
     }
-    return label
+    return label.trim()
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
+}
+
+/** Returns "response" from: obj2 = { ...obj1, ...response }  */
+export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
+    const response: Record<string, any> = { ...obj2 }
+    for (const key of Object.keys(obj1)) {
+        if (key in response) {
+            if (obj1[key] === response[key]) {
+                delete response[key]
+            }
+        } else {
+            response[key] = undefined
+        }
+    }
+    return response
 }
 
 export function idToKey(array: Record<string, any>[], keyField: string = 'id'): Record<string, any> {

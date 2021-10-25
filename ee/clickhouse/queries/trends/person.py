@@ -48,7 +48,9 @@ class TrendsPersonQuery:
     def get_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self.team.pk)
-            self.filter.properties.append(Property(key="id", value=cohort.pk, type="cohort"))
+            self.filter = self.filter.with_data(
+                {"properties": self.filter.properties + [Property(key="id", value=cohort.pk, type="cohort")]}
+            )
         elif (
             self.filter.breakdown_type
             and isinstance(self.filter.breakdown, str)
@@ -57,7 +59,7 @@ class TrendsPersonQuery:
             breakdown_prop = Property(
                 key=self.filter.breakdown, value=self.filter.breakdown_value, type=self.filter.breakdown_type
             )
-            self.filter.properties.append(breakdown_prop)
+            self.filter = self.filter.with_data({"properties": self.filter.properties + [breakdown_prop]})
 
         events_query, params = TrendsEventQuery(
             filter=self.filter,

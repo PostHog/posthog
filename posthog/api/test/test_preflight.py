@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.organization import Organization, OrganizationInvite
+from posthog.settings import DEBUG_QUERIES
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -39,11 +40,12 @@ class TestPreflight(APIBaseTest):
                     "saml": False,
                 },
                 "can_create_org": False,
+                "email_service_available": False,
             },
         )
 
     def test_preflight_request(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.settings(MULTI_TENANCY=False, DEBUG_QUERIES=True):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
@@ -77,6 +79,7 @@ class TestPreflight(APIBaseTest):
                     "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
                     "can_create_org": False,
+                    "debug_queries": True,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -86,7 +89,7 @@ class TestPreflight(APIBaseTest):
 
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE):
+        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE, EMAIL_HOST="localhost"):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -108,6 +111,7 @@ class TestPreflight(APIBaseTest):
                         "saml": False,
                     },
                     "can_create_org": True,
+                    "email_service_available": True,
                 },
             )
 
@@ -147,6 +151,7 @@ class TestPreflight(APIBaseTest):
                     "licensed_users_available": None,
                     "site_url": "https://app.posthog.com",
                     "can_create_org": True,
+                    "debug_queries": False,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -193,6 +198,7 @@ class TestPreflight(APIBaseTest):
                     "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
                     "can_create_org": True,
+                    "debug_queries": False,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -231,6 +237,7 @@ class TestPreflight(APIBaseTest):
                         "saml": True,
                     },
                     "can_create_org": False,
+                    "email_service_available": False,
                 },
             )
 

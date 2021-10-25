@@ -32,32 +32,36 @@ export function RestrictedArea({
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    const restrictionReason: null | string = useMemo(() => {
-        let scopeAccessLevel: EitherMembershipLevel | null
-        if (scope === RestrictionScope.Project) {
-            if (!currentTeam) {
-                return 'Loading current project…'
+    const restrictionReason: null | string = useMemo(
+        () => {
+            let scopeAccessLevel: EitherMembershipLevel | null
+            if (scope === RestrictionScope.Project) {
+                if (!currentTeam) {
+                    return 'Loading current project…'
+                }
+                scopeAccessLevel = currentTeam.effective_membership_level
+            } else {
+                if (!currentOrganization) {
+                    return 'Loading current organization…'
+                }
+                scopeAccessLevel = currentOrganization.membership_level
             }
-            scopeAccessLevel = currentTeam.effective_membership_level
-        } else {
-            if (!currentOrganization) {
-                return 'Loading current organization…'
+            if (scopeAccessLevel === null) {
+                return `You don't have access to the current ${scope}.`
             }
-            scopeAccessLevel = currentOrganization.membership_level
-        }
-        if (scopeAccessLevel === null) {
-            return `You don't have access to the current ${scope}.`
-        }
-        if (scopeAccessLevel < minimumAccessLevel) {
-            if (minimumAccessLevel === OrganizationMembershipLevel.Owner) {
-                return `This area is restricted to the ${scope} owner.`
+            if (scopeAccessLevel < minimumAccessLevel) {
+                if (minimumAccessLevel === OrganizationMembershipLevel.Owner) {
+                    return `This area is restricted to the ${scope} owner.`
+                }
+                return `This area is restricted to ${scope} ${membershipLevelToName.get(
+                    minimumAccessLevel
+                )}s and up. Your level is ${membershipLevelToName.get(scopeAccessLevel)}.`
             }
-            return `This area is restricted to ${scope} ${membershipLevelToName.get(
-                minimumAccessLevel
-            )}s and up. Your level is ${membershipLevelToName.get(scopeAccessLevel)}.`
-        }
-        return null
-    }, [currentOrganization])
+            return null
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [currentOrganization]
+    )
 
     return restrictionReason ? (
         <Tooltip title={restrictionReason} placement="topLeft" delayMs={0}>

@@ -1,0 +1,36 @@
+@import '~/vars';
+
+.funnel-correlation {
+    .skew-warning {
+        margin-top: $default_spacing;
+        line-height: 2em;
+        border: 1px solid $warning;
+
+        .ant-card-body {
+            padding: $default_spacing / 2 $default_spacing;
+        }
+
+        h4 {
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid $border;
+            padding: $default_spacing / 2 $default_spacing;
+            margin-left: -$default_spacing;
+            margin-right: -$default_spacing;
+            position: relative;
+
+            .close-button {
+                position: absolute;
+                right: 16px;
+                color: $text_muted !important;
+                cursor: pointer;
+            }
+        }
+
+        b {
+            padding-bottom: $default_spacing / 2;
+            font-weight: $medium;
+        }
+    }
+}

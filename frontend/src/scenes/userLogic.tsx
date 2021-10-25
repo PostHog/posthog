@@ -2,7 +2,7 @@ import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogicType } from './userLogicType'
-import { UserType } from '~/types'
+import { AvailableFeature, UserType } from '~/types'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -112,6 +112,14 @@ export const userLogic = kea<userLogicType>({
             window.location.href = destination || '/'
         },
     }),
+    selectors: {
+        hasAvailableFeature: [
+            (s) => [s.user],
+            (user) => {
+                return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
+            },
+        ],
+    },
     events: ({ actions }) => ({
         afterMount: () => {
             const preloadedUser = getAppContext()?.current_user

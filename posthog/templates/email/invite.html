@@ -1,21 +1,18 @@
-{% extends "email/base_personal.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block heading %}Join {{ invite.organization.name }} on PostHog{% endblock %}
-{% block section %}
+{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
+<p>
+    <strong>{{ invite.created_by.first_name }}</strong> ({{ invite.created_by.email }}) has invited you to join
+    {{invite.organization.name }} on PostHog.<br /><br />
+    PostHog is a product analytics tool that will help you better understand your users.<br />
+    Build the best product <i>together</i>.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ invite }}">Join {{ invite.organization.name }} now</a>
+</div>
+<div class="mt">
     <p>
-        <strong>{{ invite.created_by.first_name }}</strong> ({{ invite.created_by.email }}) has invited you to join
-        {{ invite.organization.name }} on PostHog.<br />
-        PostHog is a product analytics tool that will help you better understand your users.<br/>
-        Build the best product <i>together</i>.
+        If the button above does not work, paste the following link into your browser:<br />
+        <a href="{{ invite }}">{{ invite }}</a>
     </p>
-    <img src="{% absolute_asset_url 'email/invite-hero.png' %}" alt="" class="hero-image" />
-    <div class="mb mt text-center">
-        <a class="button" href="{{ invite }}">Join {{ invite.organization.name }} now</a>
-    </div>
-    <div class="mt">
-        <p>
-            If the button above does not work, paste the following link into your browser:<br />
-            <a href="{{ invite }}">{{ invite }}</a>
-        </p>
-    </div>
-    <p>Please note this invite will expire in <b>3 days</b>.</p>
-{% endblock %}
+</div>
+<p>Please note this invite will expire in <b>3 days</b>.</p>
+{% endblock %}{% load posthog_filters %} {% block heading %}Join {{ invite.organization.name }} on PostHog{% endblock %}
