@@ -106,7 +106,7 @@ class FunnelCorrelation:
             no_person_limit=True,
         )
 
-    def _query_elements_chain(self) -> bool:
+    def support_autocapture_elements(self) -> bool:
         if (
             self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES
             and AUTOCAPTURE_EVENT in self._filter.correlation_event_names
@@ -198,7 +198,7 @@ class FunnelCorrelation:
 
         event_join_query = self._get_events_join_query()
 
-        if self._query_elements_chain():
+        if self.support_autocapture_elements():
             array_join_query = f"""
                 arrayPushBack(prop_keys, 'elements_chain') as prop_keys_with_elements,
                 arrayPushBack(prop_values, concat(trim(BOTH '"' FROM JSONExtractRaw(properties, '{self.AUTOCAPTURE_EVENT_TYPE}')), '{self.ELEMENTS_DIVIDER}', elements_chain)) as prop_values_with_elements,
@@ -514,18 +514,16 @@ class FunnelCorrelation:
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         return {
-            "events": list(
-                map(
-                    lambda eventOddsRatio: {
-                        "success_count": eventOddsRatio["success_count"],
-                        "failure_count": eventOddsRatio["failure_count"],
-                        "odds_ratio": eventOddsRatio["odds_ratio"],
-                        "correlation_type": eventOddsRatio["correlation_type"],
-                        "event": self.serialize_event_with_property(eventOddsRatio["event"]),
-                    },
-                    results[0],
-                )
-            ),
+            "events": [
+                {
+                    "success_count": odds_ratio["success_count"],
+                    "failure_count": odds_ratio["failure_count"],
+                    "odds_ratio": odds_ratio["odds_ratio"],
+                    "correlation_type": odds_ratio["correlation_type"],
+                    "event": self.serialize_event_with_property(odds_ratio["event"]),
+                }
+                for odds_ratio in results[0]
+            ],
             "skewed": results[1],
         }
 
@@ -597,8 +595,9 @@ class FunnelCorrelation:
         """
         Format the event name for display.
         """
-        if not self._query_elements_chain():
+        if not self.support_autocapture_elements():
             return EventDefinition(event=event, properties={}, elements=[])
+
         event_name, property_name, property_value = event.split("::")
         if event_name == AUTOCAPTURE_EVENT and property_name == "elements_chain":
 
