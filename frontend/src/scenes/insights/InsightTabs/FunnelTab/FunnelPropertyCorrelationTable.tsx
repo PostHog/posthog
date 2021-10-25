@@ -4,11 +4,12 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationType, FunnelStep } from '~/types'
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, FunnelStep } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -91,6 +92,56 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         )
     }
 
+    const renderOddsRatioTextRecord = (record: FunnelCorrelation): JSX.Element => {
+        const get_friendly_numeric_value = (value: number): string => {
+            if (value < 10 && !Number.isInteger(value)) {
+                return value.toFixed(1)
+            }
+
+            return value.toFixed()
+        }
+
+        const is_success = record.correlation_type === FunnelCorrelationType.Success
+
+        const first_value =
+            record.result_type === FunnelCorrelationResultsType.Events
+                ? record.event.event
+                : record.result_type === FunnelCorrelationResultsType.Properties
+                ? record.event.event.split('::')[0]
+                : record.event.event.split('::')[1]
+
+        const second_value =
+            record.result_type === FunnelCorrelationResultsType.Events
+                ? undefined
+                : record.result_type === FunnelCorrelationResultsType.Properties
+                ? record.event.event.split('::')[1]
+                : record.event.event.split('::')[2]
+
+        return (
+            <>
+                <h4>
+                    {is_success ? (
+                        <RiseOutlined style={{ color: 'green' }} />
+                    ) : (
+                        <FallOutlined style={{ color: 'red' }} />
+                    )}{' '}
+                    <PropertyKeyInfo value={first_value} />
+                    {' :: '}
+                    {second_value !== undefined && <PropertyKeyInfo value={second_value} disablePopover />}
+                </h4>
+                <div>
+                    People who converted were{' '}
+                    <mark>
+                        <b>
+                            {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
+                        </b>
+                    </mark>{' '}
+                    to have this property value
+                </div>
+            </>
+        )
+    }
+
     return stepsWithCount.length > 1 ? (
         <Table
             dataSource={propertyCorrelationValues}
@@ -147,32 +198,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             <Column
                 title="Correlated Person Properties"
                 key="propertName"
-                render={(_, record: FunnelCorrelation) => {
-                    const is_success = record.correlation_type === FunnelCorrelationType.Success
-
-                    return (
-                        <>
-                            <h4>
-                                {is_success ? (
-                                    <RiseOutlined style={{ color: 'green' }} />
-                                ) : (
-                                    <FallOutlined style={{ color: 'red' }} />
-                                )}{' '}
-                                {record.event?.event}
-                            </h4>
-                            <div>
-                                People who converted were{' '}
-                                <mark>
-                                    <b>
-                                        {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'}{' '}
-                                        likely
-                                    </b>
-                                </mark>{' '}
-                                to have this property value
-                            </div>
-                        </>
-                    )
-                }}
+                render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                 align="left"
             />
             <Column
@@ -191,12 +217,4 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             />
         </Table>
     ) : null
-}
-
-const get_friendly_numeric_value = (value: number): string => {
-    if (value < 10 && !Number.isInteger(value)) {
-        return value.toFixed(1)
-    }
-
-    return value.toFixed()
 }

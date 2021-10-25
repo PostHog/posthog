@@ -29,6 +29,7 @@ import {
     FunnelAPIResponse,
     TrendResult,
     BreakdownType,
+    FunnelCorrelationResultsType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -129,12 +130,19 @@ export const funnelLogic = kea<funnelLogicType>({
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
                 loadCorrelations: async () => {
-                    return (
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'events',
                         })
-                    ).result
+                    ).result?.events
+
+                    return {
+                        events: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.Events,
+                        })),
+                    }
                 },
             },
         ],
@@ -144,7 +152,7 @@ export const funnelLogic = kea<funnelLogicType>({
             } as Record<'events', FunnelCorrelation[]>,
             {
                 loadPropertyCorrelations: async (propertyNames: string[]) => {
-                    return (
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
@@ -153,7 +161,14 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ? propertyNames.map((name: string) => name.trim())
                                 : ['$all'],
                         })
-                    ).result
+                    ).result?.events
+
+                    return {
+                        events: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.Properties,
+                        })),
+                    }
                 },
             },
         ],
@@ -161,7 +176,7 @@ export const funnelLogic = kea<funnelLogicType>({
             {} as Record<string, FunnelCorrelation[]>,
             {
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
-                    const results = (
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'event_with_properties',
@@ -169,7 +184,12 @@ export const funnelLogic = kea<funnelLogicType>({
                         })
                     ).result?.events
 
-                    return { [eventName]: results }
+                    return {
+                        [eventName]: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.EventWithProperties,
+                        })),
+                    }
                 },
             },
         ],
