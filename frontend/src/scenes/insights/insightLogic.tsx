@@ -579,8 +579,8 @@ export const insightLogic = kea<insightLogicType>({
 
                     let loadedFromDashboard = false
                     if (hashParams.fromDashboard && (!values.insight.result || insightIdChanged)) {
-                        const logic = dashboardLogic.build({ id: hashParams.fromDashboard }, false)
-                        if (logic.isMounted()) {
+                        const logic = dashboardLogic.findMounted({ id: hashParams.fromDashboard })
+                        if (logic) {
                             const insight = logic.values.allItems?.items?.find(
                                 (item: DashboardItemType) => item.id === Number(hashParams.fromItem)
                             )
@@ -608,6 +608,17 @@ export const insightLogic = kea<insightLogicType>({
         afterMount: () => {
             if (!props.cachedResults) {
                 if (props.dashboardItemId && !props.filters) {
+                    if (
+                        router.values.hashParams.fromItem === props.dashboardItemId &&
+                        router.values.hashParams.fromDashboard
+                    ) {
+                        const logic = dashboardLogic.findMounted({ id: router.values.hashParams.fromDashboard })
+                        const insight = logic?.values.allItems?.items?.find((item) => item.id === props.dashboardItemId)
+                        if (insight?.result) {
+                            actions.setInsight(insight, false)
+                            return
+                        }
+                    }
                     actions.loadInsight(props.dashboardItemId)
                 } else if (!props.doNotLoad) {
                     actions.loadResults()
