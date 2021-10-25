@@ -12,14 +12,14 @@ import { ClockCircleFilled } from '@ant-design/icons'
 import { toParams } from 'lib/utils'
 import { PersonsSearch } from './PersonsSearch'
 import { IconExternalLink } from 'lib/components/icons'
-import { SceneExport, SceneProps } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
     component: Persons,
     logic: personsLogic,
 }
 
-interface PersonsProps extends SceneProps {
+interface PersonsProps {
     cohort?: CohortType
 }
 

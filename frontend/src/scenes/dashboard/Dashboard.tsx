@@ -15,9 +15,9 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
-import { SceneExport, SceneProps } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 
-interface Props extends SceneProps {
+interface Props {
     id?: string
     shareToken?: string
     internal?: boolean
