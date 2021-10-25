@@ -3,7 +3,6 @@ from typing import Counter, List, Set, Tuple, Union, cast
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
 from ee.clickhouse.models.property import extract_tables_and_properties
-from ee.clickhouse.queries.trends.util import is_iterable
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -79,17 +78,10 @@ class ColumnOptimizer:
         #
         # See ee/clickhouse/queries/trends/breakdown.py#get_query or
         # ee/clickhouse/queries/breakdown_props.py#get_breakdown_prop_values
-        if self.filter.breakdown_type in ["person"]:
+        if self.filter.breakdown_type in ["person", "event"]:
             if isinstance(self.filter.breakdown, str):
                 counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
-            elif is_iterable(self.filter.breakdown):
-                for b in self.filter.breakdown:
-                    counter[(b, self.filter.breakdown_type)] += 1
-
-        if self.filter.breakdown_type in ["event"]:
-            if isinstance(self.filter.breakdown, str):
-                counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
-            elif is_iterable(self.filter.breakdown):
+            elif isinstance(self.filter.breakdown, List):
                 for b in self.filter.breakdown:
                     counter[(b, self.filter.breakdown_type)] += 1
 
