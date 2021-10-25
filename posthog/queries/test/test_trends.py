@@ -2113,7 +2113,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
 
             self.assertListEqual(
-                sorted([res["breakdown_value"] for res in event_response]), ["person1", "person2", "person3", "person4"]
+                sorted([res["breakdown_value"] for res in event_response]), ["person1", "person2", "person3"]
             )
 
             for response in event_response:
@@ -2124,8 +2124,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.assertEqual(response["count"], 3)
                 if response["breakdown_value"] == "person3":
                     self.assertEqual(response["count"], 3)
-                if response["breakdown_value"] == "person4":
-                    self.assertEqual(response["count"], 0)
 
             self.assertEntityResponseEqual(
                 event_response, action_response,
