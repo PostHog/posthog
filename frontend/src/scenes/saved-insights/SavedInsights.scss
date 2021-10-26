@@ -154,6 +154,24 @@
             }
         }
     }
+    .insight-type-icon-dropdown {
+        vertical-align: middle;
+        .icon-wrapper {
+            display: flex;
+            align-items: center;
+            .icon-container {
+                height: 22px;
+                width: 22px;
+                margin-right: 8px;
+                position: relative;
+                .icon-container-inner {
+                    position: absolute;
+                    top: -6px;
+                    left: -5px;
+                }
+            }
+        }
+    }
 }
 
 .ant-dropdown-menu.saved-insights-menu {

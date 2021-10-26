@@ -355,28 +355,23 @@ export function SavedInsights(): JSX.Element {
                 <Col>
                     Type
                     <Select
+                        className="insight-type-icon-dropdown"
                         value={insightType}
-                        style={{ paddingLeft: 8, width: 120 }}
+                        style={{ paddingLeft: 8, width: 140 }}
                         onChange={(it) => setSavedInsightsFilters({ insightType: it })}
                     >
                         {[{ name: 'All types', type: 'All types' as ViewType, inMenu: false }, ...insightTypes].map(
                             (insight: InsightType, index) => (
                                 <Select.Option key={index} value={insight.type}>
-                                    <div style={{ display: 'flex' }}>
+                                    <div className="icon-wrapper">
                                         {insight.icon ? (
-                                            <span
-                                                style={{
-                                                    display: 'inline-block',
-                                                    marginTop: -6,
-                                                    marginBottom: -8,
-                                                    marginLeft: -5,
-                                                    marginRight: 3,
-                                                }}
-                                            >
-                                                {<insight.icon color="#747EA2" noBackground />}
-                                            </span>
+                                            <div className="icon-container">
+                                                <div className="icon-container-inner">
+                                                    {<insight.icon color="#747EA2" noBackground />}
+                                                </div>
+                                            </div>
                                         ) : null}
-                                        <span>{insight.name}</span>
+                                        <div>{insight.name}</div>
                                     </div>
                                 </Select.Option>
                             )
@@ -384,25 +379,21 @@ export function SavedInsights(): JSX.Element {
                     </Select>
                 </Col>
                 <Col>
-                    <div>
-                        <span style={{ paddingRight: 8 }}>Last modified</span>
-                        <DateFilter
-                            defaultValue="All time"
-                            disabled={false}
-                            bordered={true}
-                            dateFrom={dateFrom}
-                            dateTo={dateTo}
-                            onChange={(fromDate, toDate) =>
-                                setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
-                            }
-                        />
-                    </div>
+                    <span style={{ paddingRight: 8 }}>Last modified</span>
+                    <DateFilter
+                        defaultValue="All time"
+                        disabled={false}
+                        bordered={true}
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={(fromDate, toDate) => setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })}
+                    />
                 </Col>
                 <Col>
                     Created by
                     <Select
                         value={createdBy}
-                        style={{ paddingLeft: 8, width: 120 }}
+                        style={{ paddingLeft: 8, width: 140 }}
                         onChange={(cb) => {
                             setSavedInsightsFilters({ createdBy: cb })
                         }}
