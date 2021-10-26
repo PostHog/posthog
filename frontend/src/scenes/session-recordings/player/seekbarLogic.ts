@@ -100,7 +100,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             actions.setRealTime(time)
         },
         setThumbLeftPos: ({ thumbLeftPos, shouldSeek }) => {
-            // Debounce seeking so that scrubbing doesn't sent a bajillion requests.
+            // Debounce seeking so that scrubbing doesn't send a bajillion requests.
             if (!values.slider) {
                 return
             }
