@@ -293,8 +293,9 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         events = filter_by_type(entity=entity, team=team, filter=filter)
 
         if request.accepted_renderer.format == "csv":
-            filter = filter.with_data({"limit": self.CSV_EXPORT_DEFAULT_LIMIT, "offset": 0})
-            people = calculate_people(team=team, events=events, filter=filter, request=request, use_offset=False)
+            people = calculate_people(team=team, events=events, filter=filter, request=request, use_offset=False)[
+                : self.CSV_EXPORT_DEFAULT_LIMIT
+            ]
             serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
             csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
             content = [
@@ -385,7 +386,7 @@ def calculate_people(
     people = Person.objects.filter(
         team=team,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
-    )[: (filter.limit or 200)]
+    )
     people = base.filter_persons(team.id, request, people)  # type: ignore
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people
