@@ -257,6 +257,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
+        reportPersonMerged: (merge_count: number) => ({ merge_count }),
+        reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecordingViewed: (
             recordingData: SessionPlayerData,
             source: RecordingWatchedSource,
@@ -623,6 +625,12 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         },
         reportPayGateDismissed: (props) => {
             posthog.capture('pay gate dismissed', props)
+        },
+        reportPersonMerged: (props) => {
+            posthog.capture('merge person completed', props)
+        },
+        reportPersonSplit: (props) => {
+            posthog.capture('split person started', props)
         },
         reportHelpButtonViewed: () => {
             posthog.capture('help button viewed')

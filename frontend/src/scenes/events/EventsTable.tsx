@@ -43,6 +43,7 @@ interface EventsTable {
     fixedFilters?: FixedFilters
     filtersEnabled?: boolean
     pageKey?: string
+    hidePersonColumn?: boolean
 }
 
 export const scene: SceneExport = {
@@ -51,7 +52,12 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { fixedFilters, pageKey } }) => ({ fixedFilters, key: pageKey }),
 }
 
-export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: EventsTable = {}): JSX.Element {
+export function EventsTable({
+    fixedFilters,
+    filtersEnabled = true,
+    pageKey,
+    hidePersonColumn,
+}: EventsTable = {}): JSX.Element {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
 
     const {
@@ -88,9 +94,28 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             },
         }
     }
+    const personColumn = {
+        title: 'Person',
+        key: 'person',
+        ellipsis: true,
+        span: 4,
+        render: function renderPerson({ event }: EventsTableRowItem) {
+            if (!event) {
+                return { props: { colSpan: 0 } }
+            }
+            return showLinkToPerson && event.person?.distinct_ids?.length ? (
+                <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
+                    <PersonHeader withIcon person={event.person} />
+                </Link>
+            ) : (
+                <PersonHeader withIcon person={event.person} />
+            )
+        },
+    }
+
     const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(
-        () =>
-            [
+        () => {
+            const _localColumns = [
                 {
                     title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
                     key: 'event',
@@ -103,24 +128,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                         return <PropertyKeyInfo value={eventToName(event)} />
                     },
                     ellipsis: true,
-                },
-                {
-                    title: 'Person',
-                    key: 'person',
-                    ellipsis: true,
-                    span: 4,
-                    render: function renderPerson({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        return showLinkToPerson && event.person?.distinct_ids?.length ? (
-                            <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
-                                <PersonHeader withIcon person={event.person} />
-                            </Link>
-                        ) : (
-                            <PersonHeader withIcon person={event.person} />
-                        )
-                    },
                 },
                 {
                     title: 'URL / Screen',
@@ -245,7 +252,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                         )
                     },
                 },
-            ] as ResizableColumnType<EventsTableRowItem>[],
+            ] as ResizableColumnType<EventsTableRowItem>[]
+            if (!hidePersonColumn) {
+                _localColumns.splice(1, 0, personColumn)
+            }
+            return _localColumns
+        },
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [eventFilter, tableWidth]
