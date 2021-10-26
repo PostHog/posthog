@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
@@ -77,7 +77,10 @@ def get_breakdown_prop_values(
     return execute_results[0][0]
 
 
-def _to_value_expression(breakdown_type, breakdown):
+def _to_value_expression(
+    breakdown_type: Union[Literal["event", "person", "cohort"], None],
+    breakdown: Union[str, list[Union[str, int]], None],
+) -> str:
     if breakdown_type == "person":
         return get_single_or_multi_property_string_expr(breakdown, "person", "person_props", "value")
     else:

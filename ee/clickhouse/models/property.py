@@ -254,9 +254,7 @@ def get_property_string_expr(
     return f"trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, {var}))", False
 
 
-def get_single_or_multi_property_string_expr(
-    breakdown, table: Literal["events", "person"], prop_var: str, identifier: str
-):
+def get_single_or_multi_property_string_expr(breakdown, table: TableWithProperties, prop_var: str, identifier: str):
     """
     When querying for breakdown properties:
      * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
