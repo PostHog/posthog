@@ -78,6 +78,6 @@ class Migration(migrations.Migration):
             END
             $$ LANGUAGE plpgsql;
         """,
-            "DROP FUNCTION update_person_props",
+            "DROP FUNCTION IF EXISTS update_person_props",
         ),
     ]
