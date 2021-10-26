@@ -59,19 +59,21 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                 Is the new feature, Corrrelation analysis, working well for you?
                             </Col>
                             <Col span={8} style={{ alignContent: 'right' }}>
-                                {[
-                                    [1, '😍'],
-                                    [2, '😀'],
-                                    [3, '😴'],
-                                    [4, '👎'],
-                                    [5, '👍'],
-                                ].map((content, index) => (
+                                {(
+                                    [
+                                        [1, '😍'],
+                                        [2, '😀'],
+                                        [3, '😴'],
+                                        [4, '👎'],
+                                        [5, '👍'],
+                                    ] as const
+                                ).map((content, index) => (
                                     <Button
                                         key={index}
                                         className="emoji-button"
                                         style={rating === content[0] ? { background: '#5375FF' } : {}}
                                         onClick={() => {
-                                            setRating(Number(content[0]))
+                                            setRating(content[0])
                                             setModalVisible(true)
                                         }}
                                     >
