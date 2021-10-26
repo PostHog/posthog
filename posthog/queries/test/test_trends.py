@@ -2189,7 +2189,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 entity = Entity({"id": "watched movie", "type": "events", "math": "dau"})
                 data.update({"breakdown_value": "value_1"})
                 people = self._get_trend_people(Filter(data=data), entity)
-                self.assertEqual(len(people), 3)
 
                 # TODO: improve ee/postgres handling
                 value_1_ids = sorted([person["id"] for person in people])
@@ -2200,7 +2199,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
                 data.update({"breakdown_value": "value_2"})
                 people = self._get_trend_people(Filter(data=data), entity)
-                self.assertEqual(len(people), 1)
 
                 value_2_ids = [person["id"] for person in people]
                 self.assertTrue(value_2_ids == [person2.uuid] or value_2_ids == [person2.pk])
