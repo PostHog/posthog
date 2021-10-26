@@ -421,12 +421,6 @@ export function SavedInsights(): JSX.Element {
                                                 loadInsights()
                                             }}
                                             dashboardMode={null}
-                                            onClick={() => {
-                                                const _type = getDisplayedType(insight.filters)
-                                                if (_type) {
-                                                    window.open(displayMap[_type].link(insight))
-                                                }
-                                            }}
                                             index={index}
                                             isOnEditMode={false}
                                             footer={
