@@ -210,4 +210,4 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
                 Exception("No user found for org while generating report"),
                 {"org": {"organization_id": organization_id}},
             )
-        return user  # type: ignore
+    return user  # type: ignore
