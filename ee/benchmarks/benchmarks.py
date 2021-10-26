@@ -238,6 +238,20 @@ class QuerySuite:
         with no_materialized_columns():
             FunnelCorrelation(filter, self.team).run()
 
+    @benchmark_clickhouse
+    def track_correlations_by_event_properties(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
+                **SHORT_DATE_RANGE,
+                "funnel_correlation_type": FunnelCorrelationType.EVENT_WITH_PROPERTIES,
+                "funnel_correlation_event_names": ["$autocapture"],
+            },
+            team=self.team,
+        )
+        with no_materialized_columns():
+            FunnelCorrelation(filter, self.team).run()
+
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:
             if property not in get_materialized_columns(table):

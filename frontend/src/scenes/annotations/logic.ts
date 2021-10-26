@@ -20,11 +20,14 @@ export const annotationsTableLogic = kea<annotationsTableLogicType>({
         },
     }),
     reducers: () => ({
-        annotations: {
-            appendAnnotations: (state, { annotations }) => [...state, ...annotations],
-        },
+        annotations: [
+            [] as AnnotationType[],
+            {
+                appendAnnotations: (state, { annotations }) => [...state, ...annotations],
+            },
+        ],
         next: [
-            null,
+            null as string | null,
             {
                 setNext: (_, { next }) => next,
             },
