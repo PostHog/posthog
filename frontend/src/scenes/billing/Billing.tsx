@@ -6,6 +6,12 @@ import { BillingEnrollment } from './BillingEnrollment'
 import { useValues } from 'kea'
 import './Billing.scss'
 import { billingLogic } from './billingLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: Billing,
+    logic: billingLogic,
+}
 
 export function Billing(): JSX.Element {
     const { billing } = useValues(billingLogic)

@@ -3,9 +3,17 @@ import { errorToast, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import { DashboardItemType, FilterType, InsightLogicProps, InsightType, ItemMode, ViewType } from '~/types'
+import {
+    DashboardItemType,
+    FilterType,
+    InsightLogicProps,
+    InsightType,
+    ItemMode,
+    SetInsightOptions,
+    ViewType,
+} from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
@@ -21,6 +29,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys } from './utils'
 import * as Sentry from '@sentry/browser'
 import { teamLogic } from '../teamLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -40,7 +50,7 @@ export const insightLogic = kea<insightLogicType>({
 
     connect: {
         values: [teamLogic, ['currentTeamId']],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [eventUsageLogic, dashboardsModel, featureFlagLogic],
     },
 
     actions: () => ({
@@ -70,9 +80,9 @@ export const insightLogic = kea<insightLogicType>({
         toggleControlsCollapsed: true,
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
-        setInsight: (insight: Partial<DashboardItemType>, shouldMergeWithExisting: boolean = false) => ({
+        setInsight: (insight: Partial<DashboardItemType>, options: SetInsightOptions = {}) => ({
             insight,
-            shouldMergeWithExisting,
+            options,
         }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
@@ -235,13 +245,10 @@ export const insightLogic = kea<insightLogicType>({
                           result: null,
                           filters: {},
                       },
-            setInsight: (state, { insight, shouldMergeWithExisting }) =>
-                shouldMergeWithExisting
-                    ? {
-                          ...state,
-                          ...insight,
-                      }
-                    : insight,
+            setInsight: (state, { insight, options: { shouldMergeWithExisting } }) => ({
+                ...(shouldMergeWithExisting ? state : {}),
+                ...insight,
+            }),
             updateInsightFilters: (state, { filters }) => ({ ...state, filters }),
         },
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
@@ -283,6 +290,8 @@ export const insightLogic = kea<insightLogicType>({
             () => props.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (state, { filters }) => cleanFilters(filters, state),
+                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
+                    overrideFilter ? cleanFilters(filters || {}) : state,
                 loadInsightSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 loadResultsSuccess: (state, { insight }) =>
@@ -568,19 +577,39 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
+                let loadedFromDashboard = false
                 if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
                     if (values.insightMode !== ItemMode.Edit) {
                         actions.setInsightMode(ItemMode.Edit, null)
                     }
                 } else if (hashParams.fromItem) {
-                    if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
+                    const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
+
+                    if (
+                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
+                        hashParams.fromDashboard &&
+                        (!values.insight.result || insightIdChanged)
+                    ) {
+                        const logic = dashboardLogic.findMounted({ id: hashParams.fromDashboard })
+                        if (logic) {
+                            const insight = logic.values.allItems?.items?.find(
+                                (item: DashboardItemType) => item.id === Number(hashParams.fromItem)
+                            )
+                            if (insight?.result) {
+                                actions.setInsight(insight, { overrideFilter: true })
+                                loadedFromDashboard = true
+                            }
+                        }
+                    }
+
+                    if (!loadedFromDashboard && insightIdChanged) {
                         // Do not load the result if missing, as setFilters below will do so anyway.
                         actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
                     }
                 }
 
                 const cleanSearchParams = cleanFilters(searchParams, values.filters)
-                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                if (!loadedFromDashboard && !objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams)
                 }
             }
@@ -590,6 +619,18 @@ export const insightLogic = kea<insightLogicType>({
         afterMount: () => {
             if (!props.cachedResults) {
                 if (props.dashboardItemId && !props.filters) {
+                    if (
+                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
+                        router.values.hashParams.fromItem === props.dashboardItemId &&
+                        router.values.hashParams.fromDashboard
+                    ) {
+                        const logic = dashboardLogic.findMounted({ id: router.values.hashParams.fromDashboard })
+                        const insight = logic?.values.allItems?.items?.find((item) => item.id === props.dashboardItemId)
+                        if (insight?.result) {
+                            actions.setInsight(insight, { overrideFilter: true })
+                            return
+                        }
+                    }
                     actions.loadInsight(props.dashboardItemId)
                 } else if (!props.doNotLoad) {
                     actions.loadResults()

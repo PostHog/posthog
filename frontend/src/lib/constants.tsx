@@ -87,7 +87,7 @@ export const MATHS: Record<string, any> = {
         type: EVENT_MATH_TYPE,
     },
     weekly_active: {
-        name: 'Weekly Active',
+        name: 'Weekly active',
         description: (
             <>
                 Users active in the past week (7 days).
@@ -100,7 +100,7 @@ export const MATHS: Record<string, any> = {
         type: EVENT_MATH_TYPE,
     },
     monthly_active: {
-        name: 'Monthly Active',
+        name: 'Monthly active',
         description: (
             <>
                 Users active in the past month (30 days).
@@ -247,6 +247,7 @@ export const FEATURE_FLAGS = {
     SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
+    TURBO_MODE: 'turbo-mode', // owner: @mariusandra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

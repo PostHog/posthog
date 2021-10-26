@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UsergroupAddOutlined, UserOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, ViewType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { midEllipsis } from 'lib/utils'
+import { midEllipsis, pluralize } from 'lib/utils'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
@@ -25,8 +25,15 @@ export interface PersonModalProps {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad, clickhouseFeaturesEnabled } =
-        useValues(personsModalLogic)
+    const {
+        people,
+        loadingMorePeople,
+        firstLoadedPeople,
+        searchTerm,
+        isInitialLoad,
+        clickhouseFeaturesEnabled,
+        peopleParams,
+    } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -137,6 +144,25 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                 }
                             />
                         )}
+                        <div className="user-count-subheader">
+                            <UserOutlined /> This list contains{' '}
+                            <b>
+                                {people.count} unique {pluralize(people.count, 'user', undefined, false)}
+                            </b>
+                            {peopleParams?.pointValue !== undefined &&
+                                peopleParams.action !== 'session' &&
+                                (!peopleParams.action.math || peopleParams.action.math === 'total') && (
+                                    <>
+                                        {' '}
+                                        who performed the event{' '}
+                                        <b>
+                                            {peopleParams.pointValue} total{' '}
+                                            {pluralize(peopleParams.pointValue, 'time', undefined, false)}
+                                        </b>
+                                    </>
+                                )}
+                            .
+                        </div>
                         <div style={{ background: '#FAFAFA' }}>
                             {people.count > 0 ? (
                                 people?.people.map((person) => (

@@ -40,6 +40,7 @@ import {
     InsightsStickinessIcon,
     InsightsTrendsIcon,
 } from 'lib/components/icons'
+import { SceneExport } from 'scenes/sceneTypes'
 
 const { TabPane } = Tabs
 
@@ -95,6 +96,11 @@ const insightTypes: InsightType[] = [
         inMenu: true,
     },
 ]
+
+export const scene: SceneExport = {
+    component: SavedInsights,
+    logic: savedInsightsLogic,
+}
 
 export function SavedInsights(): JSX.Element {
     const {

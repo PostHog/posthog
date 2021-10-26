@@ -29,9 +29,16 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SplitPerson } from './SplitPerson'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SceneExport } from 'scenes/sceneTypes'
+
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
+
+export const scene: SceneExport = {
+    component: Person,
+    logic: personsLogic,
+}
 
 export function Person(): JSX.Element {
     const [activeCardTab, setActiveCardTab] = useState('properties')
