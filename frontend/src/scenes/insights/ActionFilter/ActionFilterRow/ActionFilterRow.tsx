@@ -374,10 +374,10 @@ export function ActionFilterRow({
                                 )}
                             </>
                         )}
-                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
                         {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && (horizontalUI || fullWidth) && !hideRename && (
                             <Col>{renameRowButton}</Col>
                         )}
+                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
                         )}
