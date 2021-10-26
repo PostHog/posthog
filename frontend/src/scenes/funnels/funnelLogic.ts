@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { average, eventToName, sum } from 'lib/utils'
+import { average, eventToName, successToast, sum } from 'lib/utils'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -50,6 +50,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import posthog from 'posthog-js'
 import { teamLogic } from '../teamLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
@@ -114,11 +115,15 @@ export const funnelLogic = kea<funnelLogicType>({
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        sendCorrelationAnalysisFeedback: (rating: number, comment?: string) => ({ rating, comment }),
         hideSkewWarning: true,
 
         setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
         excludeProperty: (propertyName: string) => ({ propertyName }),
+
         excludeEventProperty: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
+
+        hideCorrelationAnalysisFeedback: true,
     }),
 
     loaders: ({ values }) => ({
@@ -256,6 +261,14 @@ export const funnelLogic = kea<funnelLogicType>({
             false,
             {
                 hideSkewWarning: () => true,
+            },
+        ],
+        correlationFeedbackHidden: [
+            false,
+            { persist: true },
+            {
+                sendCorrelationAnalysisFeedback: () => true,
+                hideCorrelationAnalysisFeedback: () => true,
             },
         ],
         eventWithPropertyCorrelations: {
@@ -990,6 +1003,12 @@ export const funnelLogic = kea<funnelLogicType>({
 
         setExcludedPropertyNames: async () => {
             actions.loadPropertyCorrelations()
+        },
+
+        sendCorrelationAnalysisFeedback: ({ rating, comment }) => {
+            posthog.capture('correlation analysis feedback', { rating, comment })
+
+            successToast('Thanks for your feedback!', ' ')
         },
     }),
 })

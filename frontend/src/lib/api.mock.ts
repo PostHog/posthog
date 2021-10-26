@@ -1,9 +1,12 @@
-import apiNoMock from 'lib/api'
+import apiReal from 'lib/api'
 import { combineUrl } from 'kea-router'
 import { AvailableFeature, OrganizationType, TeamType } from '~/types'
 
 type APIMockReturnType = {
-    [K in keyof typeof apiNoMock]: jest.Mock<ReturnType<typeof apiNoMock[K]>, Parameters<typeof apiNoMock[K]>>
+    [K in keyof Pick<typeof apiReal, 'create' | 'get' | 'update' | 'delete'>]: jest.Mock<
+        ReturnType<typeof apiReal[K]>,
+        Parameters<typeof apiReal[K]>
+    >
 }
 
 type APIRoute = {
@@ -24,7 +27,7 @@ interface APIMockOptions {
 export const MOCK_TEAM_ID: TeamType['id'] = 997
 export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
-export const api = apiNoMock as any as APIMockReturnType
+export const api = apiReal as any as APIMockReturnType
 
 export const mockAPI = (cb: (url: APIRoute) => any): void => {
     beforeEach(async () => {
