@@ -73,7 +73,7 @@ class TrendsPersonQuery:
 
         return (
             GET_PERSONS_FROM_EVENT_QUERY.format(events_query=events_query),
-            {**params, "offset": self.filter.offset, "limit": 200},
+            {**params, "offset": self.filter.offset, "limit": self.filter.limit or 200},
         )
 
     def get_people(self) -> ReturnDict:

@@ -186,6 +186,9 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
+    # Return at most this number of rows in CSV export
+    CSV_EXPORT_DEFAULT_LIMIT = 10_000
+
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "list":
@@ -288,13 +291,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         entity = get_target_entity(request)
 
         events = filter_by_type(entity=entity, team=team, filter=filter)
-        people = calculate_people(team=team, events=events, filter=filter, request=request)
-        serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
-
-        current_url = request.get_full_path()
-        next_url = paginated_result(serialized_people, request, filter.offset)
 
         if request.accepted_renderer.format == "csv":
+            filter = filter.with_data({"limit": self.CSV_EXPORT_DEFAULT_LIMIT, "offset": 0})
+            people = calculate_people(team=team, events=events, filter=filter, request=request, use_offset=False)
+            serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
             csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
             content = [
                 {
@@ -307,6 +308,13 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 for person in serialized_people
             ]
             return content
+
+        else:
+            people = calculate_people(team=team, events=events, filter=filter, request=request)
+            serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
+
+            current_url = request.get_full_path()
+            next_url = paginated_result(serialized_people, request, filter.offset)
 
         return {
             "results": [{"people": serialized_people, "count": len(serialized_people)}],
@@ -377,7 +385,7 @@ def calculate_people(
     people = Person.objects.filter(
         team=team,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
-    )
+    )[: (filter.limit or 200)]
     people = base.filter_persons(team.id, request, people)  # type: ignore
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people

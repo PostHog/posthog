@@ -41,24 +41,9 @@ class ClickhouseActionsViewSet(ActionViewSet):
         filter = Filter(request=request, team=self.team)
         entity = get_target_entity(request)
 
-        current_url = request.get_full_path()
-        serialized_people = TrendsPersonQuery(team, entity, filter).get_people()
-
-        current_url = request.get_full_path()
-        next_url: Optional[str] = request.get_full_path()
-        offset = filter.offset
-        if len(serialized_people) > 100 and next_url:
-            if "offset" in next_url:
-                next_url = next_url[1:]
-                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
-            else:
-                next_url = request.build_absolute_uri(
-                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-                )
-        else:
-            next_url = None
-
         if request.accepted_renderer.format == "csv":
+            filter = filter.with_data({"limit": self.CSV_EXPORT_DEFAULT_LIMIT, "offset": 0})
+            serialized_people = TrendsPersonQuery(team, entity, filter).get_people()
             csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
             content = [
                 {
@@ -71,6 +56,23 @@ class ClickhouseActionsViewSet(ActionViewSet):
                 for person in serialized_people
             ]
             return Response(content)
+
+        current_url = request.get_full_path()
+        serialized_people = TrendsPersonQuery(team, entity, filter).get_people()
+
+        next_url: Optional[str] = request.get_full_path()
+        offset = filter.offset
+
+        if len(serialized_people) > 100 and next_url:
+            if "offset" in next_url:
+                next_url = next_url[1:]
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+            else:
+                next_url = request.build_absolute_uri(
+                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
+                )
+        else:
+            next_url = None
 
         return Response(
             {

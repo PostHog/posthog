@@ -551,7 +551,15 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             return (person1, person2, person3, person4)
 
         def test_people_csv(self):
-            person1, _, _, _ = self._create_multiple_people()
+            for i in range(250):
+                person_factory(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"name": "person1"})
+                event_factory(
+                    team=self.team,
+                    event="watched movie",
+                    distinct_id=f"person{i}",
+                    timestamp="2020-01-01T12:00:00Z",
+                    properties={"event_prop": "prop1"},
+                )
             people = self.client.get(
                 f"/api/projects/{self.team.id}/actions/people.csv",
                 data={
@@ -566,9 +574,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             )
             resp = people.content.decode("utf-8").split("\r\n")
             resp = sorted(resp)
-            self.assertEqual(len(resp), 6)  # header, 4 people, empty line
+            self.assertEqual(len(resp), 252)  # header, 4 people, empty line
             self.assertEqual(resp[1], "Distinct ID,Internal ID,Email,Name,Properties")
-            self.assertEqual(resp[2].split(",")[0], "person1")
 
         def test_breakdown_by_cohort_people_endpoint(self):
             person1, _, _, _ = self._create_multiple_people()
