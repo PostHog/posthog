@@ -141,10 +141,8 @@ export const PropertyNamesSelectBox = ({
 }
 
 const PropertyNamesSearch = (): JSX.Element => {
-    const { properties, isSelected } = useValues(propertySelectLogic)
-    const { toggleProperty } = useActions(propertySelectLogic)
-
-    const { filteredProperties, query, setQuery } = usePropertySearch(properties)
+    const { query, filteredProperties, isSelected } = useValues(propertySelectLogic)
+    const { setQuery, toggleProperty } = useActions(propertySelectLogic)
 
     return (
         <>
@@ -164,7 +162,13 @@ const PropertyNamesSearch = (): JSX.Element => {
                             checked={isSelected(property.name)}
                             onChange={() => toggleProperty(property.name)}
                         >
-                            {property.highlightedName}
+                            {property.highlightedNameParts.map((part, index) =>
+                                part.toLowerCase() === query.toLowerCase() ? (
+                                    <b key={index}>{part}</b>
+                                ) : (
+                                    <React.Fragment key={index}>{part}</React.Fragment>
+                                )
+                            )}
                         </Checkbox>
                     ))
                 ) : (
@@ -175,49 +179,4 @@ const PropertyNamesSearch = (): JSX.Element => {
             </div>
         </>
     )
-}
-
-// TODO: move to logic
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-const usePropertySearch = (properties: PersonProperty[]) => {
-    /*
-        Basic case insensitive substring search functionality for person property
-        selection. It's pretty much this stackoverflow answer:
-        https://stackoverflow.com/a/43235785
-    */
-    const [query, setQuery] = React.useState<string>('')
-    const filteredProperties = React.useMemo(() => {
-        return query === ''
-            ? properties.map((property) => ({ ...property, highlightedName: property.name }))
-            : properties
-                  // First we split on query term, case insensitive, and globally,
-                  // not just the first
-                  // NOTE: it's important to use a capture group here, otherwise
-                  // the query string match will not be included as a part. See
-                  // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/split#splitting_with_a_regexp_to_include_parts_of_the_separator_in_the_result
-                  // for details
-                  .map((property) => ({
-                      ...property,
-                      nameParts: property.name.split(new RegExp(`(${query})`, 'gi')),
-                  }))
-                  // Then filter where we have a match
-                  .filter((property) => property.nameParts.length > 1)
-                  // Then create a JSX.Element that can be rendered
-                  .map((property) => ({
-                      ...property,
-                      highlightedName: (
-                          <span>
-                              {property.nameParts.map((part, index) =>
-                                  part.toLowerCase() === query.toLowerCase() ? (
-                                      <b key={index}>{part}</b>
-                                  ) : (
-                                      <React.Fragment key={index}>{part}</React.Fragment>
-                                  )
-                              )}
-                          </span>
-                      ),
-                  }))
-    }, [query, properties])
-
-    return { filteredProperties, setQuery, query }
 }

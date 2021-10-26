@@ -29,6 +29,8 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         toggleProperty: (property: string) => ({ property }),
         clearAll: true,
         selectAll: true,
+
+        setQuery: (query: string) => ({ query }),
     },
 
     reducers: ({ props }) => ({
@@ -63,6 +65,13 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
                 selectAll: () => new Set(props.properties.map((property) => property.name)),
             },
         ],
+
+        query: [
+            '' as string,
+            {
+                setQuery: (_, { query }) => query,
+            },
+        ],
     }),
 
     selectors: ({ props }) => ({
@@ -82,6 +91,26 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         ],
 
         properties: [() => [], () => props.properties],
+
+        filteredProperties: [
+            (selectors) => [selectors.properties, selectors.query],
+            (properties, query) =>
+                query === ''
+                    ? properties.map((property) => ({ ...property, highlightedNameParts: [property.name] }))
+                    : properties
+                          // First we split on query term, case insensitive, and globally,
+                          // not just the first
+                          // NOTE: it's important to use a capture group here, otherwise
+                          // the query string match will not be included as a part. See
+                          // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/split#splitting_with_a_regexp_to_include_parts_of_the_separator_in_the_result
+                          // for details
+                          .map((property) => ({
+                              ...property,
+                              highlightedNameParts: property.name.split(new RegExp(`(${query})`, 'gi')),
+                          }))
+                          // Then filter where we have a match
+                          .filter((property) => property.highlightedNameParts.length > 1),
+        ],
     }),
 
     events: ({ cache, values, actions }) => ({
