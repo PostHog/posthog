@@ -6,6 +6,7 @@ from .clickhouse import (
     KAFKA_COLUMNS,
     REPLACING_MERGE_TREE,
     STORAGE_POLICY,
+    get_kafka_columns,
     kafka_engine,
     table_engine,
 )
@@ -26,7 +27,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     team_id Int64,
     properties VARCHAR,
     is_identified Boolean,
-    is_deleted Boolean DEFAULT 0
+    is_deleted Boolean DEFAULT 0,
+    version UInt64 DEFAULT 0
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -39,8 +41,8 @@ PERSONS_TABLE_SQL = (
 ).format(
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
-    extra_fields=KAFKA_COLUMNS,
+    engine=table_engine(PERSONS_TABLE, "version", REPLACING_MERGE_TREE),
+    extra_fields=get_kafka_columns(offset=True, timestamp=True, partition=True),
     storage_policy=STORAGE_POLICY,
 )
 
@@ -60,11 +62,13 @@ team_id,
 properties,
 is_identified,
 is_deleted,
+if(is_deleted==1, {max_uint64}, coalesce(version, 0)) AS version,
 _timestamp,
-_offset
+_offset,
+_partition
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE, max_uint64=2 ** 64 - 1
 )
 
 GET_LATEST_PERSON_SQL = """
@@ -214,7 +218,7 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, is_deleted, version, _partition, _offset) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, %(is_deleted)d, %(version)s, 0, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
