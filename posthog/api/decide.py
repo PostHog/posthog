@@ -32,7 +32,7 @@ def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
     for permitted_domain in permitted_domains:
         if "*" in permitted_domain:
             pattern = "^{}$".format(permitted_domain.replace(".", "\\.").replace("*", "(.*)"))
-            if re.search(pattern, origin) or (referer and re.search(pattern, referer)):
+            if (origin and re.search(pattern, origin)) or (referer and re.search(pattern, referer)):
                 return True
         else:
             if permitted_domain == origin or permitted_domain == referer:
