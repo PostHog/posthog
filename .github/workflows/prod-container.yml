@@ -124,11 +124,11 @@ jobs:
     sentry:
         name: Notify Sentry of a production release
         runs-on: ubuntu-20.04
+        if: github.repository == 'PostHog/posthog'
         steps:
             - name: Checkout master
               uses: actions/checkout@v2
             - name: Notify Sentry
-              if: github.repository == 'PostHog/posthog'
               uses: getsentry/action-release@v1
               env:
                   SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
