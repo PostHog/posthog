@@ -68,6 +68,7 @@ def create_person(
         "is_identified": int(is_identified),
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "version": 0,
         "is_deleted": 0,
     }
     p = ClickhouseProducer()
