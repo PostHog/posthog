@@ -160,8 +160,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                             // NOTE: we want to make sure that if the
                             // selected propertyNames change, we reset the
                             // internal state of the select
-                            key={excludedPropertyNames?.toString()}
-                            initialProperties={new Set(excludedPropertyNames)}
+                            value={new Set(excludedPropertyNames)}
                             onChange={setExcludedPropertyNames}
                         />
                     </Col>

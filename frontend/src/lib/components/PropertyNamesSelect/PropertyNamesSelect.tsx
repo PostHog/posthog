@@ -13,10 +13,10 @@ let propertyNameSelectCounter = 0
 
 export const PropertyNamesSelect = ({
     onChange,
-    initialProperties = new Set(),
+    value = new Set(),
 }: {
     onChange?: (selectedProperties: string[]) => void
-    initialProperties?: Set<string>
+    value?: Set<string>
 }): JSX.Element => {
     /*
         Provides a super simple multiselect box for selecting property names.
@@ -30,11 +30,8 @@ export const PropertyNamesSelect = ({
     // hacky. I'm doing this so when we instantiate the propertySelectLogic with
     // props, we have the props to hand as they will not update on rerender
     return properties?.length ? (
-        <BindLogic
-            logic={propertySelectLogic}
-            props={{ properties, propertySelectLogicKey, initialProperties, onChange }}
-        >
-            <PropertyNamesSelectBox onChange={onChange} properties={properties} />
+        <BindLogic logic={propertySelectLogic} props={{ properties, propertySelectLogicKey, value, onChange }}>
+            <PropertyNamesSelectBox onChange={onChange} properties={properties} value={value} />
         </BindLogic>
     ) : (
         <div className="property-names-select">Loading properties...</div>
@@ -44,8 +41,10 @@ export const PropertyNamesSelect = ({
 export const PropertyNamesSelectBox = ({
     properties,
     onChange,
+    value,
 }: {
     properties: PersonProperty[]
+    value: Set<string>
     onChange?: (selectedProperties: string[]) => void
 }): JSX.Element => {
     const {
@@ -65,7 +64,13 @@ export const PropertyNamesSelectBox = ({
         // selection actions/values
         selectAll,
         clearAll,
+        setSelectedProperties,
     } = useActions(propertySelectLogic)
+
+    // Explicitly set the selectedProperties on value change
+    React.useEffect(() => {
+        setSelectedProperties(Array.from(value))
+    }, [value, setSelectedProperties])
 
     return (
         <div className="property-names-select-container" onClick={togglePopover} ref={setPopoverTriggerElement}>
