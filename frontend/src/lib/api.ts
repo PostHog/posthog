@@ -57,7 +57,7 @@ class ApiRequest {
         return (includeLeadingSlash ? '/api/' : 'api/') + this.assembleEndpointUrl()
     }
 
-    // Endpoint composition
+    // Generic endpoint composition
 
     private addPathComponent(component: string): ApiRequest {
         this.pathComponents.push(component)
@@ -73,20 +73,22 @@ class ApiRequest {
         return this.addPathComponent(apiAction)
     }
 
-    public projectsList(): ApiRequest {
+    // API-aware endpoint composition
+
+    public projects(): ApiRequest {
         return this.addPathComponent('projects')
     }
 
-    public projectsDetail(id: TeamType['id']): ApiRequest {
-        return this.projectsList().addPathComponent(id.toString())
+    public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+        return this.projects().addPathComponent(id.toString())
     }
 
-    public actionsList(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+    public actions(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
     }
 
     public actionsDetail(actionId: ActionType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.actionsList(teamId).addPathComponent(actionId.toString())
+        return this.actions(teamId).addPathComponent(actionId.toString())
     }
 
     // Request finalization
@@ -115,7 +117,7 @@ const api = {
         },
         async create(actionData: Partial<ActionType>, temporaryToken?: string): Promise<ActionType> {
             return await new ApiRequest()
-                .actionsList()
+                .actions()
                 .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
                 .create({ data: actionData })
         },
@@ -130,7 +132,7 @@ const api = {
                 .update({ data: actionData })
         },
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
-            return await new ApiRequest().actionsList().withQueryString(params).get()
+            return await new ApiRequest().actions().withQueryString(params).get()
         },
         async getPeople(
             peopleParams: PeopleParamType,
@@ -138,7 +140,7 @@ const api = {
             searchTerm?: string
         ): Promise<PaginatedResponse<{ people: PersonType[]; count: number }>> {
             return await new ApiRequest()
-                .actionsList()
+                .actions()
                 .withAction('people')
                 .withQueryString(
                     parsePeopleParams(peopleParams, filters) +
@@ -150,7 +152,7 @@ const api = {
             return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
         },
         determineDeleteEndpoint(teamId: TeamType['id']): string {
-            return new ApiRequest().actionsList(teamId).assembleEndpointUrl()
+            return new ApiRequest().actions(teamId).assembleEndpointUrl()
         },
         determinePeopleCsvUrl(
             teamId: TeamType['id'],
@@ -158,7 +160,7 @@ const api = {
             filters: Partial<FilterType>
         ): string {
             return new ApiRequest()
-                .actionsList(teamId)
+                .actions(teamId)
                 .withAction('people.csv')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
