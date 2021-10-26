@@ -6,6 +6,7 @@
     flex-direction: column;
 
     .new-insight-dropdown-btn {
+        cursor: pointer;
         height: 40px;
         background-color: $primary;
         padding: 8px 12px 8px 16px;

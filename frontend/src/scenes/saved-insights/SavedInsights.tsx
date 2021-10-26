@@ -303,9 +303,9 @@ export function SavedInsights(): JSX.Element {
                     }
                     trigger={['click']}
                 >
-                    <a className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
+                    <button className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
                         New Insight <CaretDownFilled style={{ paddingLeft: 12 }} />
-                    </a>
+                    </button>
                 </Dropdown>
             </Row>
 
