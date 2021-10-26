@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
             value jsonb
         );
         """,
-            "DROP TYPE person_property_update",
+            "DROP TYPE IF EXISTS person_property_update",
         ),
         migrations.RunSQL(
             """
