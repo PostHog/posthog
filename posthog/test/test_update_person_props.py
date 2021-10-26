@@ -67,10 +67,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": FUTURE_TIMESTAMP,
-                "b": FUTURE_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
             properties_last_operation={},
         )
         expectedProps = {"a": 1, "b": 0}
@@ -134,10 +131,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": FUTURE_TIMESTAMP,
-                "b": FUTURE_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
         expectedProps = {"a": 0, "b": 1}
@@ -170,10 +164,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": PAST_TIMESTAMP,
-                "b": PAST_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": PAST_TIMESTAMP, "b": PAST_TIMESTAMP,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
         expectedProps = {"a": 1, "b": 1}
@@ -207,10 +198,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": FUTURE_TIMESTAMP,
-                "b": FUTURE_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
         expectedProps = {"a": 0, "b": 1}
@@ -244,10 +232,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": PAST_TIMESTAMP,
-                "b": PAST_TIMESTAMP,
-            },
+            properties_last_updated_at={"a": PAST_TIMESTAMP, "b": PAST_TIMESTAMP,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
         expectedProps = {"a": 0, "b": 0}
