@@ -2190,14 +2190,20 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 data.update({"breakdown_value": "value_1"})
                 people = self._get_trend_people(Filter(data=data), entity)
                 self.assertEqual(len(people), 3)
-                self.assertListEqual(
-                    sorted([person["id"] for person in people]), sorted([person1.uuid, person2.uuid, person3.uuid])
+
+                # TODO: improve ee/postgres handling
+                value_1_ids = sorted([person["id"] for person in people])
+                self.assertTrue(
+                    value_1_ids == sorted([person1.uuid, person2.uuid, person3.uuid])
+                    or value_1_ids == sorted([person1.pk, person2.pk, person3.pk])
                 )
 
                 data.update({"breakdown_value": "value_2"})
                 people = self._get_trend_people(Filter(data=data), entity)
                 self.assertEqual(len(people), 1)
-                self.assertListEqual([person["id"] for person in people], [person2.uuid])
+
+                value_2_ids = [person["id"] for person in people]
+                self.assertTrue(value_2_ids == [person2.uuid] or value_2_ids == [person2.pk])
 
         @test_with_materialized_columns(person_properties=["name"])
         def test_breakdown_by_person_property_pie(self):
