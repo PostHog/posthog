@@ -31,7 +31,7 @@ describe('insightLogic', () => {
                     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                 },
             }
-        } else if ([`api/dashboard/33/`].includes(pathname)) {
+        } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
             return {
                 id: 33,
                 filters: {},
