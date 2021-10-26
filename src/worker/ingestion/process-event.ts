@@ -646,7 +646,9 @@ export class EventsProcessor {
             try {
                 await this.db.createPerson(sentAt, {}, teamId, null, false, personUuid.toString(), [distinctId])
             } catch (error) {
-                Sentry.captureException(error, { extra: { teamId, distinctId, sentAt, personUuid } })
+                if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
+                    Sentry.captureException(error, { extra: { teamId, distinctId, sentAt, personUuid } })
+                }
             }
         }
     }
