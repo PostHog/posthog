@@ -241,6 +241,12 @@ export function PropertyValue({
                         setInput(option.title)
                         setValue(toString(val))
                     }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            setInput(toString(input))
+                            setValue(toString(input))
+                        }
+                    }}
                     ref={autoCompleteRef}
                 >
                     {[
