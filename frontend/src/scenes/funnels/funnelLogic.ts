@@ -51,7 +51,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -155,13 +154,15 @@ export const funnelLogic = kea<funnelLogicType>({
                 events: [],
             } as Record<'events', FunnelCorrelation[]>,
             {
-                loadPropertyCorrelations: async (excludedPropertyNames: string[]) => {
+                loadPropertyCorrelations: async () => {
                     const results: Omit<FunnelCorrelation, 'result_type'>[] = (
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
                             funnel_correlation_names: ['$all'],
-                            funnel_correlation_exclude_names: excludedPropertyNames.map((name: string) => name.trim()),
+                            funnel_correlation_exclude_names: values.excludedPropertyNames.map((name: string) =>
+                                name.trim()
+                            ),
                         })
                     ).result?.events
 
@@ -857,7 +858,7 @@ export const funnelLogic = kea<funnelLogicType>({
             ) {
                 actions.loadCorrelations()
                 // Hardcoded for initial testing
-                actions.loadPropertyCorrelations(['$all'])
+                actions.loadPropertyCorrelations()
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
@@ -970,7 +971,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
         setExcludedPropertyNames: async ({ excludedPropertyNames }) => {
             window.localStorage.setItem('excludedPropertyNames', JSON.stringify(excludedPropertyNames))
-            actions.loadPropertyCorrelations(Array.from(excludedPropertyNames))
+            actions.loadPropertyCorrelations()
         },
     }),
 })
