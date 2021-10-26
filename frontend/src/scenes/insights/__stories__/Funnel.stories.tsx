@@ -15,6 +15,7 @@ import { createMemoryHistory } from 'history'
 import React from 'react'
 import { Provider } from 'kea'
 import { initKea } from '~/initKea'
+import { EventType } from '~/types'
 
 export default {
     title: 'PostHog/Scenes/Insights/Funnel',
@@ -77,28 +78,37 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
                 ])
             )
         ),
-        rest.post('/api/insight/funnel/', (_, res, ctx) => {
-            return res(ctx.json(sampleSkewedFunnelResponse))
-        }),
-        rest.post<FunnelCorrelationRequest>('/api/insight/funnel/correlation/', (req, res, ctx) =>
+        rest.post('/api/projects/:projectId/insights/funnel/', (_, res, ctx) =>
+            res(ctx.json(sampleSkewedFunnelResponse))
+        ),
+        rest.post<FunnelCorrelationRequest>('/api/projects/:projectId/insights/funnel/correlation/', (req, res, ctx) =>
             req.body.funnel_correlation_type === 'properties'
                 ? res(ctx.json(samplePropertyCorrelationResponse))
                 : res(ctx.json(sampleEventCorrelationResponse))
-        ),
-        rest.get('/api/projects/:projectId/actions/?', (_, res, ctx) => res(ctx.json(sampleActions))),
-        rest.get('/api/insight/trend/', (_, res, ctx) => res(ctx.json(sampleInsights))),
-        rest.patch('/api/projects/:projectId/insights/', (_, res, ctx) => res(ctx.json(sampleInsights))),
-        // rest.get('/_preflight/', (_, res, ctx) => res(ctx.json({}))),
-        rest.get('/api/projects/@current/property_definitions/', (_, res, ctx) => res(ctx.json(sampleProperties))),
-        rest.get('/api/projects/@current/event_definitions/', (_, res, ctx) => res(ctx.json(sampleEvents))),
-        rest.get('/api/insight/471605/', (_, res, ctx) => res(ctx.json(sampleInsights)))
-        // rest.get('*', (_, res, ctx) => res(ctx.json({}))),
-        // rest.post('*', (_, res, ctx) => res(ctx.json({})))
+        )
     )
 
     const history = createMemoryHistory({
         initialEntries: [
-            '/insights?insight=FUNNELS&properties=%5B%5D&filter_test_accounts=false&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A1%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A2%7D%5D&actions=%5B%5D&funnel_viz_type=steps&display=FunnelViz&interval=day&new_entity=%5B%5D&date_from=-14dinsight=FUNNELS&actions=%5B%5D&events=%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%2C%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A1%7D%5D&display=FunnelViz&interval=day&properties=%5B%5D&funnel_viz_type=steps&exclusions=%5B%5D&funnel_from_step=0&funnel_to_step=1#fromItem=471605',
+            `/insights?${new URLSearchParams({
+                insight: 'FUNNELS',
+                properties: JSON.stringify([]),
+                filter_test_accounts: 'false',
+                events: JSON.stringify([
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 1 },
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 2 },
+                ]),
+                actions: JSON.stringify([]),
+                funnel_viz_type: 'steps',
+                display: 'FunnelViz',
+                interval: 'day',
+                new_entity: JSON.stringify([]),
+                date_from: '-14d',
+                exclusions: JSON.stringify([]),
+                funnel_from_step: '0',
+                funnel_to_step: '1',
+            })}#fromItem=`,
         ],
     })
 
@@ -106,6 +116,12 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
     history.pushState = history.push
     // @ts-ignore
     history.replaceState = history.replace
+
+    // This is data that is rendered into the html. I tried not to use this and just
+    // use the endoints, but it appears to be difficult to set this up to not have
+    // race conditions.
+    // @ts-ignore
+    window.POSTHOG_APP_CONTEXT = sampleContextData
 
     initKea({ routerHistory: history, routerLocation: history.location })
 
@@ -150,7 +166,7 @@ type FunnelCorrelationRequest = {
 type FunnelCorrelationResponse = {
     result: {
         events: {
-            event: string
+            event: Partial<EventType>
             odds_ratio: number
             success_count: number
             failure_count: number
@@ -167,21 +183,27 @@ const samplePropertyCorrelationResponse: FunnelCorrelationResponse = {
     result: {
         events: [
             {
-                event: '$geoip_country_code::IE',
+                event: {
+                    event: '$geoip_country_code::IE',
+                },
                 success_count: 65,
                 failure_count: 12,
                 odds_ratio: 9.709598031173092,
                 correlation_type: 'success',
             },
             {
-                event: '$os::Mac OS X',
+                event: {
+                    event: '$os::Mac OS X',
+                },
                 success_count: 1737,
                 failure_count: 1192,
                 odds_ratio: 4.267011809020293,
                 correlation_type: 'success',
             },
             {
-                event: '$browser::Firefox',
+                event: {
+                    event: '$browser::Firefox',
+                },
                 success_count: 382,
                 failure_count: 192,
                 odds_ratio: 4.048527814836648,
@@ -198,21 +220,27 @@ const sampleEventCorrelationResponse: FunnelCorrelationResponse = {
     result: {
         events: [
             {
-                event: 'person viewed',
+                event: {
+                    event: 'person viewed',
+                },
                 success_count: 59,
                 failure_count: 0,
                 odds_ratio: 114.75839475839476,
                 correlation_type: 'success',
             },
             {
-                event: 'select edition: clicked get started',
+                event: {
+                    event: 'select edition: clicked get started',
+                },
                 success_count: 42,
                 failure_count: 0,
                 odds_ratio: 81.86358695652174,
                 correlation_type: 'success',
             },
             {
-                event: 'insight viewed',
+                event: {
+                    event: 'insight viewed',
+                },
                 success_count: 396,
                 failure_count: 1300,
                 odds_ratio: 0.621617558628984,
@@ -305,88 +333,17 @@ const sampleSkewedFunnelResponse: FunnelResponse = {
     is_cached: true,
 }
 
-const sampleActions = {
-    results: [],
-}
-
-const sampleInsights = {
-    id: 471605,
-    short_id: 'e2q24fy7',
-    name: null,
-    filters: {
-        insight: 'FUNNELS',
-        actions: [],
-        events: [
-            { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
-            { id: '$pageview', name: '$pageview', type: 'events', order: 1 },
-        ],
-        display: 'FunnelViz',
-        interval: 'day',
-        properties: [],
-        funnel_viz_type: 'steps',
-        exclusions: [],
-        funnel_from_step: 0,
-        funnel_to_step: 1,
+// This is data that is rendered into the html. I tried not to use this and just
+// use the endoints, but it appears to be difficult to set this up to not have
+// race conditions.
+// NOTE: these are not complete according to type, but the minimum I could get away with
+const sampleContextData = {
+    current_team: {
+        id: 2,
     },
-    filters_hash: 'cache_fcaabdbdff7df6efe226521758a91832',
-    order: null,
-    deleted: false,
-    dashboard: null,
-    dive_dashboard: null,
-    layouts: {},
-    color: null,
-    last_refresh: null,
-    refreshing: false,
-    result: [
-        {
-            action_id: '$pageview',
-            name: '$pageview',
-            custom_name: null,
-            order: 0,
-            people: ['017cb1ec-5939-0000-262b-c1149bb3adbd'],
-            count: 9936,
-            type: 'events',
-            average_conversion_time: null,
-            median_conversion_time: null,
-        },
-        {
-            action_id: '$pageview',
-            name: '$pageview',
-            custom_name: null,
-            order: 1,
-            people: ['017cb1ec-5939-0000-262b-c1149bb3adbd'],
-            count: 8470,
-            type: 'events',
-            average_conversion_time: 3259.2458615695127,
-            median_conversion_time: 2.0,
-        },
-    ],
-    created_at: '2021-10-25T17:25:58.388607Z',
-    description: null,
-    updated_at: '2021-10-25T17:37:48.876139Z',
-    tags: [],
-    favorited: false,
-    saved: false,
-    created_by: {
-        id: 4973,
-        uuid: '017bbadc-f13d-0000-da28-c962b0a6d89f',
-        distinct_id: 'E6wBts6SmoYJOx1LXgfbYWkVoUaxlHqV03nHMoMCYvX',
-        first_name: 'Harry',
-        email: 'harry@posthog.com',
+    preflight: {
+        is_clickhouse_enabled: true,
     },
-    is_sample: false,
-}
-
-const sampleProperties = {
-    count: 11668,
-    next: null,
-    previous: null,
-    results: [],
-}
-
-const sampleEvents = {
-    count: 292,
-    next: null,
-    previous: null,
-    results: [],
+    default_event_name: '$pageview',
+    persisted_feature_flags: [],
 }

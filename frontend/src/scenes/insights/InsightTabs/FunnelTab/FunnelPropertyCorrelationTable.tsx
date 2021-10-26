@@ -231,8 +231,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 }
 
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
-    const { excludeProperty } = useActions(funnelLogic)
-    const { isSelected } = useValues(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
+    const { excludeProperty } = useActions(logic)
+    const { isSelected } = useValues(logic)
     const propertyName = (record.event?.event || '').split('::')[0]
 
     return (
