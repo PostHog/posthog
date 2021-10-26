@@ -13,7 +13,7 @@ import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
-import { appLogicType, noopLogicType } from './AppType'
+import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
@@ -60,8 +60,6 @@ export const appLogic = kea<appLogicType>({
     }),
 })
 
-const noopLogic = kea<noopLogicType>({})
-
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
@@ -83,7 +81,10 @@ export function App(): JSX.Element | null {
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
-    useMountedLogic(scene.logic?.(scene.paramsToProps?.(scene.sceneParams)) || noopLogic)
+    if (!scene.logic) {
+        throw new Error('Loading scene without a logic')
+    }
+    useMountedLogic(scene.logic(scene.paramsToProps?.(scene.sceneParams)))
     return null
 }
 
@@ -91,9 +92,11 @@ function LoadedSceneLogics(): JSX.Element {
     const { loadedScenes } = useValues(sceneLogic)
     return (
         <>
-            {Object.entries(loadedScenes).map(([key, loadedScene]) => (
-                <LoadedSceneLogic key={key} scene={loadedScene} />
-            ))}
+            {Object.entries(loadedScenes)
+                .filter(([, { logic }]) => !!logic)
+                .map(([key, loadedScene]) => (
+                    <LoadedSceneLogic key={key} scene={loadedScene} />
+                ))}
         </>
     )
 }
