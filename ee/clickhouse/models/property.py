@@ -5,9 +5,10 @@ from typing import (
     Counter,
     Dict,
     List,
+    Literal,
     Optional,
     Tuple,
-    cast, Literal,
+    cast,
 )
 
 from clickhouse_driver.util.escape import escape_param
@@ -254,7 +255,7 @@ def get_property_string_expr(
 
 
 def get_single_or_multi_property_string_expr(
-        breakdown, table: Literal["events", "person"], prop_var: str, identifier: str
+    breakdown, table: Literal["events", "person"], prop_var: str, identifier: str
 ):
     """
     When querying for breakdown properties:
@@ -265,9 +266,7 @@ def get_single_or_multi_property_string_expr(
     values are escaped and inserted in the query here instead of adding new items to the flat list of values
     """
     if isinstance(breakdown, str):
-        expression, _ = get_property_string_expr(
-            table, breakdown, escape_param(breakdown), prop_var
-        )
+        expression, _ = get_property_string_expr(table, breakdown, escape_param(breakdown), prop_var)
     else:
         expressions = []
         for i, b in enumerate(breakdown):
