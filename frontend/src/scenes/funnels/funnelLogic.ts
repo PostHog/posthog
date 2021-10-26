@@ -116,7 +116,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         hideSkewWarning: true,
 
-        setExcludedPropertyNames: (excludedPropertyNames: Set<string>) => ({ excludedPropertyNames }),
+        setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
         excludeProperty: (propertyName: string) => ({ propertyName }),
     }),
 
@@ -194,18 +194,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 },
             },
         ],
-        excludedPropertyNames: [
-            new Set([]) as Set<string>,
-            {
-                loadExcludedPropertyNames: async () => {
-                    const excludedPropertyNamesJson = window.localStorage.getItem('excludedPropertyNames')
-                    if (excludedPropertyNamesJson) {
-                        return JSON.parse(excludedPropertyNamesJson)
-                    }
-                    return new Set()
-                },
-            },
-        ],
     }),
 
     reducers: ({ props }) => ({
@@ -277,11 +265,14 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         },
         excludedPropertyNames: [
-            new Set([]) as Set<string>,
+            [] as string[],
+            {
+                persist: true,
+            },
             {
                 setExcludedPropertyNames: (_, { excludedPropertyNames }) => excludedPropertyNames,
                 excludeProperty: (excludedPropertyNames, { propertyName }) =>
-                    new Set([...Array.from(excludedPropertyNames), propertyName]),
+                    Array.from(new Set([...excludedPropertyNames, propertyName])),
             },
         ],
     }),
@@ -833,7 +824,8 @@ export const funnelLogic = kea<funnelLogicType>({
 
         isSelected: [
             () => [selectors.excludedPropertyNames],
-            (excludedPropertyNames: Set<string>) => (propertyName: string) => excludedPropertyNames.has(propertyName),
+            (excludedPropertyNames) => (propertyName: string) =>
+                excludedPropertyNames.find((name) => name === propertyName) !== undefined,
         ],
     }),
 
