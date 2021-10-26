@@ -33,7 +33,7 @@ function elementsToAction(elements: ElementType[]): ActionStepType {
 
 export async function createActionFromEvent(
     teamId: TeamType['id'],
-    event: Pick<EventType, 'elements' | 'properties' | 'event'>,
+    event: EventType,
     increment: number,
     recurse: typeof createActionFromEvent = createActionFromEvent
 ): Promise<void> {
