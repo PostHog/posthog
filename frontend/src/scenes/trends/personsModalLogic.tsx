@@ -293,7 +293,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     name: cohortName,
                 }
                 const cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortParams)
-                cohortsModel.actions.createCohort(cohort)
+                cohortsModel.actions.cohortCreated(cohort)
                 toast.success(
                     <div data-attr="success-toast">
                         <h1>Cohort saved successfully!</h1>

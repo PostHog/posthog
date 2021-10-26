@@ -152,7 +152,7 @@ export const cohortLogic = kea<cohortLogicType>({
                     cohortsModel.actions.updateCohort(cohort)
                 } else {
                     cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
-                    cohortsModel.actions.createCohort(cohort)
+                    cohortsModel.actions.cohortCreated(cohort)
                 }
             } catch (error) {
                 errorToast(
