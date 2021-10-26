@@ -50,7 +50,7 @@ export const PropertyNamesSelectBox = ({
 }): JSX.Element => {
     const {
         // popover actions/values
-        isOpen: isSearchOpen,
+        isPopoverOpen: isSearchOpen,
 
         // selection actions/values
         selectedProperties,
@@ -59,8 +59,8 @@ export const PropertyNamesSelectBox = ({
 
     const {
         // popover actions/values
-        toggle,
-        setTriggerElement,
+        togglePopover,
+        setPopoverTriggerElement,
 
         // selection actions/values
         selectAll,
@@ -68,7 +68,7 @@ export const PropertyNamesSelectBox = ({
     } = useActions(propertySelectLogic)
 
     return (
-        <div className="property-names-select-container" onClick={toggle} ref={setTriggerElement}>
+        <div className="property-names-select-container" onClick={togglePopover} ref={setPopoverTriggerElement}>
             <div className="property-names-select" role="combobox">
                 {properties ? (
                     <>

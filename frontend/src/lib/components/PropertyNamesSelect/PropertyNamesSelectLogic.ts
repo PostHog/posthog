@@ -17,10 +17,10 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
     key: (props) => props.propertySelectLogicKey,
 
     actions: {
-        setTriggerElement: (triggerElement: HTMLElement | null) => ({ triggerElement }),
-        hide: true,
-        open: true,
-        toggle: true,
+        setPopoverTriggerElement: (triggerElement: HTMLElement | null) => ({ triggerElement }),
+        hidePopover: true,
+        openPopover: true,
+        togglePopover: true,
 
         setSelectedProperties: (newSelectedProperties: string[]) => ({
             newSelectedProperties: new Set(newSelectedProperties),
@@ -34,17 +34,17 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
     },
 
     reducers: ({ props }) => ({
-        isOpen: [
+        isPopoverOpen: [
             false,
             {
-                hide: () => false,
-                open: () => true,
+                hidePopover: () => false,
+                openPopover: () => true,
             },
         ],
-        triggerElement: [
+        popoverTriggerElement: [
             null as HTMLElement | null,
             {
-                setTriggerElement: (_, { triggerElement }) => triggerElement,
+                setPopoverTriggerElement: (_, { triggerElement }) => triggerElement,
             },
         ],
 
@@ -117,12 +117,12 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         afterMount: () => {
             cache.checkIfClickedOutside = (event: MouseEvent): void => {
                 if (
-                    values.isOpen &&
-                    values.triggerElement &&
+                    values.isPopoverOpen &&
+                    values.popoverTriggerElement &&
                     event.target instanceof Node &&
-                    !values.triggerElement.contains(event.target)
+                    !values.popoverTriggerElement.contains(event.target)
                 ) {
-                    actions.hide()
+                    actions.hidePopover()
                 }
             }
             document.addEventListener('mousedown', cache.checkIfClickedOutside)
@@ -133,14 +133,14 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
     }),
 
     listeners: ({ props, values, actions }) => ({
-        toggle: () => {
-            if (values.isOpen) {
-                actions.hide()
+        togglePopover: () => {
+            if (values.isPopoverOpen) {
+                actions.hidePopover()
             } else {
-                actions.open()
+                actions.openPopover()
             }
         },
-        hide: () => {
+        hidePopover: () => {
             // When the popover is hidden, we want to notify onChange with the
             // current selected properties
             if (props.onChange) {
