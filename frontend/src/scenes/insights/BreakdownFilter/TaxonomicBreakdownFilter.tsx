@@ -40,6 +40,10 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
         featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] &&
         preflight?.is_clickhouse_enabled //breakdown is not available on postgres anyway but for completeness is checked here
 
+    if (!multiPropertyBreakdownIsEnabled && Array.isArray(breakdown)) {
+        setFilters({ breakdown: breakdown[0], breakdown_type })
+    }
+
     const tags = breakdownArray
         .filter((b): b is string | number => !!b)
         .map((t, index) => {
