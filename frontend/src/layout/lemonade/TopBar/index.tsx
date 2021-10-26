@@ -31,7 +31,7 @@ export function TopBar(): JSX.Element {
                     <SearchBox />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    <HelpButton withCaret />
+                    <HelpButton withCaret placement="bottomRight" />
                     <AccountControl />
                 </div>
             </header>
