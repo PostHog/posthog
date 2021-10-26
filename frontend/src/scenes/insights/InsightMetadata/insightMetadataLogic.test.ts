@@ -127,7 +127,7 @@ describe('insightMetadataLogic', () => {
                     .toDispatchActions(insightLogic, [
                         insightLogic({ dashboardItemId: undefined }).actionCreators.setInsight(
                             { name: insight.name },
-                            true
+                            { shouldMergeWithExisting: true }
                         ),
                     ])
                     .toDispatchActions(logic, [

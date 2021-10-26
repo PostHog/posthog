@@ -311,7 +311,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         0
                     )
                 }
-                return people.sort((a, b) => score(b) - score(a))
+                return [...people].sort((a, b) => score(b) - score(a))
             },
         ],
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],

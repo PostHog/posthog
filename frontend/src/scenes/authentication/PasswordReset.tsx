@@ -12,6 +12,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { passwordResetLogic } from './passwordResetLogic'
 import { router } from 'kea-router'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: PasswordReset,
+    logic: passwordResetLogic,
+}
 
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)

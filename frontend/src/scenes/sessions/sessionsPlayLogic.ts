@@ -250,7 +250,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                     color: 'orange',
                 }))
 
-                return pageChangeEvents.concat(highlightedEvents).sort((a, b) => a.playerTime - b.playerTime)
+                return [...pageChangeEvents, ...highlightedEvents].sort((a, b) => a.playerTime - b.playerTime)
             },
         ],
     },
