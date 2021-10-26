@@ -51,6 +51,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -159,7 +160,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
-                            // Name is comma separated list of property names
+                            funnel_correlation_names: ['$all'],
                             funnel_correlation_exclude_names: excludedPropertyNames.map((name: string) => name.trim()),
                         })
                     ).result?.events
@@ -271,8 +272,6 @@ export const funnelLogic = kea<funnelLogicType>({
             },
             {
                 setExcludedPropertyNames: (_, { excludedPropertyNames }) => excludedPropertyNames,
-                excludeProperty: (excludedPropertyNames, { propertyName }) =>
-                    Array.from(new Set([...excludedPropertyNames, propertyName])),
             },
         ],
     }),
@@ -963,6 +962,10 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
+        },
+
+        excludeProperty: async ({ propertyName }) => {
+            actions.setExcludedPropertyNames([...values.excludedPropertyNames, propertyName])
         },
 
         setExcludedPropertyNames: async ({ excludedPropertyNames }) => {
