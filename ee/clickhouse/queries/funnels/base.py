@@ -1,23 +1,12 @@
 from abc import ABC
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Union,
-    cast,
-)
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import (
-    parse_prop_clauses,
-    get_single_or_multi_property_string_expr,
-)
+from ee.clickhouse.models.property import get_single_or_multi_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
@@ -299,7 +288,12 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         steps = ", ".join(all_step_cols)
 
-        select_prop = f", {self._get_breakdown_select_prop()}"
+        breakdown_select_prop = self._get_breakdown_select_prop()
+        if len(breakdown_select_prop) > 0:
+            select_prop = f", {breakdown_select_prop}"
+        else:
+            select_prop = ""
+
         extra_conditions = ""
         extra_join = ""
 
@@ -462,9 +456,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                     self._filter.breakdown, "person", "person_props", "prop"
                 )
             elif self._filter.breakdown_type == "event":
-                return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, "events", "properties", "prop"
-                )
+                return get_single_or_multi_property_string_expr(self._filter.breakdown, "events", "properties", "prop")
             elif self._filter.breakdown_type == "cohort":
                 return "value AS prop"
 
