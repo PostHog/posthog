@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Row, Table } from 'antd'
+import { Button, Col, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
@@ -237,8 +237,8 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
     const propertyName = (record.event?.event || '').split('::')[0]
 
     return (
-        <button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)}>
+        <Button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)}>
             Exclude property
-        </button>
+        </Button>
     )
 }
