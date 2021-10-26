@@ -3,6 +3,27 @@
 #
 # Note: for 'posthog/posthog-cloud' remember to update 'prod.web.Dockerfile' as appropriate
 #
+
+# Build the frontend separately, to take advantage of better caching, and
+# removing unnecessary backend build dependencies allowing for parallel building
+FROM node:14.18.1-alpine3.14 AS frontend
+
+WORKDIR /code
+
+COPY webpack.config.js package.json yarn.lock ./
+COPY frontend frontend
+
+# Build the frontend
+#
+# Note: we run the final install + build as a separate actions to increase
+# the cache hit ratio of the layers above.
+RUN yarn install --frozen-lockfile --ignore-optional && \
+    yarn build && \
+    yarn cache clean && \
+    rm -rf node_modules
+
+
+# Build the image that will actually be used for production deployment
 FROM python:3.8-alpine3.14
 
 ENV PYTHONUNBUFFERED 1
@@ -61,21 +82,14 @@ RUN apk --update --no-cache --virtual .build-deps add \
     && \
     apk del .build-deps
 
-# Compile and install Yarn dependencies.
-#
-# Notes:
-#
-# - we explicitly COPY the files so that we don't need to rebuild
-#   the container every time a dependency changes
-#
-# - we need few additional OS packages for this. Let's install
-#   and then uninstall them when the compilation is completed.
-COPY package.json yarn.lock plugins/package.json plugins/yarn.lock ./
+# Install plugin-server package, which will be run in the same container by
+# default. Note that we handle frontend build in a separate docker multistage
+# build stage
+COPY plugins/package.json plugins/yarn.lock ./
 RUN apk --update --no-cache --virtual .build-deps add \
     "gcc~=10.3" \
     && \
     yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile --ignore-optional && \
     yarn install --frozen-lockfile --ignore-optional --cwd plugins && \
     yarn cache clean \
     && \
@@ -84,14 +98,8 @@ RUN apk --update --no-cache --virtual .build-deps add \
 # Copy everything else
 COPY . .
 
-# Build the frontend
-#
-# Note: we run the final install + build as a separate actions to increase
-# the cache hit ratio of the layers above.
-RUN yarn install --frozen-lockfile --ignore-optional && \
-    yarn build && \
-    yarn cache clean && \
-    rm -rf node_modules
+# Copy frontend
+COPY --from=frontend frontend/dist frontend/dist
 
 # Generate Django's static files
 RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
