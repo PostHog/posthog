@@ -79,7 +79,7 @@ def get_breakdown_prop_values(
 
 def _to_value_expression(
     breakdown_type: Union[Literal["event", "person", "cohort"], None],
-    breakdown: Union[str, list[Union[str, int]], None],
+    breakdown: Union[str, List[Union[str, int]], None],
 ) -> str:
     if breakdown_type == "person":
         return get_single_or_multi_property_string_expr(breakdown, "person", "person_props", "value")
