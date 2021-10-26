@@ -69,8 +69,6 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     const isDownloadCsvAvailable = view === ViewType.TRENDS
     const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
 
-    console.log(peopleParams?.action)
-
     return (
         <Modal
             title={title}
