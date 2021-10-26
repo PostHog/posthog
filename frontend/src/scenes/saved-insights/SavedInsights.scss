@@ -51,6 +51,14 @@
         border: 1px solid $border;
         border-radius: 4px;
         padding: 8px;
+
+        .icon-column {
+            width: 32px;
+            padding-right: 0;
+            svg {
+                display: block;
+            }
+        }
     }
 
     .ant-tabs-nav-wrap {
