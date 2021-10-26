@@ -155,6 +155,7 @@
 
     .ant-dropdown-menu-item {
         margin: 6px;
+        padding: 6px;
         border-radius: 2px;
         &.ant-dropdown-menu-item-active {
             background: hsla(220, 100%, 96%, 1);
@@ -162,8 +163,7 @@
         .ant-row.icon-menu {
             flex-flow: row;
             .ant-col:first-child {
-                min-width: 30px;
-                padding-top: 3px;
+                min-width: 38px;
             }
         }
     }

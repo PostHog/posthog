@@ -14,7 +14,6 @@ import {
     UnorderedListOutlined,
     AppstoreFilled,
     EllipsisOutlined,
-    CalendarOutlined,
     ArrowDownOutlined,
     MenuOutlined,
     CaretDownFilled,
@@ -37,6 +36,7 @@ import {
     InsightsLifecycleIcon,
     InsightsPathsIcon,
     InsightsRetentionIcon,
+    InsightsSessionsIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
 } from 'lib/components/icons'
@@ -46,53 +46,53 @@ const { TabPane } = Tabs
 
 interface InsightType {
     type: string
-    description: string
-    icon: JSX.Element
+    description?: string
+    icon?: JSX.Element
     inMenu: boolean
 }
 
 const insightTypes: InsightType[] = [
-    { type: 'All types', description: '', icon: <></>, inMenu: false },
+    { type: 'All types', inMenu: false },
     {
         type: 'Trends',
         description: 'Understand how users are spending their time in your product',
-        icon: <InsightsTrendsIcon />,
+        icon: <InsightsTrendsIcon color="#747EA2" noBackground />,
         inMenu: true,
     },
     {
         type: 'Funnels',
         description: 'Visualize completion and dropoff between events',
-        icon: <InsightsFunnelsIcon />,
+        icon: <InsightsFunnelsIcon color="#747EA2" noBackground />,
         inMenu: true,
     },
     {
         type: 'Sessions',
         description: 'Understand how users are spending their time in your product',
-        icon: <CalendarOutlined />,
+        icon: <InsightsSessionsIcon color="#747EA2" noBackground />,
         inMenu: false,
     },
     {
         type: 'Retention',
         description: 'Visualize how many users return on subsequent days after a session',
-        icon: <InsightsRetentionIcon />,
+        icon: <InsightsRetentionIcon color="#747EA2" noBackground />,
         inMenu: true,
     },
     {
         type: 'Paths',
         description: 'Understand how traffic is flowing through your product',
-        icon: <InsightsPathsIcon />,
+        icon: <InsightsPathsIcon color="#747EA2" noBackground />,
         inMenu: true,
     },
     {
         type: 'Stickiness',
         description: 'See how many days users performed an action within a timeframe',
-        icon: <InsightsStickinessIcon />,
+        icon: <InsightsStickinessIcon color="#747EA2" noBackground />,
         inMenu: true,
     },
     {
         type: 'Lifecycle',
         description: 'See new, resurrected, returning, and dormant users',
-        icon: <InsightsLifecycleIcon />,
+        icon: <InsightsLifecycleIcon color="#747EA2" noBackground />,
         inMenu: true,
     },
 ]
@@ -339,8 +339,22 @@ export function SavedInsights(): JSX.Element {
                     >
                         {insightTypes.map((insight: InsightType, index) => (
                             <Select.Option key={index} value={insight.type}>
-                                {insight.icon}
-                                <span style={{ paddingLeft: 8 }}>{insight.type}</span>
+                                <div style={{ display: 'flex' }}>
+                                    {insight.icon ? (
+                                        <span
+                                            style={{
+                                                display: 'inline-block',
+                                                marginTop: -6,
+                                                marginBottom: -8,
+                                                marginLeft: -5,
+                                                marginRight: 3,
+                                            }}
+                                        >
+                                            {insight.icon}
+                                        </span>
+                                    ) : null}
+                                    <span>{insight.type}</span>
+                                </div>
                             </Select.Option>
                         ))}
                     </Select>
