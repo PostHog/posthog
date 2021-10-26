@@ -77,25 +77,36 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     def test_no_key(self):
-        response = self.client.get("/api/dashboard/")
-        self.assertEqual(response.status_code, 403)
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "not_authenticated",
+                "detail": "Authentication credentials were not provided.",
+                "type": "authentication_error",
+            },
+        )
 
     def test_header_resilient(self):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get("/api/dashboard/", HTTP_AUTHORIZATION=f"Bearer  {key.value}  ")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer  {key.value}  "
+        )
         self.assertEqual(response.status_code, 200)
 
     def test_query_string(self):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get(f"/api/dashboard/?personal_api_key={key.value}")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?personal_api_key={key.value}")
         self.assertEqual(response.status_code, 200)
 
     def test_body(self):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get("/api/dashboard/", {"personal_api_key": key.value})
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/", {"personal_api_key": key.value})
         self.assertEqual(response.status_code, 200)
 
     def test_user_not_active(self):

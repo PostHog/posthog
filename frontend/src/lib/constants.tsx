@@ -226,7 +226,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 
 export const FEATURE_FLAGS = {
     // Cloud-only
-    PAPERCUPS_ENABLED: 'papercups-enabled',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features

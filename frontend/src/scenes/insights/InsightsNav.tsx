@@ -128,11 +128,7 @@ export function InsightsNav(): JSX.Element {
                         <Tooltip
                             placement="top"
                             title={
-                                <>
-                                    Lifecycle will show you new, resurrected, returning and dormant users so you
-                                    understand how your user base is composed. This can help you understand where your
-                                    user growth is coming from.
-                                </>
+                                <>Understand growth by breaking down new, resurrected, returning, and dormant users.</>
                             }
                             data-attr="insight-lifecycle-tab"
                         >

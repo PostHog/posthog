@@ -43,6 +43,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 import { TopBar } from '../lemonade/TopBar'
+import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -353,6 +354,7 @@ function TopNavigationOriginal(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
+                <HelpButton />
                 {user && (
                     <>
                         <Dropdown
