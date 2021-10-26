@@ -2130,11 +2130,53 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             )
 
         def test_breakdown_by_property_pie(self):
-            self._create_multiple_people()
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"])
+            event_factory(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person1",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"fake_prop": "value_1"},
+            )
+
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            event_factory(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"fake_prop": "value_1"},
+            )
+            event_factory(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"fake_prop": "value_2"},
+            )
+
+            person3 = person_factory(team_id=self.team.pk, distinct_ids=["person3"])
+            event_factory(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person3",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"fake_prop": "value_1"},
+            )
+
+            person4 = person_factory(team_id=self.team.pk, distinct_ids=["person4"])
+            event_factory(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person4",
+                timestamp="2020-01-05T12:00:00Z",
+                properties={"fake_prop": "value_1"},
+            )
+
             with freeze_time("2020-01-04T13:01:01Z"):
                 data = {
                     "date_from": "-14d",
-                    "breakdown": "order",
+                    "breakdown": "fake_prop",
                     "breakdown_type": "event",
                     "display": "ActionsPie",
                     "events": [
@@ -2144,17 +2186,18 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event_response = trends().run(Filter(data=data), self.team,)
                 event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
-                data.update({"breakdown_value": "1"})
-                people = self._get_trend_people(
-                    Filter(data=data), Entity({"id": "watched movie", "type": "events", "math": "dau"})
-                )
+                entity = Entity({"id": "watched movie", "type": "events", "math": "dau"})
+                data.update({"breakdown_value": "value_1"})
+                people = self._get_trend_people(Filter(data=data), entity)
                 self.assertEqual(len(people), 3)
-
-                data.update({"breakdown_value": "2"})
-                people = self._get_trend_people(
-                    Filter(data=data), Entity({"id": "watched movie", "type": "events", "math": "dau"})
+                self.assertListEqual(
+                    sorted([person["id"] for person in people]), sorted([person1.uuid, person2.uuid, person3.uuid])
                 )
-                self.assertEqual(len(people), 2)
+
+                data.update({"breakdown_value": "value_2"})
+                people = self._get_trend_people(Filter(data=data), entity)
+                self.assertEqual(len(people), 1)
+                self.assertListEqual([person["id"] for person in people], [person2.uuid])
 
         @test_with_materialized_columns(person_properties=["name"])
         def test_breakdown_by_person_property_pie(self):
