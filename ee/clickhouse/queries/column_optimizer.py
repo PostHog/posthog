@@ -83,7 +83,8 @@ class ColumnOptimizer:
                 counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
             elif isinstance(self.filter.breakdown, List):
                 for b in self.filter.breakdown:
-                    counter[(b, self.filter.breakdown_type)] += 1
+                    if isinstance(b, str):
+                        counter[(b, self.filter.breakdown_type)] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
