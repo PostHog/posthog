@@ -14,11 +14,6 @@ import {
     UnorderedListOutlined,
     AppstoreFilled,
     EllipsisOutlined,
-    LineChartOutlined,
-    BarChartOutlined,
-    PartitionOutlined,
-    TableOutlined,
-    CalendarOutlined,
     ArrowDownOutlined,
     MenuOutlined,
     CaretDownFilled,
@@ -36,19 +31,71 @@ import dayjs from 'dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
+import {
+    InsightsFunnelsIcon,
+    InsightsLifecycleIcon,
+    InsightsPathsIcon,
+    InsightsRetentionIcon,
+    InsightsSessionsIcon,
+    InsightsStickinessIcon,
+    InsightsTrendsIcon,
+} from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 
 const { TabPane } = Tabs
 
 interface InsightType {
     type: string
+    description?: string
     icon?: JSX.Element
+    inMenu: boolean
 }
 
-export interface InsightItem {
-    type: string
-    description: string
-}
+const insightTypes: InsightType[] = [
+    { type: 'All types', inMenu: false },
+    {
+        type: 'Trends',
+        description: 'Understand how users are spending their time in your product',
+        icon: <InsightsTrendsIcon color="#747EA2" noBackground />,
+        inMenu: true,
+    },
+    {
+        type: 'Funnels',
+        description: 'Visualize completion and dropoff between events',
+        icon: <InsightsFunnelsIcon color="#747EA2" noBackground />,
+        inMenu: true,
+    },
+    {
+        type: 'Sessions',
+        description: 'Understand how users are spending their time in your product',
+        icon: <InsightsSessionsIcon color="#747EA2" noBackground />,
+        inMenu: false,
+    },
+    {
+        type: 'Retention',
+        description: 'Visualize how many users return on subsequent days after a session',
+        icon: <InsightsRetentionIcon color="#747EA2" noBackground />,
+        inMenu: true,
+    },
+    {
+        type: 'Paths',
+        description: 'Understand how traffic is flowing through your product',
+        icon: <InsightsPathsIcon color="#747EA2" noBackground />,
+        inMenu: true,
+    },
+    {
+        type: 'Stickiness',
+        description: 'See how many days users performed an action within a timeframe',
+        icon: <InsightsStickinessIcon color="#747EA2" noBackground />,
+        inMenu: true,
+    },
+    {
+        type: 'Lifecycle',
+        description: 'See new, resurrected, returning, and dormant users',
+        icon: <InsightsLifecycleIcon color="#747EA2" noBackground />,
+        inMenu: true,
+    },
+]
 
 export const scene: SceneExport = {
     component: SavedInsights,
@@ -74,16 +121,7 @@ export function SavedInsights(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
     const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo } = filters
-    const insightTypes: InsightType[] = [
-        { type: 'All types' },
-        { type: 'Trends', icon: <LineChartOutlined /> },
-        { type: 'Funnels', icon: <BarChartOutlined /> },
-        { type: 'Retention', icon: <TableOutlined /> },
-        { type: 'Paths', icon: <PartitionOutlined /> },
-        { type: 'Sessions', icon: <CalendarOutlined /> },
-        { type: 'Stickiness', icon: <LineChartOutlined /> },
-        { type: 'Lifecycle', icon: <BarChartOutlined /> },
-    ]
+
     const pageLimit = 15
     const paginationCount = (): number => {
         if (!previousResult) {
@@ -241,46 +279,33 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
-    const menuItems: InsightItem[] = [
-        { type: 'Trends', description: 'Visualize how actions or events are varying over time' },
-        { type: 'Funnels', description: 'Visualize completion and dropoff between events' },
-        { type: 'Sessions', description: 'Understand how users are spending their time in your product' },
-        { type: 'Retention', description: 'Visualize how many users return on subsequent days after a session' },
-        { type: 'Paths', description: 'Understand how traffic is flowing through your product' },
-        { type: 'Stickiness', description: 'See how many days users performed an action within a timeframe' },
-        { type: 'Lifecycle', description: 'See new, resurrected, returning, and dormant users' },
-    ]
-
     return (
         <div className="saved-insights">
             <Row style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <PageHeader title={'Insights'} />
                 <Dropdown
                     overlay={
-                        <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
-                            {menuItems.map((menuItem: InsightItem) => (
-                                <Menu.Item
-                                    onClick={() => {
-                                        addGraph(menuItem.type)
-                                    }}
-                                    style={{ margin: 8 }}
-                                    key={menuItem.type}
-                                >
-                                    <Col>
-                                        <span style={{ fontWeight: 600 }}>{menuItem.type}</span>
-                                        <p className="text-muted" style={{ whiteSpace: 'break-spaces' }}>
-                                            {menuItem.description}
-                                        </p>
-                                    </Col>
-                                </Menu.Item>
-                            ))}
+                        <Menu className="saved-insights-menu">
+                            {insightTypes
+                                .filter((i) => i.inMenu)
+                                .map((menuItem) => (
+                                    <Menu.Item onClick={() => addGraph(menuItem.type)} key={menuItem.type}>
+                                        <Row className="icon-menu">
+                                            <Col>{menuItem.icon}</Col>
+                                            <Col>
+                                                <strong>{menuItem.type}</strong>
+                                                <p>{menuItem.description}</p>
+                                            </Col>
+                                        </Row>
+                                    </Menu.Item>
+                                ))}
                         </Menu>
                     }
                     trigger={['click']}
                 >
-                    <a className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
+                    <button className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
                         New Insight <CaretDownFilled style={{ paddingLeft: 12 }} />
-                    </a>
+                    </button>
                 </Dropdown>
             </Row>
 
@@ -314,8 +339,22 @@ export function SavedInsights(): JSX.Element {
                     >
                         {insightTypes.map((insight: InsightType, index) => (
                             <Select.Option key={index} value={insight.type}>
-                                {insight.icon}
-                                <span style={{ paddingLeft: 8 }}>{insight.type}</span>
+                                <div style={{ display: 'flex' }}>
+                                    {insight.icon ? (
+                                        <span
+                                            style={{
+                                                display: 'inline-block',
+                                                marginTop: -6,
+                                                marginBottom: -8,
+                                                marginLeft: -5,
+                                                marginRight: 3,
+                                            }}
+                                        >
+                                            {insight.icon}
+                                        </span>
+                                    ) : null}
+                                    <span>{insight.type}</span>
+                                </div>
                             </Select.Option>
                         ))}
                     </Select>
@@ -427,12 +466,6 @@ export function SavedInsights(): JSX.Element {
                                                 loadInsights()
                                             }}
                                             dashboardMode={null}
-                                            onClick={() => {
-                                                const _type = getDisplayedType(insight.filters)
-                                                if (_type) {
-                                                    window.open(displayMap[_type].link(insight))
-                                                }
-                                            }}
                                             index={index}
                                             isOnEditMode={false}
                                             footer={
