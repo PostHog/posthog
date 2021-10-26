@@ -276,6 +276,9 @@ def get_single_or_multi_property_string_expr(
         if len(expressions) == 1:
             expression = expressions[0]
         else:
+            # expression = f"array({','.join(expressions)})"
+            # once the API can break to return more than one value
+            # we can replace concat below with the array query above
             delimiter = ", '::', "
             expression = f"concat({delimiter.join(expressions)})"
     return f"{expression} AS {identifier}"

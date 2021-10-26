@@ -398,196 +398,180 @@ def funnel_breakdown_by_multi_property_test_factory(
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari::15"), [])
             self.assertCountEqual(self._get_people_at_step(filter, 3, "Safari::15"), [])
 
-        # @test_with_materialized_columns(["$browser"])
-        # def test_funnel_step_breakdown_event_with_other(self):
-        #
-        #     filters = {
-        #         "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "date_from": "2020-01-01",
-        #         "date_to": "2020-01-08",
-        #         "funnel_window_days": 7,
-        #         "breakdown_type": "event",
-        #         "breakdown": "$browser",
-        #         "breakdown_limit": 1,
-        #     }
-        #
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-        #
-        #     # event
-        #     person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person1",
-        #         properties={"key": "val", "$browser": "Chrome"},
-        #         timestamp="2020-01-01T12:00:00Z",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="play movie",
-        #         distinct_id="person1",
-        #         properties={"key": "val", "$browser": "Chrome"},
-        #         timestamp="2020-01-01T13:00:00Z",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="buy",
-        #         distinct_id="person1",
-        #         properties={"key": "val", "$browser": "Chrome"},
-        #         timestamp="2020-01-01T15:00:00Z",
-        #     )
-        #
-        #     person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person2",
-        #         properties={"key": "val", "$browser": "Safari"},
-        #         timestamp="2020-01-02T14:00:00Z",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="play movie",
-        #         distinct_id="person2",
-        #         properties={"key": "val", "$browser": "Safari"},
-        #         timestamp="2020-01-02T16:00:00Z",
-        #     )
-        #
-        #     person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person3",
-        #         properties={"key": "val", "$browser": "Safari"},
-        #         timestamp="2020-01-02T14:00:00Z",
-        #     )
-        #
-        #     person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person4",
-        #         properties={"key": "val", "$browser": "random"},
-        #         timestamp="2020-01-02T14:00:00Z",
-        #     )
-        #
-        #     person5 = _create_person(distinct_ids=["person5"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person5",
-        #         properties={"key": "val", "$browser": "another one"},
-        #         timestamp="2020-01-02T15:00:00Z",
-        #     )
-        #
-        #     result = funnel.run()
-        #
-        #     people = result[0][0].pop("people")
-        #     self.assertCountEqual(
-        #         people, [person1.uuid, person4.uuid, person5.uuid] if Funnel == ClickhouseFunnel else []
-        #     )
-        #
-        #     self.assertEqual(
-        #         result[0],
-        #         [
-        #             {
-        #                 "action_id": "sign up",
-        #                 "name": "sign up",
-        #                 "custom_name": None,
-        #                 "order": 0,
-        #                 # popped people because flakey ordering for assertEqual
-        #                 "count": 3,
-        #                 "type": "events",
-        #                 "average_conversion_time": None,
-        #                 "median_conversion_time": None,
-        #                 "breakdown": "Other",
-        #                 "breakdown_value": "Other",
-        #             },
-        #             {
-        #                 "action_id": "play movie",
-        #                 "name": "play movie",
-        #                 "custom_name": None,
-        #                 "order": 1,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
-        #                 "count": 1,
-        #                 "type": "events",
-        #                 "average_conversion_time": 3600.0,
-        #                 "median_conversion_time": 3600.0,
-        #                 "breakdown": "Other",
-        #                 "breakdown_value": "Other",
-        #             },
-        #             {
-        #                 "action_id": "buy",
-        #                 "name": "buy",
-        #                 "custom_name": None,
-        #                 "order": 2,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
-        #                 "count": 1,
-        #                 "type": "events",
-        #                 "average_conversion_time": 7200.0,
-        #                 "median_conversion_time": 7200.0,
-        #                 "breakdown": "Other",
-        #                 "breakdown_value": "Other",
-        #             },
-        #         ],
-        #     )
-        #     self.assertCountEqual(
-        #         self._get_people_at_step(filter, 1, "Other"), [person1.uuid, person4.uuid, person5.uuid]
-        #     )
-        #     self.assertCountEqual(self._get_people_at_step(filter, 2, "Other"), [person1.uuid])
-        #
-        #     self.assertEqual(
-        #         result[1],
-        #         [
-        #             {
-        #                 "action_id": "sign up",
-        #                 "name": "sign up",
-        #                 "custom_name": None,
-        #                 "order": 0,
-        #                 "people": [person2.uuid, person3.uuid]
-        #                 if Funnel == ClickhouseFunnel
-        #                 else [],  # backwards compatibility
-        #                 "count": 2,
-        #                 "type": "events",
-        #                 "average_conversion_time": None,
-        #                 "median_conversion_time": None,
-        #                 "breakdown": "Safari",
-        #                 "breakdown_value": "Safari",
-        #             },
-        #             {
-        #                 "action_id": "play movie",
-        #                 "name": "play movie",
-        #                 "custom_name": None,
-        #                 "order": 1,
-        #                 "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
-        #                 "count": 1,
-        #                 "type": "events",
-        #                 "average_conversion_time": 7200.0,
-        #                 "median_conversion_time": 7200.0,
-        #                 "breakdown": "Safari",
-        #                 "breakdown_value": "Safari",
-        #             },
-        #             {
-        #                 "action_id": "buy",
-        #                 "name": "buy",
-        #                 "custom_name": None,
-        #                 "order": 2,
-        #                 "people": [],
-        #                 "count": 0,
-        #                 "type": "events",
-        #                 "average_conversion_time": None,
-        #                 "median_conversion_time": None,
-        #                 "breakdown": "Safari",
-        #                 "breakdown_value": "Safari",
-        #             },
-        #         ],
-        #     )
-        #
-        #     self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
-        #     self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
-        #
+        @test_with_materialized_columns(["$browser"])
+        def test_funnel_step_breakdown_event_with_other(self):
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+                "breakdown_limit": 1,
+            }
+
+            filter = Filter(data=filters)
+            funnel = clickhouse_funnel(filter, self.team)
+
+            # event
+            person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person1",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                [("$browser", "Chrome"), ("$browser_version", "95")],
+            )
+
+            person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person2",
+                [{"event": "sign up", "day": 2, "hour": 14}, {"event": "play movie", "day": 2, "hour": 16},],
+                [("$browser", "Safari"), ("$browser_version", "15")],
+            )
+
+            person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person3",
+                [{"event": "sign up", "day": 2, "hour": 14},],
+                [("$browser", "Safari"), ("$browser_version", "15")],
+            )
+
+            person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person4",
+                [{"event": "sign up", "day": 2, "hour": 14},],
+                [("$browser", "random"), ("$browser_version", "random")],
+            )
+            person5 = _create_person(distinct_ids=["person5"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="person5",
+                properties={"key": "val", "$browser": "another one"},
+                timestamp="2020-01-02T15:00:00Z",
+            )
+            self.a_journey_for(
+                "person5",
+                [{"event": "sign up", "day": 2, "hour": 15},],
+                [("$browser", "another one"), ("$browser_version", "another one")],
+            )
+            result = funnel.run()
+
+            people = result[0][0].pop("people")
+            self.assertCountEqual(
+                people, [person1.uuid, person4.uuid, person5.uuid] if clickhouse_funnel == ClickhouseFunnel else []
+            )
+
+            self.assertEqual(
+                result[0],
+                [
+                    {
+                        "action_id": "sign up",
+                        "name": "sign up",
+                        "custom_name": None,
+                        "order": 0,
+                        # popped people because flakey ordering for assertEqual
+                        "count": 3,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "median_conversion_time": None,
+                        "breakdown": "Other",
+                        "breakdown_value": "Other",
+                    },
+                    {
+                        "action_id": "play movie",
+                        "name": "play movie",
+                        "custom_name": None,
+                        "order": 1,
+                        "people": [person1.uuid]
+                        if clickhouse_funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": 3600.0,
+                        "median_conversion_time": 3600.0,
+                        "breakdown": "Other",
+                        "breakdown_value": "Other",
+                    },
+                    {
+                        "action_id": "buy",
+                        "name": "buy",
+                        "custom_name": None,
+                        "order": 2,
+                        "people": [person1.uuid]
+                        if clickhouse_funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": 7200.0,
+                        "median_conversion_time": 7200.0,
+                        "breakdown": "Other",
+                        "breakdown_value": "Other",
+                    },
+                ],
+            )
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1, "Other"), [person1.uuid, person4.uuid, person5.uuid]
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Other"), [person1.uuid])
+
+            self.assertEqual(
+                result[1],
+                [
+                    {
+                        "action_id": "sign up",
+                        "name": "sign up",
+                        "custom_name": None,
+                        "order": 0,
+                        "people": [person2.uuid, person3.uuid]
+                        if clickhouse_funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
+                        "count": 2,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "median_conversion_time": None,
+                        "breakdown": "Safari",
+                        "breakdown_value": "Safari",
+                    },
+                    {
+                        "action_id": "play movie",
+                        "name": "play movie",
+                        "custom_name": None,
+                        "order": 1,
+                        "people": [person2.uuid]
+                        if clickhouse_funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": 7200.0,
+                        "median_conversion_time": 7200.0,
+                        "breakdown": "Safari",
+                        "breakdown_value": "Safari",
+                    },
+                    {
+                        "action_id": "buy",
+                        "name": "buy",
+                        "custom_name": None,
+                        "order": 2,
+                        "people": [],
+                        "count": 0,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "median_conversion_time": None,
+                        "breakdown": "Safari",
+                        "breakdown_value": "Safari",
+                    },
+                ],
+            )
+
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
+
         # @test_with_materialized_columns(["$browser"])
         # def test_funnel_step_breakdown_event_no_type(self):
         #
@@ -601,7 +585,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #     }
         #
         #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
+        #     funnel = clickhouse_funnel(filter, self.team)
         #
         #     # event
         #     person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -661,7 +645,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -674,7 +658,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "play movie",
         #                 "custom_name": None,
         #                 "order": 1,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": 3600.0,
@@ -687,7 +671,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "buy",
         #                 "custom_name": None,
         #                 "order": 2,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": 7200.0,
@@ -708,7 +692,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "custom_name": None,
         #                 "order": 0,
         #                 "people": [person2.uuid, person3.uuid]
-        #                 if Funnel == ClickhouseFunnel
+        #                 if clickhouse_funnel == ClickhouseFunnel
         #                 else [],  # backwards compatibility
         #                 "count": 2,
         #                 "type": "events",
@@ -722,7 +706,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "play movie",
         #                 "custom_name": None,
         #                 "order": 1,
-        #                 "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person2.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": 7200.0,
@@ -763,7 +747,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #     }
         #
         #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
+        #     funnel = clickhouse_funnel(filter, self.team)
         #
         #     # event
         #     person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$browser": "Chrome"})
@@ -814,7 +798,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -827,7 +811,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "play movie",
         #                 "custom_name": None,
         #                 "order": 1,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": 3600.0,
@@ -840,7 +824,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "buy",
         #                 "custom_name": None,
         #                 "order": 2,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": 7200.0,
@@ -861,7 +845,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person2.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -874,7 +858,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "play movie",
         #                 "custom_name": None,
         #                 "order": 1,
-        #                 "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person2.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": 7200.0,
@@ -915,7 +899,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #     }
         #
         #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
+        #     funnel = clickhouse_funnel(filter, self.team)
         #
         #     for num in range(10):
         #         for i in range(num):
@@ -1063,7 +1047,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #     }
         #
         #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
+        #     funnel = clickhouse_funnel(filter, self.team)
         #
         #     for num in range(5):
         #         for i in range(num):
@@ -1140,7 +1124,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #     }
         #
         #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
+        #     funnel = clickhouse_funnel(filter, self.team)
         #
         #     # event
         #     person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -1184,7 +1168,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -1204,7 +1188,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -1224,7 +1208,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -1244,7 +1228,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -1269,7 +1253,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #     }
         #
         #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
+        #     funnel = clickhouse_funnel(filter, self.team)
         #
         #     # event
         #     person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -1311,7 +1295,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -1345,7 +1329,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "sign up",
         #                 "custom_name": None,
         #                 "order": 0,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": None,
@@ -1358,7 +1342,7 @@ def funnel_breakdown_by_multi_property_test_factory(
         #                 "name": "play movie",
         #                 "custom_name": None,
         #                 "order": 1,
-        #                 "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+        #                 "people": [person1.uuid] if clickhouse_funnel == ClickhouseFunnel else [],  # backwards compatibility
         #                 "count": 1,
         #                 "type": "events",
         #                 "average_conversion_time": 3600,

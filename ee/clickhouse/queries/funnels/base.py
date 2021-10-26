@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import get_single_or_multi_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import box_value, get_single_or_multi_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
@@ -76,6 +76,21 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})
+
+        # the API accepts either:
+        #   a string (single breakdown)
+        #   a list of numbers (one or more cohorts)
+        #   a list of strings (multiple breakdown)
+        # if the breakdown is a string, box it as a list to reduce paths through the code
+        #
+        # The code below allows you to ensure breakdown is always an array
+        # without it affecting the multiple areas of the site that use breakdown
+        #
+        # if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type != "cohort":
+        #     boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
+        #     data.update({
+        #         "breakdown": boxed_breakdown
+        #     })
 
         for exclusion in self._filter.exclusions:
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
@@ -301,10 +316,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
             else:
-                # breakdown_conditions is only ever the empty string
-                # _get_breakdown_conditions is called for its values side-effect
-                breakdown_conditions = self._get_breakdown_conditions()
-                extra_conditions = f" AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
+                values = self._get_breakdown_conditions()
+                self.params.update({"breakdown_values": values})
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -312,7 +325,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             extra_join=extra_join,
             steps_condition=steps_conditions,
             select_prop=select_prop,
-            extra_conditions=extra_conditions,
+            extra_conditions=extra_conditions,  # always the empty string?
         )
 
     def _get_steps_conditions(self, length: int) -> str:
@@ -473,29 +486,30 @@ class ClickhouseFunnelBase(ABC, Funnel):
             ON events.distinct_id = cohort_join.distinct_id
         """
 
-    def _get_breakdown_conditions(self) -> str:
+    def _get_breakdown_conditions(self) -> Any:
+        """
+        For people, pagination sets the offset param, which is common across filters
+        and gives us the wrong breakdown values here, so we override it.
+        For events, we assume breakdown values remain stable across the funnel,
+        so using just the first entity to get breakdown values is ok.
+        if this is a multi property breakdown then the breakdown values are misleading
+        e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
+        so the generated list here must be [[Chrome, 95], [Safari, 15]]
+        """
         if self._filter.breakdown:
             limit = self._filter.breakdown_limit_or_default
             first_entity = self._filter.entities[0]
 
-            values = get_breakdown_prop_values(
+            return get_breakdown_prop_values(
                 self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
             )
-            # For people, pagination sets the offset param, which is common across filters
-            # and gives us the wrong breakdown values here, so we override it.
-            # For events, we assume breakdown values remain stable across the funnel,
-            # so using just the first entity to get breakdown values is ok.
-            # if this is a multi property breakdown then the breakdown values are misleading
-            # e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
-            # so the generated list here must be ["Chrome::95", "Safari""15"]
-
-            self.params.update({"breakdown_values": values})
-
-        return ""
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
             if group_remaining and self._filter.breakdown_type != "cohort":
+                # once breakdown is being returned as an array,
+                # the string 'Other' needs to be the array ['Other']
+                # return ", if(has(%(breakdown_values)s, prop), prop, ['Other']) as prop"
                 return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
             else:
                 return ", prop"
