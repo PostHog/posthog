@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0178_rename_dashboard_item_to_insight"),
+        ("posthog", "0179_add_group_type_mapping"),
     ]
 
     operations = [
