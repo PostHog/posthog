@@ -1,7 +1,7 @@
 import { Button, ButtonProps } from 'antd'
 import React from 'react'
 import { HotKeys } from '~/types'
-import './index.scss'
+import './HotkeyButton.scss'
 
 interface HotkeyButtonProps extends ButtonProps {
     hotkey: HotKeys
