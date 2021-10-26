@@ -1,4 +1,5 @@
-from typing import Dict, List, Tuple, TypedDict, Type
+from typing import Dict, List, Tuple, Type, TypedDict
+
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
@@ -25,6 +26,7 @@ def funnel_breakdown_by_multi_property_test_factory(
             The generated SQL does not order the people and so we cannot rely on that comprison
             This compares the lists without people, and then compares the people
             """
+
             def flatten(list_of_lists):
                 return [item for sublist in list_of_lists for item in sublist]
 
@@ -1042,7 +1044,7 @@ def funnel_breakdown_by_multi_property_test_factory(
             result = funnel.run()
 
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
-            self.assertEqual(["2::3", "3::4", "4::5", "Other"], breakdown_vals)
+            self.assertEqual(["2::3", "3::4", "4::5", "Other"], breakdown_vals)  # NOSONAR python:S1313
             # skipped 1 and '' because the limit was 3.
             self.assertTrue(person0.uuid in self._get_people_at_step(filter, 1, "Other"))
 
