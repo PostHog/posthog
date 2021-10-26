@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined, UserOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, ViewType } from '~/types'
-import { parsePeopleParams, personsModalLogic } from './personsModalLogic'
+import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis, pluralize } from 'lib/utils'
 import './PersonModal.scss'
@@ -14,6 +14,9 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import { teamLogic } from '../teamLogic'
+import api from '../../lib/api'
+import { getCurrentTeamId } from '../../lib/utils/logics'
+
 export interface PersonModalProps {
     visible: boolean
     view: ViewType
@@ -83,7 +86,8 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         {isDownloadCsvAvailable && (
                             <Button
                                 icon={<DownloadOutlined />}
-                                href={`/api/projects/${currentTeamId}/actions/people.csv?${parsePeopleParams(
+                                href={api.actions.determinePeopleCsvUrl(
+                                    getCurrentTeamId(currentTeamId),
                                     {
                                         label: people.label,
                                         action: people.action,
@@ -92,7 +96,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                         breakdown_value: people.breakdown_value,
                                     },
                                     filters
-                                )}`}
+                                )}
                                 style={{ marginRight: 8 }}
                                 data-attr="person-modal-download-csv"
                             >

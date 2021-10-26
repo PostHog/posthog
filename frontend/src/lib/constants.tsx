@@ -247,6 +247,7 @@ export const FEATURE_FLAGS = {
     SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
+    TURBO_MODE: 'turbo-mode', // owner: @mariusandra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
