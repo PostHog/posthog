@@ -5,6 +5,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SessionPlayerState, SessionPlayerTime } from '~/types'
 import { eventWithTime, playerMetaData } from 'rrweb/typings/types'
 import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
@@ -321,4 +322,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
     }),
+    windowValues: {
+        isSmallScreen: (window) => window.innerWidth < getBreakpoint('md'),
+    },
 })
