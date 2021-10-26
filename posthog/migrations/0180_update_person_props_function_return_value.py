@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;"),
+        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;", ""),
         migrations.RunSQL(
             """
             -- not-null-ignore
@@ -61,11 +61,13 @@ class Migration(migrations.Migration):
             SET
                 properties = props,
                 properties_last_updated_at=props_last_updated_at,
-                properties_last_operation=props_last_operation
+                properties_last_operation=props_last_operation,
+                version = COALESCE(version, 0)::numeric + 1
             WHERE id=person_id;
             RETURN props;
             END
             $$ LANGUAGE plpgsql;
-        """
+        """,
+            "",
         ),
     ]
