@@ -3,10 +3,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
-from ee.clickhouse.models.property import (
-    parse_prop_clauses,
-    get_single_or_multi_property_string_expr,
-)
+from ee.clickhouse.models.property import get_single_or_multi_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
@@ -77,24 +74,14 @@ def get_breakdown_prop_values(
         },
     )
 
-    return execute_results[0]
+    return execute_results[0][0]
 
 
 def _to_value_expression(breakdown_type, breakdown):
     if breakdown_type == "person":
-        return get_single_or_multi_property_string_expr(
-            breakdown,
-            "person",
-            "person_props",
-            "value"
-        )
+        return get_single_or_multi_property_string_expr(breakdown, "person", "person_props", "value")
     else:
-        return get_single_or_multi_property_string_expr(
-            breakdown,
-            "events",
-            "properties",
-            "value"
-        )
+        return get_single_or_multi_property_string_expr(breakdown, "events", "properties", "value")
 
 
 def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict]:
