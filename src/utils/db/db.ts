@@ -4,16 +4,17 @@ import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { KafkaMessage, ProducerRecord } from 'kafkajs'
+import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
-import { KAFKA_PERSON_UNIQUE_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KAFKA_GROUPS, KAFKA_PERSON_UNIQUE_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
     ActionEventPair,
     ActionStep,
     ClickHouseEvent,
+    ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId,
     Cohort,
@@ -24,6 +25,7 @@ import {
     ElementGroup,
     Event,
     EventDefinitionType,
+    GroupTypeToColumnIndex,
     Hook,
     Person,
     PersonDistinctId,
@@ -38,6 +40,7 @@ import {
     RawPerson,
     SessionRecordingEvent,
     Team,
+    TeamId,
     TimestampFormat,
 } from '../../types'
 import { instrumentQuery } from '../metrics'
@@ -122,6 +125,9 @@ export class DB {
 
     /** A buffer for Postgres logs to prevent too many log insert ueries */
     postgresLogsWrapper: PostgresLogsWrapper
+
+    /** How many unique group types to allow per team */
+    MAX_GROUP_TYPES_PER_TEAM = 5
 
     constructor(
         postgres: Pool,
@@ -390,7 +396,7 @@ export class DB {
                 FINAL
                 GROUP BY team_id, id
                 HAVING max(is_deleted)=0
-            )            
+            )
             `
             return (await this.clickhouseQuery(query)).data.map((row) => {
                 const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row
@@ -415,8 +421,8 @@ export class DB {
     public async fetchPerson(teamId: number, distinctId: string): Promise<Person | undefined> {
         const selectResult = await this.postgresQuery(
             `SELECT
-                posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties, 
-                posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified, 
+                posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
+                posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified,
                 posthog_person.uuid, posthog_persondistinctid.team_id AS persondistinctid__team_id,
                 posthog_persondistinctid.distinct_id AS persondistinctid__distinct_id
             FROM posthog_person
@@ -1140,5 +1146,86 @@ export class DB {
             [id, user_id, label, value, created_at.toISOString()],
             'createPersonalApiKey'
         )
+    }
+
+    public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
+        const { rows } = await this.postgresQuery(
+            `SELECT * FROM posthog_grouptypemapping WHERE team_id = $1`,
+            [teamId],
+            'fetchGroupTypes'
+        )
+
+        const result: GroupTypeToColumnIndex = {}
+
+        for (const row of rows) {
+            result[row.group_type] = row.group_type_index
+        }
+
+        return result
+    }
+
+    public async insertGroupType(teamId: TeamId, groupType: string, index: number): Promise<number | null> {
+        if (index >= this.MAX_GROUP_TYPES_PER_TEAM) {
+            return null
+        }
+
+        const insertGroupTypeResult = await this.postgresQuery(
+            `
+            WITH insert_result AS (
+                INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
+                VALUES ($1, $2, $3)
+                ON CONFLICT DO NOTHING
+                RETURNING group_type_index
+            )
+            SELECT * FROM insert_result
+            UNION
+            SELECT group_type_index FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $2;
+            `,
+            [teamId, groupType, index],
+            'insertGroupType'
+        )
+
+        if (insertGroupTypeResult.rows.length == 0) {
+            return await this.insertGroupType(teamId, groupType, index + 1)
+        }
+
+        return insertGroupTypeResult.rows[0].group_type_index
+    }
+
+    public async upsertGroup(
+        teamId: TeamId,
+        groupTypeIndex: number,
+        groupKey: string,
+        properties: Properties
+    ): Promise<void> {
+        if (this.kafkaProducer) {
+            await this.kafkaProducer.queueMessage({
+                topic: KAFKA_GROUPS,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({
+                                group_type_index: groupTypeIndex,
+                                group_key: groupKey,
+                                team_id: teamId,
+                                group_properties: JSON.stringify(properties),
+                                created_at: castTimestampOrNow(
+                                    DateTime.utc(),
+                                    TimestampFormat.ClickHouseSecondPrecision
+                                ),
+                            })
+                        ),
+                    },
+                ],
+            })
+        }
+    }
+
+    // Used in tests
+    public async fetchGroups(): Promise<ClickhouseGroup[]> {
+        const query = `
+        SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups FINAL
+        `
+        return (await this.clickhouseQuery(query)).data as ClickhouseGroup[]
     }
 }

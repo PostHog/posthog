@@ -4,6 +4,7 @@ import { defaultConfig, overrideWithEnv } from '../../src/config/config'
 import {
     KAFKA_EVENTS,
     KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_GROUPS,
     KAFKA_PERSON,
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_PLUGIN_LOG_ENTRIES,
@@ -31,6 +32,7 @@ export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>
     await createTopics(kafka, [
         KAFKA_EVENTS,
         KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_GROUPS,
         KAFKA_SESSION_RECORDING_EVENTS,
         KAFKA_PERSON,
         KAFKA_PERSON_UNIQUE_ID,

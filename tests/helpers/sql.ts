@@ -40,7 +40,7 @@ export async function resetTestDatabase(
     } catch {}
 
     await db.query(`
-        TRUNCATE TABLE 
+        TRUNCATE TABLE
             posthog_personalapikey,
             posthog_featureflag,
             posthog_annotation,
@@ -64,6 +64,7 @@ export async function resetTestDatabase(
             posthog_plugin,
             posthog_eventdefinition,
             posthog_propertydefinition,
+            posthog_grouptypemapping,
             posthog_team,
             posthog_organizationmembership,
             posthog_organization,

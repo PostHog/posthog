@@ -24,4 +24,6 @@ export async function resetTestDatabaseClickhouse(extraServerConfig: Partial<Plu
     await clickhouse.querying('TRUNCATE session_recording_events_mv')
     await clickhouse.querying('TRUNCATE plugin_log_entries')
     await clickhouse.querying('TRUNCATE events_dead_letter_queue')
+    await clickhouse.querying('TRUNCATE groups')
+    await clickhouse.querying('TRUNCATE groups_mv')
 }

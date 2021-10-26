@@ -4,6 +4,8 @@ import { createHub } from '../../src/utils/db/hub'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { resetTestDatabase } from '../helpers/sql'
 
+jest.mock('../../src/utils/status')
+
 describe('DB', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
@@ -54,6 +56,37 @@ describe('DB', () => {
                     ],
                 },
             },
+        })
+    })
+
+    describe('fetchGroupTypes() and insertGroupType()', () => {
+        it('fetches group types that have been inserted', async () => {
+            expect(await db.fetchGroupTypes(2)).toEqual({})
+            expect(await db.insertGroupType(2, 'g0', 0)).toEqual(0)
+            expect(await db.insertGroupType(2, 'g1', 1)).toEqual(1)
+            expect(await db.fetchGroupTypes(2)).toEqual({ g0: 0, g1: 1 })
+        })
+
+        it('handles conflicting by index when inserting and limits', async () => {
+            expect(await db.insertGroupType(2, 'g0', 0)).toEqual(0)
+            expect(await db.insertGroupType(2, 'g1', 0)).toEqual(1)
+            expect(await db.insertGroupType(2, 'g2', 0)).toEqual(2)
+            expect(await db.insertGroupType(2, 'g3', 1)).toEqual(3)
+            expect(await db.insertGroupType(2, 'g4', 0)).toEqual(4)
+            expect(await db.insertGroupType(2, 'g5', 0)).toEqual(null)
+            expect(await db.insertGroupType(2, 'g6', 0)).toEqual(null)
+
+            expect(await db.fetchGroupTypes(2)).toEqual({ g0: 0, g1: 1, g2: 2, g3: 3, g4: 4 })
+        })
+
+        it('handles conflict by name when inserting', async () => {
+            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual(0)
+            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual(0)
+            expect(await db.insertGroupType(2, 'group_name', 0)).toEqual(0)
+            expect(await db.insertGroupType(2, 'foo', 0)).toEqual(1)
+            expect(await db.insertGroupType(2, 'foo', 0)).toEqual(1)
+
+            expect(await db.fetchGroupTypes(2)).toEqual({ group_name: 0, foo: 1 })
         })
     })
 })

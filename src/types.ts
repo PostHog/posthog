@@ -500,6 +500,15 @@ export interface ClickHousePerson {
     timestamp: string
 }
 
+/** Clickhouse Group model */
+export interface ClickhouseGroup {
+    group_type_index: number
+    group_key: string
+    created_at: string
+    team_id: number
+    group_properties: string
+}
+
 /** Usable PersonDistinctId model. */
 export interface PersonDistinctId {
     id: number
@@ -710,3 +719,5 @@ export type PluginFunction = 'onEvent' | 'processEvent' | 'onSnapshot' | 'plugin
 export enum CeleryTriggeredJobOperation {
     Start = 'start',
 }
+
+export type GroupTypeToColumnIndex = Record<string, number>
