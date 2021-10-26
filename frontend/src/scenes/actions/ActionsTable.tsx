@@ -18,6 +18,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { ColumnType } from 'antd/lib/table'
 import { teamLogic } from '../teamLogic'
+import api from '../../lib/api'
+import { getCurrentTeamId } from '../../lib/utils/logics'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -29,7 +31,7 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 }
 
 export function ActionsTable(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamId } = useValues(teamLogic)
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
     const [searchTerm, setSearchTerm] = useState('')
@@ -152,7 +154,7 @@ export function ActionsTable(): JSX.Element {
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo
-                            endpoint="action"
+                            endpoint={api.actions.determineDeleteEndpoint(getCurrentTeamId(currentTeamId))}
                             object={action}
                             className="text-danger"
                             style={{ marginLeft: 8, marginRight: 8 }}

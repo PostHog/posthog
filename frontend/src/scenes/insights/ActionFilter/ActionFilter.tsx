@@ -1,6 +1,6 @@
 import './ActionFilter.scss'
 import React, { useEffect } from 'react'
-import { useActions, useValues, BindLogic } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
@@ -10,6 +10,7 @@ import { SortableContainer, SortableActionFilterRow } from './Sortable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RenameModal } from 'scenes/insights/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from '../../teamLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -96,7 +97,14 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         },
         ref
     ): JSX.Element => {
-        const logic = entityFilterLogic({ setFilters, filters, typeKey, addFilterDefaultOptions })
+        const { currentTeamId } = useValues(teamLogic)
+        const logic = entityFilterLogic({
+            teamId: currentTeamId,
+            setFilters,
+            filters,
+            typeKey,
+            addFilterDefaultOptions,
+        })
         const { reportFunnelStepReordered } = useActions(eventUsageLogic)
 
         const { localFilters } = useValues(logic)

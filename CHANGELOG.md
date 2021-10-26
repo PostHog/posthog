@@ -1,12 +1,16 @@
 # Changelog
 
+### 1.29.1 - Monday 25 October 2021
+
+-   Fixes locking migration that would cause the upgrade progress to 1.29.0 to halt (see PR #6640 for details).
+
 ### 1.29.0 - Thursday 21 October 2021
 
 -   Explore and deep dive with Paths. We fully revamped our Paths feature to help you explore the actions your users are taking. From jumping from a conversion drop-off in a funnel to identifying Paths ending in a desired action, you will be able to fully understand the paths of your users. We're introducing a lot of additional features such as: select up to 20 steps, fined-grained controls on what paths to show, and grouping paths through wildcards.
 -   Multivariate support in feature flags. You will now be able to create feature flags with multiple variants to allow for more comprehensive testing and feature releasing.
 -   Private projects. Extra concerns on privacy or compliance? Private projects now lets you have projects to which only certain members of your team have access.
 -   Trailing DAU/WAU/MAU graphs. If you're interested in better measuring your user engagement DAU/WAU, WAU/MAU & DAU/MAU ratios can provide great signals.
--   Plus 350+ improvements and fixes, read more in the PostHog Array: https://app.posthog.com/blog/the-posthog-array-1-29-0
+-   Plus 350+ improvements and fixes, read more in the PostHog Array: https://posthog.com/blog/the-posthog-array-1-29-0
 
 ### 1.28.1 - Monday 27 September 2021
 

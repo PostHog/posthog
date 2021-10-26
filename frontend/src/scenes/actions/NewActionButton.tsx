@@ -5,9 +5,10 @@ import { SearchOutlined, EditOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
-export function NewActionButton() {
-    let [visible, setVisible] = useState(false)
-    let [appUrlsVisible, setAppUrlsVisible] = useState(false)
+export function NewActionButton(): JSX.Element {
+    const [visible, setVisible] = useState(false)
+    const [appUrlsVisible, setAppUrlsVisible] = useState(false)
+
     return (
         <>
             <Button type="primary" onClick={() => setVisible(true)} data-attr="create-action">

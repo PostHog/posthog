@@ -6,7 +6,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, DashboardItem, Event, Filter
+from posthog.models import Dashboard, Event, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.trends import Trends
@@ -31,13 +31,13 @@ class TestUpdateCache(APIBaseTest):
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
 
-        item = DashboardItem.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
-        funnel_item = DashboardItem.objects.create(
+        item = Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
+        funnel_item = Insight.objects.create(
             dashboard=shared_dashboard, filters=funnel_filter.to_dict(), team=self.team
         )
 
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
-        item_to_cache = DashboardItem.objects.create(
+        item_to_cache = Insight.objects.create(
             dashboard=dashboard_to_cache,
             filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(),
             team=self.team,
@@ -46,7 +46,7 @@ class TestUpdateCache(APIBaseTest):
         dashboard_do_not_cache = Dashboard.objects.create(
             team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
         )
-        item_do_not_cache = DashboardItem.objects.create(
+        item_do_not_cache = Insight.objects.create(
             dashboard=dashboard_do_not_cache,
             filters=Filter(data={"events": [{"id": "do not cache this"}]}).to_dict(),
             team=self.team,
@@ -61,9 +61,9 @@ class TestUpdateCache(APIBaseTest):
         for call_item in patch_update_cache_item.call_args_list:
             update_cache_item(*call_item[0])
 
-        self.assertIsNotNone(DashboardItem.objects.get(pk=item.pk).last_refresh)
-        self.assertIsNotNone(DashboardItem.objects.get(pk=item_to_cache.pk).last_refresh)
-        self.assertIsNotNone(DashboardItem.objects.get(pk=item_do_not_cache.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=item.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=item_to_cache.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=item_do_not_cache.pk).last_refresh)
         self.assertEqual(get_safe_cache(item_key)["result"][0]["count"], 0)
         self.assertEqual(get_safe_cache(funnel_key)["result"][0]["count"], 0)
 
@@ -116,7 +116,7 @@ class TestUpdateCache(APIBaseTest):
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
 
-        updated_dashboard_item = DashboardItem.objects.get(pk=dashboard_item.pk)
+        updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)
         self.assertEqual(updated_dashboard_item.last_refresh, now())
 
@@ -143,7 +143,7 @@ class TestUpdateCache(APIBaseTest):
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
 
-        updated_dashboard_item = DashboardItem.objects.get(pk=dashboard_item.pk)
+        updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)
         self.assertEqual(updated_dashboard_item.last_refresh, now())
         funnel_mock.assert_called_once()
@@ -253,10 +253,10 @@ class TestUpdateCache(APIBaseTest):
         item_key = generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk))
         self.assertIsNotNone(get_safe_cache(item_key))
 
-    def _create_dashboard(self, filter: FilterType, item_refreshing: bool = False) -> DashboardItem:
+    def _create_dashboard(self, filter: FilterType, item_refreshing: bool = False) -> Insight:
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
 
-        return DashboardItem.objects.create(
+        return Insight.objects.create(
             dashboard=dashboard_to_cache,
             filters=filter.to_dict(),
             team=self.team,
@@ -291,8 +291,8 @@ class TestUpdateCache(APIBaseTest):
         )
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
 
-        DashboardItem.objects.create(dashboard=shared_dashboard, filters=filter_stickiness.to_dict(), team=self.team)
-        DashboardItem.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
+        Insight.objects.create(dashboard=shared_dashboard, filters=filter_stickiness.to_dict(), team=self.team)
+        Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
 
         item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))

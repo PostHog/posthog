@@ -7,7 +7,12 @@ class ClickhouseSessionRecordingViewSet(SessionRecordingViewSet):
     def _get_session_recording_list(self, filter):
         return ClickhouseSessionRecordingList(filter=filter, team=self.team).run()
 
-    def _get_session_recording(self, request, filter, session_recording_id):
+    def _get_session_recording_snapshots(self, request, filter, session_recording_id):
         return ClickhouseSessionRecording(
             request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
-        ).run()
+        ).get_snapshots()
+
+    def _get_session_recording_meta_data(self, request, filter, session_recording_id):
+        return ClickhouseSessionRecording(
+            request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
+        ).get_metadata()

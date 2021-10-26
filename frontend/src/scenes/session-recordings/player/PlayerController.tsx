@@ -4,15 +4,15 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Select, Switch, Tooltip } from 'antd'
+import { Select, Switch } from 'antd'
 import { SessionPlayerState } from '~/types'
-import { IconPause, IconPlay, IconSeekBack, IconSeekForward } from 'scenes/session-recordings/player/icons'
+import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { colonDelimitedDuration } from 'lib/utils'
+import { Timestamp } from 'scenes/session-recordings/player/Timestamp'
 
 export function PlayerController(): JSX.Element {
-    const { togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(sessionRecordingPlayerLogic)
-    const { currentPlayerState, jumpTimeMs, meta, zeroOffsetTime, speed } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause, setSpeed } = useActions(sessionRecordingPlayerLogic)
+    const { currentPlayerState, speed, isSmallScreen } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div className="rrweb-controller">
@@ -29,28 +29,7 @@ export function PlayerController(): JSX.Element {
                     />
                 )}
             </span>
-            <Tooltip
-                placement="top"
-                overlayInnerStyle={{ minHeight: 'auto' }}
-                overlay={`Back ${jumpTimeMs / 1000}s (← left arrow)`}
-            >
-                <span>
-                    <IconSeekBack onClick={seekBackward} time={jumpTimeMs / 1000} />
-                </span>
-            </Tooltip>
-            <Tooltip
-                placement="top"
-                overlayInnerStyle={{ minHeight: 'auto' }}
-                overlay={`Forward ${jumpTimeMs / 1000}s (→ right arrow)`}
-            >
-                <span>
-                    <IconSeekForward onClick={seekForward} time={jumpTimeMs / 1000} />
-                </span>
-            </Tooltip>
-            <div className="rrweb-timestamp">
-                {colonDelimitedDuration(zeroOffsetTime.current / 1000)} /{' '}
-                {colonDelimitedDuration(meta.totalTime / 1000)}
-            </div>
+            {!isSmallScreen && <Timestamp />}
             <div className="rrweb-progress">
                 <Seekbar />
             </div>
@@ -59,6 +38,7 @@ export function PlayerController(): JSX.Element {
                 value={speed}
                 dropdownMatchSelectWidth={false}
                 size="small"
+                defaultValue={1}
                 className="rrweb-speed-toggle"
             >
                 <Select.OptGroup label="Speed">

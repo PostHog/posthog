@@ -7,6 +7,7 @@ import { toast } from 'react-toastify'
 import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
+import { teamLogic } from '../teamLogic'
 const NEW_FLAG = {
     id: null,
     key: '',
@@ -34,6 +35,9 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>({
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
         addMatchGroup: true,
@@ -197,18 +201,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         featureFlag: {
             loadFeatureFlag: async () => {
                 if (values.featureFlagId && values.featureFlagId !== 'new') {
-                    return await api.get(`api/feature_flag/${values.featureFlagId}`)
+                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlagId}`)
                 }
                 return NEW_FLAG
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 if (!updatedFlag.id) {
-                    return await api.create('api/feature_flag', {
+                    return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, {
                         ...updatedFlag,
                         id: undefined,
                     })
                 } else {
-                    return await api.update(`api/feature_flag/${updatedFlag.id}`, {
+                    return await api.update(`api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`, {
                         ...updatedFlag,
                         id: undefined,
                     })
@@ -216,7 +220,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             },
         },
     }),
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         saveFeatureFlagSuccess: () => {
             toast.success(
                 <div>
@@ -233,7 +237,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
-                endpoint: 'feature_flag',
+                endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.name, id: featureFlag.id },
                 callback: () => {
                     router.actions.push(urls.featureFlags())
