@@ -257,7 +257,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
     const { excludeEventProperty } = useActions(logic)
     const { isEventPropertyExcluded } = useValues(logic)
     const eventName = record.event?.event
-    const propertyName = (record.event?.event || '').split('::').splice(0, 2).join('::')
+    const propertyName = (record.event?.event || '').split('::')[1]
 
     return (
         <Button
