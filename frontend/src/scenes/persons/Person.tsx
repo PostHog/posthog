@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
-import { SessionRecordingsTable } from 'scenes/sessionRecordings/SessionRecordingsTable'
+import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { PersonHeader } from './PersonHeader'
@@ -22,9 +22,16 @@ import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SceneExport } from 'scenes/sceneTypes'
+
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
+
+export const scene: SceneExport = {
+    component: Person,
+    logic: personsLogic,
+}
 
 export function Person(): JSX.Element {
     const [activeCardTab, setActiveCardTab] = useState('properties')
@@ -120,7 +127,7 @@ export function Person(): JSX.Element {
                     <Card className="card-elevated person-detail" data-test-person-details>
                         {person && (
                             <>
-                                <PersonHeader person={person} />
+                                <PersonHeader withIcon person={person} />
                                 <div className="item-group">
                                     <label>IDs</label>
                                     <div style={{ display: 'flex' }}>

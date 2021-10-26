@@ -226,7 +226,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 
 export const FEATURE_FLAGS = {
     // Cloud-only
-    PAPERCUPS_ENABLED: 'papercups-enabled',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
@@ -246,6 +245,8 @@ export const FEATURE_FLAGS = {
     CORRELATION_ANALYSIS: 'correlation-analysis', // owner: @neilkakkar
     SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
+    BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
+    TURBO_MODE: 'turbo-mode', // owner: @mariusandra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

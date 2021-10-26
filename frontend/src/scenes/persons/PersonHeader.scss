@@ -20,4 +20,8 @@
     &.identified {
         color: $text_default;
     }
+
+    &:hover {
+        text-decoration: underline;
+    }
 }

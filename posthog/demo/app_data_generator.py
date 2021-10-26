@@ -6,7 +6,7 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, DashboardItem, EventDefinition, Person, PropertyDefinition
+from posthog.models import Action, ActionStep, Dashboard, EventDefinition, Insight, Person, PropertyDefinition
 
 SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
@@ -32,7 +32,7 @@ class AppDataGenerator(DataGenerator):
         dashboard = Dashboard.objects.create(
             name="App Analytics", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
         )
-        DashboardItem.objects.create(
+        Insight.objects.create(
             team=self.team,
             dashboard=dashboard,
             name="Installed App -> Rated App -> Rated App 5 Stars",

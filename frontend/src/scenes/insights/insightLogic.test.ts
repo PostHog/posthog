@@ -1,10 +1,13 @@
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { expectLogic } from 'kea-test-utils'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { insightLogic } from './insightLogic'
 import { AvailableFeature, PropertyOperator, ViewType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 jest.mock('lib/api')
 
@@ -16,20 +19,35 @@ describe('insightLogic', () => {
         const throwAPIError = (): void => {
             throw { status: 0, statusText: 'error from the API' }
         }
-        if (['api/insight/42', 'api/insight/43'].includes(pathname)) {
+        if (
+            [`api/projects/${MOCK_TEAM_ID}/insights/42`, `api/projects/${MOCK_TEAM_ID}/insights/43`].includes(pathname)
+        ) {
             return {
-                result: pathname === 'api/insight/42' ? ['result from api'] : null,
-                id: pathname === 'api/insight/42' ? 42 : 43,
+                result: pathname.endsWith('42') ? ['result from api'] : null,
+                id: pathname.endsWith('42') ? 42 : 43,
                 filters: {
                     insight: ViewType.TRENDS,
                     events: [{ id: 3 }],
                     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                 },
             }
-        } else if (['api/insight/44'].includes(pathname)) {
+        } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
+            return {
+                id: 33,
+                filters: {},
+                items: [
+                    { id: 42, result: 'result!', filters: { insight: 'TRENDS', interval: 'month' }, tags: ['bla'] },
+                ],
+            }
+        } else if ([`api/projects/${MOCK_TEAM_ID}/insights/44`].includes(pathname)) {
             throwAPIError()
         } else if (
-            ['api/insight', 'api/insight/session/', 'api/insight/trend/', 'api/insight/funnel/'].includes(pathname)
+            [
+                `api/projects/${MOCK_TEAM_ID}/insights`,
+                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
+            ].includes(pathname)
         ) {
             if (searchParams?.events?.[0]?.throw) {
                 throwAPIError()
@@ -364,6 +382,35 @@ describe('insightLogic', () => {
                 .toDispatchActions(router, ['replace', 'locationChanged'])
                 .toMatchValues(router, {
                     searchParams: expect.objectContaining({ insight: 'TRENDS', interval: 'month' }),
+                })
+        })
+    })
+
+    describe('takes data from dashboardLogic if available', () => {
+        initKeaTestLogic()
+        it('works if all conditions match', async () => {
+            // 0. the feature flag must be set
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
+
+            // 1. the URL must have the dashboard and insight IDs
+            router.actions.push('/insights', {}, { fromDashboard: 33, fromItem: 42 })
+
+            // 2. the dashboard is mounted
+            const dashLogic = dashboardLogic({ id: 33 })
+            dashLogic.mount()
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
+
+            // 3. mount the insight
+            logic = insightLogic({ dashboardItemId: 42 })
+            logic.mount()
+
+            // 4. verify it didn't make any API calls
+            await expectLogic(logic)
+                .toDispatchActions(['setInsight'])
+                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
+                .toMatchValues({
+                    insight: partial({ id: 42, result: 'result!', filters: { insight: 'TRENDS', interval: 'month' } }),
                 })
         })
     })

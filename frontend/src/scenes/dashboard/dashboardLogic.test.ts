@@ -1,8 +1,8 @@
 import { BuiltLogic } from 'kea'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import dashboardJson from './__mocks__/dashboard.json'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -13,13 +13,13 @@ import { DashboardItemType } from '~/types'
 jest.mock('lib/api')
 
 describe('dashboardLogic', () => {
-    let logic: BuiltLogic<dashboardLogicType>
+    let logic: BuiltLogic<dashboardLogicType<DashboardLogicProps>>
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname === 'api/dashboard/5/') {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/5/`) {
             return dashboardJson
-        } else if (pathname === 'api/dashboard/6/') {
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/6/`) {
             return {
                 ...dashboardJson,
                 items: [
@@ -29,8 +29,8 @@ describe('dashboardLogic', () => {
                     { ...dashboardJson.items[1], id: 999 },
                 ],
             }
-        } else if (pathname.startsWith('api/dashboard_item/')) {
-            return dashboardJson.items.find(({ id }) => id === parseInt(pathname.split('/')[2]))
+        } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights/`)) {
+            return dashboardJson.items.find(({ id }) => id === parseInt(pathname.split('/')[4]))
         }
         return defaultAPIMocks(url)
     })
