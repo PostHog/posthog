@@ -22,7 +22,11 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
     },
 })
 
-export function HelpButton(): JSX.Element {
+export interface HelpButtonProps {
+    withCaret?: boolean
+}
+
+export function HelpButton({ withCaret = false }: HelpButtonProps): JSX.Element {
     const UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
     const { reportHelpButtonUsed, reportHelpButtonViewed } = useActions(eventUsageLogic)
     const { isVisible } = useValues(helpButtonLogic)
@@ -86,7 +90,7 @@ export function HelpButton(): JSX.Element {
             >
                 <Row align="middle">
                     <QuestionCircleOutlined className="help-icon" />
-                    <CaretDownOutlined />
+                    {withCaret && <CaretDownOutlined />}
                 </Row>
             </Popover>
         </div>
