@@ -5,8 +5,6 @@ import { Table } from 'antd'
 
 const allIcons = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
 
-console.log({ allIcons })
-
 export default {
     title: 'PostHog/Components/Icons',
 } as Meta
