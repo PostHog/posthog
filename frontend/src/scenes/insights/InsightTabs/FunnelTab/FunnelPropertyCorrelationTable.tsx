@@ -234,11 +234,11 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { excludeProperty } = useActions(logic)
-    const { isSelected } = useValues(logic)
+    const { isPropertyExcluded } = useValues(logic)
     const propertyName = (record.event?.event || '').split('::')[0]
 
     return (
-        <button disabled={isSelected(propertyName)} onClick={() => excludeProperty(propertyName)}>
+        <button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)}>
             Exclude property
         </button>
     )

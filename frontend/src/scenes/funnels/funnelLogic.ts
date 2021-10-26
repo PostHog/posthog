@@ -822,7 +822,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
 
-        isSelected: [
+        isPropertyExcluded: [
             () => [selectors.excludedPropertyNames],
             (excludedPropertyNames) => (propertyName: string) =>
                 excludedPropertyNames.find((name) => name === propertyName) !== undefined,
