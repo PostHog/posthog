@@ -323,8 +323,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         eventsApiParams: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                // TODO: This will change when session endpoint is separated into metadata and snapshots endpoints
-                // For now we pull person and timestamp data from the metadata returned from /api/session_recording
                 if (
                     !sessionPlayerData?.person?.id ||
                     !sessionPlayerData?.session_recording?.start_time ||
@@ -333,16 +331,13 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                     return null
                 }
 
-                const buffer_ms = sessionPlayerData?.session_recording?.recording_duration / 4 // +- before and after start and end of a recording to query for.
+                const buffer_ms = sessionPlayerData.session_recording.recording_duration / 4 // +- before and after start and end of a recording to query for.
                 return {
-                    person_id: sessionPlayerData?.person?.id,
-                    after: dayjs
-                        .utc(sessionPlayerData?.session_recording?.start_time)
-                        .subtract(buffer_ms, 'ms')
-                        .format(),
+                    person_id: sessionPlayerData.person.id,
+                    after: dayjs.utc(sessionPlayerData.session_recording.start_time).subtract(buffer_ms, 'ms').format(),
                     before: dayjs
-                        .utc(sessionPlayerData?.session_recording?.start_time)
-                        .add(buffer_ms + sessionPlayerData?.session_recording?.recording_duration, 'ms')
+                        .utc(sessionPlayerData.session_recording.start_time)
+                        .add(buffer_ms + sessionPlayerData.session_recording.recording_duration, 'ms')
                         .format(),
                 }
             },
