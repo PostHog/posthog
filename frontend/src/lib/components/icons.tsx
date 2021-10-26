@@ -536,6 +536,21 @@ export function InsightsFunnelsIcon(): JSX.Element {
     )
 }
 
+export function InsightsSessionsIcon(): JSX.Element {
+    return (
+        <svg width="19" height="19" viewBox="0 0 19 19" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M2 0H16C17.11 0 18 0.9 18 2V6H16V4H2V14H4V16H2C0.89 16 0 15.1 0 14V2C0 0.9 0.89 0 2 0Z"
+                fill="#747EA2"
+            />
+            <path
+                d="M12.5267 7C9.40937 7 6.88167 9.52771 6.88167 12.645H5L7.43989 15.0849L7.4838 15.1727L10.0178 12.645H8.13611C8.13611 10.2177 10.0993 8.25444 12.5267 8.25444C14.954 8.25444 16.9172 10.2177 16.9172 12.645C16.9172 15.0724 14.954 17.0356 12.5267 17.0356C11.3161 17.0356 10.2185 16.5401 9.42819 15.7435L8.53753 16.6341C9.55991 17.6565 10.9649 18.29 12.5267 18.29C15.644 18.29 18.1717 15.7623 18.1717 12.645C18.1717 9.52771 15.644 7 12.5267 7ZM11.8994 10.1361V13.2722L14.5651 14.8528L15.0481 14.05L12.8403 12.7391V10.1361H11.8994Z"
+                fill="#747EA2"
+            />
+        </svg>
+    )
+}
+
 export function InsightsRetentionIcon(): JSX.Element {
     return (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
