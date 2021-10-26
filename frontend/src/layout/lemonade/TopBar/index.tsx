@@ -25,7 +25,9 @@ export function TopBar(): JSX.Element {
             )}
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
-                    <FriendlyLogo />
+                    <a href="https://posthog.com" className="TopBar__logo">
+                        <FriendlyLogo />
+                    </a>
                     <SearchBox />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">

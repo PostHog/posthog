@@ -29,6 +29,11 @@
     }
 }
 
+.TopBar__logo {
+    display: flex;
+    align-items: center;
+}
+
 .Announcement {
     transition: margin 200ms ease;
     display: flex;
