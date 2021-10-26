@@ -35,6 +35,7 @@ export function ActionsPie({
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
+                breakdownValues: _data.map((item) => item.breakdown_value),
                 days,
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
@@ -75,7 +76,10 @@ export function ActionsPie({
                             const label = dataset.labels[point.index]
                             const date_from = dataset.days[0]
                             const date_to = dataset.days[dataset.days.length - 1]
-                            loadPeople({ action, label, date_from, date_to, filters: filtersParam })
+                            const breakdown_value = dataset.breakdownValues[point.index]
+                                ? dataset.breakdownValues[point.index]
+                                : null
+                            loadPeople({ action, label, date_from, date_to, filters: filtersParam, breakdown_value })
                         }}
                     />
                 </div>

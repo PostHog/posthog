@@ -10,7 +10,7 @@ class ClickhouseSessionsDist:
     def calculate_dist(self, filter: Filter, team: Team):
         from posthog.queries.sessions.sessions import DIST_LABELS
 
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter, team.pk)
+        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter, team.pk)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk, has_person_id_joined=False)
 
@@ -30,7 +30,7 @@ class ClickhouseSessionsDist:
             entity_filter=f"AND ({entity_query})",
         )
 
-        params = {**params, "team_id": team.pk}
+        params = {**params, "team_id": team.pk, **date_params}
 
         result = sync_execute(dist_query, params)
 
