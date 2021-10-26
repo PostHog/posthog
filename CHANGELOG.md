@@ -1,5 +1,9 @@
 # Changelog
 
+### 1.29.1 - Monday 25 October 2021
+
+-   Fixes locking migration that would cause the upgrade progress to 1.29.0 to halt (see PR #6640 for details).
+
 ### 1.29.0 - Thursday 21 October 2021
 
 -   Explore and deep dive with Paths. We fully revamped our Paths feature to help you explore the actions your users are taking. From jumping from a conversion drop-off in a funnel to identifying Paths ending in a desired action, you will be able to fully understand the paths of your users. We're introducing a lot of additional features such as: select up to 20 steps, fined-grained controls on what paths to show, and grouping paths through wildcards.

@@ -1,0 +1,60 @@
+@import '~/vars';
+
+$buffer_bg: #faaf8c;
+$thumb_size: 14px;
+
+.rrweb-controller-slider {
+    width: 100%;
+    height: 12px;
+    position: relative;
+
+    .thumb {
+        z-index: 4;
+        backface-visibility: hidden;
+        top: 0;
+        left: -$thumb_size / 2;
+        position: absolute;
+        border-radius: 50%;
+        width: $thumb_size;
+        height: $thumb_size;
+        border: 2px solid $bg_light;
+        background-color: $brand_red;
+        transform-origin: center;
+    }
+
+    .slider,
+    .current-bar,
+    .buffer-bar {
+        width: 100%;
+        border-radius: 4px;
+        position: absolute;
+    }
+
+    .slider {
+        z-index: 1;
+        background-color: $border;
+        height: 4px;
+        top: 5px;
+    }
+
+    .current-bar {
+        z-index: 3;
+        background-color: $brand_red;
+        position: absolute;
+        height: 2px;
+        top: 6px;
+        left: 1px;
+        width: 0; // starting point
+    }
+
+    .buffer-bar {
+        z-index: 2;
+        transition: width 200ms;
+        background-color: $buffer_bg;
+        position: absolute;
+        height: 2px;
+        top: 6px;
+        left: 1px;
+        width: 0; // starting point
+    }
+}
