@@ -118,10 +118,6 @@ export const funnelLogic = kea<funnelLogicType>({
 
         setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
         excludeProperty: (propertyName: string) => ({ propertyName }),
-
-        setExcludedEventPropertyNames: (excludedEventPropertyNames: string[]) => ({
-            excludedEventPropertyNames,
-        }),
         excludeEventProperty: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
     }),
 
@@ -286,7 +282,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 persist: true,
             },
             {
-                setExcludedEventPropertyNames: (_, { excludedEventPropertyNames }) => excludedEventPropertyNames,
+                excludeEventProperty: (state, { propertyName }) => [...state, propertyName],
             },
         ],
     }),
@@ -984,13 +980,8 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setFilters(values.conversionWindow)
         },
 
-        excludeEventProperty: async ({ eventName, propertyName }) => {
-            actions.setExcludedEventPropertyNames([...values.excludedEventPropertyNames, propertyName])
+        excludeEventProperty: async ({ eventName }) => {
             actions.loadEventWithPropertyCorrelations(eventName)
-        },
-
-        setExcludedEventPropertyNames: async () => {
-            actions.loadCorrelations()
         },
 
         excludeProperty: async ({ propertyName }) => {
