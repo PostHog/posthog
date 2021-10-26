@@ -1,9 +1,11 @@
+import json
 from datetime import datetime
 
 from django.db import connection
 
 from posthog.models import Person
 from posthog.test.base import BaseTest
+from posthog.utils import dict_from_cursor_fetchall
 
 # How we expect this function to behave:
 #   | call     | value exists  | call TS is ___ existing TS | previous fn | write/override
@@ -36,6 +38,7 @@ class TestShouldUpdatePersonProp(BaseTest):
             properties_last_updated_at={},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
+        expectedProps = {"a": 1, "b": 0}
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -50,11 +53,13 @@ class TestShouldUpdatePersonProp(BaseTest):
                 ) 
             """
             )
+            result = cursor.fetchall()
+            self.assertEqual(json.loads(result[0][0]), expectedProps)
 
         updated_person = Person.objects.get(id=person.id)
 
         # dont update set_once call
-        self.assertEqual(updated_person.properties, {"a": 1, "b": 0})
+        self.assertEqual(updated_person.properties, expectedProps)
         self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set_once"})
         self.assertIsNotNone(updated_person.properties_last_updated_at["a"])
 
@@ -62,9 +67,13 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
+            properties_last_updated_at={
+                "a": FUTURE_TIMESTAMP,
+                "b": FUTURE_TIMESTAMP,
+            },
             properties_last_operation={},
         )
+        expectedProps = {"a": 1, "b": 0}
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -79,11 +88,13 @@ class TestShouldUpdatePersonProp(BaseTest):
                 ) 
             """
             )
+            result = cursor.fetchall()
+            self.assertEqual(json.loads(result[0][0]), expectedProps)
 
         updated_person = Person.objects.get(id=person.id)
 
         # dont update set_once call
-        self.assertEqual(updated_person.properties, {"a": 1, "b": 0})
+        self.assertEqual(updated_person.properties, expectedProps)
         self.assertEqual(updated_person.properties_last_operation, {"a": "set"})
         self.assertNotEqual(updated_person.properties_last_updated_at["a"], FUTURE_TIMESTAMP)
 
@@ -92,6 +103,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team, properties={}, properties_last_updated_at={}, properties_last_operation={}
         )
+        expectedProps = {"a": 1, "b": 1}
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -106,11 +118,13 @@ class TestShouldUpdatePersonProp(BaseTest):
                 ) 
                 """
             )
+            result = cursor.fetchall()
+            self.assertEqual(json.loads(result[0][0]), expectedProps)
 
         updated_person = Person.objects.get(id=person.id)
 
         # both updated
-        self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
+        self.assertEqual(updated_person.properties, expectedProps)
         self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set_once"})
         self.assertIsNotNone(updated_person.properties_last_updated_at["a"])
         self.assertIsNotNone(updated_person.properties_last_updated_at["b"])
@@ -120,9 +134,13 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
+            properties_last_updated_at={
+                "a": FUTURE_TIMESTAMP,
+                "b": FUTURE_TIMESTAMP,
+            },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
+        expectedProps = {"a": 0, "b": 1}
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
@@ -136,11 +154,13 @@ class TestShouldUpdatePersonProp(BaseTest):
                 ) 
             """
             )
+            result = cursor.fetchall()
+            self.assertEqual(json.loads(result[0][0]), expectedProps)
 
         updated_person = Person.objects.get(id=person.id)
 
         # b updated
-        self.assertEqual(updated_person.properties, {"a": 0, "b": 1})
+        self.assertEqual(updated_person.properties, expectedProps)
         self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set"})
         self.assertEqual(updated_person.properties_last_updated_at["a"], FUTURE_TIMESTAMP)
         self.assertNotEqual(updated_person.properties_last_updated_at["b"], FUTURE_TIMESTAMP)
@@ -150,9 +170,13 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={"a": PAST_TIMESTAMP, "b": PAST_TIMESTAMP,},
+            properties_last_updated_at={
+                "a": PAST_TIMESTAMP,
+                "b": PAST_TIMESTAMP,
+            },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
+        expectedProps = {"a": 1, "b": 1}
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -167,11 +191,13 @@ class TestShouldUpdatePersonProp(BaseTest):
                 ) 
             """
             )
+            result = cursor.fetchall()
+            self.assertEqual(json.loads(result[0][0]), expectedProps)
 
         updated_person = Person.objects.get(id=person.id)
 
         # both updated
-        self.assertEqual(updated_person.properties, {"a": 1, "b": 1})
+        self.assertEqual(updated_person.properties, expectedProps)
         self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set"})
         self.assertNotEqual(updated_person.properties_last_updated_at["a"], PAST_TIMESTAMP)
         self.assertNotEqual(updated_person.properties_last_updated_at["b"], PAST_TIMESTAMP)
@@ -181,9 +207,13 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={"a": FUTURE_TIMESTAMP, "b": FUTURE_TIMESTAMP,},
+            properties_last_updated_at={
+                "a": FUTURE_TIMESTAMP,
+                "b": FUTURE_TIMESTAMP,
+            },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
+        expectedProps = {"a": 0, "b": 1}
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -198,11 +228,13 @@ class TestShouldUpdatePersonProp(BaseTest):
                 ) 
             """
             )
+            result = cursor.fetchall()
+            self.assertEqual(json.loads(result[0][0]), expectedProps)
 
         updated_person = Person.objects.get(id=person.id)
 
         # b updated
-        self.assertEqual(updated_person.properties, {"a": 0, "b": 1})
+        self.assertEqual(updated_person.properties, expectedProps)
         self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set_once"})
         self.assertEqual(updated_person.properties_last_updated_at["a"], FUTURE_TIMESTAMP)
         self.assertNotEqual(updated_person.properties_last_updated_at["b"], FUTURE_TIMESTAMP)
@@ -212,9 +244,13 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={"a": PAST_TIMESTAMP, "b": PAST_TIMESTAMP,},
+            properties_last_updated_at={
+                "a": PAST_TIMESTAMP,
+                "b": PAST_TIMESTAMP,
+            },
             properties_last_operation={"a": "set", "b": "set_once"},
         )
+        expectedProps = {"a": 0, "b": 0}
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -229,11 +265,13 @@ class TestShouldUpdatePersonProp(BaseTest):
                 ) 
             """
             )
+            result = cursor.fetchall()
+            self.assertEqual(json.loads(result[0][0]), expectedProps)
 
         updated_person = Person.objects.get(id=person.id)
 
         # neither updated
-        self.assertEqual(updated_person.properties, {"a": 0, "b": 0})
+        self.assertEqual(updated_person.properties, expectedProps)
         self.assertEqual(updated_person.properties_last_operation, {"a": "set", "b": "set_once"})
         self.assertEqual(updated_person.properties_last_updated_at["a"], PAST_TIMESTAMP)
         self.assertEqual(updated_person.properties_last_updated_at["b"], PAST_TIMESTAMP)
@@ -247,6 +285,7 @@ class TestShouldUpdatePersonProp(BaseTest):
             properties_last_updated_at={"a": timestamp, "b": timestamp, "c": timestamp, "d": timestamp},
             properties_last_operation={"a": "set", "b": "set", "c": "set_once", "d": "set_once"},
         )
+        expectedProps = {"a": 0, "b": 0, "c": 1, "d": 0}
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -263,11 +302,13 @@ class TestShouldUpdatePersonProp(BaseTest):
                 ) 
             """
             )
+            result = cursor.fetchall()
+            self.assertEqual(json.loads(result[0][0]), expectedProps)
 
         updated_person = Person.objects.get(id=person.id)
 
         # update if current op is set and last op is set_once i.e. "c"
-        self.assertEqual(updated_person.properties, {"a": 0, "b": 0, "c": 1, "d": 0})
+        self.assertEqual(updated_person.properties, expectedProps)
         self.assertEqual(
             updated_person.properties_last_operation, {"a": "set", "b": "set", "c": "set", "d": "set_once"}
         )  # c changed
