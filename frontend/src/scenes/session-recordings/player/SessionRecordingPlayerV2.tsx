@@ -57,16 +57,14 @@ export function SessionRecordingPlayerV2(): JSX.Element {
     return (
         <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
             <Row className="session-player-body" wrap={false}>
-                <Col className="player-container" span={24}>
-                    <span className="ph-no-capture">
-                        <PlayerFrame ref={frame} />
-                    </span>
+                <Col className="player-container ph-no-capture" span={24}>
+                    <PlayerFrame ref={frame} />
                 </Col>
                 {/*<Col span={6} flex={1}>*/}
                 {/*    <PlayerEvents />*/}
                 {/*</Col>*/}
             </Row>
-            <Row className="session-player-controller" align="middle">
+            <Row className="session-player-controller ph-no-capture" align="middle">
                 <PlayerController />
             </Row>
         </Col>

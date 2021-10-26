@@ -43,8 +43,8 @@ router = DefaultRouterPlusPlus()
 # Legacy endpoints shared (to be removed eventually)
 router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Should be completely unused now
-router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
-router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
+router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be completely unused now
+router.register(r"dashboard_item", dashboard.LegacyDashboardItemViewSet)  # To be deleted - unified into insight viewset
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 router.register(r"sessions_filter", sessions_filter.LegacySessionsFilterViewSet)
 
@@ -62,7 +62,6 @@ projects_router.register(
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
 projects_router.register(r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"])
-projects_router.register(r"dashboard_items", dashboard.DashboardItemsViewSet, "project_dashboard_items", ["team_id"])
 projects_router.register(
     r"sessions_filters", sessions_filter.SessionsFilterViewSet, "project_session_filters", ["team_id"]
 )
@@ -99,6 +98,7 @@ router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
+router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 
 if is_clickhouse_enabled():
     from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet

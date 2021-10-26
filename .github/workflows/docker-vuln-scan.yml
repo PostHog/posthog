@@ -9,6 +9,7 @@ on:
 jobs:
     build:
         name: Vulnerabilty Scan
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-latest
 
         steps:
@@ -22,7 +23,6 @@ jobs:
               uses: docker/setup-buildx-action@v1
 
             - name: Login to DockerHub
-              if: github.repository == 'PostHog/posthog'
               uses: docker/login-action@v1
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -30,14 +30,12 @@ jobs:
 
             - name: Build image
               uses: docker/build-push-action@v2
-              if: github.repository == 'PostHog/posthog'
               with:
                   push: true
                   tags: posthog/posthog:vuln-scan-${{ github.sha }}
 
             - name: Run Trivy vulnerability scanner
               uses: aquasecurity/trivy-action@master
-              if: github.repository == 'PostHog/posthog'
               with:
                   image-ref: 'posthog/posthog:vuln-scan-${{ github.sha }}'
                   ignore-unfixed: true
@@ -49,6 +47,5 @@ jobs:
 
             - name: Upload Trivy scan results to GitHub Security tab
               uses: github/codeql-action/upload-sarif@v1
-              if: github.repository == 'PostHog/posthog'
               with:
                   sarif_file: 'trivy-results.sarif'

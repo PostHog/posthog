@@ -328,6 +328,7 @@ export enum SessionPlayerState {
     PLAY = 'play',
     PAUSE = 'pause',
     SKIP = 'skip',
+    SCRUB = 'scrub',
 }
 
 export interface SessionPlayerTime {
@@ -1277,15 +1278,30 @@ export interface PathEdgeParameters {
 }
 
 export interface FunnelCorrelation {
-    event?: string
-    property?: string
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>
     odds_ratio: number
     success_count: number
     failure_count: number
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
+    result_type:
+        | FunnelCorrelationResultsType.Events
+        | FunnelCorrelationResultsType.Properties
+        | FunnelCorrelationResultsType.EventWithProperties
 }
 
 export enum FunnelCorrelationType {
     Success = 'success',
     Failure = 'failure',
+}
+
+export enum FunnelCorrelationResultsType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
+export enum HelpType {
+    Slack = 'slack',
+    Email = 'email',
+    Docs = 'docs',
 }
