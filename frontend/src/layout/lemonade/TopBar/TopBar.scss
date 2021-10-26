@@ -5,9 +5,28 @@
     align-items: center;
     justify-content: space-between;
     height: 3.5rem;
-    padding: 0.5rem 1rem;
+    padding: 0.5rem;
     background: var(--bg-bridge);
     border-bottom: 1px solid var(--border);
+    @media screen and (min-width: $sm) {
+        padding: 0.5rem 1rem;
+    }
+    .anticon-caret-down {
+        margin-left: 0.25rem;
+        color: var(--bg-navy);
+    }
+}
+
+.TopBar__segment {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    &--left > * {
+        margin-right: 1rem;
+    }
+    &--right > * {
+        margin-left: 1rem;
+    }
 }
 
 .Announcement {
@@ -20,10 +39,13 @@
     color: white;
     font-weight: 600;
     height: 3rem;
-    padding: 0 2rem 0 1rem; // padding is larger on the right to accommodate the close button
+    padding: 0 1rem 0 0.5rem; // padding is larger on the right to accommodate the close button
     text-align: center;
     &--hidden {
         margin-top: -3rem;
+    }
+    @media screen and (min-width: $sm) {
+        padding: 0 1rem;
     }
     p {
         margin: 0;
@@ -36,22 +58,18 @@
 
 .Announcement__close {
     position: absolute;
-    right: 1rem;
-}
-
-.TopBar__segment {
-    display: flex;
-    align-items: center;
-    height: 100%;
+    right: 0.5rem;
+    @media screen and (min-width: $sm) {
+        right: 1rem;
+    }
 }
 
 .SearchBox {
     transition: background-color 200ms ease, border-color 200ms ease;
-    display: flex;
+    display: none;
     align-items: center;
     width: 15rem;
     height: 100%;
-    margin-left: 1rem;
     padding: 0 0.625rem;
     border-radius: var(--radius);
     border: 1px solid var(--border-dark);
@@ -63,8 +81,8 @@
     &:active {
         border-color: var(--border-active);
     }
-    @media screen and (max-width: $sm) {
-        display: none;
+    @media screen and (min-width: $sm) {
+        display: flex;
     }
 }
 
@@ -87,8 +105,5 @@
 .AccountControl__crumb {
     display: flex;
     align-items: center;
-}
-
-.AccountControl__caret {
-    margin-left: 0.25rem;
+    cursor: pointer;
 }

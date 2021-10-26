@@ -1,7 +1,7 @@
 import React from 'react'
 import './HelpButton.scss'
-import { QuestionCircleOutlined, MailOutlined, SolutionOutlined } from '@ant-design/icons'
-import { Button, Popover } from 'antd'
+import { QuestionCircleOutlined, MailOutlined, SolutionOutlined, CaretDownOutlined } from '@ant-design/icons'
+import { Button, Popover, Row } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
@@ -84,7 +84,10 @@ export function HelpButton(): JSX.Element {
                 }}
                 visible={isVisible}
             >
-                <QuestionCircleOutlined className="help-icon" />
+                <Row align="middle">
+                    <QuestionCircleOutlined className="help-icon" />
+                    <CaretDownOutlined />
+                </Row>
             </Popover>
         </div>
     )

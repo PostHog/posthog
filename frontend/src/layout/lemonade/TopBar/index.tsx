@@ -6,6 +6,8 @@ import { Announcement } from './Announcement'
 import { SearchBox } from './SearchBox'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './TopBar.scss'
+import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
+import { CommandPalette } from '../../../lib/components/CommandPalette'
 
 export function TopBar(): JSX.Element {
     const { announcementMessage, isAnnouncementHidden } = useValues(lemonadeLogic)
@@ -13,6 +15,7 @@ export function TopBar(): JSX.Element {
 
     return (
         <>
+            <CommandPalette />
             {announcementMessage && (
                 <Announcement
                     message={announcementMessage}
@@ -21,11 +24,12 @@ export function TopBar(): JSX.Element {
                 />
             )}
             <header className="TopBar">
-                <div className="TopBar__segment">
+                <div className="TopBar__segment TopBar__segment--left">
                     <FriendlyLogo />
                     <SearchBox />
                 </div>
-                <div className="TopBar__segment">
+                <div className="TopBar__segment TopBar__segment--right">
+                    <HelpButton />
                     <AccountControl />
                 </div>
             </header>

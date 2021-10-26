@@ -8,7 +8,6 @@ import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
-import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
@@ -140,7 +139,6 @@ function AppScene(): JSX.Element | null {
                 {essentialElements}
             </Layout>
             <UpgradeModal />
-            <CommandPalette />
         </>
     )
 }

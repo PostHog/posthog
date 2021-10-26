@@ -44,6 +44,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 import { TopBar } from '../lemonade/TopBar'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import { CommandPalette } from '../../lib/components/CommandPalette'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -372,6 +373,7 @@ function TopNavigationOriginal(): JSX.Element {
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
             <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
+            <CommandPalette />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
     )

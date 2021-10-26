@@ -10,7 +10,7 @@ export function AccountControl(): JSX.Element {
     return (
         <div className="AccountControl__crumb">
             <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
-            <CaretDownOutlined className="AccountControl__caret" />
+            <CaretDownOutlined />
         </div>
     )
 }
