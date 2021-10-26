@@ -6,6 +6,7 @@ import './MergeSplitPerson.scss'
 import { ActivityType, mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
     const logicProps = { person }
@@ -31,8 +32,16 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
                         </Col>
                         <Col className="tab-btn ant-btn">
                             <Radio value="split" disabled={person.distinct_ids.length < 2}>
-                                {' '}
-                                Split
+                                {person.distinct_ids.length < 2 ? (
+                                    <Tooltip
+                                        title="Only persons with more than two distinct IDs can be split."
+                                        delayMs={0}
+                                    >
+                                        Split
+                                    </Tooltip>
+                                ) : (
+                                    <>Split</>
+                                )}
                             </Radio>
                         </Col>
                     </Radio.Group>
