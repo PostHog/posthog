@@ -4,8 +4,9 @@ import { organizationLogicType } from './organizationLogicType'
 import { AvailableFeature, OrganizationType } from '~/types'
 import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
+import { getAppContext } from '../lib/utils/getAppContext'
 
-type OrganizationUpdatePayload = Partial<
+export type OrganizationUpdatePayload = Partial<
     Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
 >
 
@@ -80,6 +81,16 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
         },
     }),
     events: ({ actions }) => ({
-        afterMount: [actions.loadCurrentOrganization],
+        afterMount: () => {
+            const appContext = getAppContext()
+            const contextualOrganization = appContext?.current_user?.organization
+            if (contextualOrganization) {
+                // If app context is available (it should be practically always) we can immediately know currentOrganization
+                actions.loadCurrentOrganizationSuccess(contextualOrganization)
+            } else {
+                // If app context is not available, a traditional request is needed
+                actions.loadCurrentOrganization()
+            }
+        },
     }),
 })

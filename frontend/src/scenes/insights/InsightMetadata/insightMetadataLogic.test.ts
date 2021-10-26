@@ -4,7 +4,7 @@ import { insightMetadataLogic, InsightMetadataLogicProps } from 'scenes/insights
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AvailableFeature } from '~/types'
@@ -23,7 +23,7 @@ describe('insightMetadataLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname.startsWith('api/insight')) {
+        if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insight`)) {
             return { results: [], next: null }
         }
         return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })

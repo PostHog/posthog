@@ -365,18 +365,23 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_funnel_person_step_condition(self):
         step_num = self._filter.funnel_step
+        custom_steps = self._filter.funnel_custom_steps
         max_steps = len(self._filter.entities)
 
-        if step_num is None:
-            raise ValueError("funnel_step should not be none")
-
         conditions = []
-        if step_num >= 0:
-            self.params.update({"step_num": [i for i in range(step_num, max_steps + 1)]})
-            conditions.append("steps IN %(step_num)s")
+
+        if custom_steps:
+            self.params.update({"custom_step_num": custom_steps})
+            conditions.append("steps IN %(custom_step_num)s")
+        elif step_num is not None:
+            if step_num >= 0:
+                self.params.update({"step_num": [i for i in range(step_num, max_steps + 1)]})
+                conditions.append("steps IN %(step_num)s")
+            else:
+                self.params.update({"step_num": abs(step_num) - 1})
+                conditions.append("steps = %(step_num)s")
         else:
-            self.params.update({"step_num": abs(step_num) - 1})
-            conditions.append("steps = %(step_num)s")
+            raise ValueError("Missing both funnel_step and funnel_custom_steps")
 
         if self._filter.funnel_step_breakdown is not None:
             prop_vals = self._parse_breakdown_prop_value()

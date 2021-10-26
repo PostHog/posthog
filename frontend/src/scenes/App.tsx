@@ -13,11 +13,11 @@ import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
-import { Papercups } from 'lib/components/Papercups'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
+import { teamLogic } from './teamLogic'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -62,12 +62,14 @@ export const appLogic = kea<appLogicType>({
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { sceneConfig } = useValues(sceneLogic)
 
     if (showApp) {
         return (
             <>
-                {user ? <Models /> : null}
-                <AppScene />
+                {user && currentTeamId ? <Models /> : null}
+                {(!sceneConfig.projectBased || currentTeamId) && <AppScene />}
             </>
         )
     }
@@ -94,7 +96,6 @@ function AppScene(): JSX.Element | null {
     const essentialElements = (
         // Components that should always be mounted inside Layout
         <>
-            {featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED] && <Papercups />}
             <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
         </>
     )

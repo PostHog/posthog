@@ -271,7 +271,9 @@ const SAVED_INSIGHTS_COPY = {
 
 export function SavedInsightsEmptyState(): JSX.Element {
     const { addGraph } = useActions(savedInsightsLogic)
-    const { tab } = useValues(savedInsightsLogic)
+    const {
+        filters: { tab },
+    } = useValues(savedInsightsLogic)
 
     return (
         <div className="saved-insight-empty-state">

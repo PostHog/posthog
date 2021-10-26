@@ -59,56 +59,25 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                 Is the new feature, Corrrelation analysis, working well for you?
                             </Col>
                             <Col span={8} style={{ alignContent: 'right' }}>
-                                <Button
-                                    className="emoji-button"
-                                    style={rating === 1 ? { background: '#5375FF' } : {}}
-                                    onClick={() => {
-                                        setRating(1)
-                                        setModalVisible(true)
-                                    }}
-                                >
-                                    😍
-                                </Button>
-                                <Button
-                                    className="emoji-button"
-                                    style={rating === 2 ? { background: '#5375FF' } : {}}
-                                    onClick={() => {
-                                        setRating(2)
-                                        setModalVisible(true)
-                                    }}
-                                >
-                                    😀
-                                </Button>
-                                <Button
-                                    className="emoji-button"
-                                    style={rating === 3 ? { background: '#5375FF' } : {}}
-                                    onClick={() => {
-                                        setRating(3)
-                                        setModalVisible(true)
-                                    }}
-                                >
-                                    😴
-                                </Button>
-                                <Button
-                                    className="emoji-button"
-                                    style={rating === 4 ? { background: '#5375FF' } : {}}
-                                    onClick={() => {
-                                        setRating(4)
-                                        setModalVisible(true)
-                                    }}
-                                >
-                                    👎
-                                </Button>
-                                <Button
-                                    className="emoji-button"
-                                    style={rating === 5 ? { background: '#5375FF' } : {}}
-                                    onClick={() => {
-                                        setRating(5)
-                                        setModalVisible(true)
-                                    }}
-                                >
-                                    👍
-                                </Button>
+                                {[
+                                    [1, '😍'],
+                                    [2, '😀'],
+                                    [3, '😴'],
+                                    [4, '👎'],
+                                    [5, '👍'],
+                                ].map((content, index) => (
+                                    <Button
+                                        key={index}
+                                        className="emoji-button"
+                                        style={rating === content[0] ? { background: '#5375FF' } : {}}
+                                        onClick={() => {
+                                            setRating(Number(content[0]))
+                                            setModalVisible(true)
+                                        }}
+                                    >
+                                        {content[1]}
+                                    </Button>
+                                ))}
                             </Col>
                         </Row>
                     </h4>
@@ -116,26 +85,28 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                         <hr />
                         Tell us more <i>(optional)</i>
                         <TextArea onBlur={(e) => setDetailedFeedback(e.target.value)} />
-                        <Button
-                            className="feedback-button"
-                            onClick={() => {
-                                setModalVisible(false)
-                                setRating(0)
-                            }}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            className="feedback-button"
-                            type="primary"
-                            onClick={() => {
-                                sendCorrelationAnalysisFeedback(rating, detailedFeedback)
-                                setModalVisible(false)
-                                setRating(0)
-                            }}
-                        >
-                            Share Feedback
-                        </Button>
+                        <Row style={{ justifyContent: 'flex-end' }}>
+                            <Button
+                                className="feedback-button"
+                                onClick={() => {
+                                    setModalVisible(false)
+                                    setRating(0)
+                                }}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                className="feedback-button"
+                                type="primary"
+                                onClick={() => {
+                                    sendCorrelationAnalysisFeedback(rating, detailedFeedback)
+                                    setModalVisible(false)
+                                    setRating(0)
+                                }}
+                            >
+                                Share Feedback
+                            </Button>
+                        </Row>
                     </div>
                 </Card>
             )}

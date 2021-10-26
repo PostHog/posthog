@@ -23,9 +23,13 @@ export function MergePerson({
 
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons } = useValues(personsLogic)
-    useEffect(() => {
-        loadPersons()
-    }, [person.distinct_ids, person.id])
+    useEffect(
+        () => {
+            loadPersons()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [person.distinct_ids, person.id]
+    )
     return (
         <Modal
             visible

@@ -10,6 +10,7 @@ import { rest } from 'msw'
 import { worker } from '../../../mocks/browser'
 import { FunnelResult, FunnelStep } from '~/types'
 import posthog from 'posthog-js'
+import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
 
 export default {
     title: 'PostHog/Scenes/Insights/Funnel',
@@ -37,6 +38,15 @@ export const WithCorrelation = (): JSX.Element => {
     setFeatureFlags({ 'correlation-analysis': true })
 
     worker.use(
+        mockGetPersonProperties((_, res, ctx) =>
+            res(
+                ctx.json([
+                    { id: 1, name: 'location', count: 1 },
+                    { id: 2, name: 'role', count: 2 },
+                    { id: 3, name: 'height', count: 3 },
+                ])
+            )
+        ),
         rest.post('/api/insight/funnel/', (_, res, ctx) => {
             return res(ctx.json(sampleFunnelResponse))
         }),
@@ -54,6 +64,15 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
     setFeatureFlags({ 'correlation-analysis': true })
 
     worker.use(
+        mockGetPersonProperties((_, res, ctx) =>
+            res(
+                ctx.json([
+                    { id: 1, name: 'location', count: 1 },
+                    { id: 2, name: 'role', count: 2 },
+                    { id: 3, name: 'height', count: 3 },
+                ])
+            )
+        ),
         rest.post('/api/insight/funnel/', (_, res, ctx) => {
             return res(ctx.json(sampleSkewedFunnelResponse))
         }),

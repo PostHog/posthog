@@ -1,53 +1,85 @@
-FROM python:3.8-slim
+#
+# This Dockerfile is used for self-hosted development builds.
+#
+# Note: for 'posthog/posthog-cloud' remember to update 'dev.Dockerfile' as appropriate
+#
+FROM python:3.8-alpine3.14
 
 ENV PYTHONUNBUFFERED 1
 ENV DEBUG 1
 
-EXPOSE 8000
-EXPOSE 8234
+WORKDIR /code
 
-WORKDIR /code/
+# Install OS dependencies needed to run PostHog
+#
+# Note: please add in this section runtime dependences only.
+# If you temporary need a package to build a Python or npm
+# dependency take a look at the sections below.
+RUN apk --update --no-cache add \
+    "bash~=5.1" \
+    "g++~=10.3" \
+    "gcc~=10.3" \
+    "libpq~=13.4" \
+    "libxml2-dev~=2.9" \
+    "libxslt~=1.1" \
+    "libxslt-dev~=1.1" \
+    "make~=4.3" \
+    "nodejs~=14" \
+    "npm~=7" \
+    && npm install -g yarn@1
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# Compile and install Python dependencies.
+#
+# Notes:
+#
+# - we explicitly COPY the files so that we don't need to rebuild
+#   the container every time a dependency changes
+#
+# - we need few additional OS packages for this. Let's install
+#   and then uninstall them when the compilation is completed.
+COPY requirements.txt requirements-dev.txt ./
+RUN apk --update --no-cache --virtual .build-deps add \
+    "cargo~=1.52" \
+    "git~=2" \
+    "libffi-dev~=3.3" \
+    "linux-headers~=5.10" \
+    "musl-dev~=1.2" \
+    "openssl-dev~=1.1" \
+    "postgresql-dev~=13" \
+    && \
+    pip install -r requirements-dev.txt --compile --no-cache-dir && \
+    pip install -r requirements.txt --compile --no-cache-dir \
+    && \
+    apk del .build-deps
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.*' 'libpq-dev=13.*' \
-    && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
-    && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
-    && curl -sL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
-    && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends 'nodejs=14.*' 'postgresql-client-12=12.*' \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g yarn@1 \
-    && yarn config set network-timeout 300000 \
-    && yarn --frozen-lockfile
+# Compile and install Yarn dependencies.
+#
+# Notes:
+#
+# - we explicitly COPY the files so that we don't need to rebuild
+#   the container every time a dependency changes
+#
+# - we need few additional OS packages for this. Let's install
+#   and then uninstall them when the compilation is completed.
+COPY package.json yarn.lock plugins/package.json plugins/yarn.lock ./
+RUN apk --update --no-cache --virtual .build-deps add \
+    "gcc~=10.3" \
+    && \
+    yarn config set network-timeout 300000 && \
+    yarn install --frozen-lockfile && \
+    yarn install --frozen-lockfile --cwd plugins && \
+    yarn cache clean \
+    && \
+    apk del .build-deps
 
-COPY requirements-dev.txt .
-RUN pip install -r requirements-dev.txt --compile --no-cache-dir
-
-COPY requirements.txt .
-RUN pip install -r requirements.txt --no-cache-dir
-
-COPY package.json .
-COPY yarn.lock .
-COPY webpack.config.js .
-COPY postcss.config.js .
-COPY babel.config.js .
-COPY tsconfig.json .
-COPY .kearc .
-COPY frontend/ frontend/
-
-RUN mkdir plugins
-COPY plugins/package.json plugins/
-COPY plugins/yarn.lock plugins/
-
+# Copy everything else
 COPY . .
 
-# generate Django's static files
-RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' mkdir frontend/dist && python manage.py collectstatic --noinput
+# Generate Django's static files
+RUN mkdir -p frontend/dist && \
+    DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
-# install frontend dependencies
-RUN yarn install && yarn install --cwd plugins && yarn cache clean
-
+# Expose container port and run entry point script
+EXPOSE 8000
+EXPOSE 8234
 CMD ["./bin/docker-dev"]
