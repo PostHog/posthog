@@ -42,7 +42,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
-import { TopBar } from '../navigation-fresh/TopBar'
+import { TopBar } from '../lemonade/TopBar'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (

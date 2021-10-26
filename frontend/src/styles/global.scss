@@ -51,6 +51,10 @@ NOTE: $medium is a SCSS var; not a keyword
     --lime: #bfef45;
     --apricot: #ffd8b1;
     --brown: #9a6324;
+    // Purple
+    --purple-700: #{$purple_700};
+    --purple-500: #{$purple_500};
+    --purple-300: #{$purple_300};
     // Lifecycle series
     --lifecycle-new: #{$lifecycle_new};
     --lifecycle-returning: #{$lifecycle_returning};

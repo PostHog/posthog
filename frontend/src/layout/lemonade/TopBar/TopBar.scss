@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .TopBar {
     display: flex;
     align-items: center;
@@ -8,7 +10,8 @@
     border-bottom: 1px solid var(--border);
 }
 
-.TopBar__announcement {
+.Announcement {
+    transition: margin 200ms ease;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -17,11 +20,23 @@
     color: white;
     font-weight: 600;
     height: 3rem;
-    padding: 0.75rem;
+    padding: 0 2rem 0 1rem; // padding is larger on the right to accommodate the close button
     text-align: center;
+    &--hidden {
+        margin-top: -3rem;
+    }
     p {
         margin: 0;
     }
+    a {
+        color: var(--purple-300);
+        text-decoration: underline;
+    }
+}
+
+.Announcement__close {
+    position: absolute;
+    right: 1rem;
 }
 
 .TopBar__segment {
@@ -47,6 +62,9 @@
     }
     &:active {
         border-color: var(--border-active);
+    }
+    @media screen and (max-width: $sm) {
+        display: none;
     }
 }
 
