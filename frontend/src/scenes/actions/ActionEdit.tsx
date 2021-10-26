@@ -14,6 +14,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import api from '../../lib/api'
+import { getCurrentTeamId } from '../../lib/utils/logics'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
@@ -49,7 +51,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             icon={<DeleteOutlined />}
             onClick={() => {
                 deleteWithUndo({
-                    endpoint: `projects/${currentTeamId}/actions`,
+                    endpoint: api.actions.determineDeleteEndpoint(getCurrentTeamId(currentTeamId)),
                     object: action,
                     callback: () => {
                         router.actions.push('/events/actions')
