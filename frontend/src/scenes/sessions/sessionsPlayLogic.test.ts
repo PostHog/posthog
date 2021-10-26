@@ -1,26 +1,30 @@
-import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
+import { parseMetadataResponse, sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
 import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-import recordingJson from './__mocks__/recording.json'
+import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
+import recordingMetaJson from './__mocks__/recording_meta.json'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { combineUrl } from 'kea-router'
 
 jest.mock('lib/api')
 
-const EVENTS_SESSION_RECORDING_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events/session_recording`
+const createSnapshotEndpoint = (id: number): string => `api/projects/${MOCK_TEAM_ID}/session_recordings/${id}/snapshots`
+const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
+    `api/projects/${MOCK_TEAM_ID}/session_recordings/\\d/snapshots`
+)
+const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
 
 describe('sessionsPlayLogic', () => {
     let logic: ReturnType<typeof sessionsPlayLogic.build>
 
     mockAPI(async (url) => {
-        if (
-            url.pathname === EVENTS_SESSION_RECORDING_ENDPOINT || // Old api
-            url.pathname === `api/projects/${MOCK_TEAM_ID}/session_recordings` // New api
-        ) {
-            return { result: recordingJson }
+        if (!!url.pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+            return { result: recordingSnapshotsJson }
+        } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
+            return { result: recordingMetaJson }
         } else if (url.pathname === 'api/sessions_filter') {
             return { results: [] }
         }
@@ -49,77 +53,176 @@ describe('sessionsPlayLogic', () => {
         })
     })
 
-    describe('loading session data', () => {
+    describe('loading session core', () => {
+        it('fetch metadata and snapshots together', async () => {
+            const firstPayload = {
+                ...recordingMetaJson,
+                session_recording: parseMetadataResponse(recordingMetaJson.session_recording),
+                snapshots: [],
+            }
+            const secondPayload = {
+                ...firstPayload,
+                next: undefined,
+                snapshots: recordingSnapshotsJson.snapshots,
+            }
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
+                .toMatchValues({
+                    sessionPlayerData: firstPayload,
+                })
+                .toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots('1')
+            })
+                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
+                .toMatchValues({
+                    sessionPlayerData: secondPayload,
+                })
+        })
+        it('fetch metadata error and snapshots success', async () => {
+            api.get.mockImplementation(async (url: string) => {
+                if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                    return { result: { ...recordingSnapshotsJson, next: undefined } }
+                } else {
+                    throw new Error('Oh no.')
+                }
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaFailure'])
+                .toMatchValues({
+                    sessionPlayerData: null,
+                })
+                .toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots('1')
+            })
+                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
+                .toMatchValues({
+                    sessionPlayerData: {
+                        next: undefined,
+                        snapshots: recordingSnapshotsJson.snapshots,
+                    },
+                })
+        })
+        it('fetch metadata success and snapshots error', async () => {
+            const expected = {
+                ...recordingMetaJson,
+                session_recording: parseMetadataResponse(recordingMetaJson.session_recording),
+                snapshots: [],
+            }
+            api.get.mockImplementation(async (url: string) => {
+                if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                    throw new Error('Oh no.')
+                } else {
+                    return { result: recordingMetaJson }
+                }
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
+                .toMatchValues({
+                    sessionPlayerData: expected,
+                })
+                .toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots('1')
+            })
+                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsFailure'])
+                .toMatchValues({
+                    sessionPlayerData: expected,
+                })
+        })
+    })
+
+    describe('loading session snapshots', () => {
         it('no next url', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecording('1')
+                logic.actions.loadRecordingSnapshots('1')
             })
-                .toDispatchActions(['loadRecording', 'loadRecordingSuccess'])
+                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
-                    sessionPlayerData: recordingJson,
+                    sessionPlayerData: recordingSnapshotsJson,
                 })
-                .toNotHaveDispatchedActions(['loadRecording'])
+                .toNotHaveDispatchedActions(['loadRecordingSnapshots'])
         })
         it('fetch all chunks of recording', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic])
             api.get.mockClear()
 
-            const firstNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=200&limit=200`
-            const secondNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=400&limit=200`
-            const thirdNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=600&limit=200`
-            const snaps = recordingJson.snapshots
+            const snapshotUrl = createSnapshotEndpoint(1)
+            const firstNext = `${snapshotUrl}/?offset=200&limit=200`
+            const secondNext = `${snapshotUrl}/?offset=400&limit=200`
+            const thirdNext = `${snapshotUrl}/?offset=600&limit=200`
+            const snaps = recordingSnapshotsJson.snapshots
 
             api.get
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: { ...recordingJson, next: firstNext } }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: { ...recordingSnapshotsJson, next: firstNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: { ...recordingJson, next: secondNext } }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: { ...recordingSnapshotsJson, next: secondNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: { ...recordingJson, next: thirdNext } }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: { ...recordingSnapshotsJson, next: thirdNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: recordingJson }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: recordingSnapshotsJson }
                     }
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecording('1')
+                logic.actions.loadRecordingSnapshots('1')
             })
-                .toDispatchActions(['loadRecordingSuccess'])
+                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
-                    sessionPlayerData: { ...recordingJson, next: firstNext },
+                    sessionPlayerData: { ...recordingSnapshotsJson, next: firstNext },
                 })
-                .toDispatchActions([logic.actionCreators.loadRecording(undefined, firstNext), 'loadRecordingSuccess'])
+                .toDispatchActions([
+                    logic.actionCreators.loadRecordingSnapshots(undefined, firstNext),
+                    'loadRecordingSnapshotsSuccess',
+                ])
                 .toMatchValues({
                     sessionPlayerData: {
-                        ...recordingJson,
+                        ...recordingSnapshotsJson,
                         next: secondNext,
                         snapshots: [...snaps, ...snaps],
                     },
                 })
-                .toDispatchActions([logic.actionCreators.loadRecording(undefined, secondNext), 'loadRecordingSuccess'])
+                .toDispatchActions([
+                    logic.actionCreators.loadRecordingSnapshots(undefined, secondNext),
+                    'loadRecordingSnapshotsSuccess',
+                ])
                 .toMatchValues({
                     sessionPlayerData: {
-                        ...recordingJson,
+                        ...recordingSnapshotsJson,
                         next: thirdNext,
                         snapshots: [...snaps, ...snaps, ...snaps],
                     },
                 })
-                .toDispatchActions([logic.actionCreators.loadRecording(undefined, thirdNext), 'loadRecordingSuccess'])
+                .toDispatchActions([
+                    logic.actionCreators.loadRecordingSnapshots(undefined, thirdNext),
+                    'loadRecordingSnapshotsSuccess',
+                ])
                 .toMatchValues({
                     sessionPlayerData: {
-                        ...recordingJson,
-                        next: null,
+                        ...recordingSnapshotsJson,
+                        next: undefined,
                         snapshots: [...snaps, ...snaps, ...snaps, ...snaps],
                     },
                 })
@@ -131,19 +234,20 @@ describe('sessionsPlayLogic', () => {
             await expectLogic(logic).toMount([eventUsageLogic])
             api.get.mockClear()
 
-            const firstNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=200&limit=200`
-            const secondNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=400&limit=200`
-            const snaps = recordingJson.snapshots
+            const snapshotUrl = createSnapshotEndpoint(1)
+            const firstNext = `${snapshotUrl}/?offset=200&limit=200`
+            const secondNext = `${snapshotUrl}/?offset=400&limit=200`
+            const snaps = recordingSnapshotsJson.snapshots
 
             api.get
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: { ...recordingJson, next: firstNext } }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: { ...recordingSnapshotsJson, next: firstNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: { ...recordingJson, next: secondNext } }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: { ...recordingSnapshotsJson, next: secondNext } }
                     }
                 })
                 .mockImplementationOnce(async () => {
@@ -151,23 +255,29 @@ describe('sessionsPlayLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecording('1')
+                logic.actions.loadRecordingSnapshots('1')
             })
-                .toDispatchActions(['loadRecordingSuccess'])
+                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
-                    sessionPlayerData: { ...recordingJson, next: firstNext },
+                    sessionPlayerData: { ...recordingSnapshotsJson, next: firstNext },
                     firstChunkLoaded: true,
                 })
-                .toDispatchActions([logic.actionCreators.loadRecording(undefined, firstNext), 'loadRecordingSuccess'])
+                .toDispatchActions([
+                    logic.actionCreators.loadRecordingSnapshots(undefined, firstNext),
+                    'loadRecordingSnapshotsSuccess',
+                ])
                 .toMatchValues({
                     sessionPlayerData: {
-                        ...recordingJson,
+                        ...recordingSnapshotsJson,
                         next: secondNext,
                         snapshots: [...snaps, ...snaps],
                     },
                     firstChunkLoaded: true,
                 })
-                .toDispatchActions([logic.actionCreators.loadRecording(undefined, secondNext), 'loadRecordingFailure'])
+                .toDispatchActions([
+                    logic.actionCreators.loadRecordingSnapshots(undefined, secondNext),
+                    'loadRecordingSnapshotsFailure',
+                ])
 
             // Error toast is thrown
             expect(api.get).toBeCalledTimes(3)
@@ -175,75 +285,104 @@ describe('sessionsPlayLogic', () => {
     })
 
     describe('loading states', () => {
-        it('standard loading in single chunk recording', async () => {
+        it('meta and snapshots loaded together', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecording('1')
+                logic.actions.loadRecordingMeta('1')
             })
-                .toDispatchActions(['loadRecording'])
+                .toDispatchActions(['loadRecordingMeta'])
                 .toMatchValues({
                     firstChunkLoaded: false,
                     sessionPlayerDataLoading: true,
                 })
-                .toDispatchActions(['loadRecordingSuccess'])
+                .toDispatchActions(['loadRecordingMetaSuccess'])
+                .toMatchValues({
+                    firstChunkLoaded: false,
+                    sessionPlayerDataLoading: false,
+                })
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots('1')
+            })
+                .toDispatchActions(['loadRecordingSnapshots'])
+                .toMatchValues({
+                    firstChunkLoaded: false,
+                    sessionPlayerDataLoading: true,
+                })
+                .toDispatchActions(['loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
                     firstChunkLoaded: true,
                     sessionPlayerDataLoading: false,
                 })
-                .toNotHaveDispatchedActions(['loadRecording'])
+        })
+        it('standard loading in single chunk recording', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots('1')
+            })
+                .toDispatchActions(['loadRecordingSnapshots'])
+                .toMatchValues({
+                    firstChunkLoaded: false,
+                    sessionPlayerDataLoading: true,
+                })
+                .toDispatchActions(['loadRecordingSnapshotsSuccess'])
+                .toMatchValues({
+                    firstChunkLoaded: true,
+                    sessionPlayerDataLoading: false,
+                })
+                .toNotHaveDispatchedActions(['loadRecordingSnapshots'])
         })
         it('stays loading throughout multi chunk recording', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic])
 
-            const firstNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=200&limit=200`
-            const secondNext = `${EVENTS_SESSION_RECORDING_ENDPOINT}?session_recording_id=1&offset=400&limit=200`
+            const snapshotUrl = createSnapshotEndpoint(1)
+            const firstNext = `${snapshotUrl}/?offset=200&limit=200`
+            const secondNext = `${snapshotUrl}/?offset=400&limit=200`
 
             api.get
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: { ...recordingJson, next: firstNext } }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: { ...recordingSnapshotsJson, next: firstNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: { ...recordingJson, next: secondNext } }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: { ...recordingSnapshotsJson, next: secondNext } }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
-                        return { result: recordingJson }
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: recordingSnapshotsJson }
                     }
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecording('1')
+                logic.actions.loadRecordingSnapshots('1')
             })
-                .toDispatchActions(['loadRecording'])
+                .toDispatchActions(['loadRecordingSnapshots'])
                 .toMatchValues({
                     firstChunkLoaded: false,
                     sessionPlayerDataLoading: true,
                 })
-                .toDispatchActions(['loadRecordingSuccess'])
+                .toDispatchActions(['loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
                     firstChunkLoaded: true,
                     sessionPlayerDataLoading: true,
                 })
-                .toDispatchActions([logic.actionCreators.loadRecording(undefined, firstNext)])
+                .toDispatchActions([logic.actionCreators.loadRecordingSnapshots(undefined, firstNext)])
                 .toMatchValues({
                     firstChunkLoaded: true,
                     sessionPlayerDataLoading: true,
                 })
-                .toDispatchActions(['loadRecordingSuccess'])
+                .toDispatchActions(['loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
                     firstChunkLoaded: true,
                     sessionPlayerDataLoading: true,
                 })
-                .toDispatchActions([logic.actionCreators.loadRecording(undefined, secondNext)])
+                .toDispatchActions([logic.actionCreators.loadRecordingSnapshots(undefined, secondNext)])
                 .toMatchValues({
                     firstChunkLoaded: true,
                     sessionPlayerDataLoading: true,
                 })
-                .toDispatchActions(['loadRecordingSuccess'])
+                .toDispatchActions(['loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
                     firstChunkLoaded: true,
                     sessionPlayerDataLoading: false,
@@ -252,18 +391,18 @@ describe('sessionsPlayLogic', () => {
         describe('isPlayable', () => {
             it('first chunk loads but no full snapshot yet', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.loadRecording('1')
+                    logic.actions.loadRecordingSnapshots('1')
                 })
-                    .toDispatchActions(['loadRecording', 'loadRecordingSuccess'])
+                    .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                     .toMatchValues({
-                        sessionPlayerData: recordingJson,
+                        sessionPlayerData: recordingSnapshotsJson,
                         firstChunkLoaded: true,
                         isPlayable: false,
                     })
             })
             it("first chunk loads and there's at least one full snapshot", async () => {
                 const newSnapshots = [
-                    ...recordingJson.snapshots,
+                    ...recordingSnapshotsJson.snapshots,
                     {
                         type: 2,
                         data: { source: 0 },
@@ -271,10 +410,10 @@ describe('sessionsPlayLogic', () => {
                     },
                 ]
                 api.get.mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
                         return {
                             result: {
-                                ...recordingJson,
+                                ...recordingSnapshotsJson,
                                 snapshots: newSnapshots,
                             },
                         }
@@ -282,18 +421,18 @@ describe('sessionsPlayLogic', () => {
                 })
 
                 await expectLogic(logic, () => {
-                    logic.actions.loadRecording('1')
+                    logic.actions.loadRecordingSnapshots('1')
                 })
-                    .toDispatchActions(['loadRecording', 'loadRecordingSuccess'])
+                    .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                     .toMatchValues({
-                        sessionPlayerData: { ...recordingJson, snapshots: newSnapshots },
+                        sessionPlayerData: { ...recordingSnapshotsJson, snapshots: newSnapshots },
                         firstChunkLoaded: true,
                         isPlayable: true,
                     })
             })
             it('session player data is still loading', async () => {
                 const newSnapshots = [
-                    ...recordingJson.snapshots,
+                    ...recordingSnapshotsJson.snapshots,
                     {
                         type: 2,
                         data: { source: 0 },
@@ -301,10 +440,10 @@ describe('sessionsPlayLogic', () => {
                     },
                 ]
                 api.get.mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname === EVENTS_SESSION_RECORDING_ENDPOINT) {
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
                         return {
                             result: {
-                                ...recordingJson,
+                                ...recordingSnapshotsJson,
                                 snapshots: newSnapshots,
                             },
                         }
@@ -312,16 +451,16 @@ describe('sessionsPlayLogic', () => {
                 })
 
                 await expectLogic(logic, () => {
-                    logic.actions.loadRecording('1')
+                    logic.actions.loadRecordingSnapshots('1')
                 })
-                    .toDispatchActions(['loadRecording'])
+                    .toDispatchActions(['loadRecordingSnapshots'])
                     .toMatchValues({
                         firstChunkLoaded: false,
                         isPlayable: false,
                     })
-                    .toDispatchActions(['loadRecordingSuccess'])
+                    .toDispatchActions(['loadRecordingSnapshotsSuccess'])
                     .toMatchValues({
-                        sessionPlayerData: { ...recordingJson, snapshots: newSnapshots },
+                        sessionPlayerData: { ...recordingSnapshotsJson, snapshots: newSnapshots },
                         firstChunkLoaded: true,
                         isPlayable: true,
                     })

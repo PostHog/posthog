@@ -64,7 +64,8 @@ interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
     load_time: number // How much time it took to load the session (backend) (milliseconds)
     duration: number // How long is the total recording (milliseconds)
-    start_time?: string // Start time of the session
+    start_time?: number // Start timestamp of the session
+    end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
     user_is_identified?: boolean
@@ -610,7 +611,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData?.start_time,
+                start_time: recordingData?.session_recording?.start_time,
+                end_time: recordingData?.session_recording?.end_time,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 user_is_identified: recordingData.person?.is_identified,
