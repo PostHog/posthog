@@ -359,7 +359,7 @@ export function SavedInsights(): JSX.Element {
                         style={{ paddingLeft: 8, width: 120 }}
                         onChange={(it) => setSavedInsightsFilters({ insightType: it })}
                     >
-                        {[{ name: 'All types', type: 'all' as ViewType, inMenu: false }, ...insightTypes].map(
+                        {[{ name: 'All types', type: 'All types' as ViewType, inMenu: false }, ...insightTypes].map(
                             (insight: InsightType, index) => (
                                 <Select.Option key={index} value={insight.type}>
                                     <div style={{ display: 'flex' }}>
