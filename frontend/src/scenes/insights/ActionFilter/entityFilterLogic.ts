@@ -198,25 +198,16 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         addFilter: async () => {
             const previousLength = values.localFilters.length
             const newLength = previousLength + 1
-            if (values.localFilters.length > 0) {
-                const lastFilter: LocalFilter = {
-                    ...values.localFilters[previousLength - 1],
-                    custom_name: undefined, // Remove custom name
-                }
-                const order = lastFilter.order + 1
-                actions.setFilters([...values.localFilters, { ...lastFilter, order }])
-                actions.setEntityFilterVisibility(order, values.entityFilterVisible[lastFilter.order])
-            } else {
-                actions.setFilters([
-                    {
-                        id: '$pageview',
-                        type: 'events',
-                        order: 0,
-                        name: '$pageview',
-                        ...props.addFilterDefaultOptions,
-                    },
-                ])
-            }
+            actions.setFilters([
+                ...values.localFilters,
+                {
+                    id: '$pageview',
+                    type: 'events',
+                    order: values.localFilters[previousLength - 1].order,
+                    name: '$pageview',
+                    ...props.addFilterDefaultOptions,
+                },
+            ])
             eventUsageLogic.actions.reportInsightFilterAdded(newLength)
         },
         setFilters: async ({ filters }) => {
