@@ -25,6 +25,7 @@ export interface PersonModalParams {
     searchTerm?: string
     funnelStep?: number
     pathsDropoff?: boolean
+    pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
 }
 
 interface PeopleParamType {

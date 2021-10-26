@@ -42,7 +42,7 @@ export function ActionsLineGraph({
                 dashboardItemId
                     ? null
                     : (point) => {
-                          const { dataset, day } = point
+                          const { dataset, day, value: pointValue } = point
                           loadPeople({
                               action: dataset.action || 'session',
                               label: dataset.label,
@@ -52,6 +52,7 @@ export function ActionsLineGraph({
                               breakdown_value:
                                   dataset.breakdown_value === undefined ? dataset.status : dataset.breakdown_value,
                               saveOriginal: true,
+                              pointValue,
                           })
                       }
             }
