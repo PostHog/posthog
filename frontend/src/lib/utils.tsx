@@ -6,13 +6,11 @@ import dayjs from 'dayjs'
 import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from './logic/featureFlagLogic'
-import { open } from '@papercups-io/chat-widget'
-import posthog from 'posthog-js'
-import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
+import { helpButtonLogic } from './components/HelpButton/HelpButton'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -147,13 +145,11 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
      */
 
     const handleHelp = (): void => {
-        const papercupsOn = featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED]
-        if (papercupsOn) {
-            open()
+        if (helpButtonLogic.isMounted()) {
+            helpButtonLogic.actions.setVisible(true)
         } else {
             window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
         }
-        posthog.capture('error toast help requested', { papercups_enabled: papercupsOn }) // Can't use eventUsageLogic here, not mounted
     }
 
     toast.dismiss('error') // This will ensure only the last error is shown
@@ -606,7 +602,7 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToName(event: EventType): string {
+export function eventToName(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
@@ -749,6 +745,10 @@ export function copyToClipboard(value: string, description?: string): boolean {
 
 export function clamp(value: number, min: number, max: number): number {
     return value > max ? max : value < min ? min : value
+}
+
+export function isTouchDevice(): boolean {
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || navigator.msMaxTouchPoints > 0
 }
 
 export function isMobile(): boolean {
