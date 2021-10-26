@@ -4,11 +4,11 @@ import { testUtilsPlugin, expectLogic } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
 import { AppContext } from '../types'
-import { mockDefaultTeam } from '../lib/api.mock'
+import { MOCK_DEFAULT_TEAM } from '../lib/api.mock'
 
 export function initKeaTests(): void {
     window.POSTHOG_APP_CONTEXT = {
-        current_team: mockDefaultTeam,
+        current_team: MOCK_DEFAULT_TEAM,
         ...window.POSTHOG_APP_CONTEXT,
     } as unknown as AppContext
     posthog.init('no token', {

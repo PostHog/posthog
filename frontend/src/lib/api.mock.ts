@@ -26,7 +26,7 @@ export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
 export const api = apiNoMock as any as APIMockReturnType
 
-export const mockDefaultTeam = {
+export const MOCK_DEFAULT_TEAM = {
     id: MOCK_TEAM_ID,
     ingested_event: true,
     completed_snippet_onboarding: true,
@@ -55,7 +55,7 @@ export function defaultAPIMocks(
             team: { ingested_event: true, completed_snippet_onboarding: true },
         }
     } else if (pathname === 'api/projects/@current') {
-        return mockDefaultTeam
+        return MOCK_DEFAULT_TEAM
     } else if (pathname === 'api/organizations/@current') {
         return {
             id: MOCK_ORGANIZATION_ID,
