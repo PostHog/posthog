@@ -121,11 +121,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result = correlation._run()[0]
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
-        expected_odds_ratios = [1 / 11]
+        odds_ratio = result[0].pop("odds_ratio")  # type: ignore
+        expected_odds_ratio = 1 / 11
 
-        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+        self.assertAlmostEqual(odds_ratio, expected_odds_ratio)
 
         self.assertEqual(
             result,
@@ -757,7 +756,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         correlation = FunnelCorrelation(filter, self.team)
 
         # Need more than 2 events to get a correlation
-        for i in range(4):
+        for i in range(3):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
                 team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
@@ -785,20 +784,20 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "event": "positively_related::blah::value_bleh",
-                    "success_count": 4,
+                    "success_count": 3,
                     "failure_count": 0,
-                    "odds_ratio": 10,
+                    "odds_ratio": 8,
                     "correlation_type": "success",
                 },
                 #  missing signup_source, as expected
             ],
         )
 
-        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", {"blah": "value_bleh"})), 4)
+        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", {"blah": "value_bleh"})), 3)
 
         # If you search for persons with a specific property, even if excluded earlier, you should get them
         self.assertEqual(
-            len(self._get_people_for_event(filter, "positively_related", {"signup_source": "facebook"})), 4
+            len(self._get_people_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
         )
 
     @test_with_materialized_columns(["$event_type", "signup_source"])
