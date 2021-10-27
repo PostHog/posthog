@@ -20,7 +20,10 @@ NOTE: $medium is a SCSS var; not a keyword
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --bg-navy: #{$bg_navy};
     --bg-charcoal: #{$bg_charcoal};
+    --bg-bridge: #{$bg_bridge};
+    --bg-shaded: #{$bg_shaded};
     --text-default: #{$text_default};
     --text-muted: #{$text_muted};
     --text-light: #{$text_light};
@@ -29,6 +32,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-light: #{$border_light};
     --border: #{$border};
     --border-dark: #{$border_dark};
+    --border-active: #{$border_active};
+    --radius: #{$radius};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{$purple_500};
@@ -47,6 +52,10 @@ NOTE: $medium is a SCSS var; not a keyword
     --lime: #bfef45;
     --apricot: #ffd8b1;
     --brown: #9a6324;
+    // Purple
+    --purple-700: #{$purple_700};
+    --purple-500: #{$purple_500};
+    --purple-300: #{$purple_300};
     // Lifecycle series
     --lifecycle-new: #{$lifecycle_new};
     --lifecycle-returning: #{$lifecycle_returning};

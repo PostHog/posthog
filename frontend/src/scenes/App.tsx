@@ -8,7 +8,6 @@ import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
-import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
@@ -152,7 +151,7 @@ function AppScene(): JSX.Element | null {
                     {activeScene ? (
                         <Layout.Content className="main-app-content" data-attr="layout-content">
                             {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
-                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] ? (
+                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                                 <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
                             ) : null}
                             <BillingAlerts />
@@ -164,7 +163,6 @@ function AppScene(): JSX.Element | null {
                 {essentialElements}
             </Layout>
             <UpgradeModal />
-            <CommandPalette />
         </>
     )
 }
