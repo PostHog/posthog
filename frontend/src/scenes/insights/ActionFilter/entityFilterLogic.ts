@@ -3,7 +3,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
 
 export type LocalFilter = EntityFilter & {
     order: number
@@ -81,6 +81,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             index: filter.index,
         }),
         addFilter: true,
+        duplicateFilter: (filter: EntityFilter | ActionFilter) => ({ filter }),
         updateFilterProperty: (
             filter: Partial<EntityFilter> & {
                 index?: number
@@ -208,7 +209,27 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                     ...props.addFilterDefaultOptions,
                 },
             ])
-            eventUsageLogic.actions.reportInsightFilterAdded(newLength)
+            eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Main)
+        },
+        duplicateFilter: async ({ filter }) => {
+            const previousLength = values.localFilters.length
+            const newLength = previousLength + 1
+            const order = filter.order ?? values.localFilters[previousLength - 1].order
+            const newFilters = [...values.localFilters]
+            for (const _filter of newFilters) {
+                // Because duplicate filters are inserted within the current filters we need to move over the remaining filers
+                if (_filter.order >= order + 1) {
+                    _filter.order = _filter.order + 1
+                }
+            }
+            newFilters.splice(order, 0, {
+                ...filter,
+                custom_name: undefined,
+                order: order + 1,
+            })
+            actions.setFilters(newFilters)
+            actions.setEntityFilterVisibility(order + 1, values.entityFilterVisible[order])
+            eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Duplicate)
         },
         setFilters: async ({ filters }) => {
             if (typeof props.setFilters === 'function') {

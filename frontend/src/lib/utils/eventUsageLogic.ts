@@ -53,11 +53,16 @@ export enum InsightEventSource {
 }
 
 export enum RecordingWatchedSource {
-    Direct = 'direct', // Visiting the URL directly
+    Direct = 'direct',
     Unknown = 'unknown',
-    RecordingsList = 'recordings_list', // New recordings list page
-    SessionsList = 'sessions_list', // DEPRECATED sessions list page
-    SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
+    RecordingsList = 'recordings_list',
+    SessionsList = 'sessions_list',
+    SessionsListPlayAll = 'sessions_list_play_all',
+}
+
+export enum GraphSeriesAddedSource {
+    Main = 'Main',
+    Duplicate = 'Duplicate',
 }
 
 interface RecordingViewedProps {
@@ -133,11 +138,13 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
-        properties_all: properties_global.concat(properties_local), // Global and local properties together
+        properties_all: properties_global.concat(properties_local),
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, RecordingWatchedSource>>({
+export const eventUsageLogic = kea<
+    eventUsageLogicType<DashboardEventSource, GraphSeriesAddedSource, RecordingWatchedSource>
+>({
     connect: [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -152,7 +159,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             filters,
             isFirstLoad,
             fromDashboard,
-            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            delay,
             changedFilters,
         }),
         reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
@@ -240,7 +247,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         }),
         reportInsightFilterUpdated: (index: number, name: string | null, type?: EntityType) => ({ type, index, name }),
         reportInsightFilterRemoved: (index: number) => ({ index }),
-        reportInsightFilterAdded: (newLength: number) => ({ newLength }),
+        reportInsightFilterAdded: (newLength: number, source: GraphSeriesAddedSource) => ({ newLength, source }),
         reportInsightFilterSet: (
             filters: Array<{
                 id: string | number | null
@@ -336,7 +343,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
                 ...sanitizeFilterParams(filters),
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
-                from_dashboard: fromDashboard, // Whether the insight is on a dashboard
+                from_dashboard: fromDashboard,
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
@@ -392,8 +399,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
                 has_breakdown_value: Boolean(breakdown_value),
                 save_original: saveOriginal,
                 has_search_term: Boolean(searchTerm),
-                count, // Total count of persons
-                has_next: hasNext, // Whether there are other persons to be loaded (pagination)
+                count,
+                has_next: hasNext,
             }
             posthog.capture('insight person modal viewed', properties)
         },
