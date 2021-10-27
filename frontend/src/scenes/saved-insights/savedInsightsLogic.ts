@@ -36,7 +36,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-updated_at',
         tab: values.tab || SavedInsightsTabs.All,
-        search: values.search || '',
+        search: String(values.search || ''),
         insightType: values.insightType || 'All types',
         createdBy: values.createdBy || 'All users',
         dateFrom: values.dateFrom || 'all',
@@ -61,27 +61,47 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         insights: {
             __default: { results: [], count: 0, filters: null } as InsightsResult,
             loadInsights: async (_, breakpoint) => {
-                await breakpoint(1)
+                if (values.insights.filters !== null) {
+                    await breakpoint(100)
+                }
                 const { filters } = values
-                const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
-                        order: filters.order,
-                        limit: 15,
-                        saved: true,
-                        ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                        ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
-                        ...(filters.search && { search: filters.search }),
-                        ...(filters.insightType?.toLowerCase() !== 'all types' && {
-                            insight: filters.insightType?.toUpperCase(),
+                const params = {
+                    order: filters.order,
+                    limit: 15,
+                    saved: true,
+                    ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                    ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                    ...(filters.search && { search: filters.search }),
+                    ...(filters.insightType?.toLowerCase() !== 'all types' && {
+                        insight: filters.insightType?.toUpperCase(),
+                    }),
+                    ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                    ...(filters.dateFrom &&
+                        filters.dateFrom !== 'all' && {
+                            date_from: filters.dateFrom,
+                            date_to: filters.dateTo,
                         }),
-                        ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
-                        ...(filters.dateFrom &&
-                            filters.dateFrom !== 'all' && {
-                                date_from: filters.dateFrom,
-                                date_to: filters.dateTo,
-                            }),
-                    })}`
+                }
+                const response = await api.get(
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+
+                if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
+                    try {
+                        const insight = await api.get(
+                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}`
+                        )
+                        return {
+                            ...response,
+                            count: response.count + 1,
+                            results: [insight, ...response.results],
+                            filters,
+                        }
+                    } catch (e) {
+                        // no insight with this ID found, discard
+                    }
+                }
+
                 return { ...response, filters }
             },
             loadPaginatedInsights: async (url: string) => await api.get(url),
