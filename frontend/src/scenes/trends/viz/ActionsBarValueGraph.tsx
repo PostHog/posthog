@@ -81,7 +81,7 @@ export function ActionsBarValueGraph({
                 dashboardItemId
                     ? null
                     : (point) => {
-                          const { dataset } = point
+                          const { dataset, value: pointValue } = point
                           const action = dataset.actions[point.index]
                           const label = dataset.labels[point.index]
                           const date_from = filtersParam?.date_from || ''
@@ -89,7 +89,15 @@ export function ActionsBarValueGraph({
                           const breakdown_value = dataset.breakdownValues[point.index]
                               ? dataset.breakdownValues[point.index]
                               : null
-                          loadPeople({ action, label, date_from, date_to, filters: filtersParam, breakdown_value })
+                          loadPeople({
+                              action,
+                              label,
+                              date_from,
+                              date_to,
+                              filters: filtersParam,
+                              breakdown_value,
+                              pointValue,
+                          })
                       }
             }
         />

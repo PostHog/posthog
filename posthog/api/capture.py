@@ -51,7 +51,16 @@ if is_clickhouse_enabled():
     def log_event(data: Dict, event_name: str, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
         if settings.DEBUG:
             print(f"Logging event {event_name} to Kafka topic {topic}")
-        KafkaProducer().produce(topic=topic, data=data)
+
+        # TODO: Handle Kafka being unavailable with exponential backoff retries
+        try:
+            KafkaProducer().produce(topic=topic, data=data)
+        except Exception as e:
+            capture_exception(e, {"data": data})
+            statsd.incr("capture_endpoint_log_event_error")
+
+            if settings.DEBUG:
+                print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION} with error:", e)
 
     def log_event_to_dead_letter_queue(
         raw_payload: Dict,

@@ -9,6 +9,7 @@ on:
 jobs:
     storybook-deployment:
         runs-on: ubuntu-latest
+        if: github.repository == 'PostHog/posthog'
         steps:
             - name: Check out PostHog/posthog repo
               uses: actions/checkout@v2
@@ -37,7 +38,6 @@ jobs:
                   cp -a posthog/storybook-static storybook-build/docs
 
             - name: Commit update
-              if: github.repository == 'PostHog/posthog'
               uses: stefanzweifel/git-auto-commit-action@v4
               with:
                   repository: storybook-build

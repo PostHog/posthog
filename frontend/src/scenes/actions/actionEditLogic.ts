@@ -5,7 +5,6 @@ import { toast } from 'react-toastify'
 import { actionsModel } from '~/models/actionsModel'
 import { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
-import { teamLogic } from '../teamLogic'
 
 type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
 type ActionEditType = ActionType | NewActionType
@@ -52,7 +51,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
     loaders: ({ props }) => ({
         actionCount: {
             loadActionCount: async () => {
-                return (await api.get(`api/projects/${teamLogic.values.currentTeamId}/actions/${props.id}/count`)).count
+                return await api.actions.getCount(props.id)
             },
         },
     }),
@@ -68,17 +67,10 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                   })
                 : []
             try {
-                const queryString = props.temporaryToken ? `?temporary_token=${props.temporaryToken}` : ''
                 if (action.id) {
-                    action = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/actions/${action.id}/${queryString}`,
-                        action
-                    )
+                    action = await api.actions.update(action.id, action, props.temporaryToken)
                 } else {
-                    action = await api.create(
-                        `api/projects/${teamLogic.values.currentTeamId}/actions/${queryString}`,
-                        action
-                    )
+                    action = await api.actions.create(action, props.temporaryToken)
                 }
             } catch (response) {
                 if (response.code === 'unique') {

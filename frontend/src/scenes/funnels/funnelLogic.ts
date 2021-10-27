@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { average, sum } from 'lib/utils'
+import { average, eventToName, successToast, sum } from 'lib/utils'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -29,6 +29,7 @@ import {
     FunnelAPIResponse,
     TrendResult,
     BreakdownType,
+    FunnelCorrelationResultsType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -49,6 +50,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import posthog from 'posthog-js'
 import { teamLogic } from '../teamLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
@@ -113,7 +115,12 @@ export const funnelLogic = kea<funnelLogicType>({
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        setCorrelationDetailedFeedback: (comment: string) => ({ comment }),
+        setCorrelationFeedbackRating: (rating: number) => ({ rating }),
+        setCorrelationDetailedFeedbackVisible: (visible: boolean) => ({ visible }),
+        sendCorrelationAnalysisFeedback: true,
         hideSkewWarning: true,
+        hideCorrelationAnalysisFeedback: true,
     }),
 
     loaders: ({ values }) => ({
@@ -129,12 +136,19 @@ export const funnelLogic = kea<funnelLogicType>({
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
                 loadCorrelations: async () => {
-                    return (
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'events',
                         })
-                    ).result
+                    ).result?.events
+
+                    return {
+                        events: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.Events,
+                        })),
+                    }
                 },
             },
         ],
@@ -144,7 +158,7 @@ export const funnelLogic = kea<funnelLogicType>({
             } as Record<'events', FunnelCorrelation[]>,
             {
                 loadPropertyCorrelations: async (propertyNames: string[]) => {
-                    return (
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
@@ -153,7 +167,14 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ? propertyNames.map((name: string) => name.trim())
                                 : ['$all'],
                         })
-                    ).result
+                    ).result?.events
+
+                    return {
+                        events: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.Properties,
+                        })),
+                    }
                 },
             },
         ],
@@ -161,7 +182,7 @@ export const funnelLogic = kea<funnelLogicType>({
             {} as Record<string, FunnelCorrelation[]>,
             {
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
-                    const results = (
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'event_with_properties',
@@ -169,7 +190,12 @@ export const funnelLogic = kea<funnelLogicType>({
                         })
                     ).result?.events
 
-                    return { [eventName]: results }
+                    return {
+                        [eventName]: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.EventWithProperties,
+                        })),
+                    }
                 },
             },
         ],
@@ -235,6 +261,32 @@ export const funnelLogic = kea<funnelLogicType>({
                 hideSkewWarning: () => true,
             },
         ],
+        correlationFeedbackHidden: [
+            false,
+            { persist: true },
+            {
+                sendCorrelationAnalysisFeedback: () => true,
+                hideCorrelationAnalysisFeedback: () => true,
+            },
+        ],
+        correlationDetailedFeedbackVisible: [
+            false,
+            {
+                setCorrelationDetailedFeedbackVisible: (_, { visible }) => visible,
+            },
+        ],
+        correlationFeedbackRating: [
+            0,
+            {
+                setCorrelationFeedbackRating: (_, { rating }) => rating,
+            },
+        ],
+        correlationDetailedFeedback: [
+            '',
+            {
+                setCorrelationDetailedFeedback: (_, { comment }) => comment,
+            },
+        ],
         eventWithPropertyCorrelations: {
             loadEventWithPropertyCorrelationsSuccess: (state, { eventWithPropertyCorrelations }) => {
                 return {
@@ -280,7 +332,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         0
                     )
                 }
-                return people.sort((a, b) => score(b) - score(a))
+                return [...people].sort((a, b) => score(b) - score(a))
             },
         ],
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
@@ -762,6 +814,33 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
+        parseDisplayNameForCorrelation: [
+            () => [],
+            (): ((record: FunnelCorrelation) => { first_value: string; second_value?: string }) => {
+                return (record) => {
+                    let first_value = undefined
+                    let second_value = undefined
+                    const values = record.event.event.split('::')
+
+                    if (record.result_type === FunnelCorrelationResultsType.Events) {
+                        first_value = record.event.event
+                        return { first_value, second_value }
+                    } else if (record.result_type === FunnelCorrelationResultsType.Properties) {
+                        first_value = values[0]
+                        second_value = values[1]
+                        return { first_value, second_value }
+                    } else if (values[0] === '$autocapture' && values[1] === 'elements_chain') {
+                        // special case for autocapture elements_chain
+                        first_value = eventToName({ ...record.event, event: '$autocapture' })
+                        return { first_value, second_value }
+                    } else {
+                        // FunnelCorrelationResultsType.EventWithProperties
+                        // Events here come in the form of event::property::value
+                        return { first_value: values[1], second_value: values[2] }
+                    }
+                }
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -898,6 +977,20 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
+        },
+        sendCorrelationAnalysisFeedback: () => {
+            posthog.capture('correlation analysis feedback', {
+                rating: values.correlationFeedbackRating,
+                comment: values.correlationDetailedFeedback,
+            })
+            actions.setCorrelationFeedbackRating(0)
+            actions.setCorrelationDetailedFeedback('')
+            successToast('Thanks for your feedback!', ' ')
+        },
+        setCorrelationFeedbackRating: ({ rating }) => {
+            const feedbackBoxVisible = rating > 0
+
+            actions.setCorrelationDetailedFeedbackVisible(feedbackBoxVisible)
         },
     }),
 })

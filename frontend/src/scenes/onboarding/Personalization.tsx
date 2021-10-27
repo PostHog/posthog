@@ -6,6 +6,12 @@ import { RadioSelect } from 'lib/components/RadioSelect'
 import { ROLES, PRODUCTS, IS_TECHNICAL } from './personalizationOptions'
 import { Link } from 'lib/components/Link'
 import './Personalization.scss'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: Personalization,
+    logic: personalizationLogic,
+}
 
 export function Personalization(): JSX.Element {
     const { personalizationData } = useValues(personalizationLogic)

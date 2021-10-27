@@ -13,6 +13,12 @@ import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
 import { FrameworkGrid } from 'scenes/ingestion/panels/FrameworkGrid'
 import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: IngestionWizard,
+    logic: ingestionLogic,
+}
 
 export function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     return (

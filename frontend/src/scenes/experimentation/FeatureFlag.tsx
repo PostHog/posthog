@@ -28,6 +28,12 @@ import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/ico
 import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: FeatureFlag,
+    logic: featureFlagLogic,
+}
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 

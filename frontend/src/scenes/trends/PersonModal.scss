@@ -48,4 +48,9 @@
         display: flex;
         flex-direction: column;
     }
+
+    .user-count-subheader {
+        padding: $default_spacing / 2 $default_spacing;
+        color: $text_muted_alt;
+    }
 }

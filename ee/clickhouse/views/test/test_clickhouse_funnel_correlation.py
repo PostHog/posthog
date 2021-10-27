@@ -11,6 +11,7 @@ from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from posthog.constants import FunnelCorrelationType
+from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.test.base import BaseTest
@@ -97,7 +98,7 @@ class FunnelCorrelationTest(BaseTest):
             "result": {
                 "events": [
                     {
-                        "event": "watched video",
+                        "event": {"event": "watched video", "elements": [], "properties": {}},
                         "success_count": 1,
                         "failure_count": 1,
                         "odds_ratio": 1 / 2,
@@ -253,7 +254,7 @@ class FunnelCorrelationTest(BaseTest):
                 "events": [
                     {
                         "correlation_type": "failure",
-                        "event": "",
+                        "event": {"event": "", "elements": [], "properties": {}},
                         "failure_count": 1,
                         "odds_ratio": 1 / 4,
                         "success_count": 0,
@@ -318,14 +319,14 @@ class FunnelCorrelationTest(BaseTest):
             result,
             [
                 {
-                    "event": "$browser::Positive",
+                    "event": {"event": "$browser::Positive", "elements": [], "properties": {}},
                     "success_count": 10,
                     "failure_count": 0,
                     # "odds_ratio": 121.0,
                     "correlation_type": "success",
                 },
                 {
-                    "event": "$browser::Negative",
+                    "event": {"event": "$browser::Negative", "elements": [], "properties": {}},
                     "success_count": 0,
                     "failure_count": 10,
                     # "odds_ratio": 1 / 121,
@@ -359,6 +360,94 @@ class FunnelCorrelationTest(BaseTest):
             "is_cached": False,
             "last_refresh": "2020-01-01T00:00:00Z",
             "result": {"events": [], "skewed": False},
+        }
+
+    def test_funnel_correlation_with_event_properties_autocapture(self):
+        self.client.force_login(self.user)
+
+        # Need a minimum of 3 hits to get a correlation result
+        for i in range(3):
+            create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id=f"user_{i}",
+                elements=[Element(nth_of_type=1, nth_child=0, tag_name="a", href="/movie")],
+                timestamp="2020-01-03T14:00:00Z",
+                properties={"signup_source": "email", "$event_type": "click"},
+            )
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        # Atleast one person that fails, to ensure we get results
+        create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z",
+        )
+
+        with freeze_time("2020-01-01"):
+            response = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="user signed up"), EventPattern(id="paid")]),
+                    date_to="2020-01-14",
+                    date_from="2020-01-01",
+                    funnel_correlation_type=FunnelCorrelationType.EVENT_WITH_PROPERTIES,
+                    funnel_correlation_event_names=json.dumps(["$autocapture"]),
+                ),
+            )
+
+        assert response == {
+            "result": {
+                "events": [
+                    {
+                        "success_count": 3,
+                        "failure_count": 0,
+                        "odds_ratio": 8.0,
+                        "correlation_type": "success",
+                        "event": {
+                            "event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"',
+                            "properties": {"$event_type": "click"},
+                            "elements": [
+                                {
+                                    "event": None,
+                                    "text": None,
+                                    "tag_name": "a",
+                                    "attr_class": None,
+                                    "href": "/movie",
+                                    "attr_id": None,
+                                    "nth_child": 0,
+                                    "nth_of_type": 1,
+                                    "attributes": {},
+                                    "order": 0,
+                                }
+                            ],
+                        },
+                    },
+                    {
+                        "success_count": 3,
+                        "failure_count": 0,
+                        "odds_ratio": 8.0,
+                        "correlation_type": "success",
+                        "event": {"event": "$autocapture::signup_source::email", "properties": {}, "elements": []},
+                    },
+                    {
+                        "success_count": 3,
+                        "failure_count": 0,
+                        "odds_ratio": 8.0,
+                        "correlation_type": "success",
+                        "event": {"event": "$autocapture::$event_type::click", "properties": {}, "elements": []},
+                    },
+                ],
+                "skewed": False,
+            },
+            "last_refresh": "2020-01-01T00:00:00Z",
+            "is_cached": False,
         }
 
 
@@ -401,6 +490,7 @@ class FunnelCorrelationRequest:
     funnel_correlation_type: Optional[FunnelCorrelationType] = None
     # Needs to be json encoded list of `str`s
     funnel_correlation_names: Optional[str] = None
+    funnel_correlation_event_names: Optional[str] = None
 
 
 def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):

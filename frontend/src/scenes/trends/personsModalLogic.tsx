@@ -3,9 +3,9 @@ import { Link } from 'lib/components/Link'
 import dayjs from 'dayjs'
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { ActionFilter, FilterType, ViewType, FunnelVizType, PropertyFilter } from '~/types'
+import { ActionFilter, FilterType, ViewType, FunnelVizType, PropertyFilter, PersonType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -14,9 +14,8 @@ import { TrendPeople } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
-import { teamLogic } from '../teamLogic'
-import { cohortsModel } from '~/models/cohortsModel'
 import { toast } from 'react-toastify'
+import { cohortsModel } from '~/models/cohortsModel'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -29,9 +28,10 @@ export interface PersonModalParams {
     searchTerm?: string
     funnelStep?: number
     pathsDropoff?: boolean
+    pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
 }
 
-interface PeopleParamType {
+export interface PeopleParamType {
     action: ActionFilter | 'session'
     label: string
     date_to?: string | number
@@ -166,7 +166,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
-                let people = []
+                let people: PaginatedResponse<{ people: PersonType[]; count: number }> | null = null
                 const {
                     label,
                     action,
@@ -183,10 +183,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
 
                 if (filters.funnel_correlation_person_entity) {
                     const cleanedParams = cleanFilters(filters)
-                    const funnelCorrelationParams = toParams(cleanedParams)
-                    people = await api.create(
-                        `api/person/funnel/correlation/?${funnelCorrelationParams}${searchTermParam}`
-                    )
+                    people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
                 } else if (filters.insight === ViewType.LIFECYCLE) {
                     const filterParams = parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
@@ -218,31 +215,28 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === ViewType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
-                    const pathParams = toParams(cleanedParams)
-                    people = await api.create(`api/person/path/?${pathParams}${searchTermParam}`)
+                    people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                 } else {
-                    const filterParams = parsePeopleParams(
+                    people = await api.actions.getPeople(
                         { label, action, date_from, date_to, breakdown_value },
-                        filters
-                    )
-                    people = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/actions/people/?${filterParams}${searchTermParam}`
+                        filters,
+                        searchTerm
                     )
                 }
                 breakpoint()
                 const peopleResult = {
-                    people: people.results[0]?.people,
-                    count: people.results[0]?.count || 0,
+                    people: people?.results[0]?.people,
+                    count: people?.results[0]?.count || 0,
                     action,
                     label,
                     day: date_from,
                     breakdown_value,
-                    next: people.next,
+                    next: people?.next,
                     funnelStep,
                     pathsDropoff,
                 } as TrendPeople
 
-                eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people.next)
+                eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people?.next)
 
                 if (saveOriginal) {
                     actions.saveFirstLoadedPeople(peopleResult)
@@ -262,6 +256,9 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         next,
                         funnelStep,
                     } = values.people
+                    if (!next) {
+                        throw new Error('URL of next page of persons is not known.')
+                    }
                     const people = await api.get(next)
                     breakpoint()
 

@@ -10,6 +10,7 @@ from .event import Event
 from .event_definition import EventDefinition
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
+from .group_type_mapping import GroupTypeMapping
 from .insight import Insight
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
@@ -38,6 +39,7 @@ __all__ = [
     "EventDefinition",
     "FeatureFlag",
     "Filter",
+    "GroupTypeMapping",
     "RetentionFilter",
     "MessagingRecord",
     "Organization",
@@ -49,6 +51,7 @@ __all__ = [
     "Plugin",
     "PluginAttachment",
     "PluginConfig",
+    "PluginLogEntry",
     "Property",
     "PropertyDefinition",
     "SessionRecordingEvent",

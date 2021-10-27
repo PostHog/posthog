@@ -1,0 +1,545 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/insights",
+                "search": "",
+                "hash": ""
+            },
+            "searchParams": {},
+            "hashParams": {}
+        }
+    },
+    "scenes": {
+        "userLogic": {
+            "user": {
+                "date_joined": "2021-09-16T11:39:21.181994Z",
+                "uuid": "017bee67-6ede-0000-2e55-cd3c50873f0a",
+                "distinct_id": "3ReACAF6yDHyHYPzSpNTJkdpBa0MKGRUTDkWJ0BeIs8",
+                "first_name": "Jane Doe",
+                "email": "test@posthog.com",
+                "email_opt_in": false,
+                "anonymize_data": false,
+                "toolbar_mode": "toolbar",
+                "has_password": true,
+                "is_staff": true,
+                "is_impersonated": false,
+                "team": {
+                    "id": 1,
+                    "uuid": "017bee67-6f35-0000-1aa4-099013f32dd1",
+                    "organization": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
+                    "api_token": "e2e_token_1239",
+                    "name": "HogFlix Demo App",
+                    "completed_snippet_onboarding": true,
+                    "ingested_event": true,
+                    "is_demo": false,
+                    "timezone": "UTC",
+                    "effective_membership_level": 15
+                },
+                "organization": {
+                    "id": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
+                    "name": "HogFlix",
+                    "created_at": "2021-09-16T11:39:20.154006Z",
+                    "updated_at": "2021-09-16T12:37:01.817475Z",
+                    "membership_level": 15,
+                    "personalization": {},
+                    "setup": {
+                        "is_active": false,
+                        "current_section": null
+                    },
+                    "plugins_access_level": 9,
+                    "teams": [
+                        {
+                            "id": 1,
+                            "uuid": "017bee67-6f35-0000-1aa4-099013f32dd1",
+                            "organization": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
+                            "api_token": "e2e_token_1239",
+                            "name": "HogFlix Demo App",
+                            "completed_snippet_onboarding": true,
+                            "ingested_event": true,
+                            "is_demo": false,
+                            "timezone": "UTC",
+                            "effective_membership_level": 15
+                        }
+                    ],
+                    "available_features": [
+                        "zapier",
+                        "organizations_projects",
+                        "per_project_access",
+                        "google_login",
+                        "saml",
+                        "dashboard_collaboration",
+                        "ingestion_taxonomy"
+                    ],
+                    "domain_whitelist": [],
+                    "is_member_join_email_enabled": true,
+                    "per_project_access": true
+                },
+                "organizations": [
+                    {
+                        "id": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
+                        "name": "HogFlix"
+                    }
+                ],
+                "events_column_config": {
+                    "active": "DEFAULT"
+                }
+            },
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "logic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": true,
+                    "celery": true,
+                    "db": true,
+                    "initiated": true,
+                    "cloud": false,
+                    "realm": "hosted",
+                    "available_social_auth_providers": {
+                        "github": false,
+                        "gitlab": false,
+                        "google-oauth2": false,
+                        "saml": false
+                    },
+                    "can_create_org": false,
+                    "ee_available": true,
+                    "is_clickhouse_enabled": false,
+                    "db_backend": "postgres",
+                    "available_timezones": {},
+                    "opt_out_capture": false,
+                    "posthog_version": "1.28.0",
+                    "email_service_available": false,
+                    "is_debug": true,
+                    "is_event_property_usage_enabled": false,
+                    "licensed_users_available": 4,
+                    "site_url": "http://localhost:8000"
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "insights",
+            "params": {},
+            "loadedScenes": {
+                "insights": {}
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null
+        },
+        "organizationLogic": {
+            "currentOrganization": {
+                "id": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
+                "name": "HogFlix",
+                "created_at": "2021-09-16T11:39:20.154006Z",
+                "updated_at": "2021-09-16T12:37:01.817475Z",
+                "membership_level": 15,
+                "personalization": {},
+                "setup": {
+                    "is_active": false,
+                    "current_section": null
+                },
+                "plugins_access_level": 9,
+                "teams": [
+                    {
+                        "id": 1,
+                        "uuid": "017bee67-6f35-0000-1aa4-099013f32dd1",
+                        "organization": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
+                        "api_token": "e2e_token_1239",
+                        "name": "HogFlix Demo App",
+                        "completed_snippet_onboarding": true,
+                        "ingested_event": true,
+                        "is_demo": false,
+                        "timezone": "UTC",
+                        "effective_membership_level": 15
+                    }
+                ],
+                "available_features": [
+                    "zapier",
+                    "organizations_projects",
+                    "per_project_access",
+                    "google_login",
+                    "saml",
+                    "dashboard_collaboration",
+                    "ingestion_taxonomy"
+                ],
+                "domain_whitelist": [],
+                "is_member_join_email_enabled": true,
+                "per_project_access": true
+            },
+            "currentOrganizationLoading": false,
+            "organizationBeingDeleted": null
+        },
+        "instance": {
+            "SystemStatus": {
+                "systemStatusLogic": {
+                    "systemStatus": {
+                        "overview": [
+                            {
+                                "key": "posthog_version",
+                                "metric": "PostHog version",
+                                "value": "1.28.0"
+                            },
+                            {
+                                "key": "posthog_git_sha",
+                                "metric": "PostHog Git SHA",
+                                "value": "Undefined"
+                            },
+                            {
+                                "key": "analytics_database",
+                                "metric": "Analytics database in use",
+                                "value": "Postgres"
+                            },
+                            {
+                                "key": "plugin_sever_alive",
+                                "metric": "Plugin server alive",
+                                "value": true
+                            },
+                            {
+                                "key": "plugin_sever_version",
+                                "metric": "Plugin server version",
+                                "value": "1.8.0"
+                            },
+                            {
+                                "key": "plugin_sever_job_queues",
+                                "metric": "Job queues enabled in plugin server",
+                                "value": "Graphile"
+                            },
+                            {
+                                "key": "db_alive",
+                                "metric": "Postgres database alive",
+                                "value": true
+                            },
+                            {
+                                "key": "pg_version",
+                                "metric": "Postgres version",
+                                "value": "13.0.4"
+                            },
+                            {
+                                "metric": "Postgres elements table size",
+                                "value": "206 rows (~256 kB)"
+                            },
+                            {
+                                "metric": "Postgres events table size",
+                                "value": "1.31K rows (~1656 kB)"
+                            },
+                            {
+                                "metric": "Postgres session recording table size",
+                                "value": "62 rows (~184 kB)"
+                            },
+                            {
+                                "key": "redis_alive",
+                                "metric": "Redis alive",
+                                "value": true
+                            },
+                            {
+                                "metric": "Redis version",
+                                "value": "6.2.5"
+                            },
+                            {
+                                "metric": "Redis current queue depth",
+                                "value": "0"
+                            },
+                            {
+                                "metric": "Redis connected client count",
+                                "value": "36"
+                            },
+                            {
+                                "metric": "Redis memory used",
+                                "value": "2.05MB"
+                            },
+                            {
+                                "metric": "Redis memory peak",
+                                "value": "5.24MB"
+                            },
+                            {
+                                "metric": "Redis total memory available",
+                                "value": "32.00GB"
+                            }
+                        ],
+                        "internal_metrics": {}
+                    },
+                    "systemStatusLoading": false,
+                    "queries": null,
+                    "queriesLoading": false,
+                    "analyzeQueryResult": null,
+                    "analyzeQueryResultLoading": false,
+                    "tab": "overview",
+                    "error": null,
+                    "openSections": ["0"],
+                    "analyzeModalOpen": false,
+                    "analyzeQuery": ""
+                }
+            }
+        },
+        "billing": {
+            "billingLogic": {
+                "billing": null,
+                "billingLoading": false,
+                "plans": [],
+                "plansLoading": false,
+                "billingSubscription": null,
+                "billingSubscriptionLoading": false
+            }
+        },
+        "teamLogic": {
+            "currentTeam": {
+                "id": 1,
+                "uuid": "017bee67-6f35-0000-1aa4-099013f32dd1",
+                "organization": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
+                "api_token": "e2e_token_1239",
+                "app_urls": [],
+                "name": "HogFlix Demo App",
+                "slack_incoming_webhook": null,
+                "created_at": "2021-09-16T11:39:21.270216Z",
+                "updated_at": "2021-09-16T11:39:21.589504Z",
+                "anonymize_ips": false,
+                "completed_snippet_onboarding": true,
+                "ingested_event": true,
+                "test_account_filters": [
+                    {
+                        "key": "$host",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000"
+                        ],
+                        "operator": "is_not"
+                    }
+                ],
+                "is_demo": false,
+                "timezone": "UTC",
+                "data_attributes": ["data-attr"],
+                "session_recording_opt_in": false,
+                "session_recording_retention_period_days": null,
+                "effective_membership_level": 15
+            },
+            "currentTeamLoading": false,
+            "teamBeingDeleted": null
+        },
+        "organization": {
+            "Settings": {
+                "bulkInviteLogic": {
+                    "invitedTeamMembers": [],
+                    "invitedTeamMembersLoading": false,
+                    "invites": [
+                        {
+                            "target_email": "",
+                            "first_name": "",
+                            "isValid": true
+                        }
+                    ]
+                },
+                "membersLogic": {
+                    "members": [
+                        {
+                            "id": "017bee67-6f43-0000-338f-fb1910dd798e",
+                            "user": {
+                                "id": 1,
+                                "uuid": "017bee67-6ede-0000-2e55-cd3c50873f0a",
+                                "distinct_id": "3ReACAF6yDHyHYPzSpNTJkdpBa0MKGRUTDkWJ0BeIs8",
+                                "first_name": "Jane Doe",
+                                "email": "test@posthog.com"
+                            },
+                            "level": 15,
+                            "joined_at": "2021-09-16T11:39:21.283404Z",
+                            "updated_at": "2021-09-16T11:39:21.283413Z"
+                        }
+                    ],
+                    "membersLoading": false
+                }
+            }
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "featureFlags": {
+                    "per-project-access": true,
+                    "cloud-announcement": "Random announcement – [visit our blog](https://posthog.com/blog) 🎉"
+                },
+                "receivedFeatureFlags": true
+            }
+        },
+        "components": {
+            "CommandPalette": {
+                "commandPaletteLogic": {
+                    "isPaletteShown": false,
+                    "keyboardResultIndex": 0,
+                    "hoverResultIndex": null,
+                    "input": "",
+                    "activeFlow": null,
+                    "rawCommandRegistrations": {
+                        "go-to": {
+                            "key": "go-to",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"],
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Go to Dashboards"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Insights"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Trends"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Sessions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Funnels"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Retention"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to User Paths"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Events"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Actions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Live Sessions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Persons",
+                                    "synonyms": ["people"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Cohorts"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Feature Flags",
+                                    "synonyms": ["feature flags", "a/b tests"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Annotations"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Team Members",
+                                    "synonyms": ["organization", "members", "invites", "teammates"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Project Settings"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to My Settings",
+                                    "synonyms": ["account"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Plugins",
+                                    "synonyms": ["integrations"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to System Status Page",
+                                    "synonyms": [
+                                        "redis",
+                                        "celery",
+                                        "django",
+                                        "postgres",
+                                        "backend",
+                                        "service",
+                                        "online"
+                                    ]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Create Action"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Log Out"
+                                }
+                            ]
+                        },
+                        "open-urls": {
+                            "key": "open-urls",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"]
+                        },
+                        "debug-clickhouse-queries": {
+                            "key": "debug-clickhouse-queries",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Debug ClickHouse Queries"
+                            }
+                        },
+                        "calculator": {
+                            "key": "calculator",
+                            "scope": "global"
+                        },
+                        "create-personal-api-key": {
+                            "key": "create-personal-api-key",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Personal API Key"
+                            }
+                        },
+                        "create-dashboard": {
+                            "key": "create-dashboard",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Dashboard"
+                            }
+                        },
+                        "share-feedback": {
+                            "key": "share-feedback",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Share Feedback",
+                                "synonyms": ["send opinion", "ask question", "message posthog", "github issue"]
+                            }
+                        }
+                    }
+                }
+            },
+            "BackTo": {
+                "backTo": null
+            }
+        }
+    },
+    "layout": {
+        "lemonade": {
+            "lemonadeLogic": {
+                "isAnnouncementHidden": false,
+                "announcementMessage": "Random announcement – [visit our blog](https://posthog.com/blog) 🎉"
+            }
+        }
+    }
+}

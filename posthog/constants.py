@@ -120,7 +120,10 @@ FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
+FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
 FUNNEL_CORRELATION_EVENT_NAMES = "funnel_correlation_event_names"
+FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES = "funnel_correlation_exclude_event_names"
+FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES = "funnel_correlation_event_exclude_property_names"
 FUNNEL_CORRELATION_PERSON_ENTITY = "funnel_correlation_person_entity"
 FUNNEL_CORRELATION_PERSON_LIMIT = "funnel_correlation_person_limit"
 FUNNEL_CORRELATION_PERSON_OFFSET = "funnel_correlation_person_offset"
@@ -187,3 +190,4 @@ class RetentionQueryType(str, Enum):
 
 
 MAX_SLUG_LENGTH = 48
+GROUP_TYPES_LIMIT = 5

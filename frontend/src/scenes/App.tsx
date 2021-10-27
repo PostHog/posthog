@@ -8,17 +8,16 @@ import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
-import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
-import { Papercups } from 'lib/components/Papercups'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
+import { LoadedScene } from 'scenes/sceneTypes'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -65,17 +64,40 @@ export function App(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { sceneConfig } = useValues(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (showApp) {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
+                {featureFlags[FEATURE_FLAGS.TURBO_MODE] ? <LoadedSceneLogics /> : null}
                 {(!sceneConfig.projectBased || currentTeamId) && <AppScene />}
             </>
         )
     }
 
     return showingDelayedSpinner ? <SceneLoading /> : null
+}
+
+function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
+    if (!scene.logic) {
+        throw new Error('Loading scene without a logic')
+    }
+    useMountedLogic(scene.logic(scene.paramsToProps?.(scene.sceneParams)))
+    return null
+}
+
+function LoadedSceneLogics(): JSX.Element {
+    const { loadedScenes } = useValues(sceneLogic)
+    return (
+        <>
+            {Object.entries(loadedScenes)
+                .filter(([, { logic }]) => !!logic)
+                .map(([key, loadedScene]) => (
+                    <LoadedSceneLogic key={key} scene={loadedScene} />
+                ))}
+        </>
+    )
 }
 
 /** Loads every logic in the "src/models" folder */
@@ -97,7 +119,6 @@ function AppScene(): JSX.Element | null {
     const essentialElements = (
         // Components that should always be mounted inside Layout
         <>
-            {featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED] && <Papercups />}
             <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
         </>
     )
@@ -130,7 +151,7 @@ function AppScene(): JSX.Element | null {
                     {activeScene ? (
                         <Layout.Content className="main-app-content" data-attr="layout-content">
                             {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
-                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] ? (
+                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                                 <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
                             ) : null}
                             <BillingAlerts />
@@ -142,7 +163,6 @@ function AppScene(): JSX.Element | null {
                 {essentialElements}
             </Layout>
             <UpgradeModal />
-            <CommandPalette />
         </>
     )
 }

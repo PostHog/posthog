@@ -17,6 +17,7 @@ import {
     ViewType,
     InsightType,
     PropertyFilter,
+    HelpType,
     SessionPlayerData,
     AvailableFeature,
 } from '~/types'
@@ -256,12 +257,16 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
+        reportPersonMerged: (merge_count: number) => ({ merge_count }),
+        reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecordingViewed: (
             recordingData: SessionPlayerData,
             source: RecordingWatchedSource,
             loadTime: number,
             delay: number
         ) => ({ recordingData, source, loadTime, delay }),
+        reportHelpButtonViewed: true,
+        reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -620,6 +625,18 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         },
         reportPayGateDismissed: (props) => {
             posthog.capture('pay gate dismissed', props)
+        },
+        reportPersonMerged: (props) => {
+            posthog.capture('merge person completed', props)
+        },
+        reportPersonSplit: (props) => {
+            posthog.capture('split person started', props)
+        },
+        reportHelpButtonViewed: () => {
+            posthog.capture('help button viewed')
+        },
+        reportHelpButtonUsed: (props) => {
+            posthog.capture('help button used', props)
         },
     },
 })

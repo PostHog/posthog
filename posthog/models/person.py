@@ -70,7 +70,7 @@ class Person(models.Model):
     properties_last_updated_at: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
     # used for evaluating if we need to override the value or not (value: set or set_once)
-    properties_last_operation: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+    properties_last_operation: models.JSONField = models.JSONField(null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     properties: models.JSONField = models.JSONField(default=dict)

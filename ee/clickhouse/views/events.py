@@ -110,16 +110,7 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         next_url: Optional[str] = None
         if not is_csv_request and len(query_result) > limit:
-            path = request.get_full_path()
-            reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-            next_url = request.build_absolute_uri(
-                "{}{}{}={}".format(
-                    path,
-                    "&" if "?" in path else "?",
-                    "after" if reverse else "before",
-                    query_result[limit - 1][3].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                )
-            )
+            next_url = self._build_next_url(request, query_result[limit - 1][3])
 
         return Response({"next": next_url, "results": result})
 

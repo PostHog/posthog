@@ -345,34 +345,46 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response["results"][1]["id"], event3.pk)
 
         def test_pagination(self):
-            person_factory(team=self.team, distinct_ids=["1"])
-            for idx in range(0, 150):
-                event_factory(
-                    team=self.team,
-                    event="some event",
-                    distinct_id="1",
-                    timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
+            with freeze_time("2021-10-10T12:03:03.829294Z"):
+                person_factory(team=self.team, distinct_ids=["1"])
+                for idx in range(0, 250):
+                    event_factory(
+                        team=self.team,
+                        event="some event",
+                        distinct_id="1",
+                        timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
+                    )
+                response = self.client.get("/api/event/?distinct_id=1").json()
+                self.assertEqual(len(response["results"]), 100)
+                self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
+                response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+                self.assertEqual(len(response["results"]), 100)
+                self.assertIn(
+                    f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=", response["next"]
                 )
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
-            self.assertEqual(len(response["results"]), 100)
-            self.assertIn(
-                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=", response["next"]
-            )
 
-            page2 = self.client.get(response["next"]).json()
-            from posthog.utils import is_clickhouse_enabled
+                page2 = self.client.get(response["next"]).json()
+                from posthog.utils import is_clickhouse_enabled
 
-            if is_clickhouse_enabled():
-                from ee.clickhouse.client import sync_execute
+                if is_clickhouse_enabled():
+                    from ee.clickhouse.client import sync_execute
 
+                    self.assertEqual(
+                        sync_execute(
+                            "select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk}
+                        )[0][0],
+                        250,
+                    )
+
+                self.assertEqual(len(page2["results"]), 100)
                 self.assertEqual(
-                    sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[
-                        0
-                    ][0],
-                    150,
+                    page2["next"],
+                    f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294Z",
                 )
 
-            self.assertEqual(len(page2["results"]), 50)
+                page3 = self.client.get(page2["next"]).json()
+                self.assertEqual(len(page3["results"]), 50)
+                self.assertIsNone(page3["next"])
 
         def test_action_no_steps(self):
             action = Action.objects.create(team=self.team)

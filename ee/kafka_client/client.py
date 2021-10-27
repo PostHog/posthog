@@ -13,6 +13,8 @@ from ee.settings import KAFKA_ENABLED
 from posthog.settings import KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
 
+KAFKA_PRODUCER_RETRIES = 5
+
 
 class TestKafkaProducer:
     def __init__(self):
@@ -53,9 +55,9 @@ class _KafkaProducer:
         if test:
             self.producer = TestKafkaProducer()
         elif KAFKA_BASE64_KEYS:
-            self.producer = helper.get_kafka_producer(value_serializer=lambda d: d)
+            self.producer = helper.get_kafka_producer(retries=KAFKA_PRODUCER_RETRIES, value_serializer=lambda d: d)
         else:
-            self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
+            self.producer = KP(retries=KAFKA_PRODUCER_RETRIES, bootstrap_servers=KAFKA_HOSTS)
 
     @staticmethod
     def json_serializer(d):

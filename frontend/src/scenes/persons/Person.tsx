@@ -9,15 +9,9 @@ import { PersonHeader } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
-import {
-    DownOutlined,
-    DeleteOutlined,
-    MergeCellsOutlined,
-    SplitCellsOutlined,
-    LoadingOutlined,
-} from '@ant-design/icons'
+import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { MergePerson } from './MergePerson'
+import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NewPropertyComponent } from './NewPropertyComponent'
@@ -26,20 +20,32 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SplitPerson } from './SplitPerson'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SceneExport } from 'scenes/sceneTypes'
+
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
 
+export const scene: SceneExport = {
+    component: Person,
+    logic: personsLogic,
+}
+
 export function Person(): JSX.Element {
     const [activeCardTab, setActiveCardTab] = useState('properties')
-    const [mergeModalOpen, setMergeModalOpen] = useState(false)
-    const [splitModalOpen, setSplitModalOpen] = useState(false)
-    const { person, personLoading, deletedPersonLoading, hasNewKeys, currentTab, showSessionRecordings, showTabs } =
-        useValues(personsLogic)
-    const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
+    const {
+        person,
+        personLoading,
+        deletedPersonLoading,
+        hasNewKeys,
+        currentTab,
+        showSessionRecordings,
+        showTabs,
+        splitMergeModalShown,
+    } = useValues(personsLogic)
+    const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(personsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -111,6 +117,7 @@ export function Person(): JSX.Element {
                                 <EventsTable
                                     pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                     fixedFilters={{ person_id: person.id }}
+                                    hidePersonColumn
                                 />
                             )}
                         </div>
@@ -148,18 +155,13 @@ export function Person(): JSX.Element {
                                     </div>
                                 )}
                                 <div className="text-center mt">
-                                    <a onClick={() => setMergeModalOpen(true)} data-attr="merge-person-button">
-                                        <MergeCellsOutlined /> Merge person
-                                    </a>
-                                </div>
-                                {featureFlags[FEATURE_FLAGS.SPLIT_PERSON] && person.distinct_ids.length > 1 && (
-                                    <div className="text-center mt">
-                                        <a onClick={() => setSplitModalOpen(true)} data-attr="merge-person-button">
-                                            <SplitCellsOutlined /> Split IDs into multiple people
-                                        </a>
-                                    </div>
-                                )}
-                                <div className="text-center mt">
+                                    <Button
+                                        type="link"
+                                        onClick={() => setSplitMergeModalShown(true)}
+                                        data-attr="merge-person-button"
+                                    >
+                                        <MergeCellsOutlined /> Split or merge IDs
+                                    </Button>
                                     <Popconfirm
                                         title="Are you sure to delete this person and all associated data?"
                                         onConfirm={deletePerson}
@@ -219,10 +221,7 @@ export function Person(): JSX.Element {
                     </Card>
                 </Col>
             </Row>
-            {mergeModalOpen && person && (
-                <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
-            )}
-            {splitModalOpen && person && <SplitPerson person={person} closeModal={() => setSplitModalOpen(false)} />}
+            {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
         </div>
     )
 }

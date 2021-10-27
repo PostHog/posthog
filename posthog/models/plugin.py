@@ -55,6 +55,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["name"] = json.get("name", json_path.split("/")[-2])
         validated_data["description"] = json.get("description", "")
         validated_data["config_schema"] = json.get("config", [])
+        validated_data["public_jobs"] = json.get("publicJobs", {})
         validated_data["source"] = None
         posthog_version = json.get("posthogVersion", None)
     else:

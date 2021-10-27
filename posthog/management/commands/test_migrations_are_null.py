@@ -15,7 +15,11 @@ class Command(BaseCommand):
             try:
                 results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
                 sql = call_command("sqlmigrate", results[0], results[1])
-                if "NOT NULL" in sql and "Create model" not in sql and "-- not-null-ignore" not in sql:
+                if (
+                    ("NOT NULL" in sql or "DEFAULT" in sql)
+                    and "Create model" not in sql
+                    and "-- not-null-ignore" not in sql
+                ):
                     print(
                         f"\n\n\033[91mFound a non-null field added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field",
                         "red",

@@ -23,8 +23,15 @@ import { InsightsNav } from './InsightsNav'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
+import { SceneExport } from 'scenes/sceneTypes'
 
 dayjs.extend(relativeTime)
+
+export const scene: SceneExport = {
+    component: Insights,
+    logic: insightLogic,
+    paramsToProps: ({ hashParams: { fromItem } }) => ({ dashboardItemId: fromItem, syncWithUrl: true }),
+}
 
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
@@ -81,7 +88,7 @@ export function Insights(): JSX.Element {
         },
     })
 
-    const scene = (
+    const insightScene = (
         <div className="insights-page">
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <div className="insight-metadata">
@@ -253,7 +260,7 @@ export function Insights(): JSX.Element {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            {scene}
+            {insightScene}
         </BindLogic>
     )
 }

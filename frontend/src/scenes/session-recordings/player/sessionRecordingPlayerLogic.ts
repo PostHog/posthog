@@ -8,8 +8,13 @@ import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
-function getTime(time: number, meta: playerMetaData): number {
-    return Math.max(Math.min(time, meta.endTime), 0)
+const BUFFER_TIME_BUFFER_MS = 5 * 1000 // The length of time player has to have loaded to get out of buffering state
+
+function getZeroOffsetTime(time: number, meta: playerMetaData): number {
+    return Math.max(Math.min(time - meta.startTime, meta.totalTime), 0)
+}
+function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): number {
+    return Math.max(Math.min(zeroOffsetTime + meta.startTime, meta.endTime), meta.startTime)
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>({
@@ -28,9 +33,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPause: true,
         setBuffer: true,
         setSkip: true,
+        setScrub: true,
         setMeta: (meta: playerMetaData) => ({ meta }),
         setMetaDuration: (duration: number) => ({ duration }),
         setCurrentTime: (time: number) => ({ time }),
+        setRealTime: (time: number) => ({ time }),
         setLastBufferedTime: (time: number) => ({ time }),
         setSpeed: (speed: number) => ({ speed }),
         togglePlayPause: true,
@@ -59,6 +66,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setLastBufferedTime: (state, { time }) => ({ ...state, lastBuffered: time }),
             },
         ],
+        realTime: [
+            {
+                current: 0,
+                lastBuffered: 0,
+            } as SessionPlayerTime,
+            {
+                seek: (state, { time }) => ({ ...state, current: time }),
+                setCurrentTime: (state, { time }) => ({ ...state, current: time }),
+                setRealTime: (state, { time }) => ({ ...state, current: time }),
+            },
+        ],
         speed: [
             1,
             {
@@ -77,17 +95,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         playingState: [
-            SessionPlayerState.PLAY as SessionPlayerState,
+            SessionPlayerState.PLAY as SessionPlayerState.PLAY | SessionPlayerState.PAUSE,
             {
                 setPlay: () => SessionPlayerState.PLAY,
                 setPause: () => SessionPlayerState.PAUSE,
             },
         ],
         loadingState: [
-            SessionPlayerState.BUFFER as SessionPlayerState.BUFFER | SessionPlayerState.SKIP | null,
+            SessionPlayerState.BUFFER as
+                | SessionPlayerState.BUFFER
+                | SessionPlayerState.SKIP
+                | SessionPlayerState.SCRUB
+                | null,
             {
                 setBuffer: () => SessionPlayerState.BUFFER,
                 setSkip: () => SessionPlayerState.SKIP,
+                setScrub: () => SessionPlayerState.SCRUB,
                 clearLoadingState: () => null,
             },
         ],
@@ -95,12 +118,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     selectors: {
         currentPlayerState: [
             (selectors) => [selectors.playingState, selectors.loadingState],
-            (playingState, loadingState) => loadingState ?? playingState,
+            (playingState, loadingState) => {
+                if (loadingState === SessionPlayerState.SCRUB) {
+                    // If scrubbing, playingState takes precedence
+                    return playingState
+                }
+                return loadingState ?? playingState
+            },
         ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
         snapshots: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => sessionPlayerData?.snapshots ?? [],
+        ],
+        zeroOffsetTime: [
+            (selectors) => [selectors.time, selectors.realTime, selectors.meta],
+            (time, realTime, meta) => ({
+                current: getZeroOffsetTime(realTime.current, meta),
+                lastBuffered: getZeroOffsetTime(time.lastBuffered, meta),
+            }),
         ],
     },
     listeners: ({ values, actions, cache }) => ({
@@ -122,7 +158,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             })
             replayer.on('skip-end', () => {
-                if (values.loadingState !== SessionPlayerState.BUFFER) {
+                if (values.loadingState === SessionPlayerState.SKIP) {
                     actions.clearLoadingState()
                 }
             })
@@ -132,7 +168,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setReplayer: () => {
             actions.setPlay()
         },
-        loadRecordingSuccess: ({ sessionPlayerData }) => {
+        loadRecordingSuccess: async ({ sessionPlayerData }, breakpoint) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.replayer?.service.state.context.events ?? []
             const eventsToAdd = values.snapshots.slice(currentEvents.length) ?? []
@@ -140,7 +176,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Set meta timestamps when first chunk loads. The first time is a guesstimate that's later corrected by
             // the time the whole chunk loads.
             if (values.chunkIndex === 1) {
-                actions.setMetaDuration(sessionPlayerData?.duration ?? 0)
+                const startOffset = eventsToAdd?.[0]?.timestamp ?? currentEvents?.[0]?.timestamp ?? 0
+                const duration = sessionPlayerData?.duration ?? 0
+                actions.setMeta({
+                    startTime: startOffset,
+                    endTime: startOffset + duration,
+                    totalTime: duration,
+                })
             }
 
             if (eventsToAdd.length < 1 || !values.replayer) {
@@ -148,56 +190,84 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             const lastEvent = eventsToAdd[eventsToAdd.length - 1]
-            eventsToAdd.forEach((event: eventWithTime) => values.replayer?.addEvent(event))
+
+            eventsToAdd.forEach((event: eventWithTime) => {
+                values.replayer?.addEvent(event)
+            })
 
             // Update last buffered point
             actions.setLastBufferedTime(lastEvent.timestamp)
 
             // If buffering has completed, resume last playing state
-            if (values.currentPlayerState === SessionPlayerState.BUFFER) {
+            if (
+                values.currentPlayerState === SessionPlayerState.BUFFER &&
+                values.time.current + BUFFER_TIME_BUFFER_MS < lastEvent.timestamp
+            ) {
                 actions.clearLoadingState()
+                actions.setPlay()
             }
 
             // Set meta once whole session recording loads
             if (!values.sessionPlayerDataLoading) {
                 const meta = values.replayer.getMetaData()
-                actions.setMeta(meta)
+                // Sometimes replayer doesn't update with events we recently added.
+                const endTime = Math.max(
+                    meta.endTime,
+                    eventsToAdd.length ? eventsToAdd[eventsToAdd.length - 1]?.timestamp : 0
+                )
+                const finalMeta = {
+                    ...meta,
+                    endTime,
+                    totalTime: endTime - meta.startTime,
+                }
+                actions.setMeta(finalMeta)
             }
+
+            breakpoint()
         },
         setPlay: () => {
             actions.stopAnimation()
-            values.replayer?.play(values.time.current)
-            actions.updateAnimation()
+            actions.seek(values.time.current, true)
+            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
         setPause: () => {
             actions.stopAnimation()
             values.replayer?.pause()
+            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
         setBuffer: () => {
+            actions.stopAnimation()
+        },
+        setScrub: () => {
             actions.stopAnimation()
         },
         setSpeed: ({ speed }) => {
             values.replayer?.setConfig({ speed })
         },
         seek: async ({ time, forcePlay }, breakpoint) => {
+            // Real seeking is debounced so as not to overload rrweb.
             await breakpoint(100)
 
-            const nextTime = getTime(time, values.meta)
+            // Time passed into seek function must be timestamp offset time.
+            const nextTime = getZeroOffsetTime(time ?? 0, values.meta)
+
+            // Start playing by default to trigger a replayer tick
+            actions.setCurrentTime(time ?? 0)
             values.replayer?.play(nextTime)
+            actions.updateAnimation()
 
             // If next time is greater than last buffered time, set to buffering
-            if (nextTime >= values.time.lastBuffered) {
+            if (nextTime > values.zeroOffsetTime.lastBuffered) {
                 values.replayer?.pause()
                 actions.setBuffer()
             }
-            // If seek position has already been loaded, resume last playing state
-            else {
+            // If not forced to play and if last playing state was pause, pause
+            else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
+                values.replayer?.pause()
                 actions.clearLoadingState()
-
-                if (values.playingState === SessionPlayerState.PAUSE && !forcePlay) {
-                    values.replayer?.pause()
-                }
+                actions.setPause()
             }
+            // Otherwise keep playing and updating animation frame
 
             breakpoint()
         },
@@ -227,7 +297,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         updateAnimation: () => {
-            const nextTime = getTime(values.replayer?.getCurrentTime() ?? 0, values.meta)
+            const nextTime = getOffsetTime(values.replayer?.getCurrentTime() || 0, values.meta)
             actions.setCurrentTime(nextTime)
             cache.timer = requestAnimationFrame(actions.updateAnimation)
         },
@@ -235,6 +305,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
             }
+        },
+        clearLoadingState: () => {
+            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
     }),
 })

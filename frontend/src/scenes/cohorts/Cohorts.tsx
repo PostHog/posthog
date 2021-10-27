@@ -19,6 +19,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { SceneExport } from 'scenes/sceneTypes'
 
 dayjs.extend(relativeTime)
 
@@ -60,6 +61,8 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
                 actions.setOpenCohort(cohort)
             } else if (cohortId === 'new') {
                 actions.setOpenCohort(NEW_COHORT)
+            } else if (!cohortId) {
+                actions.setOpenCohort(null)
             }
         },
     }),
@@ -220,4 +223,9 @@ export function Cohorts(): JSX.Element {
             </div>
         </div>
     )
+}
+
+export const scene: SceneExport = {
+    component: Cohorts,
+    logic: cohortsUrlLogic,
 }

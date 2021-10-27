@@ -15,6 +15,7 @@ function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
 
     const isExecutable = !!result.executor
+
     useEffect(() => {
         if (focused) {
             ref.current?.scrollIntoView()
