@@ -61,7 +61,7 @@ export function FunnelTab(): JSX.Element {
                                 </h4>
                                 {clickhouseFeaturesEnabled && (
                                     <Row align="middle" style={{ padding: '0 4px' }}>
-                                        <span className="l5 text-muted-alt">
+                                        <span className="l4 text-muted-alt">
                                             <span style={{ marginRight: 5 }}>Step Order</span>
                                             <FunnelStepOrderPicker />
                                             <Tooltip

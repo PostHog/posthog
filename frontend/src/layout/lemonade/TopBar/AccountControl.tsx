@@ -9,7 +9,25 @@ export function AccountControl(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (
-        <LemonPopover content={'Lorem ipsum dolor sit amet.'}>
+        <LemonPopover
+            overlayStyle={{ width: '20rem' }}
+            content={
+                <>
+                    <div className="AccountControl__section">
+                        <h5 className="l5">Signed in as</h5>
+                    </div>
+                    <div className="AccountControl__section">
+                        <h5 className="l5">Current organization</h5>
+                    </div>
+                    <div className="AccountControl__section">
+                        <h5 className="l5">Other organizations</h5>
+                    </div>
+                    <div className="AccountControl__section">
+                        <h5 className="l5">PostHog status</h5>
+                    </div>
+                </>
+            }
+        >
             <div className="AccountControl__crumb">
                 <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
                 <CaretDownOutlined />

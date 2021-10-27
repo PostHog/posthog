@@ -115,3 +115,18 @@
     align-items: center;
     padding: 0.5rem 0;
 }
+
+.AccountControl__section {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    &:first-child {
+        padding-top: 0;
+    }
+    &:last-child {
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+}

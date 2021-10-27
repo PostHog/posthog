@@ -12,8 +12,8 @@ export default {
 
 const Template: ComponentStory<typeof LemonPopover> = (args) => <LemonPopover {...args} />
 
-export const Scream = Template.bind({})
-Scream.args = {
+export const Surprise = Template.bind({})
+Surprise.args = {
     children: <Button type="primary">Click here…</Button>,
     content: (
         <>

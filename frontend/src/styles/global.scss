@@ -68,6 +68,7 @@ NOTE: $medium is a SCSS var; not a keyword
 }
 
 // Text styles
+
 .text-default {
     color: $text_default;
     font-size: 14px;
@@ -137,8 +138,11 @@ NOTE: $medium is a SCSS var; not a keyword
 }
 
 .l5 {
-    font-size: 13px;
-    font-weight: bold;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted-alt);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .text-right {

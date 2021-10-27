@@ -14,6 +14,8 @@ export interface LemonPopoverProps {
     placement?: LemonPopoverPlacement
     /** Whether the popover is actionable rather than just informative - actionable means a colored border. */
     actionable?: boolean
+    /** */
+    overlayStyle?: React.CSSProperties
 }
 
 export function LemonPopover({
@@ -21,6 +23,7 @@ export function LemonPopover({
     content,
     placement = 'bottom-right',
     actionable = false,
+    overlayStyle,
 }: LemonPopoverProps): JSX.Element {
     const [wasEverVisible, setWasEverVisible] = useState(false)
     const [isVisible, setIsVisible] = useState(false)
@@ -45,8 +48,10 @@ export function LemonPopover({
     const childrenHeight = childrenRef.current?.offsetHeight || 0
 
     const [popoverWidth, setPopoverWidth] = useState(0)
-    const setPopoverRef = useCallback((node: HTMLDivElement) => {
-        setPopoverWidth(node.offsetWidth)
+    const setPopoverRef = useCallback((node: HTMLDivElement | null) => {
+        if (node) {
+            setPopoverWidth(node.offsetWidth)
+        }
         popoverRef.current = node
     }, [])
 
@@ -75,7 +80,7 @@ export function LemonPopover({
                         `LemonPopover__overlay--${placement}`
                     )}
                     ref={setPopoverRef}
-                    style={{ left: popoverCoords[0], top: popoverCoords[1] }}
+                    style={{ ...overlayStyle, left: popoverCoords[0], top: popoverCoords[1] }}
                 >
                     {content}
                 </div>
