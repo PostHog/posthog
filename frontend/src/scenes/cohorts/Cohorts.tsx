@@ -20,6 +20,8 @@ import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from '../teamLogic'
+import { getCurrentTeamId } from '../../lib/utils/logics'
 
 dayjs.extend(relativeTime)
 
@@ -57,7 +59,7 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
                 cohortId !== 'personsModalNew' &&
                 Number(cohortId) !== values.openCohort?.id
             ) {
-                const cohort = await api.get('api/cohort/' + cohortId)
+                const cohort = await api.cohorts.get(parseInt(cohortId))
                 actions.setOpenCohort(cohort)
             } else if (cohortId === 'new') {
                 actions.setOpenCohort(NEW_COHORT)
@@ -78,6 +80,7 @@ const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
 }
 
 export function Cohorts(): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
     const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
@@ -147,7 +150,7 @@ export function Cohorts(): JSX.Element {
                         </a>
                         {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && (
                             <DeleteWithUndo
-                                endpoint="cohort"
+                                endpoint={api.cohorts.determineDeleteEndpoint(getCurrentTeamId(currentTeamId))}
                                 object={{ name: cohort.name, id: cohort.id }}
                                 className="text-danger"
                                 style={{ marginLeft: 8, marginRight: 8 }}

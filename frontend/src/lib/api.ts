@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, FilterType, PersonType, TeamType } from '../types'
+import { ActionType, CohortType, FilterType, PersonType, TeamType } from '../types'
 import { getCurrentTeamId } from './utils/logics'
 
 export interface PaginatedResponse<T> {
@@ -91,6 +91,14 @@ class ApiRequest {
         return this.actions(teamId).addPathComponent(actionId.toString())
     }
 
+    public cohorts(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('cohorts')
+    }
+
+    public cohortsDetail(cohortId: CohortType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+        return this.actions(teamId).addPathComponent(cohortId.toString())
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -164,6 +172,31 @@ const api = {
                 .withAction('people.csv')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
+        },
+    },
+
+    cohorts: {
+        async get(cohortId: CohortType['id']): Promise<CohortType> {
+            return await new ApiRequest().cohortsDetail(cohortId).get()
+        },
+        async create(cohortData: Partial<CohortType>, filterParams?: string): Promise<CohortType> {
+            return await new ApiRequest().cohorts().withQueryString(filterParams).create({ data: cohortData })
+        },
+        async update(
+            cohortId: CohortType['id'],
+            cohortData: Partial<CohortType>,
+            filterParams?: string
+        ): Promise<CohortType> {
+            return await new ApiRequest()
+                .cohortsDetail(cohortId)
+                .withQueryString(filterParams)
+                .update({ data: cohortData })
+        },
+        async list(): Promise<PaginatedResponse<CohortType>> {
+            return await new ApiRequest().cohorts().get()
+        },
+        determineDeleteEndpoint(teamId: TeamType['id']): string {
+            return new ApiRequest().cohorts(teamId).assembleEndpointUrl()
         },
     },
 
