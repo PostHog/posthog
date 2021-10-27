@@ -2,7 +2,7 @@ import { Button, Card, Row, Col } from 'antd'
 import { CommentOutlined } from '@ant-design/icons'
 import TextArea from 'antd/lib/input/TextArea'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useRef } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
 import './FunnelCorrelation.scss'
@@ -27,6 +27,8 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         setCorrelationFeedbackRating,
         setCorrelationDetailedFeedback,
     } = useActions(funnelLogic(insightProps))
+
+    const detailedFeedbackRef = useRef<HTMLTextAreaElement>(null)
 
     if (stepsWithCount.length <= 1) {
         return null
@@ -53,6 +55,8 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                     </div>
                 </Card>
             )}
+
+            <FunnelCorrelationTable />
 
             {/* Feedback Form */}
             {!correlationFeedbackHidden && (
@@ -92,6 +96,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                             setCorrelationFeedbackRating(0)
                                         } else {
                                             setCorrelationFeedbackRating(content[0])
+                                            setTimeout(() => detailedFeedbackRef.current?.focus(), 100)
                                         }
                                     }}
                                 >
@@ -109,6 +114,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                             onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)}
                             placeholder="Optional. Help us by sharing details around your experience..."
                             style={{ marginTop: 16 }}
+                            ref={detailedFeedbackRef}
                         />
                         <div className="text-right">
                             <Button
@@ -126,7 +132,6 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                 </Card>
             )}
 
-            <FunnelCorrelationTable />
             <FunnelPropertyCorrelationTable />
         </div>
     )
