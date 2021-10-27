@@ -331,6 +331,12 @@ export interface SessionPlayerData {
     next?: string
 }
 
+export enum SessionRecordingUsageType {
+    VIEWED = 'viewed',
+    ANALYZED = 'analyzed',
+    LOADED = 'loaded',
+}
+
 export enum SessionPlayerState {
     BUFFER = 'buffer',
     PLAY = 'play',

@@ -20,6 +20,7 @@ import {
     HelpType,
     SessionPlayerData,
     AvailableFeature,
+    SessionRecordingUsageType,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -258,12 +259,13 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
-        reportRecordingViewed: (
+        reportRecording: (
             recordingData: SessionPlayerData,
             source: RecordingWatchedSource,
             loadTime: number,
-            delay: number
-        ) => ({ recordingData, source, loadTime, delay }),
+            type: SessionRecordingUsageType,
+            delay?: number
+        ) => ({ recordingData, source, loadTime, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
     },
@@ -606,7 +608,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
         },
-        reportRecordingViewed: ({ recordingData, source, loadTime, delay }) => {
+        reportRecording: ({ recordingData, source, loadTime, type }) => {
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
@@ -618,7 +620,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
                 user_is_identified: recordingData.person?.is_identified,
                 source: source,
             }
-            posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, payload)
+            posthog.capture(`recording ${type}`, payload)
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)

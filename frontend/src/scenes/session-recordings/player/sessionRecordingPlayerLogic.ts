@@ -273,7 +273,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
                 values.replayer?.pause()
                 actions.clearLoadingState()
-                // actions.setPause()
             }
             // Otherwise play
             else {

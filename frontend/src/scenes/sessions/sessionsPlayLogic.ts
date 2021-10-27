@@ -2,7 +2,13 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
-import { SessionPlayerData, SessionRecordingId, SessionRecordingMeta, SessionType } from '~/types'
+import {
+    SessionPlayerData,
+    SessionRecordingId,
+    SessionRecordingMeta,
+    SessionRecordingUsageType,
+    SessionType,
+} from '~/types'
 import dayjs from 'dayjs'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -43,7 +49,11 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         goToPrevious: true,
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
-        reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
+        reportUsage: (recordingData: SessionPlayerData, loadTime: number, type: SessionRecordingUsageType) => ({
+            recordingData,
+            loadTime,
+            type,
+        }),
         loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
         loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
     },
@@ -129,19 +139,39 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             // This will keep calling loadRecording until `next` is empty.
             if (!!values.sessionPlayerData?.next) {
                 await actions.loadRecordingSnapshots(undefined, values.sessionPlayerData.next)
-            } else {
-                // Fetched everything successfully!
-                actions.reportUsage(values.sessionPlayerData, performance.now() - cache.startTime)
-                cache.startTime = null
+            }
+            // Finished loading entire recording. Now make it known!
+            else {
+                actions.reportUsage(
+                    values.sessionPlayerData,
+                    performance.now() - cache.startTime,
+                    SessionRecordingUsageType.LOADED
+                )
+            }
+            // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
+            if (values.chunkIndex === 0) {
+                actions.reportUsage(
+                    values.sessionPlayerData,
+                    performance.now() - cache.startTime,
+                    SessionRecordingUsageType.VIEWED
+                )
             }
         },
         loadRecordingMetaFailure: sharedListeners.showErrorToast,
         loadRecordingSnapshotsFailure: sharedListeners.showErrorToast,
-        reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
+        reportUsage: async ({ recordingData, loadTime, type }, breakpoint) => {
             await breakpoint()
-            eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 0)
-            await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 10)
+            eventUsageLogic.actions.reportRecording(recordingData, values.source, loadTime, type, 0)
+            if (type === SessionRecordingUsageType.VIEWED) {
+                await breakpoint(IS_TEST_MODE ? 1 : 10000)
+                eventUsageLogic.actions.reportRecording(
+                    recordingData,
+                    values.source,
+                    loadTime,
+                    SessionRecordingUsageType.ANALYZED,
+                    10
+                )
+            }
         },
     }),
     sharedListeners: () => ({
@@ -153,7 +183,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             )
         },
     }),
-    loaders: ({ values, actions, cache }) => ({
+    loaders: ({ values, actions }) => ({
         tags: [
             ['activating', 'watched', 'deleted'] as string[],
             {
@@ -190,7 +220,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                     response = await api.get(
                         `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
                     )
-                    cache.startTime = performance.now()
                 }
                 const currData = values.sessionPlayerData
                 return {
@@ -248,7 +277,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             (firstChunkLoaded, sessionPlayerDataLoading, sessionPlayerData) =>
                 (firstChunkLoaded || // If first chunk is ready
                     !sessionPlayerDataLoading) && // data isn't being fetched
-                sessionPlayerData?.snapshots.length >= 2 && // more than two snapshots needed to init Replayed
+                sessionPlayerData?.snapshots.length > 1 && // more than one snapshot needed to init rrweb Replayer
                 !!sessionPlayerData?.snapshots?.find((s: eventWithTime) => s.type === 2), // there's a full snapshot in the data that was loaded
         ],
         highlightedSessionEvents: [
@@ -284,7 +313,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             },
         ],
     },
-    urlToAction: ({ actions, values }) => {
+    urlToAction: ({ actions, values, cache }) => {
         const urlToAction = (
             _: any,
             params: {
@@ -298,6 +327,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             }
             if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
                 // Load meta first. Snapshots are loaded once Replayer ref is mounted in sessionRecordingPlayerLogic
+                cache.startTime = performance.now()
                 actions.loadRecordingMeta(sessionRecordingId)
                 actions.loadRecordingSnapshots(sessionRecordingId)
             }
