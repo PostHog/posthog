@@ -11,6 +11,11 @@ import { worker } from '../../../mocks/browser'
 import { FunnelResult, FunnelStep } from '~/types'
 import posthog from 'posthog-js'
 import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
+import { createMemoryHistory } from 'history'
+import React from 'react'
+import { Provider } from 'kea'
+import { initKea } from '~/initKea'
+import { EventType } from '~/types'
 
 export default {
     title: 'PostHog/Scenes/Insights/Funnel',
@@ -41,9 +46,9 @@ export const WithCorrelation = (): JSX.Element => {
         mockGetPersonProperties((_, res, ctx) =>
             res(
                 ctx.json([
-                    { id: 1, name: 'location', count: 1 },
-                    { id: 2, name: 'role', count: 2 },
-                    { id: 3, name: 'height', count: 3 },
+                    { id: 1, name: '$geoip_country_code', count: 1 },
+                    { id: 2, name: '$os', count: 2 },
+                    { id: 3, name: '$browser', count: 3 },
                 ])
             )
         ),
@@ -67,23 +72,64 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
         mockGetPersonProperties((_, res, ctx) =>
             res(
                 ctx.json([
-                    { id: 1, name: 'location', count: 1 },
-                    { id: 2, name: 'role', count: 2 },
-                    { id: 3, name: 'height', count: 3 },
+                    { id: 1, name: '$geoip_country_code', count: 1 },
+                    { id: 2, name: '$os', count: 2 },
+                    { id: 3, name: '$browser', count: 3 },
                 ])
             )
         ),
-        rest.post('/api/insight/funnel/', (_, res, ctx) => {
-            return res(ctx.json(sampleSkewedFunnelResponse))
-        }),
-        rest.post<FunnelCorrelationRequest>('/api/insight/funnel/correlation/', (req, res, ctx) =>
+        rest.post('/api/projects/:projectId/insights/funnel/', (_, res, ctx) =>
+            res(ctx.json(sampleSkewedFunnelResponse))
+        ),
+        rest.post<FunnelCorrelationRequest>('/api/projects/:projectId/insights/funnel/correlation/', (req, res, ctx) =>
             req.body.funnel_correlation_type === 'properties'
                 ? res(ctx.json(samplePropertyCorrelationResponse))
                 : res(ctx.json(sampleEventCorrelationResponse))
         )
     )
 
-    return keaStory(Insights, funnelsWithCorrelationJson)()
+    const history = createMemoryHistory({
+        initialEntries: [
+            `/insights?${new URLSearchParams({
+                insight: 'FUNNELS',
+                properties: JSON.stringify([]),
+                filter_test_accounts: 'false',
+                events: JSON.stringify([
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 1 },
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 2 },
+                ]),
+                actions: JSON.stringify([]),
+                funnel_viz_type: 'steps',
+                display: 'FunnelViz',
+                interval: 'day',
+                new_entity: JSON.stringify([]),
+                date_from: '-14d',
+                exclusions: JSON.stringify([]),
+                funnel_from_step: '0',
+                funnel_to_step: '1',
+            })}#fromItem=`,
+        ],
+    })
+
+    // @ts-ignore
+    history.pushState = history.push
+    // @ts-ignore
+    history.replaceState = history.replace
+
+    // This is data that is rendered into the html. I tried not to use this and just
+    // use the endoints, but it appears to be difficult to set this up to not have
+    // race conditions.
+    // @ts-ignore
+    window.POSTHOG_APP_CONTEXT = sampleContextData
+
+    initKea({ routerHistory: history, routerLocation: history.location })
+
+    return (
+        <Provider>
+            <Insights />
+        </Provider>
+    )
 }
 
 const setFeatureFlags = (featureFlags: { [flag: string]: boolean }): void => {
@@ -120,7 +166,7 @@ type FunnelCorrelationRequest = {
 type FunnelCorrelationResponse = {
     result: {
         events: {
-            event: string
+            event: Partial<EventType>
             odds_ratio: number
             success_count: number
             failure_count: number
@@ -137,21 +183,27 @@ const samplePropertyCorrelationResponse: FunnelCorrelationResponse = {
     result: {
         events: [
             {
-                event: '$geoip_country_code::IE',
+                event: {
+                    event: '$geoip_country_code::IE',
+                },
                 success_count: 65,
                 failure_count: 12,
                 odds_ratio: 9.709598031173092,
                 correlation_type: 'success',
             },
             {
-                event: '$os::Mac OS X',
+                event: {
+                    event: '$os::Mac OS X',
+                },
                 success_count: 1737,
                 failure_count: 1192,
                 odds_ratio: 4.267011809020293,
                 correlation_type: 'success',
             },
             {
-                event: '$browser::Firefox',
+                event: {
+                    event: '$browser::Firefox',
+                },
                 success_count: 382,
                 failure_count: 192,
                 odds_ratio: 4.048527814836648,
@@ -168,21 +220,27 @@ const sampleEventCorrelationResponse: FunnelCorrelationResponse = {
     result: {
         events: [
             {
-                event: 'person viewed',
+                event: {
+                    event: 'person viewed',
+                },
                 success_count: 59,
                 failure_count: 0,
                 odds_ratio: 114.75839475839476,
                 correlation_type: 'success',
             },
             {
-                event: 'select edition: clicked get started',
+                event: {
+                    event: 'select edition: clicked get started',
+                },
                 success_count: 42,
                 failure_count: 0,
                 odds_ratio: 81.86358695652174,
                 correlation_type: 'success',
             },
             {
-                event: 'insight viewed',
+                event: {
+                    event: 'insight viewed',
+                },
                 success_count: 396,
                 failure_count: 1300,
                 odds_ratio: 0.621617558628984,
@@ -273,4 +331,19 @@ const sampleSkewedFunnelResponse: FunnelResponse = {
     ],
     last_refresh: '2021-10-11T15:00:52.117340Z',
     is_cached: true,
+}
+
+// This is data that is rendered into the html. I tried not to use this and just
+// use the endoints, but it appears to be difficult to set this up to not have
+// race conditions.
+// NOTE: these are not complete according to type, but the minimum I could get away with
+const sampleContextData = {
+    current_team: {
+        id: 2,
+    },
+    preflight: {
+        is_clickhouse_enabled: true,
+    },
+    default_event_name: '$pageview',
+    persisted_feature_flags: [],
 }

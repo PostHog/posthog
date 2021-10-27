@@ -120,6 +120,10 @@ export const funnelLogic = kea<funnelLogicType>({
         setCorrelationDetailedFeedbackVisible: (visible: boolean) => ({ visible }),
         sendCorrelationAnalysisFeedback: true,
         hideSkewWarning: true,
+
+        setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
+        excludeProperty: (propertyName: string) => ({ propertyName }),
+
         hideCorrelationAnalysisFeedback: true,
     }),
 
@@ -157,15 +161,13 @@ export const funnelLogic = kea<funnelLogicType>({
                 events: [],
             } as Record<'events', FunnelCorrelation[]>,
             {
-                loadPropertyCorrelations: async (propertyNames: string[]) => {
+                loadPropertyCorrelations: async () => {
                     const results: Omit<FunnelCorrelation, 'result_type'>[] = (
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
-                            // Name is comma separated list of property names
-                            funnel_correlation_names: propertyNames.length
-                                ? propertyNames.map((name: string) => name.trim())
-                                : ['$all'],
+                            funnel_correlation_names: ['$all'],
+                            funnel_correlation_exclude_names: values.excludedPropertyNames,
                         })
                     ).result?.events
 
@@ -295,6 +297,15 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         },
+        excludedPropertyNames: [
+            [] as string[],
+            {
+                persist: true,
+            },
+            {
+                setExcludedPropertyNames: (_, { excludedPropertyNames }) => excludedPropertyNames,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -841,6 +852,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
+
+        isPropertyExcluded: [
+            () => [selectors.excludedPropertyNames],
+            (excludedPropertyNames) => (propertyName: string) =>
+                excludedPropertyNames.find((name) => name === propertyName) !== undefined,
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -871,8 +888,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 values.clickhouseFeaturesEnabled
             ) {
                 actions.loadCorrelations()
-                // Hardcoded for initial testing
-                actions.loadPropertyCorrelations(['$all'])
+                actions.loadPropertyCorrelations()
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
@@ -978,6 +994,15 @@ export const funnelLogic = kea<funnelLogicType>({
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
         },
+
+        excludeProperty: async ({ propertyName }) => {
+            actions.setExcludedPropertyNames([...values.excludedPropertyNames, propertyName])
+        },
+
+        setExcludedPropertyNames: async () => {
+            actions.loadPropertyCorrelations()
+        },
+
         sendCorrelationAnalysisFeedback: () => {
             posthog.capture('correlation analysis feedback', {
                 rating: values.correlationFeedbackRating,
