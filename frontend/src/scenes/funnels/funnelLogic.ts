@@ -124,6 +124,8 @@ export const funnelLogic = kea<funnelLogicType>({
         setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
         excludeProperty: (propertyName: string) => ({ propertyName }),
 
+        excludeEventProperty: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
+
         hideCorrelationAnalysisFeedback: true,
     }),
 
@@ -189,6 +191,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             ...values.apiParams,
                             funnel_correlation_type: 'event_with_properties',
                             funnel_correlation_event_names: [eventName],
+                            funnel_correlation_event_exclude_property_names: values.excludedEventPropertyNames,
                         })
                     ).result?.events
 
@@ -304,6 +307,15 @@ export const funnelLogic = kea<funnelLogicType>({
             },
             {
                 setExcludedPropertyNames: (_, { excludedPropertyNames }) => excludedPropertyNames,
+            },
+        ],
+        excludedEventPropertyNames: [
+            [] as string[],
+            {
+                persist: true,
+            },
+            {
+                excludeEventProperty: (state, { propertyName }) => [...state, propertyName],
             },
         ],
     }),
@@ -858,6 +870,12 @@ export const funnelLogic = kea<funnelLogicType>({
             (excludedPropertyNames) => (propertyName: string) =>
                 excludedPropertyNames.find((name) => name === propertyName) !== undefined,
         ],
+
+        isEventPropertyExcluded: [
+            () => [selectors.excludedEventPropertyNames],
+            (excludedEventPropertyNames) => (propertyName: string) =>
+                excludedEventPropertyNames.find((name) => name === propertyName) !== undefined,
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -993,6 +1011,10 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
+        },
+
+        excludeEventProperty: async ({ eventName }) => {
+            actions.loadEventWithPropertyCorrelations(eventName)
         },
 
         excludeProperty: async ({ propertyName }) => {

@@ -84,7 +84,9 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
         rest.post<FunnelCorrelationRequest>('/api/projects/:projectId/insights/funnel/correlation/', (req, res, ctx) =>
             req.body.funnel_correlation_type === 'properties'
                 ? res(ctx.json(samplePropertyCorrelationResponse))
-                : res(ctx.json(sampleEventCorrelationResponse))
+                : req.body.funnel_correlation_type === 'events'
+                ? res(ctx.json(sampleEventCorrelationResponse))
+                : res(ctx.json(sampleEventWithPropertyCorrelationResponse))
         )
     )
 
@@ -251,6 +253,41 @@ const sampleEventCorrelationResponse: FunnelCorrelationResponse = {
     },
     last_refresh: '2021-10-11T15:00:54.687382Z',
     is_cached: true,
+}
+
+const sampleEventWithPropertyCorrelationResponse: FunnelCorrelationResponse = {
+    result: {
+        events: [
+            {
+                success_count: 155,
+                failure_count: 0,
+                odds_ratio: 27.594682835820894,
+                correlation_type: 'success',
+                event: { event: 'section heading viewed::$feature/new-paths-ui::true', properties: {}, elements: [] },
+            },
+            {
+                success_count: 150,
+                failure_count: 0,
+                odds_ratio: 26.694674280386902,
+                correlation_type: 'success',
+                event: { event: 'section heading viewed::$lib_version::1.15.3', properties: {}, elements: [] },
+            },
+            {
+                success_count: 155,
+                failure_count: 1,
+                odds_ratio: 13.788246268656716,
+                correlation_type: 'success',
+                event: {
+                    event: 'section heading viewed::$feature/4156-tooltips-legends::true',
+                    properties: {},
+                    elements: [],
+                },
+            },
+        ],
+        skewed: false,
+    },
+    last_refresh: '2021-10-26T15:36:39.921274Z',
+    is_cached: false,
 }
 
 const sampleFunnelResponse: FunnelResponse = {
