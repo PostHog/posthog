@@ -7,6 +7,8 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { ArrowRightOutlined } from '@ant-design/icons'
+import { SceneExport } from 'scenes/sceneTypes'
+import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -41,4 +43,9 @@ export function SessionsRecordings(): JSX.Element {
             <SessionRecordingsTable key="global" />
         </div>
     )
+}
+
+export const scene: SceneExport = {
+    component: SessionsRecordings,
+    logic: sessionRecordingsTableLogic,
 }

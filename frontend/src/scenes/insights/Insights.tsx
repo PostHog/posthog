@@ -23,8 +23,16 @@ import { InsightsNav } from './InsightsNav'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
+import { SceneExport } from 'scenes/sceneTypes'
+import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 
 dayjs.extend(relativeTime)
+
+export const scene: SceneExport = {
+    component: Insights,
+    logic: insightLogic,
+    paramsToProps: ({ hashParams: { fromItem } }) => ({ dashboardItemId: fromItem, syncWithUrl: true }),
+}
 
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
@@ -79,9 +87,13 @@ export function Insights(): JSX.Element {
             action: () => setInsightMode(ItemMode.View, InsightEventSource.Hotkey),
             disabled: insightMode !== ItemMode.Edit,
         },
+        e: {
+            action: () => setInsightMode(ItemMode.Edit, InsightEventSource.Hotkey),
+            disabled: insightMode !== ItemMode.View,
+        },
     })
 
-    const scene = (
+    const insightScene = (
         <div className="insights-page">
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <div className="insight-metadata">
@@ -105,13 +117,14 @@ export function Insights(): JSX.Element {
                                     },
                                 }}
                             />
-                            <Button
+                            <HotkeyButton
                                 type="primary"
                                 style={{ marginLeft: 8 }}
                                 onClick={() => setInsightMode(ItemMode.Edit, null)}
+                                hotkey="e"
                             >
                                 Edit
-                            </Button>
+                            </HotkeyButton>
                         </div>
                     </Row>
                     <InsightMetadata.Description insight={insight} insightMode={insightMode} />
@@ -253,7 +266,7 @@ export function Insights(): JSX.Element {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            {scene}
+            {insightScene}
         </BindLogic>
     )
 }

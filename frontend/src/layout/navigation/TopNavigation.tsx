@@ -36,12 +36,15 @@ import { AvailableFeature, TeamBasicType, UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
+import { TopBar } from '../lemonade/TopBar'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import { CommandPalette } from '../../lib/components/CommandPalette'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -102,7 +105,7 @@ function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
-export function TopNavigation(): JSX.Element {
+function TopNavigationOriginal(): JSX.Element {
     const {
         setMenuCollapsed,
         setChangelogModalOpen,
@@ -370,7 +373,14 @@ export function TopNavigation(): JSX.Element {
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
             <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
+            <CommandPalette />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
     )
+}
+
+export function TopNavigation(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return featureFlags[FEATURE_FLAGS.LEMONADE] ? <TopBar /> : <TopNavigationOriginal />
 }

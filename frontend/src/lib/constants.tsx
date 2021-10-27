@@ -87,7 +87,7 @@ export const MATHS: Record<string, any> = {
         type: EVENT_MATH_TYPE,
     },
     weekly_active: {
-        name: 'Weekly Active',
+        name: 'Weekly active',
         description: (
             <>
                 Users active in the past week (7 days).
@@ -100,7 +100,7 @@ export const MATHS: Record<string, any> = {
         type: EVENT_MATH_TYPE,
     },
     monthly_active: {
-        name: 'Monthly Active',
+        name: 'Monthly active',
         description: (
             <>
                 Users active in the past month (30 days).
@@ -238,7 +238,6 @@ export const FEATURE_FLAGS = {
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI: 'new-paths-ui', // owner: @EDsCODE
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
-    SPLIT_PERSON: '5898-split-persons', // owner: @timgl
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags', // owner: @mariusandra
     REMOVE_SESSIONS: '6050-remove-sessions', // owner: @rcmarron
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown', // owner: @alexkim
@@ -247,6 +246,8 @@ export const FEATURE_FLAGS = {
     SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
+    LEMONADE: '5346-lemonade', // owner: @Twixes
+    TURBO_MODE: 'turbo-mode', // owner: @mariusandra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

@@ -92,6 +92,23 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
+    def test_user_session_recording_opt_in_wildcard_domain(self):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"], False)
+
+        self.team.session_recording_opt_in = True
+        self.team.app_urls = ["https://*.example.com"]
+        self.team.save()
+
+        response = self._post_decide(origin="https://random.example.com").json()
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+
+        # Make sure the domain matches exactly
+        response = self._post_decide(origin="https://random.example.com.evilsite.com").json()
+        self.assertEqual(response["sessionRecording"], False)
+
     def test_user_session_recording_evil_site(self):
         self.team.app_urls = ["https://example.com"]
         self.team.session_recording_opt_in = True

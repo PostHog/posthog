@@ -1039,6 +1039,12 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
 }
 
+export interface SetInsightOptions {
+    shouldMergeWithExisting?: boolean
+    /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
+    overrideFilter?: boolean
+}
+
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null

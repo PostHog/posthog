@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, TypedDict, Union
+from typing import Any, Dict, List, Union
 
 import pytest
 from django.test import Client

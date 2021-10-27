@@ -29,7 +29,7 @@ def get_breakdown_prop_values(
 ):
     "Returns the top N breakdown prop values for event/person breakdown"
 
-    parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
+    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
         filter.properties + entity.properties,
         team_id,
@@ -77,6 +77,7 @@ def get_breakdown_prop_values(
             **entity_params,
             **person_join_params,
             **extra_params,
+            **date_params,
         },
     )[0][0]
 

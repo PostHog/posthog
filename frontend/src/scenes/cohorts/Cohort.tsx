@@ -12,12 +12,10 @@ import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
 import { cohortLogic } from './cohortLogic'
 import { UploadFile } from 'antd/lib/upload/interface'
-
 import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { Tooltip } from 'antd'
 import { userLogic } from 'scenes/userLogic'
-import 'antd/lib/dropdown/style/css'
 
 export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
