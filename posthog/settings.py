@@ -85,13 +85,12 @@ CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, t
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
-_debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
-_disable_paid_features = get_from_env("DISABLE_PAID_FEATURES", False, type_cast=str_to_bool)
+debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
+disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
 INSTANCE_PREFERENCES = {
-    "debug_queries": _debug_queries,
-    "self_capture": SELF_CAPTURE,
-    "disable_paid_features": _disable_paid_features,
+    "debug_queries": debug_queries,
+    "disable_paid_fs": disable_paid_fs,
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")

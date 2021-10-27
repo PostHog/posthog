@@ -215,6 +215,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     template = get_template(template_name)
 
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
+    context["self_capture"] = settings.SELF_CAPTURE
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
