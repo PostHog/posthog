@@ -22,6 +22,22 @@ describe('funnelLogic', () => {
                 result: ['result from api'],
                 type: 'Funnel',
             }
+        } else if (
+            url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+            url.data?.funnel_correlation_type === 'properties'
+        ) {
+            const excludePropertyNames = url.data?.funnel_correlation_exclude_names || []
+            return {
+                is_cached: true,
+                last_refresh: '2021-09-16T13:41:41.297295Z',
+                result: {
+                    events: [
+                        { event: { event: 'some property' }, success_count: 1, failure_count: 1 },
+                        { event: { event: 'another property' }, success_count: 1, failure_count: 1 },
+                    ].filter((correlation) => !excludePropertyNames.includes(correlation.event.event)),
+                },
+                type: 'Funnel',
+            }
         } else if (url.pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
             return { results: [], next: null }
         }
@@ -314,6 +330,83 @@ describe('funnelLogic', () => {
                     second_value: '1.2',
                 })
             })
+        })
+    })
+
+    describe('funnel correlation properties', () => {
+        it('initially are empty', async () => {
+            await expectLogic(logic)
+                .toFinishListeners()
+                .toMatchValues({
+                    propertyCorrelations: {
+                        events: [],
+                    },
+                })
+        })
+
+        it('are updated when results are loaded', async () => {
+            await expectLogic(logic, () => logic.actions.loadResults())
+                .toFinishListeners()
+                .toMatchValues({
+                    propertyCorrelations: {
+                        events: [
+                            {
+                                event: { event: 'some property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            },
+                            {
+                                event: { event: 'another property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            },
+                        ],
+                    },
+                })
+        })
+
+        it('triggers request to correlation endpoint with excluded names set', async () => {
+            await expectLogic(logic, () => logic.actions.setExcludedPropertyNames(['another property']))
+                .toFinishListeners()
+                .toMatchValues({
+                    propertyCorrelations: {
+                        events: [
+                            {
+                                event: { event: 'some property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            },
+                        ],
+                    },
+                })
+        })
+
+        it('triggers request to correlation endpoint when property excluded', async () => {
+            await expectLogic(logic, () => logic.actions.excludeProperty('another property'))
+                .toFinishListeners()
+                .toMatchValues({
+                    propertyCorrelations: {
+                        events: [
+                            {
+                                event: { event: 'some property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            },
+                        ],
+                    },
+                })
+        })
+
+        it('isPropertyExcluded returns true initially, then false when excluded', async () => {
+            expect(logic.values.isPropertyExcluded('some property')).toBe(false)
+
+            await expectLogic(logic, () => logic.actions.excludeProperty('some property')).toFinishListeners()
+
+            expect(logic.values.isPropertyExcluded('some property')).toBe(true)
         })
     })
 })
