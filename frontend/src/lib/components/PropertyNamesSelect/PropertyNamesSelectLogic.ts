@@ -1,8 +1,7 @@
 import { kea } from 'kea'
 import { PersonProperty } from '~/types'
 
-import { propertySelectLogicType } from './PropertyNamesSelectLogicType'
-
+import { propertySelectLogicType } from './propertyNamesSelectLogicType'
 export const propertySelectLogic = kea<propertySelectLogicType>({
     props: {
         propertySelectLogicKey: '' as string,

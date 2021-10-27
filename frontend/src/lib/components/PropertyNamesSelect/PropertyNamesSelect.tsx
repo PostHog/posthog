@@ -5,7 +5,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { PersonProperty } from '~/types'
-import { propertySelectLogic } from './PropertyNamesSelectLogic'
+import { propertySelectLogic } from './propertyNamesSelectLogic'
 import './styles.scss'
 
 // Incrementing counter to ensure uniqueness of logic for each component
