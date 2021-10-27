@@ -96,7 +96,7 @@ class ApiRequest {
     }
 
     public cohortsDetail(cohortId: CohortType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.actions(teamId).addPathComponent(cohortId.toString())
+        return this.cohorts(teamId).addPathComponent(cohortId.toString())
     }
 
     // Request finalization
