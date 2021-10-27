@@ -392,10 +392,10 @@ def factory_test_event_api(event_factory, person_factory, _):
             with freeze_time("2021-10-10T12:03:03.829294Z"):
                 person_factory(team=self.team, distinct_ids=["1"])
                 after = now = timezone.now() - relativedelta(months=11)
-                before = now + relativedelta(days=230)
+                before = now + relativedelta(days=23)
                 after_str = f"after={after.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
                 before_str = f"before={before.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
-                for idx in range(0, 250):
+                for idx in range(0, 25):
                     event_factory(
                         team=self.team,
                         event="some event",
@@ -403,15 +403,15 @@ def factory_test_event_api(event_factory, person_factory, _):
                         timestamp=now + relativedelta(days=idx, seconds=idx),
                     )
 
-                response = self.client.get(f"/api/event/?distinct_id=1&{after_str}&{before_str}").json()
-                self.assertEqual(len(response["results"]), 100)
+                response = self.client.get(f"/api/event/?distinct_id=1&{after_str}&{before_str}&limit=10").json()
+                self.assertEqual(len(response["results"]), 10)
                 self.assertIn("before=", response["next"])
                 self.assertIn(after_str, response["next"])
 
                 response = self.client.get(
-                    f"/api/projects/{self.team.id}/events/?distinct_id=1&{after_str}&{before_str}"
+                    f"/api/projects/{self.team.id}/events/?distinct_id=1&{after_str}&{before_str}&limit=10"
                 ).json()
-                self.assertEqual(len(response["results"]), 100)
+                self.assertEqual(len(response["results"]), 10)
                 self.assertIn(f"before=", response["next"])
                 self.assertIn(after_str, response["next"])
 
@@ -425,19 +425,19 @@ def factory_test_event_api(event_factory, person_factory, _):
                         sync_execute(
                             "select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk}
                         )[0][0],
-                        250,
+                        25,
                     )
 
-                self.assertEqual(len(page2["results"]), 100)
+                self.assertEqual(len(page2["results"]), 10)
                 self.assertIn(f"before=", page2["next"])
                 self.assertIn(after_str, page2["next"])
 
                 page3 = self.client.get(page2["next"]).json()
-                self.assertEqual(len(page3["results"]), 30)
+                self.assertEqual(len(page3["results"]), 3)
                 self.assertIsNone(page3["next"])
 
         def test_ascending_order_timestamp(self):
-            for idx in range(100):
+            for idx in range(10):
                 event_factory(
                     team=self.team,
                     event="some event",
@@ -448,13 +448,13 @@ def factory_test_event_api(event_factory, person_factory, _):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/?distinct_id=1&orderBy={json.dumps(['timestamp'])}"
             ).json()
-            self.assertEqual(len(response["results"]), 100)
+            self.assertEqual(len(response["results"]), 10)
             self.assertLess(
                 parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
             )
 
         def test_default_descending_order_timestamp(self):
-            for idx in range(100):
+            for idx in range(10):
                 event_factory(
                     team=self.team,
                     event="some event",
@@ -463,7 +463,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 )
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
-            self.assertEqual(len(response["results"]), 100)
+            self.assertEqual(len(response["results"]), 10)
             self.assertGreater(
                 parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
             )
