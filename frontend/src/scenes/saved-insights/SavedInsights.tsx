@@ -475,7 +475,7 @@ export function SavedInsights(): JSX.Element {
                                         xl={12}
                                         xxl={8}
                                         key={insight.id}
-                                        style={{ height: 270 }}
+                                        style={{ height: 340 }}
                                     >
                                         <DashboardItem
                                             item={{ ...insight, color: null }}
