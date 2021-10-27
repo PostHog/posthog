@@ -494,12 +494,12 @@ export function IconFeedbackWarning({ style }: { style?: CSSProperties }): JSX.E
     )
 }
 
-export function SignOutIcon(): JSX.Element {
+export function IconSignOut(): JSX.Element {
     return (
-        <svg width="1em" height="1em" fill="none" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path
-                d="m14 5-1.41 1.41 1.58 1.59h-8.17v2h8.17l-1.58 1.58 1.41 1.42 4-4zm-12-3h7v-2h-7c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h7v-2h-7z"
-                fill="#747ea2"
+                d="m17 8-1.41 1.41 1.58 1.59h-8.17v2h8.17l-1.58 1.58 1.41 1.42 4-4zm-12-3h7v-2h-7c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h7v-2h-7z"
+                fill="currentColor"
             />
         </svg>
     )

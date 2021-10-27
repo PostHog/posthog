@@ -4,14 +4,14 @@ import { useActions, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
-import { SignOutIcon } from '../../../lib/components/icons'
+import { IconSignOut } from '../../../lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<SignOutIcon />} style={{ justifyContent: 'start' }}>
+        <LemonButton onClick={logout} icon={<IconSignOut />} style={{ justifyContent: 'start' }}>
             Sign out
         </LemonButton>
     )

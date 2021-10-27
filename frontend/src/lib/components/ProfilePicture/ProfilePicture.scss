@@ -10,8 +10,14 @@
     align-items: center;
     justify-content: center;
     font-weight: bold;
-    font-size: 18px;
+    font-size: 18px; // _Roughly_ 60% of width/height
     user-select: none;
+
+    &.lg {
+        width: 40px;
+        height: 40px;
+        font-size: 24px;
+    }
 
     &.md {
         width: 24px;
@@ -22,6 +28,6 @@
     &.sm {
         width: 18px;
         height: 18px;
-        font-size: 12px;
+        font-size: 11px;
     }
 }
