@@ -12,6 +12,12 @@ import { ExclamationCircleFilled } from '@ant-design/icons'
 import clsx from 'clsx'
 import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
 import { WelcomeLogo } from './WelcomeLogo'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: Login,
+    logic: loginLogic,
+}
 
 export function Login(): JSX.Element {
     const [form] = Form.useForm()

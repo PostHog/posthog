@@ -13,6 +13,12 @@ import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
 import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: Signup,
+    logic: signupLogic,
+}
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 

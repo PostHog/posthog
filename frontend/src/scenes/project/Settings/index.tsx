@@ -23,12 +23,17 @@ import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
-import { AvailableFeature, UserType } from '../../../types'
+import { AvailableFeature } from '../../../types'
 import { TeamMembers } from './TeamMembers'
 import { teamMembersLogic } from './teamMembersLogic'
 import { AccessControl } from './AccessControl'
 import { PathCleaningFiltersConfig } from './PathCleaningFiltersConfig'
 import { userLogic } from 'scenes/userLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: ProjectSettings,
+}
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -69,12 +74,12 @@ function DisplayName(): JSX.Element {
     )
 }
 
-export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
+export function ProjectSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
 
     useAnchor(location.hash)
 
@@ -264,7 +269,7 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                 <Divider />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
                     <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
-                        <TeamMembers user={user} team={currentTeam} />
+                        {user && <TeamMembers user={user} team={currentTeam} />}
                         <Divider />
                     </BindLogic>
                 )}

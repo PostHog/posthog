@@ -6,13 +6,22 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { UsageDisabledWarning } from './UsageDisabledWarning'
 import { VolumeTable } from './VolumeTable'
+import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
+import { SceneExport } from 'scenes/sceneTypes'
+import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
+
+export const scene: SceneExport = {
+    component: EventsVolumeTable,
+    logic: eventDefinitionsModel,
+}
 
 export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { eventDefinitions, loaded } = useValues(eventDefinitionsModel)
 
     return (
-        <>
+        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
+            <EventsTabs tab={EventsTab.EventStats} />
             <PageHeader
                 title="Events Stats"
                 caption="See all event names that have ever been sent to this team, including the volume and how often queries where made using this event."
@@ -37,6 +46,7 @@ export function EventsVolumeTable(): JSX.Element | null {
             ) : (
                 <Skeleton active paragraph={{ rows: 5 }} />
             )}
-        </>
+            <DefinitionDrawer />
+        </div>
     )
 }

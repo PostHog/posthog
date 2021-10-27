@@ -6,13 +6,23 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PageHeader } from 'lib/components/PageHeader'
 import { UsageDisabledWarning } from './UsageDisabledWarning'
 import { VolumeTable } from './VolumeTable'
+import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
+import { SceneExport } from 'scenes/sceneTypes'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
+
+export const scene: SceneExport = {
+    component: PropertiesVolumeTable,
+    logic: eventDefinitionsModel,
+}
 
 export function PropertiesVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { propertyDefinitions, loaded } = useValues(propertyDefinitionsModel)
 
     return (
-        <>
+        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
+            <EventsTabs tab={EventsTab.EventPropertyStats} />
             <PageHeader
                 title="Properties Stats"
                 caption="See all property keys that have ever been sent to this team, including the volume and how often
@@ -39,6 +49,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
             ) : (
                 <Skeleton active paragraph={{ rows: 5 }} />
             )}
-        </>
+            <DefinitionDrawer />
+        </div>
     )
 }

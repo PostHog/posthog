@@ -115,6 +115,35 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related", success=False)), 5)
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
 
+        # Now exclude positively_related
+        filter = filter.with_data({"funnel_correlation_exclude_event_names": ["positively_related"]})
+        correlation = FunnelCorrelation(filter, self.team)
+
+        result = correlation._run()[0]
+
+        odds_ratio = result[0].pop("odds_ratio")  # type: ignore
+        expected_odds_ratio = 1 / 11
+
+        self.assertAlmostEqual(odds_ratio, expected_odds_ratio)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "negatively_related",
+                    "success_count": 0,
+                    "failure_count": 5,
+                    # "odds_ratio": 1 / 11,
+                    "correlation_type": "failure",
+                },
+            ],
+        )
+        # Getting specific people isn't affected by exclude_events
+        self.assertEqual(len(self._get_people_for_event(filter, "positively_related")), 5)
+        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", success=False)), 0)
+        self.assertEqual(len(self._get_people_for_event(filter, "negatively_related", success=False)), 5)
+        self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
+
     @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
     def test_basic_funnel_correlation_with_properties(self):
         filters = {
@@ -305,11 +334,19 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             team=self.team, event="user signed up", distinct_id=f"user_1", timestamp="2020-01-02T14:00:00Z",
         )
         _create_event(
+            team=self.team, event="rick", distinct_id=f"user_1", timestamp="2020-01-03T14:00:00Z",
+        )
+        _create_event(
             team=self.team, event="paid", distinct_id=f"user_1", timestamp="2020-01-04T14:00:00Z",
         )
 
         with self.assertRaises(ValidationError):
             correlation._run()
+
+        filter = filter.with_data({"funnel_correlation_type": "event_with_properties"})
+        # missing "funnel_correlation_event_names": ["rick"],
+        with self.assertRaises(ValidationError):
+            FunnelCorrelation(filter, self.team)._run()
 
     @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
     def test_correlation_with_multiple_properties(self):
@@ -456,6 +493,21 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # When querying all properties, we don't consider properties that don't exist for part of the data
         # since users aren't explicitly asking for that property. Thus,
         # We discard $nice:: because it's an empty result set
+
+        for odds, expected_odds in zip(odds_ratios, new_expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(new_result, new_expected_result)
+
+        filter = filter.with_data({"funnel_correlation_exclude_names": ["$browser"]})
+        # search for $all but exclude $browser
+        correlation = FunnelCorrelation(filter, self.team)
+
+        new_result = correlation._run()[0]
+        odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
+
+        new_expected_odds_ratios = expected_odds_ratios[1:4]  # choosing the $nice property values
+        new_expected_result = expected_result[1:4]
 
         for odds, expected_odds in zip(odds_ratios, new_expected_odds_ratios):
             self.assertAlmostEqual(odds, expected_odds)
@@ -684,6 +736,68 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             len(self._get_people_for_event(filter, "negatively_related", {"signup_source": "email"}, False)), 3
+        )
+
+    def test_funnel_correlation_with_event_properties_exclusions(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "event_with_properties",
+            "funnel_correlation_event_names": ["positively_related"],
+            "funnel_correlation_event_exclude_property_names": ["signup_source"],
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        # Need more than 2 events to get a correlation
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="positively_related",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-03T14:00:00Z",
+                properties={"signup_source": "facebook", "blah": "value_bleh"},
+            )
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        # Atleast one person that fails, to ensure we get results
+        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z",
+        )
+
+        result = correlation._run()[0]
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positively_related::blah::value_bleh",
+                    "success_count": 3,
+                    "failure_count": 0,
+                    "odds_ratio": 8,
+                    "correlation_type": "success",
+                },
+                #  missing signup_source, as expected
+            ],
+        )
+
+        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", {"blah": "value_bleh"})), 3)
+
+        # If you search for persons with a specific property, even if excluded earlier, you should get them
+        self.assertEqual(
+            len(self._get_people_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
         )
 
     @test_with_materialized_columns(["$event_type", "signup_source"])

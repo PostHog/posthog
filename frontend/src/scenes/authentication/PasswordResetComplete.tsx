@@ -11,6 +11,12 @@ import { ExclamationCircleFilled, StopOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { passwordResetLogic } from './passwordResetLogic'
 import { router } from 'kea-router'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: PasswordResetComplete,
+    logic: passwordResetLogic,
+}
 
 export function PasswordResetComplete(): JSX.Element {
     const { validatedResetToken, validatedResetTokenLoading } = useValues(passwordResetLogic)
