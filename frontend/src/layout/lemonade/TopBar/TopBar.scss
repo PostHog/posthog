@@ -1,6 +1,9 @@
 @import '~/vars';
 
 .TopBar {
+    z-index: $z_main_nav;
+    position: sticky;
+    top: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
