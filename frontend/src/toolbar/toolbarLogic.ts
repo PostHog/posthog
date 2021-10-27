@@ -41,7 +41,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
             () => [selectors.rawApiURL],
             (apiURL) => `${apiURL.endsWith('/') ? apiURL.replace(/\/+$/, '') : apiURL}`,
         ],
-        jsURL: [() => [selectors.rawJsURL], (jsURL) => `${jsURL.endsWith('/') ? jsURL.replace(/\/+$/, '') : jsURL} `],
+        jsURL: [() => [selectors.rawJsURL], (jsURL) => `${jsURL.endsWith('/') ? jsURL.replace(/\/+$/, '') : jsURL}`],
         isAuthenticated: [() => [selectors.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
 
@@ -49,7 +49,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
         authenticate: () => {
             posthog.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
-            window.location.href = `${values.apiURL} /authorize_and_redirect/ ? redirect = ${encodedUrl} `
+            window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
             clearSessionToolbarToken()
         },
         logout: () => {
