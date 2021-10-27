@@ -66,9 +66,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                         </Col>
                         <Col span={8} style={{ alignContent: 'right' }}>
                             {!!correlationFeedbackRating && (
-                                <span style={{ color: 'var(--success)', marginRight: 8 }}>
-                                    Thanks for your feedback!
-                                </span>
+                                <i style={{ color: 'var(--success)', marginRight: 8 }}>Thanks for your feedback!</i>
                             )}
                             {(
                                 [
