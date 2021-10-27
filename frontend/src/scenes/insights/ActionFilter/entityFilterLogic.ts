@@ -199,12 +199,13 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         addFilter: async () => {
             const previousLength = values.localFilters.length
             const newLength = previousLength + 1
+            const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
             actions.setFilters([
                 ...values.localFilters,
                 {
                     id: '$pageview',
                     type: 'events',
-                    order: values.localFilters[previousLength - 1].order + 1,
+                    order: precedingEntity ? precedingEntity.order + 1 : 0,
                     name: '$pageview',
                     ...props.addFilterDefaultOptions,
                 },
