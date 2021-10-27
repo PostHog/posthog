@@ -146,13 +146,13 @@ class FunnelCorrelation:
 
                 -- If we have a `person.steps = target_step`, we know the person
                 -- reached the end of the funnel
-                countDistinctIf(
+                uniqIf(
                     person.person_id,
                     person.steps = target_step
                 ) AS success_count,
 
                 -- And the converse being for failures
-                countDistinctIf(
+                uniqIf(
                     person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
@@ -171,12 +171,12 @@ class FunnelCorrelation:
                 -- not runnable in Metabase
                 '{self.TOTAL_IDENTIFIER}' as name,
 
-                countDistinctIf(
+                uniqIf(
                     person.person_id,
                     person.steps = target_step
                 ) AS success_count,
 
-                countDistinctIf(
+                uniqIf(
                     person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
@@ -220,8 +220,8 @@ class FunnelCorrelation:
                 %(funnel_step_names)s as funnel_step_names
 
             SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
-                   uniqCombinedIf(person_id, steps = target_step) as success_count,
-                   uniqCombinedIf(person_id, steps <> target_step) as failure_count
+                   uniqIf(person_id, steps = target_step) as success_count,
+                   uniqIf(person_id, steps <> target_step) as failure_count
             FROM (
                 SELECT
                     person.person_id as person_id,
@@ -247,12 +247,12 @@ class FunnelCorrelation:
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
 
-                uniqCombinedIf(
+                uniqIf(
                     person.person_id,
                     person.steps = target_step
                 ) AS success_count,
 
-                uniqCombinedIf(
+                uniqIf(
                     person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
@@ -288,8 +288,8 @@ class FunnelCorrelation:
             SELECT
                 concat(prop.1, '::', prop.2) as name,
                 -- We generate a unique identifier for each property value as: PropertyName::Value
-                countDistinctIf(person_id, steps = target_step) AS success_count,
-                countDistinctIf(person_id, steps <> target_step) AS failure_count
+                uniqIf(person_id, steps = target_step) AS success_count,
+                uniqIf(person_id, steps <> target_step) AS failure_count
             FROM (
                 SELECT
                     person_id,
@@ -329,8 +329,8 @@ class FunnelCorrelation:
             UNION ALL
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
-                countDistinctIf(person_id, steps = target_step) AS success_count,
-                countDistinctIf(person_id, steps <> target_step) AS failure_count
+                uniqIf(person_id, steps = target_step) AS success_count,
+                uniqIf(person_id, steps <> target_step) AS failure_count
             FROM funnel_people
         """
         params = {
