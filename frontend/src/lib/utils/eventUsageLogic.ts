@@ -60,6 +60,11 @@ export enum RecordingWatchedSource {
     SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
 }
 
+export enum GraphSeriesAddedSource {
+    Default = 'default',
+    Duplicate = 'duplicate',
+}
+
 interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
     load_time: number // How much time it took to load the session (backend) (milliseconds)
@@ -137,7 +142,9 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, RecordingWatchedSource>>({
+export const eventUsageLogic = kea<
+    eventUsageLogicType<DashboardEventSource, GraphSeriesAddedSource, RecordingWatchedSource>
+>({
     connect: [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -240,7 +247,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         }),
         reportInsightFilterUpdated: (index: number, name: string | null, type?: EntityType) => ({ type, index, name }),
         reportInsightFilterRemoved: (index: number) => ({ index }),
-        reportInsightFilterAdded: (newLength: number) => ({ newLength }),
+        reportInsightFilterAdded: (newLength: number, source: GraphSeriesAddedSource) => ({ newLength, source }),
         reportInsightFilterSet: (
             filters: Array<{
                 id: string | number | null
