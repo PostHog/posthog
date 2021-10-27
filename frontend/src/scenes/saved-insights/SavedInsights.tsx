@@ -231,69 +231,70 @@ export function SavedInsights(): JSX.Element {
                 </div>
             ),
             render: function Render(_: any, item) {
+                return <div>{item.created_by ? item.created_by.first_name || item.created_by.email : '-'}</div>
+            },
+        },
+        {
+            title: '',
+            className: 'options-column',
+            render: function Render(_: any, item) {
                 return (
-                    <Row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>{item.created_by ? item.created_by.first_name || item.created_by.email : '-'}</div>
-                        <Dropdown
-                            placement="bottomRight"
-                            trigger={['click']}
-                            overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
-                            overlay={
-                                <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
-                                    {nameSortedDashboards.filter((d) => d.id !== item.id).length > 0 ? (
-                                        <Menu.SubMenu
-                                            data-attr={'insight-' + item.id + '-dropdown-move'}
-                                            key="move"
-                                            title="Add to dashboard"
-                                        >
-                                            {nameSortedDashboards
-                                                .filter((d) => d.id !== item.id)
-                                                .map((dashboard, moveIndex) => (
-                                                    <Menu.Item
-                                                        data-attr={`insight-item-${item.id}-dropdown-move-${moveIndex}`}
-                                                        key={dashboard.id}
-                                                        onClick={() => addToDashboard(item, dashboard.id)}
-                                                    >
-                                                        {dashboard.name}
-                                                    </Menu.Item>
-                                                ))}
-                                        </Menu.SubMenu>
-                                    ) : null}
-                                    <Menu.Item
-                                        onClick={() => renameInsight(item.id)}
-                                        data-attr={`insight-item-${item.id}-dropdown-rename`}
-                                        title="Rename"
+                    <Dropdown
+                        placement="bottomRight"
+                        trigger={['click']}
+                        overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
+                        overlay={
+                            <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
+                                {nameSortedDashboards.filter((d) => d.id !== item.id).length > 0 ? (
+                                    <Menu.SubMenu
+                                        data-attr={'insight-' + item.id + '-dropdown-move'}
+                                        key="move"
+                                        title="Add to dashboard"
                                     >
-                                        Rename
-                                    </Menu.Item>
-                                    <Menu.Item
-                                        onClick={() => duplicateInsight(item)}
-                                        data-attr={`insight-item-${item.id}-dropdown-duplicate`}
-                                    >
-                                        Duplicate
-                                    </Menu.Item>
-                                    <Menu.Item
-                                        onClick={() =>
-                                            deleteWithUndo({
-                                                object: item,
-                                                endpoint: `api/projects/${currentTeamId}/insights`,
-                                                callback: loadInsights,
-                                            })
-                                        }
-                                        style={{ color: 'var(--danger)' }}
-                                        data-attr={`insight-item-${item.id}-dropdown-remove`}
-                                    >
-                                        Remove
-                                    </Menu.Item>
-                                </Menu>
-                            }
-                        >
-                            <EllipsisOutlined
-                                style={{ color: 'var(--primary)' }}
-                                className="insight-dropdown-actions"
-                            />
-                        </Dropdown>
-                    </Row>
+                                        {nameSortedDashboards
+                                            .filter((d) => d.id !== item.id)
+                                            .map((dashboard, moveIndex) => (
+                                                <Menu.Item
+                                                    data-attr={`insight-item-${item.id}-dropdown-move-${moveIndex}`}
+                                                    key={dashboard.id}
+                                                    onClick={() => addToDashboard(item, dashboard.id)}
+                                                >
+                                                    {dashboard.name}
+                                                </Menu.Item>
+                                            ))}
+                                    </Menu.SubMenu>
+                                ) : null}
+                                <Menu.Item
+                                    onClick={() => renameInsight(item.id)}
+                                    data-attr={`insight-item-${item.id}-dropdown-rename`}
+                                    title="Rename"
+                                >
+                                    Rename
+                                </Menu.Item>
+                                <Menu.Item
+                                    onClick={() => duplicateInsight(item)}
+                                    data-attr={`insight-item-${item.id}-dropdown-duplicate`}
+                                >
+                                    Duplicate
+                                </Menu.Item>
+                                <Menu.Item
+                                    onClick={() =>
+                                        deleteWithUndo({
+                                            object: item,
+                                            endpoint: `api/projects/${currentTeamId}/insights`,
+                                            callback: loadInsights,
+                                        })
+                                    }
+                                    style={{ color: 'var(--danger)' }}
+                                    data-attr={`insight-item-${item.id}-dropdown-remove`}
+                                >
+                                    Remove
+                                </Menu.Item>
+                            </Menu>
+                        }
+                    >
+                        <EllipsisOutlined style={{ color: 'var(--primary)' }} className="insight-dropdown-actions" />
+                    </Dropdown>
                 )
             },
         },
