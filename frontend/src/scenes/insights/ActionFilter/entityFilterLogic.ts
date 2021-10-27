@@ -204,12 +204,12 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                 {
                     id: '$pageview',
                     type: 'events',
-                    order: values.localFilters[previousLength - 1].order,
+                    order: values.localFilters[previousLength - 1].order + 1,
                     name: '$pageview',
                     ...props.addFilterDefaultOptions,
                 },
             ])
-            eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Main)
+            eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Default)
         },
         duplicateFilter: async ({ filter }) => {
             const previousLength = values.localFilters.length
