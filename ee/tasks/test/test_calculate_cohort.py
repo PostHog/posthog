@@ -205,6 +205,7 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
         )
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(
             len(people),
             1,

@@ -34,7 +34,7 @@ def insert_cohort_people_into_pg(cohort: Cohort):
     )
     if len(ids) == 0:
         raise ValueError("ZEROOOOOOO")
-    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])
+    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids], insert_clickhouse=False)
 
 
 class ClickhouseCohortViewSet(CohortViewSet):

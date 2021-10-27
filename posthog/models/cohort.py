@@ -163,11 +163,9 @@ class Cohort(models.Model):
     def insert_users_by_list(self, items: List[str]) -> None:
         """
         Items can be distinct_id or email
+        Important! Does not insert into clickhouse
         """
         batchsize = 1000
-        use_clickhouse = is_clickhouse_enabled()
-        if use_clickhouse:
-            from ee.clickhouse.models.cohort import insert_static_cohort
         try:
             cursor = connection.cursor()
             for i in range(0, len(items), batchsize):
@@ -177,8 +175,6 @@ class Cohort(models.Model):
                     .filter(Q(persondistinctid__team_id=self.team_id, persondistinctid__distinct_id__in=batch))
                     .exclude(cohort__id=self.id)
                 )
-                if use_clickhouse:
-                    insert_static_cohort([p for p in persons_query.values_list("uuid", flat=True)], self.pk, self.team)
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
