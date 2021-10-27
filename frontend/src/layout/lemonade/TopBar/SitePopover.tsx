@@ -1,9 +1,28 @@
 import React from 'react'
 import { CaretDownOutlined } from '@ant-design/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonPopover } from '../../../lib/components/LemonPopover'
+
+function SignOutButton(): JSX.Element {
+    const { logout } = useActions(userLogic)
+
+    return (
+        <button type="button" onClick={logout}>
+            Sign out
+        </button>
+    )
+}
+
+function SitePopoverSection({ title, children }: { title?: string; children: React.ReactElement }): JSX.Element {
+    return (
+        <div className="SitePopover__section">
+            {title && <h5 className="l5">{title}</h5>}
+            {children}
+        </div>
+    )
+}
 
 export function SitePopover(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -13,18 +32,21 @@ export function SitePopover(): JSX.Element {
             overlayStyle={{ width: '20rem' }}
             content={
                 <>
-                    <div className="SitePopover__section">
-                        <h5 className="l5">Signed in as</h5>
-                    </div>
-                    <div className="SitePopover__section">
-                        <h5 className="l5">Current organization</h5>
-                    </div>
-                    <div className="SitePopover__section">
-                        <h5 className="l5">Other organizations</h5>
-                    </div>
-                    <div className="SitePopover__section">
-                        <h5 className="l5">PostHog status</h5>
-                    </div>
+                    <SitePopoverSection title="Signed in as">
+                        <i>Placeholder</i>
+                    </SitePopoverSection>
+                    <SitePopoverSection title="Current organization">
+                        <i>Placeholder</i>
+                    </SitePopoverSection>
+                    <SitePopoverSection title="Other organizations">
+                        <i>Placeholder</i>
+                    </SitePopoverSection>
+                    <SitePopoverSection title="PostHog status">
+                        <i>Placeholder</i>
+                    </SitePopoverSection>
+                    <SitePopoverSection>
+                        <SignOutButton />
+                    </SitePopoverSection>
                 </>
             }
         >
