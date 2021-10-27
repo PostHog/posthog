@@ -76,7 +76,7 @@ class ClickhouseEventsViewSet(EventViewSet):
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                     conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
-                {"team_id": team.pk, "limit": limit, "order": order, **condition_params, **prop_filter_params},
+                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
