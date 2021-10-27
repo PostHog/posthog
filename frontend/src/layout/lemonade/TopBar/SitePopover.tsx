@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { CaretDownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
@@ -6,6 +6,41 @@ import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { IconSignOut } from '../../../lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
+import { Link } from '../../../lib/components/Link'
+import { urls } from '../../../scenes/urls'
+import { lemonadeLogic } from '../lemonadeLogic'
+
+function SitePopoverSection({ title, children }: { title?: string; children: React.ReactElement }): JSX.Element {
+    return (
+        <div className="SitePopover__section">
+            {title && <h5 className="l5">{title}</h5>}
+            {children}
+        </div>
+    )
+}
+
+function AccountInfo(): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { closeSitePopover } = useActions(lemonadeLogic)
+
+    return (
+        <div className="AccountInfo">
+            <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
+            <div className="AccountInfo__identification">
+                <div>
+                    <strong>{user?.first_name}</strong>
+                </div>
+                <div className="supplement">{user?.email}</div>
+            </div>
+            <div>
+                <Link to={urls.mySettings()} onClick={closeSitePopover} className="SitePopover__sidelink">
+                    {' '}
+                    Manage account
+                </Link>
+            </div>
+        </div>
+    )
+}
 
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
@@ -17,29 +52,25 @@ function SignOutButton(): JSX.Element {
     )
 }
 
-function SitePopoverSection({ title, children }: { title?: string; children: React.ReactElement }): JSX.Element {
-    return (
-        <div className="SitePopover__section">
-            {title && <h5 className="l5">{title}</h5>}
-            {children}
-        </div>
-    )
-}
-
 export function SitePopover(): JSX.Element {
     const { user } = useValues(userLogic)
-
-    const [isOpen, setIsOpen] = useState(false)
+    const { isSitePopoverOpen } = useValues(lemonadeLogic)
+    const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
 
     return (
         <Popup
-            visible={isOpen}
-            onClickOutside={() => setIsOpen(false)}
+            visible={isSitePopoverOpen}
+            onClickOutside={() => {
+                // Don't interrupt the user if they're trying to select text
+                if (!window.getSelection()?.toString()) {
+                    closeSitePopover()
+                }
+            }}
             className="SitePopover"
             overlay={
                 <>
                     <SitePopoverSection title="Signed in as">
-                        <i>Placeholder</i>
+                        <AccountInfo />
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
                         <i>Placeholder</i>
@@ -56,7 +87,7 @@ export function SitePopover(): JSX.Element {
                 </>
             }
         >
-            <div className="SitePopover__crumb" onClick={() => setIsOpen((state) => !state)}>
+            <div className="SitePopover__crumb" onClick={toggleSitePopover}>
                 <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
                 <CaretDownOutlined />
             </div>

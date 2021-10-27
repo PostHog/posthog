@@ -1,6 +1,7 @@
 @import '~/vars';
 
 .profile-picture {
+    flex-shrink: 0;
     border-radius: 50%;
     width: 32px;
     height: 32px;
@@ -10,13 +11,13 @@
     align-items: center;
     justify-content: center;
     font-weight: bold;
-    font-size: 18px; // _Roughly_ 60% of width/height
+    font-size: 18px; // 2/3 of width/height in the smallest size, 1/2 in the biggest, interpolated in between
     user-select: none;
 
-    &.lg {
+    &.xl {
         width: 40px;
         height: 40px;
-        font-size: 24px;
+        font-size: 20px;
     }
 
     &.md {
@@ -28,6 +29,6 @@
     &.sm {
         width: 18px;
         height: 18px;
-        font-size: 11px;
+        font-size: 12px;
     }
 }

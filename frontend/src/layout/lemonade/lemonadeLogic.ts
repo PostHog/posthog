@@ -9,12 +9,23 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
     },
     actions: {
         hideAnnouncement: true,
+        openSitePopover: true,
+        closeSitePopover: true,
+        toggleSitePopover: true,
     },
     reducers: {
         isAnnouncementHidden: [
             false,
             {
                 hideAnnouncement: () => true,
+            },
+        ],
+        isSitePopoverOpen: [
+            false,
+            {
+                openSitePopover: () => true,
+                closeSitePopover: () => false,
+                toggleSitePopover: (state) => !state,
             },
         ],
     },

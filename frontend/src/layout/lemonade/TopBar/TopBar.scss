@@ -114,6 +114,12 @@
     width: 20rem;
 }
 
+.SitePopover__sidelink {
+    color: var(--primary);
+    font-weight: 600;
+    font-size: 0.8125rem;
+}
+
 .SitePopover__crumb {
     display: flex;
     align-items: center;
@@ -137,4 +143,15 @@
     h5 {
         padding-left: 0.5rem;
     }
+}
+
+.AccountInfo {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+}
+
+.AccountInfo__identification {
+    margin-left: 0.5rem;
+    flex-grow: 1;
 }

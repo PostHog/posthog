@@ -44,7 +44,7 @@ export function Popup({
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
     const parentPopupId = useContext(PopupContext)
-    const localRefs = [popperElement, referenceElement] as (HTMLElement | null)[]
+    const localRefs = [popperElement, referenceElement]
 
     useEffect(() => {
         if (visible) {
@@ -55,11 +55,15 @@ export function Popup({
         }
     }, [visible, parentPopupId])
 
-    useOutsideClickHandler(localRefs, (event) => {
-        if (visible && !disabledPopups.get(popupId)) {
-            onClickOutside?.(event)
-        }
-    })
+    useOutsideClickHandler(
+        localRefs,
+        (event) => {
+            if (visible && !disabledPopups.get(popupId)) {
+                onClickOutside?.(event)
+            }
+        },
+        [visible, disabledPopups]
+    )
 
     const { styles, attributes } = usePopper(referenceElement, popperElement, {
         placement: placement,

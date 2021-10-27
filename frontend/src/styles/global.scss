@@ -66,6 +66,11 @@ NOTE: $medium is a SCSS var; not a keyword
 
 // Text styles
 
+b,
+strong {
+    font-weight: 600;
+}
+
 .text-default {
     color: $text_default;
     font-size: 14px;
@@ -164,6 +169,11 @@ NOTE: $medium is a SCSS var; not a keyword
 
 .primary {
     color: $primary;
+}
+
+.supplement {
+    color: var(--muted-alt);
+    font-size: 0.8125rem;
 }
 
 code.code {
