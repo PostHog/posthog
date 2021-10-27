@@ -3,6 +3,7 @@ import sys
 from contextlib import contextmanager
 from functools import wraps
 from os.path import dirname
+from time import perf_counter
 
 from django.utils.timezone import now
 
@@ -25,8 +26,10 @@ def run_query(fn, *args):
     uuid = str(UUIDT())
     client._request_information = {"kind": "benchmark", "id": f"{uuid}::${fn.__name__}"}
     try:
+        begin = perf_counter()
         fn(*args)
-        return get_clickhouse_query_stats(uuid)
+        duration = perf_counter() - begin
+        return {"ch_query_time": duration}
     finally:
         client._request_information = None
 
