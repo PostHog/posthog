@@ -635,30 +635,23 @@ LOGGING_FORMATTER_FORMAT = "%(asctime)s [%(levelname)s] %(name)s %(filename)s:%(
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    'formatters': {
-        'default': {
-            'format': LOGGING_FORMATTER_FORMAT,
-        },
-        'json' : {
-            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": LOGGING_FORMATTER_FORMAT,
-        },
+    "formatters": {
+        "default": {"format": LOGGING_FORMATTER_FORMAT,},
+        "json": {"()": "pythonjsonlogger.jsonlogger.JsonFormatter", "format": LOGGING_FORMATTER_FORMAT,},
     },
     "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": LOGGING_FORMATTER_NAME,
-        },
-        'null': {
-            'class': 'logging.NullHandler',
-        },
+        "console": {"class": "logging.StreamHandler", "formatter": LOGGING_FORMATTER_NAME,},
+        "null": {"class": "logging.NullHandler",},
     },
     "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
         "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
         "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
-        "django.utils.autoreload": {"handlers": ["null"], "propagate": False,}, # always blackhole Django autoreload logs
+        "django.utils.autoreload": {
+            "handlers": ["null"],
+            "propagate": False,
+        },  # always blackhole Django autoreload logs
     },
 }
 
