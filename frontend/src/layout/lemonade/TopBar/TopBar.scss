@@ -110,10 +110,15 @@
     font-weight: 600;
 }
 
+.SitePopover {
+    width: 20rem;
+}
+
 .SitePopover__crumb {
     display: flex;
     align-items: center;
     padding: 0.5rem 0;
+    cursor: pointer;
 }
 
 .SitePopover__section {

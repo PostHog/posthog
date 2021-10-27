@@ -1,11 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { CaretDownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
-import { LemonPopover } from '../../../lib/components/LemonPopover'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { SignOutIcon } from '../../../lib/components/icons'
+import { Popup } from '../../../lib/components/Popup/Popup'
 
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
@@ -29,10 +29,14 @@ function SitePopoverSection({ title, children }: { title?: string; children: Rea
 export function SitePopover(): JSX.Element {
     const { user } = useValues(userLogic)
 
+    const [isOpen, setIsOpen] = useState(false)
+
     return (
-        <LemonPopover
-            overlayStyle={{ width: '20rem' }}
-            content={
+        <Popup
+            visible={isOpen}
+            onClickOutside={() => setIsOpen(false)}
+            className="SitePopover"
+            overlay={
                 <>
                     <SitePopoverSection title="Signed in as">
                         <i>Placeholder</i>
@@ -52,10 +56,10 @@ export function SitePopover(): JSX.Element {
                 </>
             }
         >
-            <div className="SitePopover__crumb">
+            <div className="SitePopover__crumb" onClick={() => setIsOpen((state) => !state)}>
                 <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
                 <CaretDownOutlined />
             </div>
-        </LemonPopover>
+        </Popup>
     )
 }

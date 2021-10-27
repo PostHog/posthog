@@ -1,10 +1,13 @@
 @import '~/vars';
 
-.popper-tooltip {
+.Popup {
     z-index: $z_popup;
-    box-shadow: $shadow_popover;
-    background: white;
-    padding: 10px;
-    border-radius: $radius;
+    box-shadow: $shadow_popup;
+    background: #fff;
+    padding: 0.5rem;
+    border-radius: var(--radius);
     border: 1px solid var(--border);
+    &--actionable {
+        border-color: var(--primary);
+    }
 }

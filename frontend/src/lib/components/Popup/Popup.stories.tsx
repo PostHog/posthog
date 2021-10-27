@@ -1,24 +1,25 @@
 import React from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 
-import { LemonPopover } from '.'
+import { Popup } from './Popup'
 import { Button } from 'antd'
 
 export default {
-    title: 'PostHog/Components/LemonPopover',
-    component: LemonPopover,
+    title: 'PostHog/Components/Popup',
+    component: Popup,
     parameters: { options: { showPanel: true } },
-} as ComponentMeta<typeof LemonPopover>
+} as ComponentMeta<typeof Popup>
 
-const Template: ComponentStory<typeof LemonPopover> = (args) => <LemonPopover {...args} />
+const Template: ComponentStory<typeof Popup> = (args) => <Popup {...args} />
 
 export const Surprise = Template.bind({})
 Surprise.args = {
+    visible: true,
     children: <Button type="primary">Click here…</Button>,
-    content: (
+    overlay: (
         <>
             <h3>Surprise! 😱</h3>You have been gnomed.
         </>
     ),
-    placement: 'bottom-left',
+    placement: 'bottom-start',
 }
