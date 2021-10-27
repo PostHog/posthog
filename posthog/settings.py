@@ -628,15 +628,37 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 # TODO: Temporary
 EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_cast=str_to_bool)
 
+# Setup logging
+LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
+LOGGING_FORMATTER_FORMAT = "%(asctime)s [%(levelname)s] %(name)s %(filename)s:%(funcName)s:%(lineno)s %(message)s"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler",},},
+    'formatters': {
+        'default': {
+            'format': LOGGING_FORMATTER_FORMAT,
+        },
+        'json' : {
+            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            "format": LOGGING_FORMATTER_FORMAT,
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": LOGGING_FORMATTER_NAME,
+        },
+        'null': {
+            'class': 'logging.NullHandler',
+        },
+    },
     "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
         "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
         "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
+        "django.utils.autoreload": {"handlers": ["null"], "propagate": False,}, # always blackhole Django autoreload logs
     },
 }
 
