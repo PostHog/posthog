@@ -20,24 +20,20 @@ export function EditAction(): JSX.Element {
 
     const { getFieldValue } = form
 
-    useEffect(
-        () => {
-            // This sucks. We're storing the antd "form" object in kea in a reducer. Dispatching an action for it.
-            // That's so that the logic would be able to access the latest state of the form.
-            // There's another ugly hack with a `counter` selector in the actionsTabLogic as well, check it out :P
-            //
-            // I tried just saving the form's state in kea via `fields` && `onFieldsChange`, but that's in a funny
-            // format and doesn't update if the form is updated dynamically (`form.setFields(fields)` on inspect element).
-            //
-            // The solution is probably to control the form state better in the logic, for example by providing a
-            // default `fields` value (it's a bit of work) and making changes against that, not through `form.setFields`.
-            //
-            // Thanks for reading, the next coffee is on me! / Marius
-            setForm(form)
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [form]
-    )
+    useEffect(() => {
+        // This sucks. We're storing the antd "form" object in kea in a reducer. Dispatching an action for it.
+        // That's so that the logic would be able to access the latest state of the form.
+        // There's another ugly hack with a `counter` selector in the actionsTabLogic as well, check it out :P
+        //
+        // I tried just saving the form's state in kea via `fields` && `onFieldsChange`, but that's in a funny
+        // format and doesn't update if the form is updated dynamically (`form.setFields(fields)` on inspect element).
+        //
+        // The solution is probably to control the form state better in the logic, for example by providing a
+        // default `fields` value (it's a bit of work) and making changes against that, not through `form.setFields`.
+        //
+        // Thanks for reading, the next coffee is on me! / Marius
+        setForm(form)
+    }, [form])
 
     return (
         <div>

@@ -10,15 +10,11 @@ export const useD3 = (
 ): MutableRefObject<any> | null => {
     const ref = useRef<HTMLDivElement>()
 
-    useEffect(
-        () => {
-            if (ref.current !== undefined) {
-                renderChartFn(d3.select(ref.current))
-            }
-            return () => {}
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        dependencies
-    )
+    useEffect(() => {
+        if (ref.current !== undefined) {
+            renderChartFn(d3.select(ref.current))
+        }
+        return () => {}
+    }, dependencies)
     return ref
 }

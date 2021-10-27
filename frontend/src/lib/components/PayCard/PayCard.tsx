@@ -37,16 +37,12 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
         reportPayGateDismissed(identifier)
     }
 
-    useEffect(
-        () => {
-            if (!window.localStorage.getItem(storageKey)) {
-                setShown(true)
-                reportPayGateShown(identifier)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        []
-    )
+    useEffect(() => {
+        if (!window.localStorage.getItem(storageKey)) {
+            setShown(true)
+            reportPayGateShown(identifier)
+        }
+    }, [])
 
     if (!shown) {
         return null

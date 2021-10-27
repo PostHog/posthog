@@ -48,7 +48,6 @@ export function useEventListener(
                 element?.removeEventListener(eventName, eventListener)
             }
         },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [eventName, element, ...(deps || [])] // Re-run if eventName or element changes
     )
 }
