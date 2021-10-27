@@ -220,8 +220,8 @@ class FunnelCorrelation:
                 %(funnel_step_names)s as funnel_step_names
 
             SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
-                   countDistinctIf(person_id, steps = target_step) as success_count,
-                   countDistinctIf(person_id, steps <> target_step) as failure_count
+                   uniqCombinedIf(person_id, steps = target_step) as success_count,
+                   uniqCombinedIf(person_id, steps <> target_step) as failure_count
             FROM (
                 SELECT
                     person.person_id as person_id,
@@ -238,7 +238,7 @@ class FunnelCorrelation:
             GROUP BY name
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
-            HAVING (success_count + failure_count) > 10
+            HAVING (success_count + failure_count) > 2
             AND prop.1 NOT IN %(exclude_property_names)s
 
             UNION ALL
@@ -247,12 +247,12 @@ class FunnelCorrelation:
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
 
-                countDistinctIf(
+                uniqCombinedIf(
                     person.person_id,
                     person.steps = target_step
                 ) AS success_count,
 
-                countDistinctIf(
+                uniqCombinedIf(
                     person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
