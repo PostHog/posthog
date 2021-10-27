@@ -10,12 +10,19 @@ import { Provider } from 'react-redux'
 import { initKea } from '~/initKea'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { EditorProps } from '~/types'
+import { PostHog } from 'posthog-js'
 
 initKea()
 ;(window as any)['simmer'] = new Simmer(window, { depth: 8 })
-;(window as any)['ph_load_editor'] = function (editorParams: EditorProps) {
+;(window as any)['ph_load_editor'] = function (editorParams: EditorProps, posthog: PostHog) {
     const container = document.createElement('div')
     document.body.appendChild(container)
+
+    if (!posthog) {
+        console.warn(
+            '⚠️⚠️⚠️ Loaded toolbar via old version of posthog-js that does not support feature flags. Please upgrade! ⚠️⚠️⚠️'
+        )
+    }
 
     ReactDOM.render(
         <Provider store={getContext().store}>
@@ -25,6 +32,7 @@ initKea()
                     typeof editorParams.actionId === 'string' ? parseInt(editorParams.actionId) : editorParams.actionId
                 }
                 jsURL={editorParams.jsURL || editorParams.apiURL}
+                posthog={posthog}
             />
         </Provider>,
         container
