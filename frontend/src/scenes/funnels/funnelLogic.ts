@@ -1033,7 +1033,10 @@ export const funnelLogic = kea<funnelLogicType>({
         setCorrelationFeedbackRating: ({ rating }) => {
             const feedbackBoxVisible = rating > 0
             actions.setCorrelationDetailedFeedbackVisible(feedbackBoxVisible)
-            eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
+            if (feedbackBoxVisible) {
+                // Don't send event when resetting reducer
+                eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
+            }
         },
     }),
 })

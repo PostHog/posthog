@@ -110,24 +110,30 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                     </Row>
 
                     <div style={{ display: correlationDetailedFeedbackVisible ? undefined : 'none' }}>
-                        <TextArea
-                            onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)}
-                            placeholder="Optional. Help us by sharing details around your experience..."
-                            style={{ marginTop: 16 }}
-                            ref={detailedFeedbackRef}
-                        />
-                        <div className="text-right">
-                            <Button
-                                className="feedback-button"
-                                data-attr="correlation-analysis-share-feedback"
-                                type="primary"
-                                onClick={() => {
-                                    sendCorrelationAnalysisFeedback()
+                        <form onSubmit={sendCorrelationAnalysisFeedback}>
+                            <TextArea
+                                onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)}
+                                placeholder="Optional. Help us by sharing details around your experience..."
+                                style={{ marginTop: 16 }}
+                                ref={detailedFeedbackRef}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && e.metaKey) {
+                                        detailedFeedbackRef.current?.blur()
+                                        sendCorrelationAnalysisFeedback()
+                                    }
                                 }}
-                            >
-                                Share feedback
-                            </Button>
-                        </div>
+                            />
+                            <div className="text-right">
+                                <Button
+                                    className="feedback-button"
+                                    data-attr="correlation-analysis-share-feedback"
+                                    type="primary"
+                                    htmlType="submit"
+                                >
+                                    Share feedback
+                                </Button>
+                            </div>
+                        </form>
                     </div>
                 </Card>
             )}
