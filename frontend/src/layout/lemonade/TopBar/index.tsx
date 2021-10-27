@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { FriendlyLogo } from '../../../toolbar/assets/FriendlyLogo'
-import { AccountControl } from './AccountControl'
+import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
 import { SearchBox } from './SearchBox'
 import { lemonadeLogic } from '../lemonadeLogic'
@@ -32,7 +32,7 @@ export function TopBar(): JSX.Element {
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     <HelpButton withCaret placement="bottomRight" />
-                    <AccountControl />
+                    <SitePopover />
                 </div>
             </header>
         </>
