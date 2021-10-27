@@ -1,0 +1,52 @@
+@import '~/vars';
+
+.LemonPopover__container {
+    position: relative;
+}
+
+.LemonPopover__overlay {
+    position: absolute;
+    z-index: $z_popup;
+    animation: 100ms ease-out forwards fade-in-down;
+    padding: 0.5rem;
+    background: #fff;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: $shadow_popover;
+    &--actionable {
+        border-color: var(--primary);
+    }
+    &--hidden {
+        // These are separate @keyframes as the browser doesn't rerun the same animation so hiding doesn't work
+        animation: 100ms ease-in forwards fade-out-up;
+    }
+    &--bottom-right {
+        transform-origin: right -0.5rem;
+    }
+
+    &--bottom-left {
+        transform-origin: left -0.5rem;
+    }
+}
+
+@keyframes fade-in-down {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes fade-out-up {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+}
