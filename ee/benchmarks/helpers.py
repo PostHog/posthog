@@ -28,7 +28,7 @@ def run_query(fn, *args):
     try:
         begin = perf_counter()
         fn(*args)
-        duration = perf_counter() - begin
+        duration = (perf_counter() - begin) / 1_000_000  # in ms
         return {"ch_query_time": duration}
     finally:
         client._request_information = None
