@@ -33,7 +33,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
             (props.featureFlags || {}) as Record<string, string | boolean>,
             { updateFeatureFlags: (_, { flags }) => flags },
         ],
-        posthog: [props.posthog as PostHog | null],
+        posthog: [props.posthog ?? (null as PostHog | null)],
     }),
 
     selectors: ({ selectors }) => ({
