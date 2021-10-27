@@ -32,7 +32,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
-    IconPerson,
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
@@ -43,6 +42,7 @@ import {
 } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ColumnsType } from 'antd/lib/table'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 const { TabPane } = Tabs
 
@@ -232,13 +232,15 @@ export function SavedInsights(): JSX.Element {
                 </div>
             ),
             render: function Render(_: any, item) {
-                return (
+                return item.created_by ? (
                     <Row align={'middle'}>
-                        <IconPerson style={{ marginRight: 8 }} />
-                        <div style={{ verticalAlign: 'middle' }}>
-                            {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
+                        <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
+                        <div style={{ verticalAlign: 'middle', marginLeft: 8 }}>
+                            {item.created_by.first_name || item.created_by.email}
                         </div>
                     </Row>
+                ) : (
+                    '-'
                 )
             },
         },
