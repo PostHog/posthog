@@ -1,5 +1,6 @@
 import { funnelLogic } from './funnelLogic'
 import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import posthog from 'posthog-js'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -10,6 +11,7 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, ViewType } from '~/types'
 
 jest.mock('lib/api')
+jest.mock('posthog-js')
 
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
@@ -314,6 +316,57 @@ describe('funnelLogic', () => {
                     second_value: '1.2',
                 })
             })
+        })
+    })
+
+    describe('Correlation Feedback flow', () => {
+        it('opens detailed feedback on selecting a valid rating', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setCorrelationFeedbackRating(1)
+            })
+                .toMatchValues(logic, {
+                    correlationFeedbackRating: 1,
+                })
+                .toDispatchActions(logic, [
+                    (action) =>
+                        action.type === logic.actionTypes.setCorrelationDetailedFeedbackVisible &&
+                        action.payload.visible === true,
+                ])
+                .toMatchValues(logic, {
+                    correlationDetailedFeedbackVisible: true,
+                })
+        })
+
+        it('doesnt opens detailed feedback on selecting an invalid rating', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setCorrelationFeedbackRating(0)
+            })
+                .toMatchValues(logic, {
+                    correlationFeedbackRating: 0,
+                })
+                .toDispatchActions(logic, [
+                    (action) =>
+                        action.type === logic.actionTypes.setCorrelationDetailedFeedbackVisible &&
+                        action.payload.visible === false,
+                ])
+                .toMatchValues(logic, {
+                    correlationDetailedFeedbackVisible: false,
+                })
+        })
+
+        it('goes away on sending feedback, capturing it properly', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setCorrelationFeedbackRating(1)
+                logic.actions.setCorrelationDetailedFeedback('tests')
+                logic.actions.sendCorrelationAnalysisFeedback()
+            }).toMatchValues(logic, {
+                // reset after sending feedback
+                correlationFeedbackRating: 0,
+                correlationDetailedFeedback: '',
+                correlationFeedbackHidden: true,
+            })
+
+            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 1, comment: 'tests' })
         })
     })
 })
