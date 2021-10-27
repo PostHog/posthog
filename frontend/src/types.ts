@@ -1105,6 +1105,11 @@ interface AuthBackends {
     saml?: boolean
 }
 
+interface InstancePreferencesInterface {
+    debug_queries: boolean
+    disable_paid_fs: boolean /** Whether debug queries option should be shown on the command palette. */
+}
+
 export interface PreflightStatus {
     // Attributes that accept undefined values (i.e. `?`) are not received when unauthenticated
     django: boolean
@@ -1134,8 +1139,7 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
-    /** Whether debug queries option should be shown on the command palette. */
-    debug_queries?: boolean
+    instance_preferences?: InstancePreferencesInterface
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
