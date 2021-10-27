@@ -57,62 +57,73 @@ export const FunnelCorrelation = (): JSX.Element | null => {
             {/* Feedback Form */}
             {!correlationFeedbackHidden && (
                 <Card className="correlation-feedback">
-                    <h4>
-                        <CloseOutlined className="close-button" onClick={hideCorrelationAnalysisFeedback} />
-                        <Row>
-                            <Col span={16}>
-                                <CommentOutlined style={{ paddingRight: 8 }} />
-                                Is the new feature, Corrrelation analysis, working well for you?
-                            </Col>
-                            <Col span={8} style={{ alignContent: 'right' }}>
-                                {(
-                                    [
-                                        [1, '😍'],
-                                        [2, '😀'],
-                                        [3, '😴'],
-                                        [4, '👎'],
-                                        [5, '👍'],
-                                    ] as const
-                                ).map((content, index) => (
-                                    <Button
-                                        key={index}
-                                        className="emoji-button"
-                                        style={
-                                            correlationFeedbackRating === content[0] ? { background: '#5375FF' } : {}
-                                        }
-                                        onClick={() => {
+                    <Row className="row-initial">
+                        <Col span={15}>
+                            <h4>
+                                <CommentOutlined style={{ marginRight: 4 }} />
+                                Was this correlation analysis report useful?
+                            </h4>
+                        </Col>
+                        <Col span={8} style={{ alignContent: 'right' }}>
+                            {!!correlationFeedbackRating && (
+                                <span style={{ color: 'var(--success)', marginRight: 8 }}>
+                                    Thanks for your feedback!
+                                </span>
+                            )}
+                            {(
+                                [
+                                    [5, '😍'],
+                                    [4, '😀'],
+                                    [3, '😴'],
+                                    [2, '😔'],
+                                    [1, '👎'],
+                                ] as const
+                            ).map((content, index) => (
+                                <Button
+                                    key={index}
+                                    className="emoji-button"
+                                    style={
+                                        correlationFeedbackRating === content[0]
+                                            ? { background: '#5375FF' }
+                                            : correlationFeedbackRating
+                                            ? { display: 'none' }
+                                            : {}
+                                    }
+                                    onClick={() => {
+                                        if (correlationFeedbackRating === content[0]) {
+                                            setCorrelationFeedbackRating(0)
+                                        } else {
                                             setCorrelationFeedbackRating(content[0])
-                                        }}
-                                    >
-                                        {content[1]}
-                                    </Button>
-                                ))}
-                            </Col>
-                        </Row>
-                    </h4>
-                    <div style={{ display: correlationDetailedFeedbackVisible ? undefined : 'None' }}>
-                        <hr />
-                        Tell us more <i>(optional)</i>
-                        <TextArea onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)} />
-                        <Row style={{ justifyContent: 'flex-end' }}>
+                                        }
+                                    }}
+                                >
+                                    {content[1]}
+                                </Button>
+                            ))}
+                        </Col>
+                        <Col span={1}>
+                            <CloseOutlined className="close-button" onClick={hideCorrelationAnalysisFeedback} />
+                        </Col>
+                    </Row>
+
+                    <div style={{ display: correlationDetailedFeedbackVisible ? undefined : 'none' }}>
+                        <TextArea
+                            onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)}
+                            placeholder="Optional. Help us by sharing details around your experience..."
+                            style={{ marginTop: 16 }}
+                        />
+                        <div className="text-right">
                             <Button
                                 className="feedback-button"
-                                onClick={() => {
-                                    setCorrelationFeedbackRating(0)
-                                }}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                className="feedback-button"
+                                data-attr="correlation-analysis-share-feedback"
                                 type="primary"
                                 onClick={() => {
                                     sendCorrelationAnalysisFeedback()
                                 }}
                             >
-                                Share Feedback
+                                Share feedback
                             </Button>
-                        </Row>
+                        </div>
                     </div>
                 </Card>
             )}
