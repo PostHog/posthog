@@ -111,7 +111,7 @@ class FunnelCorrelation:
             self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES
             and AUTOCAPTURE_EVENT in self._filter.correlation_event_names
         ):
-            return False
+            return True
         return False
 
     def get_contingency_table_query(self) -> Tuple[str, Dict[str, Any]]:
@@ -238,7 +238,7 @@ class FunnelCorrelation:
             GROUP BY name
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
-            HAVING (success_count + failure_count) > 2
+            HAVING (success_count + failure_count) > 10
             AND prop.1 NOT IN %(exclude_property_names)s
 
             UNION ALL
