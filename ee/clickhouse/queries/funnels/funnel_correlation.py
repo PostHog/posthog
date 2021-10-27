@@ -111,7 +111,7 @@ class FunnelCorrelation:
             self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES
             and AUTOCAPTURE_EVENT in self._filter.correlation_event_names
         ):
-            return True
+            return False
         return False
 
     def get_contingency_table_query(self) -> Tuple[str, Dict[str, Any]]:
