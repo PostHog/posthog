@@ -1,0 +1,30 @@
+@import '~/vars';
+
+.LemonButton {
+    transition: background-color 200ms ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.5rem;
+    background: none;
+    border-radius: var(--radius);
+    border: none;
+    color: var(--text-default);
+    font-size: 0.875rem;
+    &:hover {
+        background: rgba($blue_300, 0.2);
+    }
+    &:active {
+        background: rgba($blue_300, 0.3);
+    }
+}
+
+.LemonButton__icon {
+    display: flex;
+    height: 1.5rem;
+    width: 1.5rem;
+    padding: 0.1875rem;
+    margin-right: 0.5rem;
+    color: var(--muted-alt);
+    font-size: 1.125rem;
+}

@@ -14,7 +14,7 @@ export interface LemonPopoverProps {
     placement?: LemonPopoverPlacement
     /** Whether the popover is actionable rather than just informative - actionable means a colored border. */
     actionable?: boolean
-    /** */
+    /** Extra overlay style. */
     overlayStyle?: React.CSSProperties
 }
 
