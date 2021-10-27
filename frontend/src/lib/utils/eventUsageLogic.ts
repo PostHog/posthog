@@ -138,7 +138,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
-        properties_all: properties_global.concat(properties_local), // Global and local properties together©155
+        properties_all: properties_global.concat(properties_local), // Global and local properties together
     }
 }
 
@@ -153,13 +153,13 @@ export const eventUsageLogic = kea<
             filters: Partial<FilterType>,
             isFirstLoad: boolean,
             fromDashboard: boolean,
-            delay?: number, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            delay?: number,
             changedFilters?: Record<string, any>
         ) => ({
             filters,
             isFirstLoad,
             fromDashboard,
-            delay,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
             changedFilters,
         }),
         reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
