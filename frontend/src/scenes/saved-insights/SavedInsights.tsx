@@ -9,6 +9,7 @@ import { savedInsightsLogic } from './savedInsightsLogic'
 import {
     AppstoreFilled,
     ArrowDownOutlined,
+    ArrowUpOutlined,
     CaretDownFilled,
     EllipsisOutlined,
     LeftOutlined,
@@ -111,6 +112,13 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
+const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
+    <div style={{ fontSize: 10, paddingLeft: 8 }}>
+        {direction === 'down' ? <ArrowDownOutlined /> : direction === 'up' ? <ArrowUpOutlined /> : null}
+        <MenuOutlined />
+    </div>
+)
+
 export function SavedInsights(): JSX.Element {
     const {
         loadInsights,
@@ -208,10 +216,7 @@ export function SavedInsights(): JSX.Element {
                     }
                 >
                     Last modified{' '}
-                    <div style={{ fontSize: 10, paddingLeft: 8 }}>
-                        <ArrowDownOutlined />
-                        <MenuOutlined />
-                    </div>
+                    {columnSort(order === '-updated_at' ? 'down' : order === 'updated_at' ? 'up' : 'none')}
                 </div>
             ),
             dataIndex: 'updated_at',
@@ -228,7 +233,8 @@ export function SavedInsights(): JSX.Element {
                         setSavedInsightsFilters({ order: order === 'created_by' ? '-created_by' : 'created_by' })
                     }
                 >
-                    {normalizeColumnTitle('Created by')}
+                    {normalizeColumnTitle('Created by')}{' '}
+                    {columnSort(order === '-created_by' ? 'up' : order === 'created_by' ? 'down' : 'none')}
                 </div>
             ),
             render: function Render(_: any, item) {
