@@ -23,8 +23,14 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 
 const { Panel } = Collapse
+
+export const scene: SceneExport = {
+    component: OnboardingSetup,
+    logic: onboardingSetupLogic,
+}
 
 function PanelHeader({
     title,

@@ -2,7 +2,7 @@ import { Button, Card, Row, Col } from 'antd'
 import { CommentOutlined } from '@ant-design/icons'
 import TextArea from 'antd/lib/input/TextArea'
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
 import './FunnelCorrelation.scss'
@@ -13,14 +13,20 @@ import { CloseOutlined } from '@ant-design/icons'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
-    const { isSkewed, stepsWithCount, correlationFeedbackHidden } = useValues(funnelLogic(insightProps))
-    const { sendCorrelationAnalysisFeedback, hideSkewWarning, hideCorrelationAnalysisFeedback } = useActions(
-        funnelLogic(insightProps)
-    )
-
-    const [modalVisible, setModalVisible] = useState(false)
-    const [rating, setRating] = useState(0)
-    const [detailedFeedback, setDetailedFeedback] = useState('')
+    const {
+        isSkewed,
+        stepsWithCount,
+        correlationFeedbackHidden,
+        correlationDetailedFeedbackVisible,
+        correlationFeedbackRating,
+    } = useValues(funnelLogic(insightProps))
+    const {
+        sendCorrelationAnalysisFeedback,
+        hideSkewWarning,
+        hideCorrelationAnalysisFeedback,
+        setCorrelationFeedbackRating,
+        setCorrelationDetailedFeedback,
+    } = useActions(funnelLogic(insightProps))
 
     if (stepsWithCount.length <= 1) {
         return null
@@ -71,10 +77,11 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                     <Button
                                         key={index}
                                         className="emoji-button"
-                                        style={rating === content[0] ? { background: '#5375FF' } : {}}
+                                        style={
+                                            correlationFeedbackRating === content[0] ? { background: '#5375FF' } : {}
+                                        }
                                         onClick={() => {
-                                            setRating(content[0])
-                                            setModalVisible(true)
+                                            setCorrelationFeedbackRating(content[0])
                                         }}
                                     >
                                         {content[1]}
@@ -83,16 +90,15 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                             </Col>
                         </Row>
                     </h4>
-                    <div style={{ display: modalVisible ? undefined : 'None' }}>
+                    <div style={{ display: correlationDetailedFeedbackVisible ? undefined : 'None' }}>
                         <hr />
                         Tell us more <i>(optional)</i>
-                        <TextArea onBlur={(e) => setDetailedFeedback(e.target.value)} />
+                        <TextArea onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)} />
                         <Row style={{ justifyContent: 'flex-end' }}>
                             <Button
                                 className="feedback-button"
                                 onClick={() => {
-                                    setModalVisible(false)
-                                    setRating(0)
+                                    setCorrelationFeedbackRating(0)
                                 }}
                             >
                                 Cancel
@@ -101,9 +107,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                 className="feedback-button"
                                 type="primary"
                                 onClick={() => {
-                                    sendCorrelationAnalysisFeedback(rating, detailedFeedback)
-                                    setModalVisible(false)
-                                    setRating(0)
+                                    sendCorrelationAnalysisFeedback()
                                 }}
                             >
                                 Share Feedback

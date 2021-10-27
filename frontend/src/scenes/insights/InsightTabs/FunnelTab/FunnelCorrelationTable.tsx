@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Row, Table } from 'antd'
+import { Button, Col, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
@@ -152,6 +152,13 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     width={100}
                     align="center"
                 />
+
+                <Column
+                    title="Actions"
+                    key="actions"
+                    render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                    align="left"
+                />
             </Table>
         )
     }
@@ -242,4 +249,22 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             />
         </Table>
     ) : null
+}
+
+const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
+    const { excludeEventProperty } = useActions(logic)
+    const { isEventPropertyExcluded } = useValues(logic)
+    const eventName = record.event?.event.split('::')[0]
+    const propertyName = (record.event?.event || '').split('::')[1]
+
+    return (
+        <Button
+            disabled={isEventPropertyExcluded(propertyName)}
+            onClick={() => excludeEventProperty(eventName, propertyName)}
+        >
+            Exclude property
+        </Button>
+    )
 }
