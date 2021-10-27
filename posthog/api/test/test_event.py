@@ -11,7 +11,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.util import cast_timestamp_or_now
 from posthog.constants import AnalyticsDBMS
 from posthog.models import (
     Action,
