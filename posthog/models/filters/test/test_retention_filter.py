@@ -1,4 +1,3 @@
-
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from freezegun.api import freeze_time

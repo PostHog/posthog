@@ -127,7 +127,6 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     """
 
 
-
 class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
