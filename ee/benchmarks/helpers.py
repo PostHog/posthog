@@ -3,7 +3,7 @@ import sys
 from contextlib import contextmanager
 from functools import wraps
 from os.path import dirname
-from time import perf_counter
+from time import perf_counter_ns
 
 from django.utils.timezone import now
 
@@ -26,9 +26,9 @@ def run_query(fn, *args):
     uuid = str(UUIDT())
     client._request_information = {"kind": "benchmark", "id": f"{uuid}::${fn.__name__}"}
     try:
-        begin = perf_counter()
+        begin = perf_counter_ns()
         fn(*args)
-        duration = (perf_counter() - begin) / 1_000_000  # in ms
+        duration = (perf_counter_ns() - begin) / 1_000_000  # in ms
         return {"ch_query_time": duration}
     finally:
         client._request_information = None
