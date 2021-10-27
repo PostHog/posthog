@@ -214,7 +214,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     template = get_template(template_name)
 
-    context["self_capture"] = False
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
 
     if os.environ.get("SENTRY_DSN"):
@@ -229,7 +228,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["e2e_testing"] = True
 
     if settings.SELF_CAPTURE:
-        context["self_capture"] = True
         api_token = get_self_capture_api_token(request)
 
         if api_token:

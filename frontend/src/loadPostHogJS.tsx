@@ -25,7 +25,6 @@ export function loadPostHogJS(): void {
                 // @ts-ignore
                 _capture_metrics: true,
                 rageclick: true,
-                debug: window.JS_POSTHOG_SELF_CAPTURE,
                 persistence: 'localStorage+cookie',
             })
         )
