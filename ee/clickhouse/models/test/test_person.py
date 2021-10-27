@@ -61,28 +61,3 @@ class TestPersonsTable(ClickhouseTestMixin, BaseTest):
         self.assertEqual(persons[0][0], 4)  # version
         self.assertEqual(persons[0][1], 1)  # is_deleted
 
-    def test_kafka_insert(self):
-
-        kafka_person1 = TEST_DATA.copy()
-        kafka_person1["version"] = 2
-        kafka_person1["is_deleted"] = 1
-
-        kafka_person2 = TEST_DATA.copy()
-        kafka_person2["version"] = 100
-
-        kafka_producer = KafkaProducer(bootstrap_servers=KAFKA_HOSTS)
-
-        kafka_producer.send(topic=KAFKA_PERSON, value=json.dumps(kafka_person1).encode("utf-8"))
-        kafka_producer.send(topic=KAFKA_PERSON, value=json.dumps(kafka_person2).encode("utf-8"))
-
-        delay_until_clickhouse_consumes_from_kafka(PERSONS_TABLE, 1, timeout_seconds=20)
-
-        persons = sync_execute("SELECT version, is_deleted FROM person FINAL")
-
-        # the person with is_deleted = 1 gets assigned a version = max(uint64)
-        # this ensures all other rows will be collapsed and we'll keep the record
-        # of the person being deleted
-        self.assertEqual(len(persons), 1)
-
-        self.assertEqual(persons[0][0], 2 ** 64 - 1)  # version
-        self.assertEqual(persons[0][1], 1)  # is_deleted
