@@ -17,6 +17,7 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
+import { SceneExport } from 'scenes/sceneTypes'
 
 interface PreflightItemInterface {
     name: string
@@ -27,6 +28,11 @@ interface PreflightItemInterface {
 
 interface CheckInterface extends PreflightItemInterface {
     id: string
+}
+
+export const scene: SceneExport = {
+    component: PreflightCheck,
+    logic: preflightLogic,
 }
 
 function PreflightItem({ name, status, caption, failedState }: PreflightItemInterface): JSX.Element {

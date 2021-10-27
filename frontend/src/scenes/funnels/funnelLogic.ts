@@ -115,7 +115,10 @@ export const funnelLogic = kea<funnelLogicType>({
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
-        sendCorrelationAnalysisFeedback: (rating: number, comment?: string) => ({ rating, comment }),
+        setCorrelationDetailedFeedback: (comment: string) => ({ comment }),
+        setCorrelationFeedbackRating: (rating: number) => ({ rating }),
+        setCorrelationDetailedFeedbackVisible: (visible: boolean) => ({ visible }),
+        sendCorrelationAnalysisFeedback: true,
         hideSkewWarning: true,
 
         setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
@@ -271,6 +274,24 @@ export const funnelLogic = kea<funnelLogicType>({
                 hideCorrelationAnalysisFeedback: () => true,
             },
         ],
+        correlationDetailedFeedbackVisible: [
+            false,
+            {
+                setCorrelationDetailedFeedbackVisible: (_, { visible }) => visible,
+            },
+        ],
+        correlationFeedbackRating: [
+            0,
+            {
+                setCorrelationFeedbackRating: (_, { rating }) => rating,
+            },
+        ],
+        correlationDetailedFeedback: [
+            '',
+            {
+                setCorrelationDetailedFeedback: (_, { comment }) => comment,
+            },
+        ],
         eventWithPropertyCorrelations: {
             loadEventWithPropertyCorrelationsSuccess: (state, { eventWithPropertyCorrelations }) => {
                 return {
@@ -335,7 +356,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         0
                     )
                 }
-                return people.sort((a, b) => score(b) - score(a))
+                return [...people].sort((a, b) => score(b) - score(a))
             },
         ],
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
@@ -1005,10 +1026,19 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadPropertyCorrelations()
         },
 
-        sendCorrelationAnalysisFeedback: ({ rating, comment }) => {
-            posthog.capture('correlation analysis feedback', { rating, comment })
-
+        sendCorrelationAnalysisFeedback: () => {
+            posthog.capture('correlation analysis feedback', {
+                rating: values.correlationFeedbackRating,
+                comment: values.correlationDetailedFeedback,
+            })
+            actions.setCorrelationFeedbackRating(0)
+            actions.setCorrelationDetailedFeedback('')
             successToast('Thanks for your feedback!', ' ')
+        },
+        setCorrelationFeedbackRating: ({ rating }) => {
+            const feedbackBoxVisible = rating > 0
+
+            actions.setCorrelationDetailedFeedbackVisible(feedbackBoxVisible)
         },
     }),
 })

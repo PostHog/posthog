@@ -42,6 +42,7 @@ export function FunnelLineGraph({
                               date_to: point.day,
                               filters: filters,
                               saveOriginal: true,
+                              pointValue: point.value,
                           })
                       }
             }

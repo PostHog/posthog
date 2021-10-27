@@ -1,5 +1,5 @@
 import { Col, Row, Skeleton, Card } from 'antd'
-import { HotkeyButton } from 'lib/components/HotkeyButton'
+import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import React from 'react'
 import { PlusOutlined } from '@ant-design/icons'
 import { dashboardLogic } from './dashboardLogic'

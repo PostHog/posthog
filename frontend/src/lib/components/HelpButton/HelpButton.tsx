@@ -1,12 +1,13 @@
 import React from 'react'
 import './HelpButton.scss'
-import { QuestionCircleOutlined, MailOutlined, SolutionOutlined } from '@ant-design/icons'
-import { Button, Popover } from 'antd'
+import { QuestionCircleOutlined, MailOutlined, SolutionOutlined, CaretDownOutlined } from '@ant-design/icons'
+import { Button, Popover, Row } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
 import slackLogo from 'public/slack-logo.svg'
 import { helpButtonLogicType } from './HelpButtonType'
+import { TooltipPlacement } from 'antd/lib/tooltip'
 
 export const helpButtonLogic = kea<helpButtonLogicType>({
     actions: {
@@ -22,7 +23,12 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
     },
 })
 
-export function HelpButton(): JSX.Element {
+export interface HelpButtonProps {
+    withCaret?: boolean
+    placement?: TooltipPlacement
+}
+
+export function HelpButton({ withCaret = false, placement }: HelpButtonProps): JSX.Element {
     const UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
     const { reportHelpButtonUsed, reportHelpButtonViewed } = useActions(eventUsageLogic)
     const { isVisible } = useValues(helpButtonLogic)
@@ -83,8 +89,12 @@ export function HelpButton(): JSX.Element {
                     }
                 }}
                 visible={isVisible}
+                placement={placement}
             >
-                <QuestionCircleOutlined className="help-icon" />
+                <Row align="middle">
+                    <QuestionCircleOutlined className="help-icon" />
+                    {withCaret && <CaretDownOutlined />}
+                </Row>
             </Popover>
         </div>
     )
