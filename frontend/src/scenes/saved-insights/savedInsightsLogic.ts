@@ -16,6 +16,8 @@ export interface InsightsResult {
     count: number
     previous?: string
     next?: string
+    /** not in the API response */
+    filters?: SavedInsightFilters | null
 }
 
 export interface SavedInsightFilters {
@@ -57,7 +59,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     },
     loaders: ({ values }) => ({
         insights: {
-            __default: { results: [], count: 0 } as InsightsResult,
+            __default: { results: [], count: 0, filters: null } as InsightsResult,
             loadInsights: async (_, breakpoint) => {
                 await breakpoint(1)
                 const { filters } = values
@@ -80,7 +82,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                             }),
                     })}`
                 )
-                return response
+                return { ...response, filters }
             },
             loadPaginatedInsights: async (url: string) => await api.get(url),
             updateFavoritedInsight: async ({ id, favorited }) => {
@@ -125,6 +127,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 const offset = new URLSearchParams(insights.next).get('offset') || '0'
                 return parseInt(offset)
             },
+        ],
+        usingFilters: [
+            (s) => [s.filters],
+            (filters) => !objectsEqual(cleanFilters({ ...filters, tab: SavedInsightsTabs.All }), cleanFilters({})),
         ],
     },
     listeners: ({ actions, values, selectors }) => ({

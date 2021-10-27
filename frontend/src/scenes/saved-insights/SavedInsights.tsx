@@ -363,7 +363,7 @@ export function SavedInsights(): JSX.Element {
                         {[{ name: 'All types', type: 'All types' as ViewType, inMenu: false }, ...insightTypes].map(
                             (insight: InsightType, index) => (
                                 <Select.Option key={index} value={insight.type}>
-                                    <div className="icon-wrapper">
+                                    <div className="insight-type-icon-wrapper">
                                         {insight.icon ? (
                                             <div className="icon-container">
                                                 <div className="icon-container-inner">
