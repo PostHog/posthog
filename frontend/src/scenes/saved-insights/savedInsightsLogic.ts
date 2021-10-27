@@ -62,7 +62,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             __default: { results: [], count: 0, filters: null } as InsightsResult,
             loadInsights: async (_, breakpoint) => {
                 if (values.insights.filters !== null) {
-                    await breakpoint(100)
+                    await breakpoint(300)
                 }
                 const { filters } = values
                 const params = {
