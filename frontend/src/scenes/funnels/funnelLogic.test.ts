@@ -8,6 +8,7 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, ViewType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 jest.mock('lib/api')
 
@@ -35,6 +36,21 @@ describe('funnelLogic', () => {
                         { event: { event: 'some property' }, success_count: 1, failure_count: 1 },
                         { event: { event: 'another property' }, success_count: 1, failure_count: 1 },
                     ].filter((correlation) => !excludePropertyNames.includes(correlation.event.event)),
+                },
+                type: 'Funnel',
+            }
+        } else if (
+            url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+            url.data?.funnel_correlation_type === 'events'
+        ) {
+            return {
+                is_cached: true,
+                last_refresh: '2021-09-16T13:41:41.297295Z',
+                result: {
+                    events: [
+                        { event: { event: 'some event' }, success_count: 1, failure_count: 1 },
+                        { event: { event: 'another event' }, success_count: 1, failure_count: 1 },
+                    ],
                 },
                 type: 'Funnel',
             }
@@ -344,8 +360,10 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('are updated when results are loaded', async () => {
-            await expectLogic(logic, () => logic.actions.loadResults())
+        it('are updated when results are loaded, when feature flag set', async () => {
+            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
+
+            await expectLogic(logic, () => logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } }))
                 .toFinishListeners()
                 .toMatchValues({
                     propertyCorrelations: {
