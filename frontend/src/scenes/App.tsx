@@ -119,7 +119,7 @@ function AppScene(): JSX.Element | null {
     const essentialElements = (
         // Components that should always be mounted inside Layout
         <>
-            <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
+            <ToastContainer autoClose={8000} transition={Slide} position="bottom-right" />
         </>
     )
 
