@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional
+from typing import Optional
 
 from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_TYPE_DURATION
 from posthog.models.entity import Entity
