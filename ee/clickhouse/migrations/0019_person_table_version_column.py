@@ -29,7 +29,7 @@ operations = [
     migrations.RunSQL(
         f"""
         RENAME TABLE
-            {CLICKHOUSE_DATABASE}.{PERSONS_TABLE} to {CLICKHOUSE_DATABASE}.person_backup,
+            {CLICKHOUSE_DATABASE}.{PERSONS_TABLE} to {CLICKHOUSE_DATABASE}.person_backup_0019,
             {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{PERSONS_TABLE}
         ON CLUSTER {CLICKHOUSE_CLUSTER}
     """
