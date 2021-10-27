@@ -469,8 +469,11 @@ export function SavedInsights(): JSX.Element {
                                 insights.results.map((insight: DashboardItemType, index: number) => (
                                     <Col
                                         xs={24}
-                                        sm={12}
-                                        md={insights.results.length > 1 ? 8 : 12}
+                                        sm={24}
+                                        md={24}
+                                        lg={12}
+                                        xl={12}
+                                        xxl={8}
                                         key={insight.id}
                                         style={{ height: 270 }}
                                     >
