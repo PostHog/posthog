@@ -63,7 +63,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
             ) : (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
-                    <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
+                    <DateDisplay interval={filters.interval || 'day'} date={people?.day?.toString() || ''} />
                 </>
             ),
         [filters, people, isInitialLoad]
