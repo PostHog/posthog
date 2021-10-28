@@ -27,11 +27,10 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { extractObjectDiffKeys } from './utils'
+import { extractObjectDiffKeys, findInsightFromMountedLogic } from './utils'
 import * as Sentry from '@sentry/browser'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { userLogic } from 'scenes/userLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -629,16 +628,12 @@ export const insightLogic = kea<insightLogicType>({
 
                     if (
                         featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
-                        hashParams.fromDashboard &&
                         (!values.insight.result || insightIdChanged)
                     ) {
-                        const logic = dashboardLogic.findMounted({ id: hashParams.fromDashboard })
-                        if (logic) {
-                            const insight = logic.values.allItems?.items?.find(
-                                (item: DashboardItemType) => item.id === Number(hashParams.fromItem)
-                            )
+                        const insight = findInsightFromMountedLogic(hashParams.fromItem, hashParams.fromDashboard)
+                        if (insight) {
+                            actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                             if (insight?.result) {
-                                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                                 loadedFromDashboard = true
                             }
                         }
@@ -666,16 +661,16 @@ export const insightLogic = kea<insightLogicType>({
         afterMount: () => {
             if (!props.cachedResults) {
                 if (props.dashboardItemId && !props.filters) {
-                    if (
-                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
-                        router.values.hashParams.fromItem === props.dashboardItemId &&
-                        router.values.hashParams.fromDashboard
-                    ) {
-                        const logic = dashboardLogic.findMounted({ id: router.values.hashParams.fromDashboard })
-                        const insight = logic?.values.allItems?.items?.find((item) => item.id === props.dashboardItemId)
-                        if (insight?.result) {
+                    if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE]) {
+                        const insight = findInsightFromMountedLogic(
+                            props.dashboardItemId,
+                            router.values.hashParams.fromDashboard
+                        )
+                        if (insight) {
                             actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                            return
+                            if (insight?.result) {
+                                return
+                            }
                         }
                     }
                     actions.loadInsight(props.dashboardItemId)

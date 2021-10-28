@@ -9,6 +9,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
 jest.mock('lib/api')
 
@@ -49,6 +50,13 @@ describe('insightLogic', () => {
             }
         } else if ([`api/projects/${MOCK_TEAM_ID}/insights/500`].includes(pathname)) {
             throwAPIError()
+        } else if (pathname === 'api/projects/997/insights/' && url.searchParams.saved) {
+            return {
+                results: [
+                    { id: 42, result: ['result 42'], filters: API_FILTERS },
+                    { id: 43, result: ['result 43'], filters: API_FILTERS },
+                ],
+            }
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
@@ -402,8 +410,8 @@ describe('insightLogic', () => {
         })
     })
 
-    describe('takes data from dashboardLogic if available', () => {
-        it('works if all conditions match', async () => {
+    describe('takes data from other logics if available', () => {
+        it('dashboardLogic', async () => {
             // 0. the feature flag must be set
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
@@ -426,6 +434,35 @@ describe('insightLogic', () => {
                 .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
                 .toMatchValues({
                     insight: partial({ id: 42, result: 'result!', filters: { insight: 'TRENDS', interval: 'month' } }),
+                })
+        })
+
+        it('savedInsightLogic', async () => {
+            // 0. the feature flag must be set
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
+
+            // 1. open saved insights
+            router.actions.push('/saved_insights', {}, {})
+            savedInsightsLogic.mount()
+
+            // 2. the insights are loaded
+            await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+            // 3. mount the insight
+            logic = insightLogic({ dashboardItemId: 42 })
+            logic.mount()
+
+            // 4. verify it didn't make any API calls
+            await expectLogic(logic)
+                .toDispatchActions(['setInsight'])
+                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
+                .toMatchValues({
+                    insight: partial({
+                        id: 42,
+                        result: ['result 42'],
+                        filters: API_FILTERS,
+                    }),
                 })
         })
     })
