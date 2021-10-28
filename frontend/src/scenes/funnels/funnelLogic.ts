@@ -309,6 +309,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 setExcludedPropertyNames: (_, { excludedPropertyNames }) => excludedPropertyNames,
             },
         ],
+
         excludedEventPropertyNames: [
             [] as string[],
             {
