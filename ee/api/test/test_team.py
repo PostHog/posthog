@@ -257,6 +257,19 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertFalse(self.team.access_control)
 
+    def test_can_update_and_retrieve_person_property_names_excluded_from_correlation(self):
+        response = self.client.patch(
+            f"/api/projects/@current/", {"person_property_names_excluded_from_correlation": ["$os"]}
+        )
+        self.assertEqual(response.status_code, HTTP_200_OK)
+
+        response = self.client.get(f"/api/projects/@current/")
+        self.assertEqual(response.status_code, HTTP_200_OK)
+
+        response_data = response.json()
+
+        self.assertDictContainsSubset({"person_property_names_excluded_from_correlation": ["$os"]}, response_data)
+
     # Fetching projects
 
     def test_fetch_team_as_org_admin_works(self):

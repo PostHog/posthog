@@ -116,6 +116,10 @@ class Team(UUIDClassicModel):
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
 
+    # These person properties should be excluded from the requested correlations
+    # for the funnels Scene
+    person_property_names_excluded_from_correlation = models.JSONField(default=list, null=True, blank=True)
+
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
