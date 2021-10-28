@@ -130,4 +130,4 @@ type GetCohortsRequest = undefined
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types, @typescript-eslint/explicit-function-return-type
 export const mockGetCohorts = (
     handler: ResponseResolver<RestRequest<GetCohortsRequest, any>, RestContext, GetCohortsResponse>
-) => rest.get<GetCohortsRequest, GetCohortsResponse>('/api/cohort/', handler)
+) => rest.get<GetCohortsRequest, GetCohortsResponse>('/api/projects/1/cohorts/', handler)
