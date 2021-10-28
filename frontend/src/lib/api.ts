@@ -159,16 +159,12 @@ const api = {
         async getCount(actionId: ActionType['id']): Promise<number> {
             return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
         },
-        determineDeleteEndpoint(teamId: TeamType['id']): string {
-            return new ApiRequest().actions(teamId).assembleEndpointUrl()
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().actions().assembleEndpointUrl()
         },
-        determinePeopleCsvUrl(
-            teamId: TeamType['id'],
-            peopleParams: PeopleParamType,
-            filters: Partial<FilterType>
-        ): string {
+        determinePeopleCsvUrl(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
             return new ApiRequest()
-                .actions(teamId)
+                .actions()
                 .withAction('people.csv')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
@@ -195,8 +191,8 @@ const api = {
         async list(): Promise<PaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().get()
         },
-        determineDeleteEndpoint(teamId: TeamType['id']): string {
-            return new ApiRequest().cohorts(teamId).assembleEndpointUrl()
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().cohorts().assembleEndpointUrl()
         },
     },
 

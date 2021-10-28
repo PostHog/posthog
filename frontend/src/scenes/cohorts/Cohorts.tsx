@@ -20,8 +20,6 @@ import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from '../teamLogic'
-import { getCurrentTeamId } from '../../lib/utils/logics'
 
 dayjs.extend(relativeTime)
 
@@ -80,7 +78,6 @@ const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
 }
 
 export function Cohorts(): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
     const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
@@ -150,7 +147,7 @@ export function Cohorts(): JSX.Element {
                         </a>
                         {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && (
                             <DeleteWithUndo
-                                endpoint={api.cohorts.determineDeleteEndpoint(getCurrentTeamId(currentTeamId))}
+                                endpoint={api.cohorts.determineDeleteEndpoint()}
                                 object={{ name: cohort.name, id: cohort.id }}
                                 className="text-danger"
                                 style={{ marginLeft: 8, marginRight: 8 }}
