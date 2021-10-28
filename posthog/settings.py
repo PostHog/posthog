@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 import dj_database_url
 import sentry_sdk
+import structlog
 from django.core.exceptions import ImproperlyConfigured
 from kombu import Exchange, Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
@@ -270,6 +271,8 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    "django_structlog.middlewares.RequestMiddleware",
+    "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -630,14 +633,12 @@ EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_
 
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
-LOGGING_FORMATTER_FORMAT = "%(asctime)s [%(levelname)s] %(name)s %(filename)s:%(funcName)s:%(lineno)s %(message)s"
-
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "default": {"format": LOGGING_FORMATTER_FORMAT,},
-        "json": {"()": "pythonjsonlogger.jsonlogger.JsonFormatter", "format": LOGGING_FORMATTER_FORMAT,},
+        "default": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.dev.ConsoleRenderer(),},
+        "json": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.processors.JSONRenderer(),},
     },
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": LOGGING_FORMATTER_NAME,},
@@ -646,14 +647,32 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
     "loggers": {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
-        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
-        "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
+        "django.server": {"handlers": ["null"],},  # blackhole Django server logs (this is only needed in DEV)
         "django.utils.autoreload": {
             "handlers": ["null"],
-            "propagate": False,
-        },  # always blackhole Django autoreload logs
+        },  # blackhole Django autoreload logs (this is only needed in DEV)
+        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True},
     },
 }
+
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+    ],
+    context_class=structlog.threadlocal.wrap_dict(dict),
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
 
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
