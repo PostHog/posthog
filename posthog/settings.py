@@ -644,15 +644,15 @@ LOGGING = {
         "console": {"class": "logging.StreamHandler", "formatter": LOGGING_FORMATTER_NAME,},
         "null": {"class": "logging.NullHandler",},
     },
-    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
+    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
     "loggers": {
-        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
-        "django.server": {"handlers": ["null"],},  # blackhole Django server logs (this is only needed in DEV)
+        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+        "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
         "django.utils.autoreload": {
             "handlers": ["null"],
         },  # blackhole Django autoreload logs (this is only needed in DEV)
-        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
-        "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
+        "axes": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+        "statsd": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
     },
 }
 
