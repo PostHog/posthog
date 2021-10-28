@@ -18,6 +18,7 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
+import { PostHog } from 'posthog-js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -234,7 +235,7 @@ export interface ElementType {
 
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
 
-export type EditorProps = {
+export interface EditorProps {
     apiURL?: string
     jsURL?: string
     temporaryToken?: string
@@ -245,6 +246,10 @@ export type EditorProps = {
     userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
+}
+
+export interface ToolbarProps extends EditorProps {
+    posthog?: PostHog
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null

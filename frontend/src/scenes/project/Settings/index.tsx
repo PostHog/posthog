@@ -213,6 +213,10 @@ export function ProjectSettings(): JSX.Element {
                     These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
                     in) and where we'll <a href="#session-recording">record sessions</a> (if enabled).
                 </p>
+                <p>
+                    Wilcard subdomains are permitted: <pre>https://*.example.com</pre>. You cannot wildcard domains or
+                    top-level domains as this could present a security risk.
+                </p>
                 <EditAppUrls />
                 <Divider />
                 <h2 className="subtitle" id="attributes">

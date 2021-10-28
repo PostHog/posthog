@@ -246,6 +246,7 @@ export const FEATURE_FLAGS = {
     SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
+    LEMONADE: '5346-lemonade', // owner: @Twixes
     TURBO_MODE: 'turbo-mode', // owner: @mariusandra
 }
 

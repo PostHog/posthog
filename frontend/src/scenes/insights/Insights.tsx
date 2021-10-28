@@ -24,6 +24,7 @@ import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
 import { SceneExport } from 'scenes/sceneTypes'
+import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 
 dayjs.extend(relativeTime)
 
@@ -86,6 +87,10 @@ export function Insights(): JSX.Element {
             action: () => setInsightMode(ItemMode.View, InsightEventSource.Hotkey),
             disabled: insightMode !== ItemMode.Edit,
         },
+        e: {
+            action: () => setInsightMode(ItemMode.Edit, InsightEventSource.Hotkey),
+            disabled: insightMode !== ItemMode.View,
+        },
     })
 
     const insightScene = (
@@ -112,13 +117,14 @@ export function Insights(): JSX.Element {
                                     },
                                 }}
                             />
-                            <Button
+                            <HotkeyButton
                                 type="primary"
                                 style={{ marginLeft: 8 }}
                                 onClick={() => setInsightMode(ItemMode.Edit, null)}
+                                hotkey="e"
                             >
                                 Edit
-                            </Button>
+                            </HotkeyButton>
                         </div>
                     </Row>
                     <InsightMetadata.Description insight={insight} insightMode={insightMode} />

@@ -1,9 +1,11 @@
 @import '~/vars';
+
 .help-button {
+    height: 1.25rem;
+    cursor: pointer;
     .help-icon {
-        color: $text_muted_alt;
-        cursor: pointer;
-        font-size: 1.3em;
+        color: var(--bg-navy);
+        font-size: 1.25rem;
     }
 }
 

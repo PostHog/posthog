@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import { CombinedFeatureFlagAndOverrideType } from '~/types'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
-import { PostHog } from 'posthog-js'
 import { toolbarFetch } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import Fuse from 'fuse.js'
@@ -42,7 +41,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     }
                     const results = await response.json()
 
-                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
+                    toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
                     return [...values.userFlags].map((userFlag) =>
                         userFlag.feature_flag.id === results.feature_flag
                             ? { ...userFlag, override: results }
@@ -59,7 +58,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         return []
                     }
 
-                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
+                    toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
                     return [...values.userFlags].map((userFlag) =>
                         userFlag?.override?.id === overrideId ? { ...userFlag, override: null } : userFlag
                     )
@@ -117,15 +116,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     events: ({ actions }) => ({
         afterMount: () => {
             actions.getUserFlags()
-            if (window && window['posthog']) {
-                ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
+            const { posthog } = toolbarLogic.values
+            if (posthog) {
+                posthog.onFeatureFlags((_, variants) => {
                     if (variants) {
                         toolbarLogic.actions.updateFeatureFlags(variants)
                     }
                 })
-                const locallyOverrideFeatureFlags = (window['posthog'] as PostHog).get_property(
-                    '$override_feature_flags'
-                )
+                const locallyOverrideFeatureFlags = posthog.get_property('$override_feature_flags')
                 if (locallyOverrideFeatureFlags) {
                     actions.setShowLocalFeatureFlagWarning(true)
                 }
