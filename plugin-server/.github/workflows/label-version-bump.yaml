@@ -1,0 +1,75 @@
+name: Autobump
+
+on:
+    pull_request:
+        types: [closed]
+
+jobs:
+    label-version-bump:
+        name: Bump version based on PR label
+        runs-on: ubuntu-20.04
+        if: |
+            github.event.pull_request.merged
+            && (
+                contains(github.event.pull_request.labels.*.name, 'bump patch')
+                || contains(github.event.pull_request.labels.*.name, 'bump minor')
+                || contains(github.event.pull_request.labels.*.name, 'bump major')
+            )
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v2
+              with:
+                  ref: ${{ github.event.pull_request.base.ref }}
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Detect version bump type
+              id: bump-type
+              run: |
+                  BUMP_TYPE=null
+                  if [[ $BUMP_PATCH_PRESENT == 'true' ]]; then
+                      BUMP_TYPE=patch
+                  fi
+                  if [[ $BUMP_MINOR_PRESENT == 'true' ]]; then
+                      BUMP_TYPE=minor
+                  fi
+                  if [[ $BUMP_MAJOR_PRESENT == 'true' ]]; then
+                      BUMP_TYPE=major
+                  fi
+                  echo "::set-output name=bump-type::$BUMP_TYPE"
+              env:
+                  BUMP_PATCH_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump patch') }}
+                  BUMP_MINOR_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump minor') }}
+                  BUMP_MAJOR_PRESENT: ${{ contains(github.event.pull_request.labels.*.name, 'bump major') }}
+
+            - name: Determine new version
+              id: new-version
+              if: steps.bump-type.outputs.bump-type != 'null'
+              run: |
+                  OLD_VERSION=$(jq ".version" package.json -r)
+                  NEW_VERSION=$(npx semver $OLD_VERSION -i ${{ steps.bump-type.outputs.bump-type }})
+                  echo "::set-output name=new-version::$NEW_VERSION"
+
+            - name: Update version in package.json
+              if: steps.bump-type.outputs.bump-type != 'null'
+              run: |
+                  mv package.json package.old.json
+                  jq --indent 4 '.version = "${{ steps.new-version.outputs.new-version }}"' package.old.json > package.json
+                  rm package.old.json
+
+            - name: Commit bump
+              if: steps.bump-type.outputs.bump-type != 'null'
+              uses: EndBug/add-and-commit@v7
+              with:
+                  branch: ${{ github.event.pull_request.base.ref }}
+                  message: 'Bump version to ${{ steps.new-version.outputs.new-version }}'
+                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Notify Sentry of Release
+              if: steps.bump-type.outputs.bump-type != 'null'
+              uses: getsentry/action-release@v1
+              env:
+                  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+                  SENTRY_ORG: posthog
+                  SENTRY_PROJECT: plugin-server
+              with:
+                  environment: production
