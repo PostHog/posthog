@@ -1,5 +1,5 @@
 import { funnelLogic } from './funnelLogic'
-import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { api, defaultAPIMocks, mockAPI, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
@@ -10,17 +10,27 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, ViewType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { rest } from 'msw'
-import { setupServer } from 'msw/node'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
 
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
+    let excludedProperties: string[] = []
 
     mockAPI(async (url) => {
-        if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
+        if (['api/projects/@current', `api/projects/${MOCK_TEAM_ID}`].includes(url.pathname)) {
+            if (url.method === 'update') {
+                excludedProperties = url.data?.person_property_names_excluded_from_correlation
+            }
+
+            return {
+                ...MOCK_DEFAULT_TEAM,
+                person_property_names_excluded_from_correlation: excludedProperties,
+            }
+        } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
             return {
                 is_cached: true,
                 last_refresh: '2021-09-16T13:41:41.297295Z',
@@ -354,18 +364,20 @@ describe('funnelLogic', () => {
     })
 
     describe('funnel correlation properties', () => {
-        it('initially are empty', async () => {
-            await expectLogic(logic)
-                .toFinishListeners()
-                .toMatchValues({
-                    propertyCorrelations: {
-                        events: [],
-                    },
-                })
+        // NOTE: we need to, in some of these tests, explicitly push the
+        // teamLogic to update the currentTeam, and also explicitly mount the
+        // userLogic.
+
+        it('initially not loaded', async () => {
+            await expectLogic(logic).toFinishListeners().toMatchValues({
+                propertyCorrelations: null,
+            })
         })
 
         it('are updated when results are loaded, when feature flag set', async () => {
             featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
+
+            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
 
             await expectLogic(logic, () => logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } }))
                 .toFinishListeners()
@@ -390,6 +402,10 @@ describe('funnelLogic', () => {
         })
 
         it('triggers request to correlation endpoint with excluded names set', async () => {
+            userLogic.mount()
+
+            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
+
             await expectLogic(logic, () => logic.actions.setExcludedPropertyNames(['another property']))
                 .toFinishListeners()
                 .toMatchValues({
@@ -407,6 +423,10 @@ describe('funnelLogic', () => {
         })
 
         it('triggers request to correlation endpoint when property excluded', async () => {
+            userLogic.mount()
+
+            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
+
             await expectLogic(logic, () => logic.actions.excludeProperty('another property'))
                 .toFinishListeners()
                 .toMatchValues({
@@ -424,6 +444,8 @@ describe('funnelLogic', () => {
         })
 
         it('isPropertyExcluded returns true initially, then false when excluded', async () => {
+            userLogic.mount()
+
             expect(logic.values.isPropertyExcluded('some property')).toBe(false)
 
             await expectLogic(logic, () => logic.actions.excludeProperty('some property')).toFinishListeners()
@@ -431,17 +453,20 @@ describe('funnelLogic', () => {
             expect(logic.values.isPropertyExcluded('some property')).toBe(true)
         })
 
-        it('loads exclude list from team property page', async () => {
-            const server = setupServer(
-                rest.get('/api/projects/@current', (_, res, ctx) =>
-                    res(
-                        ctx.json({
-                            person_property_names_excluded_from_correlation: ['another property'],
-                        })
-                    )
-                )
-            )
-            server.listen()
+        it('loads exclude list from Project settings', async () => {
+            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
+            excludedProperties = ['some property']
+
+            // TODO: move api mocking to this test. I couldn't seem to figure
+            // out how that would work with mockApi.
+            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam())
+                .toFinishListeners()
+                .toMatchValues({
+                    currentTeam: {
+                        ...MOCK_DEFAULT_TEAM,
+                        person_property_names_excluded_from_correlation: ['some property'],
+                    },
+                })
 
             await expectLogic(logic, () => logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } }))
                 .toFinishListeners()
@@ -449,7 +474,7 @@ describe('funnelLogic', () => {
                     propertyCorrelations: {
                         events: [
                             {
-                                event: { event: 'some property' },
+                                event: { event: 'another property' },
                                 success_count: 1,
                                 failure_count: 1,
                                 result_type: FunnelCorrelationResultsType.Properties,
