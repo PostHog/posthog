@@ -44,9 +44,6 @@ describe('sessionsPlayLogicV2', () => {
             await expectLogic(logic).toMatchValues({
                 sessionRecordingId: null,
                 sessionPlayerData: null,
-                addingTagShown: false,
-                addingTag: '',
-                loadingNextRecording: false,
                 firstChunkLoaded: false,
                 source: RecordingWatchedSource.Unknown,
             })
