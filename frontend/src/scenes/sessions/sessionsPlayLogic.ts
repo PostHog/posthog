@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { errorToast, eventToName, toParams } from 'lib/utils'
+import { clamp, errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
 import {
     SessionPlayerData,
@@ -355,7 +355,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                     return null
                 }
 
-                const buffer_ms = sessionPlayerData.session_recording.recording_duration / 4 // +- before and after start and end of a recording to query for.
+                const buffer_ms = clamp(sessionPlayerData.session_recording.recording_duration / 4, 0, 30000) // +- before and after start and end of a recording to query for.
                 return {
                     person_id: sessionPlayerData.person.id,
                     after: dayjs.utc(sessionPlayerData.session_recording.start_time).subtract(buffer_ms, 'ms').format(),
