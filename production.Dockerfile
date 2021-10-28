@@ -53,6 +53,9 @@ RUN apk --update --no-cache add \
 #
 # Notes:
 #
+# - we explicitly COPY the files so that we don't need to rebuild
+#   the container every time a dependency changes
+#
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
 COPY requirements.txt ./
@@ -92,10 +95,9 @@ COPY . .
 
 # Build the frontend
 #
-# Note: we run the final install + build as a separate actions to increase
+# Note: we run the build as a separate actions to increase
 # the cache hit ratio of the layers above.
-RUN yarn install --frozen-lockfile && \
-    yarn build && \
+RUN yarn build && \
     yarn cache clean && \
     rm -rf ./node_modules ./plugins/node_modules
 
