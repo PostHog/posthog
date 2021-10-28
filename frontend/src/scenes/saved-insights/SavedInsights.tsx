@@ -158,7 +158,8 @@ export function SavedInsights(): JSX.Element {
             key: 'id',
             className: 'icon-column',
             render: function renderType(_, insight) {
-                const type = insightTypes.find(({ type: _type }) => _type === insight.filters?.insight)
+                const selectedType = insight.filters?.insight || ViewType.TRENDS
+                const type = insightTypes.find(({ type: _type }) => _type === selectedType)
                 if (type && type.icon) {
                     return <type.icon />
                 }
