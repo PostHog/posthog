@@ -253,7 +253,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                     performance.now() - startTime
                 )
 
-                console.log('session evenrts', response)
                 return {
                     ...values.sessionEvents,
                     next: response?.next,
