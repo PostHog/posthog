@@ -6,13 +6,12 @@ import { Button, Col, Divider, Row, Spin } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { AvailableFeature, CohortType } from '~/types'
 import { COHORT_DYNAMIC, COHORT_STATIC } from 'lib/constants'
-import { InboxOutlined, DeleteOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
+import { InboxOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
 import { cohortLogic } from './cohortLogic'
 import { UploadFile } from 'antd/lib/upload/interface'
-
 import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { Tooltip } from 'antd'
@@ -167,9 +166,6 @@ export function CohortFooter(props: { cohort: CohortType }): JSX.Element {
 
     return (
         <Row style={{ display: 'flex' }}>
-            <Button type="link" danger icon={<DeleteOutlined />}>
-                Delete cohort
-            </Button>
             <div style={{ flexGrow: 1, textAlign: 'right' }}>
                 <Button
                     disabled={!cohort.name}

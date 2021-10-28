@@ -6,9 +6,9 @@ from django.db.models import Count
 from django.utils.timezone import now
 
 from posthog.models import Team
-from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.event_definition import EventDefinition
+from posthog.models.insight import Insight
 from posthog.models.property_definition import PropertyDefinition
 from posthog.utils import is_clickhouse_enabled
 
@@ -25,7 +25,7 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
 
     event_properties = {key.name: 0 for key in PropertyDefinition.objects.filter(team_id=team_id)}
 
-    for item in DashboardItem.objects.filter(team=team, created_at__gt=now() - timedelta(days=30)):
+    for item in Insight.objects.filter(team=team, created_at__gt=now() - timedelta(days=30)):
         for event in item.filters.get("events", []):
             if event["id"] in event_names:
                 event_names[event["id"]] += 1

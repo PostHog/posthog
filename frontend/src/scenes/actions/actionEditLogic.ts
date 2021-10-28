@@ -4,24 +4,20 @@ import { uuid } from 'lib/utils'
 import { toast } from 'react-toastify'
 import { actionsModel } from '~/models/actionsModel'
 import { actionEditLogicType } from './actionEditLogicType'
-import { ActionStepType, ActionType } from '~/types'
+import { ActionType } from '~/types'
 
-interface NewActionType {
-    name: string
-    steps: ActionStepType[]
-}
-
+type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
 type ActionEditType = ActionType | NewActionType
 
-interface Props {
-    id: string
+export interface ActionEditLogicProps {
+    id: number
     action: ActionEditType
-    temporaryToken: string
-    onSave: (action: ActionType, createNew: boolean) => void
+    temporaryToken?: string
+    onSave: (action: ActionType) => void
 }
 
-export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
-    props: {} as Props,
+export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, ActionEditType>>({
+    props: {} as ActionEditLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({
         saveAction: true,
@@ -55,7 +51,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
     loaders: ({ props }) => ({
         actionCount: {
             loadActionCount: async () => {
-                return (await api.get('api/action/' + props.id + '/count')).count
+                return await api.actions.getCount(props.id)
             },
         },
     }),
@@ -71,11 +67,10 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
                   })
                 : []
             try {
-                const token = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
                 if (action.id) {
-                    action = await api.update('api/action/' + action.id + '/' + token, action)
+                    action = await api.actions.update(action.id, action, props.temporaryToken)
                 } else {
-                    action = await api.create('api/action/' + token, action)
+                    action = await api.actions.create(action, props.temporaryToken)
                 }
             } catch (response) {
                 if (response.code === 'unique') {
@@ -89,7 +84,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
             }
 
             toast('Action saved')
-            props.onSave(action, values.createNew)
+            props.onSave(action)
             actionsModel.actions.loadActions() // reload actions so they are immediately available
         },
     }),

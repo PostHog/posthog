@@ -16,7 +16,7 @@ import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
-import { EventsTableRowItem, EventType, ViewType } from '~/types'
+import { ActionType, EventsTableRowItem, EventType, ViewType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
@@ -27,11 +27,14 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
 
 export interface FixedFilters {
+    action_id?: ActionType['id']
     person_id?: string | number
     distinct_ids?: string[]
 }
@@ -40,9 +43,21 @@ interface EventsTable {
     fixedFilters?: FixedFilters
     filtersEnabled?: boolean
     pageKey?: string
+    hidePersonColumn?: boolean
 }
 
-export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: EventsTable): JSX.Element {
+export const scene: SceneExport = {
+    component: EventsTable,
+    logic: eventsTableLogic,
+    paramsToProps: ({ params: { fixedFilters, pageKey } }) => ({ fixedFilters, key: pageKey }),
+}
+
+export function EventsTable({
+    fixedFilters,
+    filtersEnabled = true,
+    pageKey,
+    hidePersonColumn,
+}: EventsTable = {}): JSX.Element {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
 
     const {
@@ -79,9 +94,28 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             },
         }
     }
+    const personColumn = {
+        title: 'Person',
+        key: 'person',
+        ellipsis: true,
+        span: 4,
+        render: function renderPerson({ event }: EventsTableRowItem) {
+            if (!event) {
+                return { props: { colSpan: 0 } }
+            }
+            return showLinkToPerson && event.person?.distinct_ids?.length ? (
+                <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
+                    <PersonHeader withIcon person={event.person} />
+                </Link>
+            ) : (
+                <PersonHeader withIcon person={event.person} />
+            )
+        },
+    }
+
     const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(
-        () =>
-            [
+        () => {
+            const _localColumns = [
                 {
                     title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
                     key: 'event',
@@ -94,24 +128,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                         return <PropertyKeyInfo value={eventToName(event)} />
                     },
                     ellipsis: true,
-                },
-                {
-                    title: 'Person',
-                    key: 'person',
-                    ellipsis: true,
-                    span: 4,
-                    render: function renderPerson({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        return showLinkToPerson && event.person?.distinct_ids?.length ? (
-                            <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
-                                <PersonHeader person={event.person} />
-                            </Link>
-                        ) : (
-                            <PersonHeader person={event.person} />
-                        )
-                    },
                 },
                 {
                     title: 'URL / Screen',
@@ -236,7 +252,14 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                         )
                     },
                 },
-            ] as ResizableColumnType<EventsTableRowItem>[],
+            ] as ResizableColumnType<EventsTableRowItem>[]
+            if (!hidePersonColumn) {
+                _localColumns.splice(1, 0, personColumn)
+            }
+            return _localColumns
+        },
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [eventFilter, tableWidth]
     )
 
@@ -274,119 +297,126 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                               ellipsis: true,
                           }
                   ),
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [selectedColumns]
     )
 
     return (
-        <div className="events" data-attr="events-table">
-            <PageHeader
-                title="Events"
-                caption="See events being sent to this project in near real time."
-                style={{ marginTop: 0 }}
-            />
+        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
+            <EventsTabs tab={EventsTab.Events} />
+            <div className="events" data-attr="events-table">
+                <PageHeader
+                    title="Events"
+                    caption="See events being sent to this project in near real time."
+                    style={{ marginTop: 0 }}
+                />
 
-            <Row gutter={[16, 16]}>
-                <Col xs={24} sm={12}>
-                    <EventName
-                        value={eventFilter}
-                        onChange={(value: string) => {
-                            setEventFilter(value || '')
-                        }}
-                    />
-                </Col>
-                <Col span={24}>
-                    {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} style={{ marginBottom: 0 }} /> : null}
-                </Col>
-            </Row>
-
-            <Row gutter={[16, 16]} justify="end">
-                <Col flex="1">
-                    <LabelledSwitch
-                        label={'Automatically load new events'}
-                        enabled={automaticLoadEnabled}
-                        onToggle={toggleAutomaticLoad}
-                        align="right"
-                    />
-                </Col>
-                <Col flex="0">
-                    {exportUrl && (
-                        <Tooltip title="Export up to 10,000 latest events." placement="left">
-                            <Button icon={<DownloadOutlined />} href={exportUrl}>
-                                Export events
-                            </Button>
-                        </Tooltip>
-                    )}
-                </Col>
-                {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
-                    <Col flex="0">
-                        <TableConfig
-                            availableColumns={propertyNames}
-                            immutableColumns={['event', 'person', 'when']}
-                            defaultColumns={defaultColumns.map((e) => e.key || '')}
+                <Row gutter={[16, 16]}>
+                    <Col xs={24} sm={12}>
+                        <EventName
+                            value={eventFilter}
+                            onChange={(value: string) => {
+                                setEventFilter(value || '')
+                            }}
                         />
                     </Col>
-                )}
-            </Row>
+                    <Col span={24}>
+                        {filtersEnabled ? (
+                            <PropertyFilters pageKey={'EventsTable'} style={{ marginBottom: 0 }} />
+                        ) : null}
+                    </Col>
+                </Row>
 
-            <div>
-                <ResizableTable
-                    dataSource={eventsFormatted}
-                    loading={isLoading}
-                    columns={columns}
-                    size="small"
-                    key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
-                    className="ph-no-capture"
-                    locale={{
-                        emptyText: isLoading ? (
-                            <span>&nbsp;</span>
-                        ) : (
-                            <span>
-                                You don't have any items here! If you haven't integrated PostHog yet,{' '}
-                                <Link to="/project/settings">click here to set PostHog up on your app</Link>.
-                            </span>
-                        ),
-                    }}
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                    rowKey={(row) =>
-                        row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || ''
-                    }
-                    rowClassName={(row) => {
-                        return clsx({
-                            'event-row': row.event,
-                            'highlight-new-row': row.event && highlightEvents[(row.event as EventType).id],
-                            'event-row-is-exception': row.event && row.event.event === '$exception',
-                            'event-day-separator': row.date_break,
-                            'event-row-new': row.new_events,
-                        })
-                    }}
-                    expandable={{
-                        expandedRowRender: function renderExpand({ event }) {
-                            return event && <EventDetails event={event} />
-                        },
-                        rowExpandable: ({ event }) => !!event,
-                        expandRowByClick: true,
-                    }}
-                    onRow={(row) => ({
-                        onClick: () => {
-                            if (row.new_events) {
-                                prependNewEvents(newEvents)
-                            }
-                        },
-                    })}
-                />
-                <div
-                    style={{
-                        visibility: hasNext || isLoadingNext ? 'visible' : 'hidden',
-                        margin: '2rem auto 5rem',
-                        textAlign: 'center',
-                    }}
-                >
-                    <Button type="primary" onClick={fetchNextEvents}>
-                        {isLoadingNext ? <Spin /> : 'Load more events'}
-                    </Button>
+                <Row gutter={[16, 16]} justify="end">
+                    <Col flex="1">
+                        <LabelledSwitch
+                            label={'Automatically load new events'}
+                            enabled={automaticLoadEnabled}
+                            onToggle={toggleAutomaticLoad}
+                            align="right"
+                        />
+                    </Col>
+                    <Col flex="0">
+                        {exportUrl && (
+                            <Tooltip title="Export up to 10,000 latest events." placement="left">
+                                <Button icon={<DownloadOutlined />} href={exportUrl}>
+                                    Export events
+                                </Button>
+                            </Tooltip>
+                        )}
+                    </Col>
+                    {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
+                        <Col flex="0">
+                            <TableConfig
+                                availableColumns={propertyNames}
+                                immutableColumns={['event', 'person', 'when']}
+                                defaultColumns={defaultColumns.map((e) => e.key || '')}
+                            />
+                        </Col>
+                    )}
+                </Row>
+
+                <div>
+                    <ResizableTable
+                        dataSource={eventsFormatted}
+                        loading={isLoading}
+                        columns={columns}
+                        size="small"
+                        key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
+                        className="ph-no-capture"
+                        locale={{
+                            emptyText: isLoading ? (
+                                <span>&nbsp;</span>
+                            ) : (
+                                <span>
+                                    You don't have any items here! If you haven't integrated PostHog yet,{' '}
+                                    <Link to="/project/settings">click here to set PostHog up on your app</Link>.
+                                </span>
+                            ),
+                        }}
+                        pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                        rowKey={(row) =>
+                            row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || ''
+                        }
+                        rowClassName={(row) => {
+                            return clsx({
+                                'event-row': row.event,
+                                'highlight-new-row': row.event && highlightEvents[(row.event as EventType).id],
+                                'event-row-is-exception': row.event && row.event.event === '$exception',
+                                'event-day-separator': row.date_break,
+                                'event-row-new': row.new_events,
+                            })
+                        }}
+                        expandable={{
+                            expandedRowRender: function renderExpand({ event }) {
+                                return event && <EventDetails event={event} />
+                            },
+                            rowExpandable: ({ event }) => !!event,
+                            expandRowByClick: true,
+                        }}
+                        onRow={(row) => ({
+                            onClick: () => {
+                                if (row.new_events) {
+                                    prependNewEvents(newEvents)
+                                }
+                            },
+                        })}
+                    />
+                    <div
+                        style={{
+                            visibility: hasNext || isLoadingNext ? 'visible' : 'hidden',
+                            margin: '2rem auto 5rem',
+                            textAlign: 'center',
+                        }}
+                    >
+                        <Button type="primary" onClick={fetchNextEvents}>
+                            {isLoadingNext ? <Spin /> : 'Load more events'}
+                        </Button>
+                    </div>
                 </div>
+                <div style={{ marginTop: '5rem' }} />
             </div>
-            <div style={{ marginTop: '5rem' }} />
         </div>
     )
 }

@@ -8,6 +8,11 @@ import { ChangePassword } from './ChangePassword'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 import { OptOutCapture } from './OptOutCapture'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: MySettings,
+}
 
 export function MySettings(): JSX.Element {
     const { location } = useValues(router)

@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict, Union
+from typing import Any, Dict, List, Union, Optional
 
 import pytest
 from django.core.cache import cache
@@ -17,6 +17,7 @@ from posthog.api.test.test_event_definition import (
     create_user,
 )
 from posthog.api.test.test_retention import identify
+from posthog.models.team import Team
 
 
 @pytest.mark.django_db
@@ -49,7 +50,9 @@ def test_includes_only_intervals_within_range(client: Client):
         #  First identify as a member of the cohort
         distinct_id = "abc"
         identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
-        cohort = create_cohort_ok(client=client, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}])
+        cohort = create_cohort_ok(
+            client=client, team_id=team.id, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}]
+        )
 
         for date in ["2021-09-04", "2021-09-05", "2021-09-12", "2021-09-19"]:
             capture_event(
@@ -64,6 +67,7 @@ def test_includes_only_intervals_within_range(client: Client):
 
         trends = get_trends_ok(
             client,
+            team=team,
             request=TrendsRequest(
                 date_from="-14days",
                 date_to="2021-09-21",
@@ -87,6 +91,7 @@ def test_includes_only_intervals_within_range(client: Client):
                     ]
                 ),
             ),
+            team=team,
         )
         assert trends == {
             "is_cached": False,
@@ -200,6 +205,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
 
         interval_3_trend = get_trends_ok(
             client,
+            team=team,
             request=TrendsRequest(
                 date_from="2021-09-01",
                 date_to="2021-09-03",
@@ -249,6 +255,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
 
         interval_2_trend = get_trends_ok(
             client,
+            team=team,
             request=TrendsRequest(
                 date_from="2021-09-01",
                 date_to="2021-09-03",
@@ -298,6 +305,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
 
         interval_1_trend = get_trends_ok(
             client,
+            team=team,
             request=TrendsRequest(
                 date_from="2021-09-01",
                 date_to="2021-09-03",
@@ -431,6 +439,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
 
         interval_3_trend = get_trends_ok(
             client,
+            team=team,
             request=TrendsRequest(
                 date_from="2021-09-01",
                 date_to="2021-09-03",
@@ -480,6 +489,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
 
         interval_1_trend = get_trends_ok(
             client,
+            team=team,
             request=TrendsRequest(
                 date_from="2021-09-01",
                 date_to="2021-09-03",
@@ -542,14 +552,14 @@ class TrendsRequest:
     smoothing_intervals: Optional[int] = 1
 
 
-def get_trends(client, request: TrendsRequest):
+def get_trends(client, request: TrendsRequest, team: Team):
     return client.get(
-        "/api/insight/trend/",
+        f"/api/projects/{team.id}/insights/trend/",
         data={key: value for key, value in dataclasses.asdict(request).items() if value is not None},
     )
 
 
-def get_trends_ok(client: Client, request: TrendsRequest):
-    response = get_trends(client=client, request=request)
+def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
+    response = get_trends(client=client, request=request, team=team)
     assert response.status_code == 200, response.content
     return response.json()

@@ -13,6 +13,7 @@ import {
     FunnelsTimeConversionBins,
     FunnelAPIResponse,
     FunnelStepReference,
+    TeamType,
 } from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
@@ -226,15 +227,19 @@ export function getVisibilityIndex(step: FunnelStep, key?: number | string): str
 export const SECONDS_TO_POLL = 3 * 60
 
 export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
+    teamId: TeamType['id'],
     apiParams: FunnelRequestParams
 ): Promise<FunnelResult<T>> {
     // Tricky: This API endpoint has wildly different return types depending on parameters.
     const { refresh, ...bodyParams } = apiParams
-    let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
+    let result = await api.create(
+        `api/projects/${teamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
+        bodyParams
+    )
     const start = window.performance.now()
     while (result.result?.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
-        result = await api.create('api/insight/funnel', bodyParams)
+        result = await api.create(`api/projects/${teamId}/insights/funnel`, bodyParams)
     }
     // if endpoint is still loading after 3 minutes just return default
     if (result.loading) {

@@ -9,6 +9,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: SystemStatus,
+    logic: systemStatusLogic,
+}
 
 export function SystemStatus(): JSX.Element {
     const { tab, error, systemStatus } = useValues(systemStatusLogic)

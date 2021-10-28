@@ -8,7 +8,7 @@ from django.db import transaction
 from sentry_sdk.api import capture_exception
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_item import DashboardItem
+from posthog.models.insight import Insight
 
 NAME = "PostHog Internal Metrics"
 CLICKHOUSE_DASHBOARD = {
@@ -405,7 +405,7 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
         )
 
         for index, item in enumerate(definition["items"]):
-            DashboardItem.objects.create(team_id=team_id, dashboard=dashboard, order=index, **item)
+            Insight.objects.create(team_id=team_id, dashboard=dashboard, order=index, **item)
 
     return dashboard
 

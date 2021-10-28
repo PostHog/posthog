@@ -1,12 +1,11 @@
 import { Meta } from '@storybook/react'
 import { keaStory } from 'lib/storybook/kea-story'
 
-import { ManageEvents } from '../Events'
-
 import eventsState from './events.json'
+import { EventsTable } from 'scenes/events'
 
 export default {
     title: 'PostHog/Scenes/Events',
 } as Meta
 
-export const AllEvents = keaStory(ManageEvents, eventsState)
+export const AllEvents = keaStory(EventsTable, eventsState)

@@ -67,8 +67,6 @@ class ClickhouseTrendsTotalVolume:
                 content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)
 
             null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
-            params["date_from"] = format_ch_timestamp(filter.date_from or get_earliest_timestamp(team_id), filter)
-            params["date_to"] = format_ch_timestamp(filter.date_to, filter)
             params["interval"] = filter.interval
 
             # If we have a smoothing interval > 1 then add in the sql to

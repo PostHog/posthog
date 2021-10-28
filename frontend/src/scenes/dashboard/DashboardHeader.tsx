@@ -14,13 +14,14 @@ import {
     FullscreenExitOutlined,
     ShareAltOutlined,
     PlusOutlined,
+    CopyOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import dayjs from 'dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { HotkeyButton } from 'lib/components/HotkeyButton'
+import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { dashboardsLogic } from './dashboardsLogic'
@@ -35,7 +36,7 @@ export function DashboardHeader(): JSX.Element {
         useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { nameSortedDashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
-    const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
+    const { pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)
     const [newName, setNewName] = useState(dashboard?.name || null) // Used to update the input immediately, debouncing API calls
 
@@ -97,6 +98,12 @@ export function DashboardHeader(): JSX.Element {
 
                         <Menu.Divider />
                         <Menu.Item
+                            icon={<CopyOutlined />}
+                            onClick={() => duplicateDashboard({ id: dashboard.id, name: dashboard.name, show: true })}
+                        >
+                            Duplicate dashboard
+                        </Menu.Item>
+                        <Menu.Item
                             icon={<DeleteOutlined />}
                             onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
                             danger
@@ -157,15 +164,19 @@ export function DashboardHeader(): JSX.Element {
         </Button>
     )
 
-    useEffect(() => {
-        if (dashboardMode === DashboardMode.Edit) {
-            if (lastDashboardModeSource === DashboardEventSource.AddDescription) {
-                setTimeout(() => descriptionInputRef.current?.focus(), 10)
-            } else if (!isMobile()) {
-                setTimeout(() => nameInputRef.current?.focus(), 10)
+    useEffect(
+        () => {
+            if (dashboardMode === DashboardMode.Edit) {
+                if (lastDashboardModeSource === DashboardEventSource.AddDescription) {
+                    setTimeout(() => descriptionInputRef.current?.focus(), 10)
+                } else if (!isMobile()) {
+                    setTimeout(() => nameInputRef.current?.focus(), 10)
+                }
             }
-        }
-    }, [dashboardMode])
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [dashboardMode]
+    )
 
     return (
         <>

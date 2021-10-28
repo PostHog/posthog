@@ -4,7 +4,14 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Drawer, Row, Spin, Table } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import { AppstoreAddOutlined, DeleteOutlined, PlusOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
+import {
+    AppstoreAddOutlined,
+    DeleteOutlined,
+    PlusOutlined,
+    PushpinFilled,
+    PushpinOutlined,
+    CopyOutlined,
+} from '@ant-design/icons'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
@@ -14,10 +21,18 @@ import { userLogic } from 'scenes/userLogic'
 import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
+import { SceneExport } from 'scenes/sceneTypes'
+import { sceneLogic } from 'scenes/sceneLogic'
+
+export const scene: SceneExport = {
+    component: Dashboards,
+    logic: sceneLogic,
+}
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
+    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } =
+        useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
     const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
     const { user, hasAvailableFeature } = useValues(userLogic)
@@ -99,29 +114,48 @@ export function Dashboards(): JSX.Element {
             title: 'Actions',
             align: 'center',
             width: 120,
-            render: function RenderActions({ id }: DashboardType) {
+            render: function RenderActions({ id, name }: DashboardType) {
                 return (
-                    <span
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => deleteDashboard({ id, redirect: false })}
-                        className="text-danger"
-                    >
-                        <DeleteOutlined />
+                    <span>
+                        <span
+                            title={'Delete'}
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => deleteDashboard({ id, redirect: false })}
+                            className="text-danger"
+                        >
+                            <DeleteOutlined />
+                        </span>
+                        <span
+                            title={'Duplicate'}
+                            style={{
+                                cursor: 'pointer',
+                                marginLeft: 8,
+                            }}
+                            onClick={() => duplicateDashboard({ id, name })}
+                        >
+                            <CopyOutlined />
+                        </span>
                     </span>
                 )
             },
         },
     ]
 
-    useEffect(() => {
-        if (!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)) {
-            setDisplayedColumns(
-                columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
-            )
-        } else {
-            setDisplayedColumns(columns)
-        }
-    }, [user?.organization?.available_features, dashboardTags])
+    useEffect(
+        () => {
+            if (!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)) {
+                setDisplayedColumns(
+                    columns.filter(
+                        (col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString())
+                    )
+                )
+            } else {
+                setDisplayedColumns(columns)
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [user?.organization?.available_features, dashboardTags]
+    )
 
     return (
         <div>

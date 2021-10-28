@@ -1,3 +1,4 @@
+// DEPRECATED; this feature will be removed soon
 import React, { useEffect, useState } from 'react'
 import { Tabs, Col, Row, Button, Spin } from 'antd'
 import { Loading } from 'lib/utils'
@@ -45,11 +46,15 @@ function InsightPane({
     const { loadTeamInsights, loadSavedInsights, loadInsights, updateInsight } = useActions(insightHistoryLogic)
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
-    useEffect(() => {
-        loadInsights()
-        loadSavedInsights()
-        loadTeamInsights()
-    }, [])
+    useEffect(
+        () => {
+            loadInsights()
+            loadSavedInsights()
+            loadTeamInsights()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        []
+    )
 
     return (
         <Row gutter={[16, 16]}>

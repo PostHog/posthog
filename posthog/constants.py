@@ -114,12 +114,21 @@ FUNNEL_WINDOW_INTERVAL = "funnel_window_interval"
 FUNNEL_FROM_STEP = "funnel_from_step"
 FUNNEL_TO_STEP = "funnel_to_step"
 FUNNEL_STEP = "funnel_step"
+FUNNEL_CUSTOM_STEPS = "funnel_custom_steps"
 FUNNEL_STEP_BREAKDOWN = "funnel_step_breakdown"
 FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
+FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
+FUNNEL_CORRELATION_EVENT_NAMES = "funnel_correlation_event_names"
+FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES = "funnel_correlation_exclude_event_names"
+FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES = "funnel_correlation_event_exclude_property_names"
+FUNNEL_CORRELATION_PERSON_ENTITY = "funnel_correlation_person_entity"
+FUNNEL_CORRELATION_PERSON_LIMIT = "funnel_correlation_person_limit"
+FUNNEL_CORRELATION_PERSON_OFFSET = "funnel_correlation_person_offset"
+FUNNEL_CORRELATION_PERSON_CONVERTED = "funnel_correlation_person_converted"
 BIN_COUNT = "bin_count"
 ENTRANCE_PERIOD_START = "entrance_period_start"
 DROP_OFF = "drop_off"
@@ -132,6 +141,7 @@ FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
 FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
 PATH_GROUPINGS = "path_groupings"
 PATH_REPLACEMENTS = "path_replacements"
+LOCAL_PATH_CLEANING_FILTERS = "local_path_cleaning_filters"
 PATH_START_KEY = "path_start_key"
 PATH_END_KEY = "path_end_key"
 PATH_DROPOFF_KEY = "path_dropoff_key"
@@ -155,6 +165,7 @@ class FunnelVizType(str, Enum):
 class FunnelCorrelationType(str, Enum):
     EVENTS = "events"
     PROPERTIES = "properties"
+    EVENT_WITH_PROPERTIES = "event_with_properties"
 
 
 RETENTION_RECURRING = "retention_recurring"
@@ -180,3 +191,4 @@ class RetentionQueryType(str, Enum):
 
 
 MAX_SLUG_LENGTH = 48
+GROUP_TYPES_LIMIT = 5

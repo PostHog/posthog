@@ -9,7 +9,7 @@ import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
 import { Paths } from 'scenes/paths/Paths'
-import { EllipsisOutlined, SaveOutlined, EyeOutlined } from '@ant-design/icons'
+import { EllipsisOutlined, SaveOutlined } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
@@ -45,6 +45,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkButton } from 'lib/components/LinkButton'
 import { DiveIcon } from 'lib/components/icons'
+import { teamLogic } from '../teamLogic'
 
 dayjs.extend(relativeTime)
 
@@ -201,6 +202,7 @@ export function DashboardItem({
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
+    const { currentTeamId } = useValues(teamLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -253,11 +255,15 @@ export function DashboardItem({
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
-    useEffect(() => {
-        if (previousLoading && !insightLoading && !initialLoaded) {
-            setInitialLoaded(true)
-        }
-    }, [insightLoading])
+    useEffect(
+        () => {
+            if (previousLoading && !insightLoading && !initialLoaded) {
+                setInitialLoaded(true)
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [insightLoading]
+    )
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -361,36 +367,23 @@ export function DashboardItem({
                                 ))}
                             {dashboardMode !== DashboardMode.Internal && (
                                 <>
-                                    {featureFlags[FEATURE_FLAGS.DIVE_DASHBOARDS] && (
-                                        <>
-                                            <LinkButton
-                                                to={link}
-                                                icon={<EyeOutlined />}
-                                                data-attr="dive-btn-view"
-                                                className="dive-btn dive-btn-view"
-                                            >
-                                                View
-                                            </LinkButton>
-                                            {typeof item.dive_dashboard === 'number' && (
-                                                <Tooltip
-                                                    title={`Dive to ${diveDashboard?.name || 'connected dashboard'}`}
+                                    {featureFlags[FEATURE_FLAGS.DIVE_DASHBOARDS] &&
+                                        typeof item.dive_dashboard === 'number' && (
+                                            <Tooltip title={`Dive to ${diveDashboard?.name || 'connected dashboard'}`}>
+                                                <LinkButton
+                                                    to={dashboardDiveLink(item.dive_dashboard, item.id)}
+                                                    icon={
+                                                        <span role="img" aria-label="dive" className="anticon">
+                                                            <DiveIcon />
+                                                        </span>
+                                                    }
+                                                    data-attr="dive-btn-dive"
+                                                    className="dive-btn dive-btn-dive"
                                                 >
-                                                    <LinkButton
-                                                        to={dashboardDiveLink(item.dive_dashboard, item.id)}
-                                                        icon={
-                                                            <span role="img" aria-label="dive" className="anticon">
-                                                                <DiveIcon />
-                                                            </span>
-                                                        }
-                                                        data-attr="dive-btn-dive"
-                                                        className="dive-btn dive-btn-dive"
-                                                    >
-                                                        Dive
-                                                    </LinkButton>
-                                                </Tooltip>
-                                            )}
-                                        </>
-                                    )}
+                                                    Dive
+                                                </LinkButton>
+                                            </Tooltip>
+                                        )}
                                     <Dropdown
                                         overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
                                         placement="bottomRight"
@@ -584,7 +577,7 @@ export function DashboardItem({
                                                                 id: item.id,
                                                                 name: item.name,
                                                             },
-                                                            endpoint: 'insight',
+                                                            endpoint: `projects/${currentTeamId}/insights`,
                                                             callback: loadDashboardItems,
                                                         })
                                                     }

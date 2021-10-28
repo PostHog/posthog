@@ -10,8 +10,9 @@ jest.mock('kea-router', () => ({
 }))
 
 describe('createActionFromEvent()', () => {
-    given('subject', () => () => createActionFromEvent(given.event, given.increment, given.recurse))
+    given('subject', () => () => createActionFromEvent(given.teamId, given.event, given.increment, given.recurse))
 
+    given('teamId', () => 44)
     given('increment', () => 0)
     given('recurse', () => jest.fn())
 
@@ -30,15 +31,15 @@ describe('createActionFromEvent()', () => {
     given('createResponse', () => ({ id: 456 }))
 
     beforeEach(() => {
-        api.get.mockImplementation(() => Promise.resolve(given.event))
-        api.create.mockImplementation(() => Promise.resolve(given.createResponse))
+        api.actions.get.mockImplementation(() => Promise.resolve(given.event))
+        api.actions.create.mockImplementation(() => Promise.resolve(given.createResponse))
     })
 
     describe('action did not exist', () => {
         it('creates the correct action', async () => {
             await given.subject()
 
-            expect(api.create).toHaveBeenCalledWith('api/action', {
+            expect(api.actions.create).toHaveBeenCalledWith({
                 name: 'some-event event',
                 steps: [{ event: 'some-event' }],
             })
@@ -57,7 +58,7 @@ describe('createActionFromEvent()', () => {
             it('handles increments', async () => {
                 await given.subject()
 
-                expect(api.create).toHaveBeenCalledWith('api/action', {
+                expect(api.actions.create).toHaveBeenCalledWith({
                     name: 'some-event event 4',
                     steps: [{ event: 'some-event' }],
                 })
@@ -72,7 +73,7 @@ describe('createActionFromEvent()', () => {
             it('handles submit $autocapture events with elements', async () => {
                 await given.subject()
 
-                expect(api.create).toHaveBeenCalledWith('api/action', {
+                expect(api.actions.create).toHaveBeenCalledWith({
                     name: 'submitted form with text "Submit form!"',
                     steps: [
                         {
@@ -94,7 +95,7 @@ describe('createActionFromEvent()', () => {
             it('is handled', async () => {
                 await given.subject()
 
-                expect(api.create).toHaveBeenCalledWith('api/action', {
+                expect(api.actions.create).toHaveBeenCalledWith({
                     name: 'Pageview on /some/path',
                     steps: [{ event: '$pageview', url: 'http://foo.bar/some/path', url_matching: 'exact' }],
                 })
@@ -104,7 +105,7 @@ describe('createActionFromEvent()', () => {
 
     describe('action already exists', () => {
         beforeEach(() => {
-            api.create.mockImplementation(() => {
+            api.actions.create.mockImplementation(() => {
                 throw { type: 'validation_error', code: 'unique' }
             })
         })
@@ -112,7 +113,7 @@ describe('createActionFromEvent()', () => {
         it('recurses with increment + 1', async () => {
             await given.subject()
 
-            expect(given.recurse).toHaveBeenCalledWith(given.event, 1, given.recurse)
+            expect(given.recurse).toHaveBeenCalledWith(given.teamId, given.event, 1, given.recurse)
             expect(toast).not.toHaveBeenCalled()
         })
 

@@ -6,8 +6,14 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
+import { teamLogic } from '../../../scenes/teamLogic'
 
-export const annotationsLogic = kea<annotationsLogicType>({
+interface AnnotationsLogicProps {
+    pageKey?: string | number | null
+}
+
+export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
+    props: {} as AnnotationsLogicProps,
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     connect: {
         actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
@@ -48,7 +54,9 @@ export const annotationsLogic = kea<annotationsLogicType>({
                     scope: AnnotationScope.DashboardItem,
                     deleted: false,
                 }
-                const response = await api.get('api/annotation/?' + toParams(params))
+                const response = await api.get(
+                    `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams(params)}`
+                )
                 return response.results
             },
         },
@@ -126,7 +134,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
     }),
     listeners: ({ actions, props }) => ({
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
-            await api.create('api/annotation', {
+            await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                 content,
                 date_marker: dayjs(date_marker),
                 created_at,
@@ -138,7 +146,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
         deleteAnnotation: async ({ id }) => {
             parseInt(id) >= 0 &&
                 deleteWithUndo({
-                    endpoint: 'annotation',
+                    endpoint: `projects/${teamLogic.values.currentTeamId}/annotations`,
                     object: { name: 'Annotation', id },
                     callback: () => actions.loadAnnotations(),
                 })

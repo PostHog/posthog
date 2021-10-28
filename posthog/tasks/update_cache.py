@@ -24,7 +24,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, DashboardItem, Filter, Team
+from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.settings import CACHED_RESULTS_TTL
@@ -80,7 +80,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
     team_id = int(payload["team_id"])
     filter = get_filter(data=filter_dict, team=Team(pk=team_id))
 
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
+    dashboard_items = Insight.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
     if cache_type == CacheType.FUNNEL:
@@ -93,11 +93,11 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
 
 
 def update_dashboard_items_cache(dashboard: Dashboard) -> None:
-    for item in DashboardItem.objects.filter(dashboard=dashboard, filters__isnull=False).exclude(filters={}):
+    for item in Insight.objects.filter(dashboard=dashboard, filters__isnull=False).exclude(filters={}):
         update_dashboard_item_cache(item, dashboard)
 
 
-def update_dashboard_item_cache(dashboard_item: DashboardItem, dashboard: Optional[Dashboard]) -> None:
+def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Dashboard]) -> None:
     cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
     update_cache_item(cache_key, cache_type, payload)
     dashboard_item.refresh_from_db()
@@ -126,7 +126,7 @@ def update_cached_items() -> None:
 
     tasks = []
     items = (
-        DashboardItem.objects.filter(
+        Insight.objects.filter(
             Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
         )
         .exclude(dashboard__deleted=True)
@@ -135,7 +135,7 @@ def update_cached_items() -> None:
         .distinct("filters_hash")
     )
 
-    for item in DashboardItem.objects.filter(
+    for item in Insight.objects.filter(
         pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
     ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]:
         cache_key, cache_type, payload = dashboard_item_update_task_params(item)
@@ -147,7 +147,7 @@ def update_cached_items() -> None:
 
 
 def dashboard_item_update_task_params(
-    item: DashboardItem, dashboard: Optional[Dashboard] = None
+    item: Insight, dashboard: Optional[Dashboard] = None
 ) -> Tuple[str, CacheType, Dict]:
     filter = get_filter(data=item.dashboard_filters(dashboard), team=item.team)
     cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))

@@ -1,6 +1,6 @@
-import { Button, Card, Col, Input, Row, Space } from 'antd'
+import { Button, Col, Row, Space } from 'antd'
 import React from 'react'
-import { ControlOutlined, LockOutlined, SearchOutlined } from '@ant-design/icons'
+import { ControlOutlined, LockOutlined, PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
@@ -8,10 +8,10 @@ import Modal from 'antd/lib/modal/Modal'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
 import { AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
 import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
+import Search from 'antd/lib/input/Search'
 
 interface TableConfigProps {
     availableColumns: string[] //the full set of column titles in the table's data
@@ -25,32 +25,17 @@ interface TableConfigProps {
  */
 export function TableConfig(props: TableConfigProps): JSX.Element {
     const { showModal } = useActions(tableConfigLogic)
-    const { modalVisible } = useValues(tableConfigLogic)
 
     return (
         <>
-            <div className="table-options">
-                <div className="rhs-actions">
-                    <Space align="baseline">
-                        <>
-                            <Button
-                                data-attr="events-table-column-selector"
-                                onClick={showModal}
-                                icon={<ControlOutlined rotate={90} />}
-                            >
-                                Configure Columns
-                            </Button>
-                            {modalVisible && (
-                                <ColumnConfigurator
-                                    immutableColumns={props.immutableColumns}
-                                    availableColumns={props.availableColumns}
-                                    defaultColumns={props.defaultColumns}
-                                />
-                            )}
-                        </>
-                    </Space>
-                </div>
-            </div>
+            <Button data-attr="events-table-column-selector" onClick={showModal} icon={<ControlOutlined rotate={90} />}>
+                Customize columns
+            </Button>
+            <ColumnConfigurator
+                immutableColumns={props.immutableColumns}
+                availableColumns={props.availableColumns}
+                defaultColumns={props.defaultColumns}
+            />
         </>
     )
 }
@@ -63,7 +48,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
     const rowContainerHeight = 36
     const rowItemHeight = 32
 
-    const { selectedColumns } = useValues(tableConfigLogic)
+    const { selectedColumns, modalVisible } = useValues(tableConfigLogic)
     const { hideModal } = useActions(tableConfigLogic)
 
     const logic = columnConfiguratorLogic({
@@ -77,9 +62,13 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
     function AvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
         return (
             <div style={style} key={key} onClick={() => selectColumn(filteredHiddenColumns[index])}>
-                <div className={'column-display-item'} style={{ height: `${rowItemHeight}px` }}>
-                    <Checkbox style={{ marginRight: 8 }} checked={false} />
-                    {<PropertyKeyInfo value={filteredHiddenColumns[index]} />}
+                <div className="column-display-item" style={{ height: `${rowItemHeight}px` }}>
+                    <PropertyKeyInfo value={filteredHiddenColumns[index]} />
+                    <div className="text-right" style={{ flex: 1 }}>
+                        <Tooltip title="Add">
+                            <PlusOutlined style={{ color: 'var(--success)' }} />
+                        </Tooltip>
+                    </div>
                 </div>
             </div>
         )
@@ -94,15 +83,12 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
                     className={clsx(['column-display-item', { selected: !disabled, disabled: disabled }])}
                     style={{ height: `${rowItemHeight}px` }}
                 >
-                    <Checkbox style={{ marginRight: 8 }} checked disabled={disabled} />
-                    {<PropertyKeyInfo value={filteredVisibleColumns[index]} />}
-                    {disabled && (
-                        <div className={'text-right'} style={{ flex: 1 }}>
-                            <Tooltip title={'Reserved'}>
-                                <LockOutlined />
-                            </Tooltip>
-                        </div>
-                    )}
+                    <PropertyKeyInfo value={filteredVisibleColumns[index]} />
+                    <div className="text-right" style={{ flex: 1 }}>
+                        <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
+                            {disabled ? <LockOutlined /> : <CloseOutlined style={{ color: 'var(--danger)' }} />}
+                        </Tooltip>
+                    </div>
                 </div>
             </div>
         )
@@ -111,8 +97,8 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
     return (
         <Modal
             centered
-            visible
-            title="Configure columns"
+            visible={modalVisible}
+            title="Customize columns"
             onOk={save}
             width={700}
             bodyStyle={{ padding: '16px 16px 0 16px' }}
@@ -125,76 +111,67 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
             onCancel={hideModal}
             footer={
                 <Row>
-                    <Col flex={0}>
-                        <Button className={'text-blue'} onClick={() => resetColumns(defaultColumns)}>
+                    <Space style={{ flexGrow: 1 }} align="start">
+                        <Button className="text-blue" onClick={() => resetColumns(defaultColumns)}>
                             Reset to default
                         </Button>
-                    </Col>
-                    <Col flex={1}>&nbsp;</Col>
-                    <Col flex={0}>
-                        <Button className={'text-blue'} type="text" onClick={hideModal}>
+                    </Space>
+                    <Space>
+                        <Button className="text-blue" type="text" onClick={hideModal}>
                             Cancel
                         </Button>
-                    </Col>
-                    <Col flex={0}>
                         <Button type="primary" onClick={save}>
                             Save
                         </Button>
-                    </Col>
+                    </Space>
                 </Row>
             }
         >
-            <Input
+            <Search
                 allowClear
                 autoFocus
                 placeholder="Search"
-                prefix={<SearchOutlined />}
-                style={{ paddingLeft: '7px' }} // the prefix has 11px to the left but only 4 to the right
+                type="search"
                 value={columnFilter}
                 onChange={(e) => setColumnFilter(e.target.value)}
             />
             <Row gutter={16} className="mt">
-                <Col xs={24} sm={11}>
-                    <Card bordered={false}>
-                        <h3 className="l3">Hidden columns ({hiddenColumns.length})</h3>
-                        <div style={{ height: 320 }}>
-                            <AutoSizer>
-                                {({ height, width }: { height: number; width: number }) => {
-                                    return (
-                                        <VirtualizedList
-                                            height={height}
-                                            rowCount={filteredHiddenColumns.length}
-                                            rowRenderer={AvailableColumn}
-                                            rowHeight={rowContainerHeight}
-                                            width={width}
-                                        />
-                                    )
-                                }}
-                            </AutoSizer>
-                        </div>
-                    </Card>
+                <Col xs={24} sm={12}>
+                    <h3 className="l3">Hidden columns ({hiddenColumns.length})</h3>
+                    <div style={{ height: 320 }}>
+                        <AutoSizer>
+                            {({ height, width }: { height: number; width: number }) => {
+                                return (
+                                    <VirtualizedList
+                                        height={height}
+                                        rowCount={filteredHiddenColumns.length}
+                                        rowRenderer={AvailableColumn}
+                                        rowHeight={rowContainerHeight}
+                                        width={width}
+                                    />
+                                )
+                            }}
+                        </AutoSizer>
+                    </div>
                 </Col>
-                <Col xs={0} sm={2} />
-                <Col xs={24} sm={11}>
-                    <Card bordered={false}>
-                        <h3 className="l3">Visible columns ({visibleColumns.length})</h3>
-                        <div style={{ height: 320 }}>
-                            <AutoSizer>
-                                {({ height, width }: { height: number; width: number }) => {
-                                    return (
-                                        <VirtualizedList
-                                            height={height}
-                                            rowCount={filteredVisibleColumns.length}
-                                            rowRenderer={SelectedColumn}
-                                            rowHeight={rowContainerHeight}
-                                            width={width}
-                                            scrollToIndex={scrollIndex}
-                                        />
-                                    )
-                                }}
-                            </AutoSizer>
-                        </div>
-                    </Card>
+                <Col xs={24} sm={12}>
+                    <h3 className="l3">Visible columns ({visibleColumns.length})</h3>
+                    <div style={{ height: 320 }}>
+                        <AutoSizer>
+                            {({ height, width }: { height: number; width: number }) => {
+                                return (
+                                    <VirtualizedList
+                                        height={height}
+                                        rowCount={filteredVisibleColumns.length}
+                                        rowRenderer={SelectedColumn}
+                                        rowHeight={rowContainerHeight}
+                                        width={width}
+                                        scrollToIndex={scrollIndex}
+                                    />
+                                )
+                            }}
+                        </AutoSizer>
+                    </div>
                 </Col>
             </Row>
         </Modal>

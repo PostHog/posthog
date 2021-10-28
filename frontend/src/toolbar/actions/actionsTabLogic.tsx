@@ -164,11 +164,14 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             let response
             if (selectedActionId && selectedActionId !== 'new') {
                 response = await api.update(
-                    `${apiURL}/api/action/${selectedActionId}/?temporary_token=${temporaryToken}`,
+                    `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
                     actionToSave
                 )
             } else {
-                response = await api.create(`${apiURL}/api/action/?temporary_token=${temporaryToken}`, actionToSave)
+                response = await api.create(
+                    `${apiURL}/api/projects/@current/actions/?temporary_token=${temporaryToken}`,
+                    actionToSave
+                )
             }
             breakpoint()
 
@@ -186,7 +189,11 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
                         Insights
                     </a>{' '}
                     -{' '}
-                    <a href={`${apiURL}/action/${response.id}`} target="_blank" rel="noreferrer noopener">
+                    <a
+                        href={`${apiURL}/projects/@current/actions/${response.id}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                    >
                         Actions
                     </a>
                 </>
@@ -196,7 +203,9 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             const { apiURL, temporaryToken } = toolbarLogic.values
             const { selectedActionId } = values
             if (selectedActionId && selectedActionId !== 'new') {
-                await api.delete(`${apiURL}/api/action/${selectedActionId}/?temporary_token=${temporaryToken}`)
+                await api.delete(
+                    `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`
+                )
 
                 actionsLogic.actions.deleteAction({ id: selectedActionId })
                 actions.selectAction(null)
