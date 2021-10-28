@@ -133,7 +133,7 @@ export function Insights(): JSX.Element {
                         sm={{ order: 2 }}
                         style={{ flex: 0 }}
                     >
-                        {!viewMode && featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && filtersChanged ? (
+                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && filtersChanged ? (
                             <Popconfirm
                                 title="Are you sure? This will discard all unsaved changes in this insight."
                                 onConfirm={() => {
