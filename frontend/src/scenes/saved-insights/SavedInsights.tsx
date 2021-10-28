@@ -23,7 +23,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
@@ -109,14 +108,12 @@ export function SavedInsights(): JSX.Element {
         loadPaginatedInsights,
         renameInsight,
         duplicateInsight,
-        addToDashboard,
         addGraph,
         setSavedInsightsFilters,
     } = useActions(savedInsightsLogic)
     const { insights, count, offset, nextResult, previousResult, insightsLoading, filters } =
         useValues(savedInsightsLogic)
 
-    const { nameSortedDashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
@@ -220,25 +217,6 @@ export function SavedInsights(): JSX.Element {
                             overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
                             overlay={
                                 <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
-                                    {nameSortedDashboards.filter((d) => d.id !== item.id).length > 0 ? (
-                                        <Menu.SubMenu
-                                            data-attr={'insight-' + item.id + '-dropdown-move'}
-                                            key="move"
-                                            title="Add to dashboard"
-                                        >
-                                            {nameSortedDashboards
-                                                .filter((d) => d.id !== item.id)
-                                                .map((dashboard, moveIndex) => (
-                                                    <Menu.Item
-                                                        data-attr={`insight-item-${item.id}-dropdown-move-${moveIndex}`}
-                                                        key={dashboard.id}
-                                                        onClick={() => addToDashboard(item, dashboard.id)}
-                                                    >
-                                                        {dashboard.name}
-                                                    </Menu.Item>
-                                                ))}
-                                        </Menu.SubMenu>
-                                    ) : null}
                                     <Menu.Item
                                         onClick={() => renameInsight(item.id)}
                                         data-attr={`insight-item-${item.id}-dropdown-rename`}
