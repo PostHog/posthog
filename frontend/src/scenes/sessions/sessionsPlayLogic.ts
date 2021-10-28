@@ -49,10 +49,9 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         goToPrevious: true,
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
-        reportUsage: (recordingData: SessionPlayerData, loadTime: number, type: SessionRecordingUsageType) => ({
+        reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({
             recordingData,
             loadTime,
-            type,
         }),
         loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
         loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
@@ -84,7 +83,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 closeSessionPlayer: () => false,
             },
         ],
-        chunkIndex: [
+        chunkPaginationIndex: [
             0,
             {
                 loadRecordingSnapshotsSuccess: (state) => state + 1,
@@ -142,36 +141,38 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             }
             // Finished loading entire recording. Now make it known!
             else {
-                actions.reportUsage(
+                eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
+                    values.source,
                     performance.now() - cache.startTime,
-                    SessionRecordingUsageType.LOADED
+                    SessionRecordingUsageType.LOADED,
+                    0
                 )
             }
             // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
-            if (values.chunkIndex === 0) {
-                actions.reportUsage(
-                    values.sessionPlayerData,
-                    performance.now() - cache.startTime,
-                    SessionRecordingUsageType.VIEWED
-                )
+            if (values.chunkPaginationIndex === 1) {
+                actions.reportUsage(values.sessionPlayerData, performance.now() - cache.startTime)
             }
         },
         loadRecordingMetaFailure: sharedListeners.showErrorToast,
         loadRecordingSnapshotsFailure: sharedListeners.showErrorToast,
-        reportUsage: async ({ recordingData, loadTime, type }, breakpoint) => {
+        reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
             await breakpoint()
-            eventUsageLogic.actions.reportRecording(recordingData, values.source, loadTime, type, 0)
-            if (type === SessionRecordingUsageType.VIEWED) {
-                await breakpoint(IS_TEST_MODE ? 1 : 10000)
-                eventUsageLogic.actions.reportRecording(
-                    recordingData,
-                    values.source,
-                    loadTime,
-                    SessionRecordingUsageType.ANALYZED,
-                    10
-                )
-            }
+            eventUsageLogic.actions.reportRecording(
+                recordingData,
+                values.source,
+                loadTime,
+                SessionRecordingUsageType.VIEWED,
+                0
+            )
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+            eventUsageLogic.actions.reportRecording(
+                recordingData,
+                values.source,
+                loadTime,
+                SessionRecordingUsageType.ANALYZED,
+                10
+            )
         },
     }),
     sharedListeners: () => ({
@@ -267,7 +268,10 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
             (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
         ],
-        firstChunkLoaded: [(selectors) => [selectors.chunkIndex], (chunkIndex) => chunkIndex > 0],
+        firstChunkLoaded: [
+            (selectors) => [selectors.chunkPaginationIndex],
+            (chunkPaginationIndex) => chunkPaginationIndex > 0,
+        ],
         isPlayable: [
             (selectors) => [
                 selectors.firstChunkLoaded,
