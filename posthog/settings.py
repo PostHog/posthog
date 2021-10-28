@@ -652,7 +652,7 @@ LOGGING = {
             "handlers": ["null"],
         },  # blackhole Django autoreload logs (this is only needed in DEV)
         "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
-        "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True},
+        "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
     },
 }
 
