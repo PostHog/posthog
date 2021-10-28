@@ -109,14 +109,8 @@ export const insightLogic = kea<insightLogicType>({
                 result: props.cachedResults || null,
             } as Partial<DashboardItemType>,
             {
-                loadInsight: async ({ id, doNotLoadResults }) => {
-                    const response = await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`)
-                    if (doNotLoadResults) {
-                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                        const { result, filters, ...rest } = response
-                        return { ...values.insight, ...rest }
-                    }
-                    return response
+                loadInsight: async ({ id }) => {
+                    return await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`)
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
