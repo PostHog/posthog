@@ -1,22 +1,23 @@
-import { Col, Dropdown, Input, Menu, Row, Select, Table, Tabs, Radio } from 'antd'
+import { Col, Dropdown, Input, Menu, Radio, Row, Select, Table, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
+import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
 import {
-    StarOutlined,
-    StarFilled,
-    LeftOutlined,
-    RightOutlined,
-    UnorderedListOutlined,
     AppstoreFilled,
-    EllipsisOutlined,
     ArrowDownOutlined,
-    MenuOutlined,
+    ArrowUpOutlined,
     CaretDownFilled,
+    EllipsisOutlined,
+    LeftOutlined,
+    MenuOutlined,
+    RightOutlined,
+    StarFilled,
+    StarOutlined,
+    UnorderedListOutlined,
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -41,58 +42,67 @@ import {
     InsightsTrendsIcon,
 } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
+import { ColumnsType } from 'antd/lib/table'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 const { TabPane } = Tabs
 
 interface InsightType {
-    type: string
+    type: ViewType
+    name: string
     description?: string
-    icon?: JSX.Element
+    icon?: (props?: any) => JSX.Element
     inMenu: boolean
 }
 
 const insightTypes: InsightType[] = [
-    { type: 'All types', inMenu: false },
     {
-        type: 'Trends',
+        type: ViewType.TRENDS,
+        name: 'Trends',
         description: 'Understand how users are spending their time in your product',
-        icon: <InsightsTrendsIcon color="#747EA2" noBackground />,
+        icon: InsightsTrendsIcon,
         inMenu: true,
     },
     {
-        type: 'Funnels',
+        type: ViewType.FUNNELS,
+        name: 'Funnels',
         description: 'Visualize completion and dropoff between events',
-        icon: <InsightsFunnelsIcon color="#747EA2" noBackground />,
+        icon: InsightsFunnelsIcon,
         inMenu: true,
     },
     {
-        type: 'Sessions',
+        type: ViewType.SESSIONS,
+        name: 'Sessions',
         description: 'Understand how users are spending their time in your product',
-        icon: <InsightsSessionsIcon color="#747EA2" noBackground />,
+        icon: InsightsSessionsIcon,
         inMenu: false,
     },
     {
-        type: 'Retention',
+        type: ViewType.RETENTION,
+        name: 'Retention',
         description: 'Visualize how many users return on subsequent days after a session',
-        icon: <InsightsRetentionIcon color="#747EA2" noBackground />,
+        icon: InsightsRetentionIcon,
         inMenu: true,
     },
     {
-        type: 'Paths',
+        type: ViewType.PATHS,
+        name: 'Paths',
         description: 'Understand how traffic is flowing through your product',
-        icon: <InsightsPathsIcon color="#747EA2" noBackground />,
+        icon: InsightsPathsIcon,
         inMenu: true,
     },
     {
-        type: 'Stickiness',
+        type: ViewType.STICKINESS,
+        name: 'Stickiness',
         description: 'See how many days users performed an action within a timeframe',
-        icon: <InsightsStickinessIcon color="#747EA2" noBackground />,
+        icon: InsightsStickinessIcon,
         inMenu: true,
     },
     {
-        type: 'Lifecycle',
+        type: ViewType.LIFECYCLE,
+        name: 'Lifecycle',
         description: 'See new, resurrected, returning, and dormant users',
-        icon: <InsightsLifecycleIcon color="#747EA2" noBackground />,
+        icon: InsightsLifecycleIcon,
         inMenu: true,
     },
 ]
@@ -101,6 +111,13 @@ export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
 }
+
+const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
+    <div style={{ fontSize: 10, paddingLeft: 8 }}>
+        {direction === 'down' ? <ArrowDownOutlined /> : direction === 'up' ? <ArrowUpOutlined /> : null}
+        <MenuOutlined />
+    </div>
+)
 
 export function SavedInsights(): JSX.Element {
     const {
@@ -134,12 +151,25 @@ export function SavedInsights(): JSX.Element {
         return count - (insights?.results.length || 0)
     }
 
-    const columns = [
+    const columns: ColumnsType<DashboardItemType> = [
+        {
+            title: '',
+            dataIndex: 'id',
+            key: 'id',
+            className: 'icon-column',
+            render: function renderType(_, insight) {
+                const selectedType = insight.filters?.insight || ViewType.TRENDS
+                const type = insightTypes.find(({ type: _type }) => _type === selectedType)
+                if (type && type.icon) {
+                    return <type.icon />
+                }
+            },
+        },
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function renderName(name: string, insight: DashboardItemType) {
+            render: function renderName(name: string, insight) {
                 const link = displayMap[getDisplayedType(insight.filters)].link(insight)
 
                 return (
@@ -187,10 +217,7 @@ export function SavedInsights(): JSX.Element {
                     }
                 >
                     Last modified{' '}
-                    <div style={{ fontSize: 10, paddingLeft: 8 }}>
-                        <ArrowDownOutlined />
-                        <MenuOutlined />
-                    </div>
+                    {columnSort(order === '-updated_at' ? 'down' : order === 'updated_at' ? 'up' : 'none')}
                 </div>
             ),
             dataIndex: 'updated_at',
@@ -207,73 +234,84 @@ export function SavedInsights(): JSX.Element {
                         setSavedInsightsFilters({ order: order === 'created_by' ? '-created_by' : 'created_by' })
                     }
                 >
-                    {normalizeColumnTitle('Created by')}
+                    {normalizeColumnTitle('Created by')}{' '}
+                    {columnSort(order === '-created_by' ? 'up' : order === 'created_by' ? 'down' : 'none')}
                 </div>
             ),
-            render: function Render(_: any, item: DashboardItemType) {
-                return (
-                    <Row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>{item.created_by ? item.created_by.first_name || item.created_by.email : '-'}</div>
-                        <Dropdown
-                            placement="bottomRight"
-                            trigger={['click']}
-                            overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
-                            overlay={
-                                <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
-                                    {nameSortedDashboards.filter((d) => d.id !== item.id).length > 0 ? (
-                                        <Menu.SubMenu
-                                            data-attr={'insight-' + item.id + '-dropdown-move'}
-                                            key="move"
-                                            title="Add to dashboard"
-                                        >
-                                            {nameSortedDashboards
-                                                .filter((d) => d.id !== item.id)
-                                                .map((dashboard, moveIndex) => (
-                                                    <Menu.Item
-                                                        data-attr={`insight-item-${item.id}-dropdown-move-${moveIndex}`}
-                                                        key={dashboard.id}
-                                                        onClick={() => addToDashboard(item, dashboard.id)}
-                                                    >
-                                                        {dashboard.name}
-                                                    </Menu.Item>
-                                                ))}
-                                        </Menu.SubMenu>
-                                    ) : null}
-                                    <Menu.Item
-                                        onClick={() => renameInsight(item.id)}
-                                        data-attr={`insight-item-${item.id}-dropdown-rename`}
-                                        title="Rename"
-                                    >
-                                        Rename
-                                    </Menu.Item>
-                                    <Menu.Item
-                                        onClick={() => duplicateInsight(item)}
-                                        data-attr={`insight-item-${item.id}-dropdown-duplicate`}
-                                    >
-                                        Duplicate
-                                    </Menu.Item>
-                                    <Menu.Item
-                                        onClick={() =>
-                                            deleteWithUndo({
-                                                object: item,
-                                                endpoint: `api/projects/${currentTeamId}/insights`,
-                                                callback: loadInsights,
-                                            })
-                                        }
-                                        style={{ color: 'var(--danger)' }}
-                                        data-attr={`insight-item-${item.id}-dropdown-remove`}
-                                    >
-                                        Remove
-                                    </Menu.Item>
-                                </Menu>
-                            }
-                        >
-                            <EllipsisOutlined
-                                style={{ color: 'var(--primary)' }}
-                                className="insight-dropdown-actions"
-                            />
-                        </Dropdown>
+            render: function Render(_: any, item) {
+                return item.created_by ? (
+                    <Row align={'middle'}>
+                        <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
+                        <div style={{ verticalAlign: 'middle', marginLeft: 8 }}>
+                            {item.created_by.first_name || item.created_by.email}
+                        </div>
                     </Row>
+                ) : (
+                    '-'
+                )
+            },
+        },
+        {
+            title: '',
+            className: 'options-column',
+            render: function Render(_: any, item) {
+                return (
+                    <Dropdown
+                        placement="bottomRight"
+                        trigger={['click']}
+                        overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
+                        overlay={
+                            <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
+                                {nameSortedDashboards.filter((d) => d.id !== item.id).length > 0 ? (
+                                    <Menu.SubMenu
+                                        data-attr={'insight-' + item.id + '-dropdown-move'}
+                                        key="move"
+                                        title="Add to dashboard"
+                                    >
+                                        {nameSortedDashboards
+                                            .filter((d) => d.id !== item.id)
+                                            .map((dashboard, moveIndex) => (
+                                                <Menu.Item
+                                                    data-attr={`insight-item-${item.id}-dropdown-move-${moveIndex}`}
+                                                    key={dashboard.id}
+                                                    onClick={() => addToDashboard(item, dashboard.id)}
+                                                >
+                                                    {dashboard.name}
+                                                </Menu.Item>
+                                            ))}
+                                    </Menu.SubMenu>
+                                ) : null}
+                                <Menu.Item
+                                    onClick={() => renameInsight(item.id)}
+                                    data-attr={`insight-item-${item.id}-dropdown-rename`}
+                                    title="Rename"
+                                >
+                                    Rename
+                                </Menu.Item>
+                                <Menu.Item
+                                    onClick={() => duplicateInsight(item)}
+                                    data-attr={`insight-item-${item.id}-dropdown-duplicate`}
+                                >
+                                    Duplicate
+                                </Menu.Item>
+                                <Menu.Item
+                                    onClick={() =>
+                                        deleteWithUndo({
+                                            object: item,
+                                            endpoint: `projects/${currentTeamId}/insights`,
+                                            callback: loadInsights,
+                                        })
+                                    }
+                                    style={{ color: 'var(--danger)' }}
+                                    data-attr={`insight-item-${item.id}-dropdown-remove`}
+                                >
+                                    Remove
+                                </Menu.Item>
+                            </Menu>
+                        }
+                    >
+                        <EllipsisOutlined style={{ color: 'var(--primary)' }} className="insight-dropdown-actions" />
+                    </Dropdown>
                 )
             },
         },
@@ -291,9 +329,11 @@ export function SavedInsights(): JSX.Element {
                                 .map((menuItem) => (
                                     <Menu.Item onClick={() => addGraph(menuItem.type)} key={menuItem.type}>
                                         <Row className="icon-menu">
-                                            <Col>{menuItem.icon}</Col>
                                             <Col>
-                                                <strong>{menuItem.type}</strong>
+                                                {menuItem.icon ? <menuItem.icon color="#747EA2" noBackground /> : null}
+                                            </Col>
+                                            <Col>
+                                                <strong>{menuItem.name}</strong>
                                                 <p>{menuItem.description}</p>
                                             </Col>
                                         </Row>
@@ -333,52 +373,45 @@ export function SavedInsights(): JSX.Element {
                 <Col>
                     Type
                     <Select
+                        className="insight-type-icon-dropdown"
                         value={insightType}
-                        style={{ paddingLeft: 8, width: 120 }}
+                        style={{ paddingLeft: 8, width: 140 }}
                         onChange={(it) => setSavedInsightsFilters({ insightType: it })}
                     >
-                        {insightTypes.map((insight: InsightType, index) => (
-                            <Select.Option key={index} value={insight.type}>
-                                <div style={{ display: 'flex' }}>
-                                    {insight.icon ? (
-                                        <span
-                                            style={{
-                                                display: 'inline-block',
-                                                marginTop: -6,
-                                                marginBottom: -8,
-                                                marginLeft: -5,
-                                                marginRight: 3,
-                                            }}
-                                        >
-                                            {insight.icon}
-                                        </span>
-                                    ) : null}
-                                    <span>{insight.type}</span>
-                                </div>
-                            </Select.Option>
-                        ))}
+                        {[{ name: 'All types', type: 'All types' as ViewType, inMenu: false }, ...insightTypes].map(
+                            (insight: InsightType, index) => (
+                                <Select.Option key={index} value={insight.type}>
+                                    <div className="insight-type-icon-wrapper">
+                                        {insight.icon ? (
+                                            <div className="icon-container">
+                                                <div className="icon-container-inner">
+                                                    {<insight.icon color="#747EA2" noBackground />}
+                                                </div>
+                                            </div>
+                                        ) : null}
+                                        <div>{insight.name}</div>
+                                    </div>
+                                </Select.Option>
+                            )
+                        )}
                     </Select>
                 </Col>
                 <Col>
-                    <div>
-                        <span style={{ paddingRight: 8 }}>Last modified</span>
-                        <DateFilter
-                            defaultValue="All time"
-                            disabled={false}
-                            bordered={true}
-                            dateFrom={dateFrom}
-                            dateTo={dateTo}
-                            onChange={(fromDate, toDate) =>
-                                setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
-                            }
-                        />
-                    </div>
+                    <span style={{ paddingRight: 8 }}>Last modified</span>
+                    <DateFilter
+                        defaultValue="All time"
+                        disabled={false}
+                        bordered={true}
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={(fromDate, toDate) => setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })}
+                    />
                 </Col>
                 <Col>
                     Created by
                     <Select
                         value={createdBy}
-                        style={{ paddingLeft: 8, width: 120 }}
+                        style={{ paddingLeft: 8, width: 140 }}
                         onChange={(cb) => {
                             setSavedInsightsFilters({ createdBy: cb })
                         }}
@@ -454,10 +487,13 @@ export function SavedInsights(): JSX.Element {
                                 insights.results.map((insight: DashboardItemType, index: number) => (
                                     <Col
                                         xs={24}
-                                        sm={12}
-                                        md={insights.results.length > 1 ? 8 : 12}
+                                        sm={24}
+                                        md={24}
+                                        lg={12}
+                                        xl={12}
+                                        xxl={8}
                                         key={insight.id}
-                                        style={{ height: 270 }}
+                                        style={{ height: 340 }}
                                     >
                                         <DashboardItem
                                             item={{ ...insight, color: null }}
