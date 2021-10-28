@@ -17,9 +17,15 @@ import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 import { teamLogic } from '../teamLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 const { TextArea } = Input
+
+export const scene: SceneExport = {
+    component: Annotations,
+    logic: annotationsTableLogic,
+}
 
 export function Annotations(): JSX.Element {
     const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsTableLogic)

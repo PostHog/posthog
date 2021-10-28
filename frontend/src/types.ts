@@ -331,6 +331,12 @@ export interface SessionPlayerData {
     next?: string
 }
 
+export enum SessionRecordingUsageType {
+    VIEWED = 'viewed',
+    ANALYZED = 'analyzed',
+    LOADED = 'loaded',
+}
+
 export enum SessionPlayerState {
     BUFFER = 'buffer',
     PLAY = 'play',
@@ -1050,6 +1056,12 @@ export interface InsightLogicProps {
     doNotPersist?: boolean
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+}
+
+export interface SetInsightOptions {
+    shouldMergeWithExisting?: boolean
+    /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
+    overrideFilter?: boolean
 }
 
 export interface FeatureFlagGroupType {

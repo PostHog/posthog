@@ -273,7 +273,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
                 values.replayer?.pause()
                 actions.clearLoadingState()
-                // actions.setPause()
             }
             // Otherwise play
             else {
@@ -310,7 +309,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         updateAnimation: () => {
             const nextTime = getOffsetTime(values.replayer?.getCurrentTime() || 0, values.meta)
-            actions.setCurrentTime(nextTime)
+            if (nextTime > values.time.lastBuffered) {
+                values.replayer?.pause()
+                actions.setBuffer()
+            } else {
+                actions.setCurrentTime(nextTime)
+            }
             cache.timer = requestAnimationFrame(actions.updateAnimation)
         },
         stopAnimation: () => {

@@ -28,6 +28,14 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }: U
                         if (editedValue === defaultUrl) {
                             deleteUrl()
                         } else {
+                            // Validate that the wildcard is valid and we're not trying to match subdomains
+                            // See https://regex101.com/r/UMBc9g/1 for tests
+                            if (editedValue.indexOf('*') > -1 && !editedValue.match(/^(.*)\*[^\*]*\.[^\*]+\.[^\*]+$/)) {
+                                alert(
+                                    'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
+                                )
+                                return
+                            }
                             saveUrl(editedValue)
                             setIsEditing(false)
                             setSavedValue(editedValue)

@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
@@ -44,12 +44,16 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 // to show the right page in the sidebar
-const sceneOverride: Partial<Record<Scene, string>> = {
-    action: 'actions',
-    person: 'persons',
-    dashboard: 'dashboards',
+const sceneOverride: Partial<Record<Scene, Scene>> = {
+    [Scene.Action]: Scene.Events,
+    [Scene.Actions]: Scene.Events,
+    [Scene.EventStats]: Scene.Events,
+    [Scene.EventPropertyStats]: Scene.Events,
+    [Scene.Person]: Scene.Persons,
+    [Scene.Dashboard]: Scene.Dashboards,
 }
 
 interface MenuItemProps {

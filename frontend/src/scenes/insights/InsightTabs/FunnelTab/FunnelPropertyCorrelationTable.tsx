@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Row, Table } from 'antd'
+import { Button, Col, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
@@ -7,7 +7,6 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationType, FunnelStep } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
@@ -16,7 +15,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const logic = funnelLogic(insightProps)
     const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes, parseDisplayNameForCorrelation } =
         useValues(logic)
-    const { setPropertyCorrelationTypes, loadPropertyCorrelations, openPersonsModal } = useActions(logic)
+    const { setPropertyCorrelationTypes, openPersonsModal } = useActions(logic)
+
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
             if (propertyCorrelationTypes.includes(correlationType)) {
@@ -148,11 +148,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     <Col xs={20} sm={20} xl={6}>
                         <b>Correlation Analysis for:</b>
                     </Col>
-                    <Col>
-                        <PropertyNamesSelect
-                            onChange={(selectedProperties) => loadPropertyCorrelations(selectedProperties)}
-                        />
-                    </Col>
                     <Col
                         xs={20}
                         sm={20}
@@ -208,6 +203,26 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 width={100}
                 align="center"
             />
+            <Column
+                title="Actions"
+                key="actions"
+                render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                align="left"
+            />
         </Table>
     ) : null
+}
+
+const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
+    const { excludeProperty } = useActions(logic)
+    const { isPropertyExcluded } = useValues(logic)
+    const propertyName = (record.event?.event || '').split('::')[0]
+
+    return (
+        <Button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)}>
+            Exclude property
+        </Button>
+    )
 }

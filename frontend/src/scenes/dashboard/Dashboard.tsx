@@ -1,20 +1,21 @@
 import React from 'react'
 import { SceneLoading } from 'lib/utils'
 import { BindLogic, useActions, useValues } from 'kea'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
-import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
-import { DashboardMode } from '../../types'
-import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { DashboardMode } from '~/types'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { SceneExport } from 'scenes/sceneTypes'
 
 interface Props {
     id?: string
@@ -22,7 +23,13 @@ interface Props {
     internal?: boolean
 }
 
-export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
+export const scene: SceneExport = {
+    component: Dashboard,
+    logic: dashboardLogic,
+    paramsToProps: ({ params: { id } }): DashboardLogicProps => ({ id: parseInt(id) }),
+}
+
+export function Dashboard({ id, shareToken, internal }: Props = {}): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, internal }}>
             <DashboardView />
