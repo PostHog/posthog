@@ -14,6 +14,7 @@ import { AvailableFeature, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
 import { sceneLogic } from '../../../scenes/sceneLogic'
+import { navigationLogic } from '../../navigation/navigationLogic'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -83,6 +84,7 @@ function OtherOrganizationButton({ organization }: { organization: OrganizationB
 }
 
 function NewOrganizationButton(): JSX.Element {
+    const { setOrganizationModalShown } = useActions(navigationLogic) // TODO: No navigationLogic in new nav components
     const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (
@@ -94,7 +96,7 @@ function NewOrganizationButton(): JSX.Element {
                     'multiple organizations',
                     'Organizations group people building products together. An organization can then have multiple projects.',
                     () => {
-                        console.log('TODO: Add organization creation modal')
+                        setOrganizationModalShown(true)
                     },
                     {
                         cloud: false,
