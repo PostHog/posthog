@@ -58,7 +58,7 @@ export function ToolbarButton(): JSX.Element {
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
-    const { isAuthenticated, featureFlags } = useValues(toolbarLogic)
+    const { isAuthenticated, featureFlags, posthog } = useValues(toolbarLogic)
     const { authenticate, logout } = useActions(toolbarLogic)
 
     const globalMouseMove = useRef((e: MouseEvent) => {
@@ -70,7 +70,7 @@ export function ToolbarButton(): JSX.Element {
     // it uses Posthog-js-lite. As a result, this feature flag can only be turned on for posthog internal
     // (or any other posthog customer that has a flag with the name `posthog-toolbar-feature-flags` set).
     // (Should be removed when we want to roll this out broadly)
-    const showFeatureFlags = featureFlags[FEATURE_FLAGS.TOOLBAR_FEATURE_FLAGS]
+    const showFeatureFlags = featureFlags[FEATURE_FLAGS.TOOLBAR_FEATURE_FLAGS] && !!posthog
 
     useEffect(
         () => {

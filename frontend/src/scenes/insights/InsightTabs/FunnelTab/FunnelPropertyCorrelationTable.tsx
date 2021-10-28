@@ -7,9 +7,9 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationType, FunnelStep } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

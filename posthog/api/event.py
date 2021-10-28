@@ -106,8 +106,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
         if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
-        order_by_param = self.request.GET.get("orderBy")
-        order_by = ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
+        order_by = self._parse_order_by(self.request)
         return queryset.order_by(*order_by)
 
     def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:
@@ -190,15 +189,25 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         except KeyError:
             pass
 
+        # Next url is by default unbounded. If both "before" and "after" are supplied, supply an end date
+        clamped_date = ""
+        if request.GET.get("before", None) and request.GET.get("after", None):
+            clamped_date = f"before={request.GET.get('before')}" if reverse else f"after={request.GET.get('after')}"
+
         return request.build_absolute_uri(
-            "{}?{}{}{}={}".format(
+            "{}?{}{}{}={}{}".format(
                 request.path,
                 urllib.parse.urlencode(params),
                 "&" if len(params) > 0 else "",
                 "after" if reverse else "before",
                 timestamp,
+                f"&{clamped_date}" if clamped_date else "",
             )
         )
+
+    def _parse_order_by(self, request: request.Request) -> List[str]:
+        order_by_param = request.GET.get("orderBy")
+        return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
