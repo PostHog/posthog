@@ -17,7 +17,7 @@ interface PropertyFiltersProps {
     onChange?: null | ((filters: AnyPropertyFilter[]) => void)
     pageKey: string
     style?: CSSProperties
-    groupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     wildcardOptions?: SimpleOption[]
 }
 
@@ -26,7 +26,7 @@ export function PathItemFilters({
     onChange = null,
     pageKey,
     style = {},
-    groupTypes,
+    taxonomicGroupTypes,
     wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, urlOverride: 'exclude_events' }
@@ -54,7 +54,7 @@ export function PathItemFilters({
                                     pathItem={filter.value as string | undefined}
                                     onChange={(pathItem) => setFilter(index, pathItem, pathItem, null, 'event')}
                                     index={index}
-                                    groupTypes={groupTypes}
+                                    taxonomicGroupTypes={taxonomicGroupTypes}
                                     wildcardOptions={wildcardOptions}
                                 >
                                     {!filter.value ? (

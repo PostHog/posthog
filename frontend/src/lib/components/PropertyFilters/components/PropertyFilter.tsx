@@ -9,7 +9,7 @@ export interface PropertyFilterInternalProps {
     selectProps: Partial<SelectGradientOverflowProps>
     onComplete: () => void
     disablePopover: boolean
-    groupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
 }
 export function PropertyFilter({ ...props }: PropertyFilterInternalProps): JSX.Element {
     return <TaxonomicPropertyFilter {...props} />
