@@ -2,7 +2,7 @@ import { Col, Dropdown, Input, Menu, Row, Select, Table, Tabs, Radio } from 'ant
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
@@ -40,6 +40,7 @@ import {
     InsightsTrendsIcon,
 } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 const { TabPane } = Tabs
 
@@ -193,7 +194,7 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'updated_at',
             key: 'updated_at',
             render: function renderLastModified(updated_at: string) {
-                return <span>{humanFriendlyDetailedTime(updated_at)}</span>
+                return <div style={{ whiteSpace: 'nowrap' }}>{updated_at && <TZLabel time={updated_at} />}</div>
             },
         },
         {
