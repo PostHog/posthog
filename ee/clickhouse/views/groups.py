@@ -14,10 +14,14 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = ["type_key", "type_id"]
+        fields = ["group_type", "group_type_index"]
 
 
-class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ViewSet):
+class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = GroupTypeSerializer
+    queryset = GroupTypeMapping.objects.all()
+    pagination_class = None
+
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):
         rows = sync_execute(
