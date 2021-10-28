@@ -298,7 +298,7 @@ export function SavedInsights(): JSX.Element {
                                     onClick={() =>
                                         deleteWithUndo({
                                             object: item,
-                                            endpoint: `api/projects/${currentTeamId}/insights`,
+                                            endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,
                                         })
                                     }
