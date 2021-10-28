@@ -2,26 +2,27 @@
 
 .LemonButton {
     transition: background-color 200ms ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 2.5rem;
-    background: none;
-    border-radius: var(--radius);
-    border: none;
-    color: var(--text-default);
-    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--primary);
+    &:disabled:hover,
+    &:disabled:active {
+        background: inherit;
+    }
     &:hover {
         background: rgba($blue_300, 0.2);
     }
     &:active {
         background: rgba($blue_300, 0.3);
     }
+    .LemonRow__icon {
+        color: var(--primary);
+    }
 }
 
-.LemonButton__icon {
-    display: flex;
-    margin-right: 0.5rem;
-    color: var(--muted-alt);
-    font-size: 1.5rem;
+.LemonButton--stealth {
+    font-weight: 400;
+    color: var(--text-default);
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
 }

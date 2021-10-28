@@ -4,16 +4,21 @@ import { useActions, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
-import { IconSignOut } from '../../../lib/components/icons'
+import { LemonRow } from '../../../lib/components/LemonRow'
+import { IconPlus, IconSignOut } from '../../../lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
 import { lemonadeLogic } from '../lemonadeLogic'
+import { AvailableFeature, OrganizationBasicType } from '../../../types'
+import { organizationLogic } from '../../../scenes/organizationLogic'
+import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
+import { sceneLogic } from '../../../scenes/sceneLogic'
 
-function SitePopoverSection({ title, children }: { title?: string; children: React.ReactElement }): JSX.Element {
+function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
         <div className="SitePopover__section">
-            {title && <h5 className="l5">{title}</h5>}
+            {title && <h5>{title}</h5>}
             {children}
         </div>
     )
@@ -32,13 +37,76 @@ function AccountInfo(): JSX.Element {
                 </div>
                 <div className="supplement">{user?.email}</div>
             </div>
-            <div>
-                <Link to={urls.mySettings()} onClick={closeSitePopover} className="SitePopover__sidelink">
-                    {' '}
-                    Manage account
-                </Link>
-            </div>
+            <Link to={urls.mySettings()} onClick={closeSitePopover} className="SitePopover__sidelink">
+                Manage account
+            </Link>
         </div>
+    )
+}
+
+function InitialBlob({ name }: { name?: string | null }): JSX.Element {
+    const initialLetter = name ? name[0].toLocaleUpperCase() : '?'
+
+    return <div className="InitialBlob">{initialLetter}</div>
+}
+
+function CurrentOrganizationRow({ organization }: { organization: OrganizationBasicType }): JSX.Element {
+    const { closeSitePopover } = useActions(lemonadeLogic)
+
+    return (
+        <LemonRow icon={<InitialBlob name={organization.name} />} fullWidth>
+            <>
+                <div className="CurrentOrganization">{organization.name}</div>
+                <Link to={urls.organizationSettings()} onClick={closeSitePopover} className="SitePopover__sidelink">
+                    Settings
+                </Link>
+            </>
+        </LemonRow>
+    )
+}
+
+function OtherOrganizationButton({ organization }: { organization: OrganizationBasicType }): JSX.Element {
+    const { updateCurrentOrganization } = useActions(userLogic)
+
+    return (
+        <LemonButton
+            onClick={() => updateCurrentOrganization(organization.id)}
+            icon={<InitialBlob name={organization.name} />}
+            type="stealth"
+            align="start"
+            title={`Switch to organization ${organization.name}`}
+            fullWidth
+        >
+            {organization.name}
+        </LemonButton>
+    )
+}
+
+function NewOrganizationButton(): JSX.Element {
+    const { guardAvailableFeature } = useActions(sceneLogic)
+
+    return (
+        <LemonButton
+            icon={<IconPlus />}
+            onClick={() =>
+                guardAvailableFeature(
+                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                    'multiple organizations',
+                    'Organizations group people building products together. An organization can then have multiple projects.',
+                    () => {
+                        console.log('TODO: Add organization creation modal')
+                    },
+                    {
+                        cloud: false,
+                        selfHosted: true,
+                    }
+                )
+            }
+            align="start"
+            fullWidth
+        >
+            New organization
+        </LemonButton>
     )
 }
 
@@ -46,26 +114,22 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconSignOut />} style={{ justifyContent: 'start' }}>
+        <LemonButton onClick={logout} icon={<IconSignOut />} type="stealth" align="start" fullWidth>
             Sign out
         </LemonButton>
     )
 }
 
 export function SitePopover(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { user, otherOrganizations } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { preflight } = useValues(preflightLogic)
     const { isSitePopoverOpen } = useValues(lemonadeLogic)
-    const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
+    const { toggleSitePopover } = useActions(lemonadeLogic)
 
     return (
         <Popup
             visible={isSitePopoverOpen}
-            onClickOutside={() => {
-                // Don't interrupt the user if they're trying to select text
-                if (!window.getSelection()?.toString()) {
-                    closeSitePopover()
-                }
-            }}
             className="SitePopover"
             overlay={
                 <>
@@ -73,11 +137,16 @@ export function SitePopover(): JSX.Element {
                         <AccountInfo />
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
-                        <i>Placeholder</i>
+                        {currentOrganization && <CurrentOrganizationRow organization={currentOrganization} />}
                     </SitePopoverSection>
-                    <SitePopoverSection title="Other organizations">
-                        <i>Placeholder</i>
-                    </SitePopoverSection>
+                    {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
+                        <SitePopoverSection title="Other organizations">
+                            {otherOrganizations.map((otherOrganization) => (
+                                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} />
+                            ))}
+                            {!preflight?.can_create_org && <NewOrganizationButton />}
+                        </SitePopoverSection>
+                    )}
                     <SitePopoverSection title="PostHog status">
                         <i>Placeholder</i>
                     </SitePopoverSection>

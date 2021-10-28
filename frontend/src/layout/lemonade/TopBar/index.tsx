@@ -5,7 +5,7 @@ import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
 import { SearchBox } from './SearchBox'
 import { lemonadeLogic } from '../lemonadeLogic'
-import './TopBar.scss'
+import './index.scss'
 import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
 

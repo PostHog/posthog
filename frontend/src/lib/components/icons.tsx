@@ -505,6 +505,14 @@ export function IconSignOut(): JSX.Element {
     )
 }
 
+export function IconPlus(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="m19 13h-6v6h-2v-6h-6v-2h6v-6h2v6h6z" fill="currentColor" />
+        </svg>
+    )
+}
+
 // AntD arrows rotated at convenient angles
 
 export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {

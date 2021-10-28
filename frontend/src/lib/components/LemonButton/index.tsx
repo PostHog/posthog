@@ -1,18 +1,30 @@
+import clsx from 'clsx'
 import React from 'react'
+import { LemonRow, LemonRowProps } from '../LemonRow'
 import './LemonButton.scss'
 
-export interface LemonButtonProps {
-    children: React.ReactElement | string
-    icon: React.ReactElement
-    onClick: () => void
-    style?: React.CSSProperties
+export interface LemonButtonProps extends Omit<LemonRowProps<'button'>, 'tag'> {
+    type?: 'default' | 'stealth'
 }
 
-export function LemonButton({ children, icon, onClick, style }: LemonButtonProps): JSX.Element {
+/** Styled button. */
+export function LemonButton({
+    children,
+    icon,
+    type = 'default',
+    align,
+    ...buttonProps
+}: LemonButtonProps): JSX.Element {
     return (
-        <button className="LemonButton" type="button" onClick={onClick} style={style}>
-            <span className="LemonButton__icon">{icon}</span>
+        <LemonRow
+            tag="button"
+            className={clsx('LemonButton', type === 'stealth' && 'LemonButton--stealth')}
+            icon={icon}
+            type="button"
+            align={align}
+            {...buttonProps}
+        >
             {children}
-        </button>
+        </LemonRow>
     )
 }
