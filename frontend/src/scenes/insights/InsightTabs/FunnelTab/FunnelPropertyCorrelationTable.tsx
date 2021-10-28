@@ -9,13 +9,19 @@ import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes, parseDisplayNameForCorrelation } =
-        useValues(logic)
-    const { setPropertyCorrelationTypes, openPersonsModal } = useActions(logic)
+    const {
+        stepsWithCount,
+        propertyCorrelationValues,
+        propertyCorrelationTypes,
+        excludedPropertyNames,
+        parseDisplayNameForCorrelation,
+    } = useValues(logic)
+    const { setPropertyCorrelationTypes, setExcludedPropertyNames, openPersonsModal } = useActions(logic)
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
@@ -147,6 +153,16 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 <Row align="middle">
                     <Col xs={20} sm={20} xl={6}>
                         <b>Correlation Analysis for:</b>
+                    </Col>
+                    <Col>
+                        Exclude:{' '}
+                        <PropertyNamesSelect
+                            // NOTE: we want to make sure that if the
+                            // selected propertyNames change, we reset the
+                            // internal state of the select
+                            value={new Set(excludedPropertyNames)}
+                            onChange={setExcludedPropertyNames}
+                        />
                     </Col>
                     <Col
                         xs={20}
