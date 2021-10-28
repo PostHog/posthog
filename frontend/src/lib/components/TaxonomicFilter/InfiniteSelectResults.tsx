@@ -19,10 +19,10 @@ function TabTitle({
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
-    const { groups } = useValues(taxonomicFilterLogic)
+    const { taxonomicGroups } = useValues(taxonomicFilterLogic)
     const { totalCount } = useValues(logic)
 
-    const group = groups.find((g) => g.type === groupType)
+    const group = taxonomicGroups.find((g) => g.type === groupType)
 
     return (
         <div data-attr={`taxonomic-tab-${groupType}`}>
@@ -35,7 +35,7 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, groups, groupTypes } = useValues(taxonomicFilterLogic)
+    const { activeTab, taxonomicGroups, groupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
 
     if (groupTypes.length === 1) {
@@ -48,7 +48,7 @@ export function InfiniteSelectResults({
 
     return (
         <Tabs
-            activeKey={activeTab || groups[0].type}
+            activeKey={activeTab || taxonomicGroups[0].type}
             onChange={(value) => {
                 setActiveTab(value as TaxonomicFilterGroupType)
                 focusInput()

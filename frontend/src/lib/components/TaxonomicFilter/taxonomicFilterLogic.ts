@@ -69,7 +69,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
-        groups: [
+        taxonomicGroups: [
             (selectors) => [selectors.currentTeamId],
             (teamId): TaxonomicFilterGroup[] => [
                 {
@@ -161,8 +161,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             ],
         ],
         groupTypes: [
-            (selectors) => [(_, props) => props.groupTypes, selectors.groups],
-            (groupTypes, groups): TaxonomicFilterGroupType[] => groupTypes || groups.map((g) => g.type),
+            (selectors) => [(_, props) => props.groupTypes, selectors.taxonomicGroups],
+            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
+                groupTypes || taxonomicGroups.map((g) => g.type),
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
