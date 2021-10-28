@@ -18,7 +18,6 @@ import {
     FlattenedFunnelStep,
     FunnelStepWithConversionMetrics,
     BinCountValue,
-    FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelStepRangeEntityFilter,
     InsightLogicProps,
@@ -81,7 +80,6 @@ export const funnelLogic = kea<funnelLogicType>({
             index,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        setConversionWindow: (conversionWindow: FunnelConversionWindow) => ({ conversionWindow }),
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
@@ -206,29 +204,10 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
     }),
 
-    reducers: ({ props, values }) => ({
+    reducers: ({ props }) => ({
         people: {
             clearFunnel: () => [],
         },
-        conversionWindow: [
-            {
-                funnel_window_interval_unit:
-                    values.filters.funnel_window_interval_unit || FunnelConversionWindowTimeUnit.Day,
-                funnel_window_interval: values.filters.funnel_window_interval || 14,
-            } as FunnelConversionWindow,
-            {
-                setConversionWindow: (
-                    state,
-                    { conversionWindow: { funnel_window_interval_unit, funnel_window_interval } }
-                ) => {
-                    return {
-                        ...state,
-                        ...(funnel_window_interval_unit ? { funnel_window_interval_unit } : {}),
-                        ...(funnel_window_interval ? { funnel_window_interval } : {}),
-                    }
-                },
-            },
-        ],
         stepReference: [
             FunnelStepReference.total as FunnelStepReference,
             {
@@ -329,6 +308,13 @@ export const funnelLogic = kea<funnelLogicType>({
             ({ filters, result }): FunnelAPIResponse => (filters?.insight === ViewType.FUNNELS ? result : []),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
+        conversionWindow: [
+            (s) => [s.filters],
+            ({ funnel_window_interval, funnel_window_interval_unit }) => ({
+                funnel_window_interval: funnel_window_interval || 14,
+                funnel_window_interval_unit: funnel_window_interval_unit || FunnelConversionWindowTimeUnit.Day,
+            }),
+        ],
         stepResults: [
             (s) => [s.results, s.filters],
             (results, filters) =>
@@ -1010,10 +996,6 @@ export const funnelLogic = kea<funnelLogicType>({
         setBinCount: async ({ binCount }) => {
             actions.setFilters(binCount && binCount !== BinCountAuto ? { bin_count: binCount } : {})
         },
-        setConversionWindow: async () => {
-            actions.setFilters(values.conversionWindow)
-        },
-
         excludeEventProperty: async ({ eventName }) => {
             actions.loadEventWithPropertyCorrelations(eventName)
         },

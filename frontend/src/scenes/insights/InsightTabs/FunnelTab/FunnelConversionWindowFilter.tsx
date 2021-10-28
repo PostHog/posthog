@@ -20,7 +20,7 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
 export function FunnelConversionWindowFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { conversionWindow } = useValues(funnelLogic(insightProps))
-    const { setConversionWindow, setFilters } = useActions(funnelLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
     const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
 
@@ -36,7 +36,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
             localConversionWindow.funnel_window_interval !== conversionWindow.funnel_window_interval ||
             localConversionWindow.funnel_window_interval_unit !== conversionWindow.funnel_window_interval_unit
         ) {
-            setConversionWindow(localConversionWindow)
+            setFilters(localConversionWindow)
         }
     }
 
@@ -82,7 +82,6 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                         setFilters({
                             funnel_window_interval_unit,
                         })
-                        timeUnitRef.current?.blur()
                     }}
                 >
                     {options.map(({ value, label }) => (
