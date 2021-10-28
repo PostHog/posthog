@@ -424,4 +424,38 @@ describe('insightLogic', () => {
                 })
         })
     })
+
+    test('keeps saved filters', async () => {
+        logic = insightLogic({
+            dashboardItemId: 42,
+            filters: { insight: 'FUNNELS' },
+        })
+        logic.mount()
+
+        // `setFilters` only changes `filters`, does not change `savedFilters`
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ insight: 'TRENDS' })
+        }).toMatchValues({ filters: partial({ insight: 'TRENDS' }), savedFilters: partial({ insight: 'FUNNELS' }) })
+
+        // results from search don't change anything
+        await expectLogic(logic, () => {
+            logic.actions.loadResultsSuccess({ id: 42, filters: { insight: 'PATHS' } })
+        }).toMatchValues({ filters: partial({ insight: 'TRENDS' }), savedFilters: partial({ insight: 'FUNNELS' }) })
+
+        // results from API GET and POST calls change saved filters
+        await expectLogic(logic, () => {
+            logic.actions.loadInsightSuccess({ id: 42, filters: { insight: 'PATHS' } })
+        }).toMatchValues({ filters: partial({ insight: 'TRENDS' }), savedFilters: partial({ insight: 'PATHS' }) })
+        await expectLogic(logic, () => {
+            logic.actions.updateInsightSuccess({ id: 42, filters: { insight: 'RETENTION' } })
+        }).toMatchValues({ filters: partial({ insight: 'TRENDS' }), savedFilters: partial({ insight: 'RETENTION' }) })
+
+        // saving persists the in-flight filters
+        await expectLogic(logic, () => {
+            // api updates always return TRENDS
+            logic.actions.saveInsight()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ filters: partial({ insight: 'TRENDS' }), savedFilters: partial({ insight: 'TRENDS' }) })
+    })
 })

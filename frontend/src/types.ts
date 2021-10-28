@@ -1048,6 +1048,8 @@ export interface SetInsightOptions {
     shouldMergeWithExisting?: boolean
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
+    /** calling with this updates the "last saved" filters */
+    fromApi?: boolean
 }
 
 export interface FeatureFlagGroupType {
