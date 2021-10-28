@@ -9,13 +9,12 @@ import './index.scss'
 import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
 import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrganizationModal'
-import { navigationLogic } from '../../navigation/navigationLogic'
+import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInviteModal'
 
 export function TopBar(): JSX.Element {
-    const { organizationModalShown } = useValues(navigationLogic) // TODO: No navigationLogic in new nav components)
-    const { setOrganizationModalShown } = useActions(navigationLogic) // TODO: No navigationLogic in new nav components
-    const { announcementMessage, isAnnouncementHidden } = useValues(lemonadeLogic)
-    const { hideAnnouncement } = useActions(lemonadeLogic)
+    const { announcementMessage, isAnnouncementHidden, isInviteModalShown, isCreateOrganizationModalShown } =
+        useValues(lemonadeLogic)
+    const { hideAnnouncement, hideInviteModal, hideCreateOrganizationModal } = useActions(lemonadeLogic)
 
     return (
         <>
@@ -39,7 +38,8 @@ export function TopBar(): JSX.Element {
                 </div>
             </header>
             <CommandPalette />
-            <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
+            <BulkInviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
+            <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
         </>
     )
 }

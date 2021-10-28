@@ -4,7 +4,7 @@ import { LemonRow, LemonRowProps } from '../LemonRow'
 import './LemonButton.scss'
 
 export interface LemonButtonProps extends Omit<LemonRowProps<'button'>, 'tag'> {
-    type?: 'default' | 'stealth'
+    type?: 'default' | 'primary' | 'stealth'
 }
 
 /** Styled button. */
@@ -18,7 +18,7 @@ export function LemonButton({
     return (
         <LemonRow
             tag="button"
-            className={clsx('LemonButton', type === 'stealth' && 'LemonButton--stealth')}
+            className={clsx('LemonButton', type !== 'default' && `LemonButton--${type}`)}
             icon={icon}
             type="button"
             align={align}

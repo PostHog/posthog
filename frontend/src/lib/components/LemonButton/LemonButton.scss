@@ -4,10 +4,6 @@
     transition: background-color 200ms ease;
     font-weight: 600;
     color: var(--primary);
-    &:disabled:hover,
-    &:disabled:active {
-        background: inherit;
-    }
     &:hover {
         background: rgba($blue_300, 0.2);
     }
@@ -24,5 +20,13 @@
     color: var(--text-default);
     .LemonRow__icon {
         color: var(--muted-alt);
+    }
+}
+
+.LemonButton--primary {
+    background: var(--primary);
+    color: #fff;
+    .LemonRow__icon {
+        color: #fff;
     }
 }

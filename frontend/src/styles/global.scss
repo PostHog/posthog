@@ -66,8 +66,9 @@ NOTE: $medium is a SCSS var; not a keyword
 
 // Text styles
 
-b,
-strong {
+body b,
+body strong {
+    // body is specified to increase specificity – otherwise Ant Design's "bolder" takes precedence over "600"
     font-weight: 600;
 }
 

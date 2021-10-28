@@ -365,7 +365,10 @@ function TopNavigationOriginal(): JSX.Element {
             </div>
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
-            <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
+            <CreateOrganizationModal
+                isVisible={organizationModalShown}
+                onClose={() => setOrganizationModalShown(false)}
+            />
             <CommandPalette />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>

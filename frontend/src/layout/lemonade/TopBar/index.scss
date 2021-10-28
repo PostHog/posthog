@@ -114,7 +114,11 @@
     width: 20rem;
 }
 
-.SitePopover__sidelink {
+.SitePopover__main-info {
+    flex-grow: 1;
+}
+
+.SitePopover__side-link {
     color: var(--primary);
     font-weight: 600;
     font-size: 0.8125rem;
@@ -157,7 +161,6 @@
 
 .AccountInfo__identification {
     margin-left: 0.5rem;
-    flex-grow: 1;
 }
 
 .InitialBlob {
@@ -173,7 +176,5 @@
     user-select: none;
 }
 
-.CurrentOrganization {
-    font-weight: 600;
-    flex-grow: 1;
+.SystemStatus--warning {
 }

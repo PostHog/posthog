@@ -5,6 +5,7 @@ import './LemonRow.scss'
 export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends React.HTMLProps<React.HTMLAttributes<T>> {
     icon?: React.ReactElement
     tag?: T
+    status?: 'success' | 'warning' | 'danger' // CSS variable colors
     align?: 'start' | 'center'
     fullWidth?: boolean
 }
@@ -15,6 +16,7 @@ export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
     icon,
     className,
     tag,
+    status,
     align,
     fullWidth = false,
     ...props
@@ -25,6 +27,7 @@ export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
             className: clsx(
                 'LemonRow',
                 className,
+                status && `LemonRow--status-${status}`,
                 align && `LemonRow--align-${align}`,
                 fullWidth && 'LemonRow--full-width'
             ),
