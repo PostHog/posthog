@@ -2,12 +2,13 @@ import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { insightLogic } from './insightLogic'
-import { AvailableFeature, PropertyOperator, ViewType } from '~/types'
+import { AvailableFeature, ItemMode, PropertyOperator, ViewType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 jest.mock('lib/api')
 
@@ -362,6 +363,37 @@ describe('insightLogic', () => {
                 .toMatchValues(router, {
                     searchParams: partial({ insight: 'TRENDS', interval: 'month' }),
                 })
+        })
+
+        it('persists edit mode in the url', async () => {
+            const url1 = combineUrl('/insights', cleanFilters({ insight: 'TRENDS' }), { fromItem: 42 })
+            router.actions.push(url1.url)
+            await expectLogic(logic)
+                .toNotHaveDispatchedActions(['setInsightMode'])
+                .toDispatchActions(['loadInsightSuccess'])
+                .toMatchValues({
+                    filters: partial({ insight: 'TRENDS' }),
+                    insight: partial({ id: 42, result: ['result from api'] }),
+                    insightMode: ItemMode.View,
+                })
+
+            const url2 = combineUrl('/insights', router.values.searchParams, { fromItem: 42, edit: true })
+            router.actions.push(url2.url)
+            await expectLogic(logic)
+                .toDispatchActions([logic.actionCreators.setInsightMode(ItemMode.Edit, null)])
+                .toMatchValues({
+                    insightMode: ItemMode.Edit,
+                })
+
+            logic.actions.setInsightMode(ItemMode.View, null)
+            expectLogic(router).toMatchValues({
+                location: partial({ pathname: url1.pathname, search: url1.search, hash: url1.hash }),
+            })
+
+            logic.actions.setInsightMode(ItemMode.Edit, null)
+            expectLogic(router).toMatchValues({
+                location: partial({ pathname: url2.pathname, search: url2.search, hash: url2.hash }),
+            })
         })
     })
 
