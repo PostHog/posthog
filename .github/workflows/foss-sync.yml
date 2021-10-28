@@ -2,6 +2,8 @@ name: Sync PostHog FOSS
 
 on:
     push:
+        paths-ignore:
+            - 'plugin-server/**'
         branches:
             - master
             - main

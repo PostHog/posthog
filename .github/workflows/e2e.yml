@@ -1,7 +1,9 @@
 name: E2E
 
 on:
-    - pull_request
+    pull_request:
+        paths-ignore:
+            - 'plugin-server/**'
 
 jobs:
     cypress:

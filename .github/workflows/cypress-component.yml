@@ -1,7 +1,9 @@
 name: Cypress Component
 
 on:
-    - pull_request
+    pull_request:
+        paths-ignore:
+            - 'plugin-server/**'
 
 jobs:
     cypress-component:

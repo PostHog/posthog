@@ -2,6 +2,8 @@ name: Backend CI
 
 on:
     push:
+        paths-ignore:
+            - 'plugin-server/**'
         branches:
             - master
     pull_request:

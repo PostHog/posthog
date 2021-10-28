@@ -1,6 +1,9 @@
 name: 'Storybook Chromatic'
 
-on: pull_request
+on:
+    pull_request:
+        paths-ignore:
+            - 'plugin-server/**'
 
 jobs:
     storybook-chromatic:

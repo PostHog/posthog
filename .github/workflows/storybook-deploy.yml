@@ -2,6 +2,8 @@ name: 'Storybook Deployment'
 
 on:
     push:
+        paths-ignore:
+            - 'plugin-server/**'
         branches:
             - master
             - main
