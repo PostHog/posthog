@@ -1671,6 +1671,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "xrendan",
+      "name": "Brendan Samek",
+      "avatar_url": "https://avatars.githubusercontent.com/u/13208566?v=4",
+      "profile": "https://github.com/xrendan",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
