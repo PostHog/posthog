@@ -7,8 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardItemType } from '~/types'
-import api from 'lib/api'
-import { getCurrentTeamId } from 'lib/utils/logics'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface SaveToDashboardModalProps {
     closeModal: () => void
@@ -21,20 +20,23 @@ export function SaveToDashboardModal({ closeModal, insight }: SaveToDashboardMod
     const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
     const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
+    const { insightLoading } = useValues(insightLogic)
+    const { updateInsight } = useActions(insightLogic)
     const [name, setName] = useState(insight?.name || '')
     const newItem = !insight.dashboard
 
     async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
-        await api.update(`api/projects/${getCurrentTeamId()}/insights/${insight.id}`, { name, dashboard: dashboardId })
-        reportSavedInsightToDashboard()
-        toast(
-            <div data-attr="success-toast">
-                {newItem ? 'Panel added to dashboard.' : 'Panel updated!'}&nbsp;
-                <Link to={`/dashboard/${dashboardId}`}>Click here to see it.</Link>
-            </div>
-        )
-        closeModal()
+        updateInsight({ ...insight, name, dashboard: dashboardId }, () => {
+            reportSavedInsightToDashboard()
+            toast(
+                <div data-attr="success-toast">
+                    {newItem ? 'Panel added to dashboard.' : 'Panel updated!'}&nbsp;
+                    <Link to={`/dashboard/${dashboardId}`}>Click here to see it.</Link>
+                </div>
+            )
+            closeModal()
+        })
     }
 
     return (
@@ -42,6 +44,7 @@ export function SaveToDashboardModal({ closeModal, insight }: SaveToDashboardMod
             onOk={(e) => void save(e)}
             onCancel={closeModal}
             afterClose={closeModal}
+            confirmLoading={insightLoading}
             visible
             title={newItem ? 'Add graph to dashboard' : 'Update graph on dashboard'}
             okText={newItem ? 'Add panel to dashboard' : 'Update panel on dashboard'}

@@ -93,7 +93,10 @@ export const insightLogic = kea<insightLogicType>({
             id,
             doNotLoadResults,
         }),
-        updateInsight: (insight: Partial<DashboardItemType>) => ({ insight }),
+        updateInsight: (
+            insight: Partial<DashboardItemType>,
+            callback?: (insight: Partial<DashboardItemType>) => void
+        ) => ({ insight, callback }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<DashboardItemType>) => ({ metadata }),
     }),
@@ -109,7 +112,7 @@ export const insightLogic = kea<insightLogicType>({
                 loadInsight: async ({ id }) => {
                     return await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`)
                 },
-                updateInsight: async ({ insight }, breakpoint) => {
+                updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
                         return
                     }
@@ -118,7 +121,9 @@ export const insightLogic = kea<insightLogicType>({
                         insight
                     )
                     breakpoint()
-                    return { ...response, result: response.result || values.insight.result }
+                    const updatedInsight = { ...response, result: response.result || values.insight.result }
+                    callback?.(updatedInsight)
+                    return updatedInsight
                 },
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
