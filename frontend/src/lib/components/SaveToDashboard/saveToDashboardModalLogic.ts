@@ -9,6 +9,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
     props: {} as {
         fromDashboard: boolean
     },
+    key: ({ id }) => id || 'none',
     actions: {
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),

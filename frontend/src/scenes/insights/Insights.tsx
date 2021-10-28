@@ -5,7 +5,6 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { Row, Col, Card, Button, Tooltip, Popconfirm } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
@@ -44,7 +43,6 @@ export function Insights(): JSX.Element {
     const { insightProps, activeView, filters, controlsCollapsed, insight, insightMode, filtersChanged, savedFilters } =
         useValues(logic)
     const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight, setFilters } = useActions(logic)
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
@@ -99,23 +97,7 @@ export function Insights(): JSX.Element {
                     <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
                         <InsightMetadata.Title insight={insight} insightMode={insightMode} />
                         <div>
-                            <SaveToDashboard
-                                displayComponent={
-                                    <Button style={{ color: 'var(--primary)' }} className="btn-save">
-                                        Add to dashboard
-                                    </Button>
-                                }
-                                tooltipOptions={{
-                                    placement: 'bottom',
-                                    title: 'Save to dashboard',
-                                }}
-                                item={{
-                                    entity: {
-                                        filters: insight.filters || filters,
-                                        annotations: annotationsToCreate,
-                                    },
-                                }}
-                            />
+                            {insight.id && <SaveToDashboard insight={insight} />}
                             <HotkeyButton
                                 type="primary"
                                 style={{ marginLeft: 8 }}
@@ -166,19 +148,7 @@ export function Insights(): JSX.Element {
                                             </Tooltip>
                                         </Popconfirm>
                                     ) : null}
-                                    <SaveToDashboard
-                                        displayComponent={
-                                            <Button style={{ color: 'var(--primary)' }} className="btn-save">
-                                                Add to dashboard
-                                            </Button>
-                                        }
-                                        item={{
-                                            entity: {
-                                                filters: insight.filters || filters,
-                                                annotations: annotationsToCreate,
-                                            },
-                                        }}
-                                    />
+                                    {insight.id && <SaveToDashboard insight={insight} />}
                                     {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                                         <Button style={{ marginLeft: 8 }} type="primary" onClick={saveInsight}>
                                             Save
