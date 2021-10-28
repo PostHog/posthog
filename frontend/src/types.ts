@@ -320,12 +320,26 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
 
 export type SessionRecordingId = string
 
+export interface SessionRecordingMeta {
+    id: string
+    viewed: boolean
+    recording_duration: number
+    start_time: number
+    end_time: number
+    distinct_id: string
+}
+
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
-    start_time: string
-    next: string | null
-    duration: number
+    session_recording: SessionRecordingMeta
+    next?: string
+}
+
+export enum SessionRecordingUsageType {
+    VIEWED = 'viewed',
+    ANALYZED = 'analyzed',
+    LOADED = 'loaded',
 }
 
 export enum SessionPlayerState {
