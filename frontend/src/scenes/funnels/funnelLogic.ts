@@ -50,8 +50,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import posthog from 'posthog-js'
 import { teamLogic } from '../teamLogic'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -63,7 +63,14 @@ export const funnelLogic = kea<funnelLogicType>({
     key: keyForInsightLogicProps('insight_funnel'),
 
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], teamLogic, ['currentTeamId']],
+        values: [
+            insightLogic(props),
+            ['filters', 'insight', 'insightLoading'],
+            teamLogic,
+            ['currentTeamId'],
+            personPropertiesModel,
+            ['personProperties'],
+        ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
@@ -120,13 +127,11 @@ export const funnelLogic = kea<funnelLogicType>({
         setCorrelationDetailedFeedbackVisible: (visible: boolean) => ({ visible }),
         sendCorrelationAnalysisFeedback: true,
         hideSkewWarning: true,
+        hideCorrelationAnalysisFeedback: true,
 
         setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
         excludeProperty: (propertyName: string) => ({ propertyName }),
-
         excludeEventProperty: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
-
-        hideCorrelationAnalysisFeedback: true,
     }),
 
     loaders: ({ values }) => ({
@@ -268,7 +273,6 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         correlationFeedbackHidden: [
             false,
-            { persist: true },
             {
                 sendCorrelationAnalysisFeedback: () => true,
                 hideCorrelationAnalysisFeedback: () => true,
@@ -877,6 +881,14 @@ export const funnelLogic = kea<funnelLogicType>({
             (excludedEventPropertyNames) => (propertyName: string) =>
                 excludedEventPropertyNames.find((name) => name === propertyName) !== undefined,
         ],
+        inversePropertyNames: [
+            (s) => [s.personProperties],
+            (personProperties) => (excludedPersonProperties: string[]) => {
+                return personProperties
+                    .map((property) => property.name)
+                    .filter((property) => !excludedPersonProperties.includes(property))
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -1027,18 +1039,21 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         sendCorrelationAnalysisFeedback: () => {
-            posthog.capture('correlation analysis feedback', {
-                rating: values.correlationFeedbackRating,
-                comment: values.correlationDetailedFeedback,
-            })
+            eventUsageLogic.actions.reportCorrelationAnalysisDetailedFeedback(
+                values.correlationFeedbackRating,
+                values.correlationDetailedFeedback
+            )
             actions.setCorrelationFeedbackRating(0)
             actions.setCorrelationDetailedFeedback('')
-            successToast('Thanks for your feedback!', ' ')
+            successToast('Thanks for your feedback!', 'Your comments help us improve.')
         },
         setCorrelationFeedbackRating: ({ rating }) => {
             const feedbackBoxVisible = rating > 0
-
             actions.setCorrelationDetailedFeedbackVisible(feedbackBoxVisible)
+            if (feedbackBoxVisible) {
+                // Don't send event when resetting reducer
+                eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
+            }
         },
     }),
 })

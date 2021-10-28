@@ -256,15 +256,15 @@ export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
 
 const SAVED_INSIGHTS_COPY = {
     [`${SavedInsightsTabs.All}`]: {
-        title: 'There are no insights for this project',
+        title: 'There are no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
     [`${SavedInsightsTabs.Yours}`]: {
-        title: "You haven't created insights for this project",
+        title: "You haven't created insights $CONDITION.",
         description: 'Once you create an insight, it will show up here.',
     },
     [`${SavedInsightsTabs.Favorites}`]: {
-        title: 'There are no favorited insights for this project',
+        title: 'There are no favorited insights $CONDITION.',
         description: 'Once you favorite an insight, it will show up here.',
     },
 }
@@ -273,7 +273,13 @@ export function SavedInsightsEmptyState(): JSX.Element {
     const { addGraph } = useActions(savedInsightsLogic)
     const {
         filters: { tab },
+        insights,
+        usingFilters,
     } = useValues(savedInsightsLogic)
+
+    // show the search string that was used to make the results, not what it currently is
+    const searchString = insights.filters?.search || null
+    const { title, description } = SAVED_INSIGHTS_COPY[tab]
 
     return (
         <div className="saved-insight-empty-state">
@@ -281,8 +287,14 @@ export function SavedInsightsEmptyState(): JSX.Element {
                 <div className="illustration-main">
                     <IconTrendUp />
                 </div>
-                <h2 className="empty-state__title">{SAVED_INSIGHTS_COPY[tab].title}</h2>
-                <p className="empty-state__description">{SAVED_INSIGHTS_COPY[tab].description}</p>
+                <h2 className="empty-state__title">
+                    {usingFilters
+                        ? searchString
+                            ? title.replace('$CONDITION', `matching "${searchString}"`)
+                            : title.replace('$CONDITION', `matching these filters`)
+                        : title.replace('$CONDITION', 'for this project')}
+                </h2>
+                <p className="empty-state__description">{description}</p>
                 {tab !== SavedInsightsTabs.Favorites && (
                     <Button
                         size="large"
