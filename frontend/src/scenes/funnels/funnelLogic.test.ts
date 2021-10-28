@@ -10,6 +10,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, ViewType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { rest } from 'msw'
+import { setupServer } from 'msw/node'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
@@ -427,6 +429,34 @@ describe('funnelLogic', () => {
             await expectLogic(logic, () => logic.actions.excludeProperty('some property')).toFinishListeners()
 
             expect(logic.values.isPropertyExcluded('some property')).toBe(true)
+        })
+
+        it('loads exclude list from team property page', async () => {
+            const server = setupServer(
+                rest.get('/api/projects/@current', (_, res, ctx) =>
+                    res(
+                        ctx.json({
+                            person_property_names_excluded_from_correlation: ['another property'],
+                        })
+                    )
+                )
+            )
+            server.listen()
+
+            await expectLogic(logic, () => logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } }))
+                .toFinishListeners()
+                .toMatchValues({
+                    propertyCorrelations: {
+                        events: [
+                            {
+                                event: { event: 'some property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            },
+                        ],
+                    },
+                })
         })
     })
 
