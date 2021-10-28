@@ -333,7 +333,7 @@ export function SavedInsights(): JSX.Element {
                                                 {menuItem.icon ? <menuItem.icon color="#747EA2" noBackground /> : null}
                                             </Col>
                                             <Col>
-                                                <strong>{menuItem.type}</strong>
+                                                <strong>{menuItem.name}</strong>
                                                 <p>{menuItem.description}</p>
                                             </Col>
                                         </Row>
