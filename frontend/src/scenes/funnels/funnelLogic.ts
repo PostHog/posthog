@@ -52,6 +52,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import posthog from 'posthog-js'
 import { teamLogic } from '../teamLogic'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -63,7 +64,14 @@ export const funnelLogic = kea<funnelLogicType>({
     key: keyForInsightLogicProps('insight_funnel'),
 
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], teamLogic, ['currentTeamId']],
+        values: [
+            insightLogic(props),
+            ['filters', 'insight', 'insightLoading'],
+            teamLogic,
+            ['currentTeamId'],
+            personPropertiesModel,
+            ['personProperties'],
+        ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
@@ -120,7 +128,6 @@ export const funnelLogic = kea<funnelLogicType>({
         setCorrelationDetailedFeedbackVisible: (visible: boolean) => ({ visible }),
         sendCorrelationAnalysisFeedback: true,
         hideSkewWarning: true,
-
         setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
         excludeProperty: (propertyName: string) => ({ propertyName }),
 
@@ -876,6 +883,14 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.excludedEventPropertyNames],
             (excludedEventPropertyNames) => (propertyName: string) =>
                 excludedEventPropertyNames.find((name) => name === propertyName) !== undefined,
+        ],
+        inversePropertyNames: [
+            (s) => [s.personProperties],
+            (personProperties) => (excludedPersonProperties: string[]) => {
+                return personProperties
+                    .map((property) => property.name)
+                    .filter((property) => !excludedPersonProperties.includes(property))
+            },
         ],
     }),
 

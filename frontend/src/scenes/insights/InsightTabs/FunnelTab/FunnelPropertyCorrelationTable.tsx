@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Col, Row, Table } from 'antd'
+import { Button, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
@@ -10,6 +10,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
+import './FunnelCorrelationTable.scss'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -20,7 +21,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         propertyCorrelationTypes,
         excludedPropertyNames,
         parseDisplayNameForCorrelation,
+        propertyCorrelationsLoading,
+        inversePropertyNames,
     } = useValues(logic)
+
     const { setPropertyCorrelationTypes, setExcludedPropertyNames, openPersonsModal } = useActions(logic)
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
@@ -58,7 +62,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event?.event || '')
+        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
 
         return (
             <ValueInspectorButton
@@ -79,7 +83,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event?.event || '')
+        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
 
         return (
             <ValueInspectorButton
@@ -142,33 +146,21 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     return stepsWithCount.length > 1 ? (
-        <Table
-            dataSource={propertyCorrelationValues}
-            scroll={{ x: 'max-content' }}
-            size="small"
-            rowKey="rowKey"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            style={{ marginTop: '1rem' }}
-            title={() => (
-                <Row align="middle">
-                    <Col xs={20} sm={20} xl={6}>
-                        <b>Correlation Analysis for:</b>
-                    </Col>
-                    <Col>
-                        Exclude:{' '}
-                        <PropertyNamesSelect
-                            // NOTE: we want to make sure that if the
-                            // selected propertyNames change, we reset the
-                            // internal state of the select
-                            value={new Set(excludedPropertyNames)}
-                            onChange={setExcludedPropertyNames}
-                        />
-                    </Col>
-                    <Col
-                        xs={20}
-                        sm={20}
-                        xl={4}
-                        className="tab-btn left ant-btn"
+        <div className="funnel-correlation-table">
+            <span className="funnel-correlation-header">
+                <span className="table-header">CORRELATED PROPERTIES</span>
+                <span className="table-options">
+                    <p className="title">PROPERTIES </p>
+                    <PropertyNamesSelect
+                        value={new Set(inversePropertyNames(excludedPropertyNames))}
+                        onChange={(selectedProperties: string[]) =>
+                            setExcludedPropertyNames(inversePropertyNames(selectedProperties))
+                        }
+                    />
+                    <p className="title">CORRELATION</p>
+                    <div
+                        className="tab-btn ant-btn"
+                        style={{ marginRight: '2px', paddingTop: '1px', paddingBottom: '1px' }}
                         onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
                     >
                         <Checkbox
@@ -179,12 +171,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         >
                             Success
                         </Checkbox>
-                    </Col>
-                    <Col
-                        xs={20}
-                        sm={20}
-                        xl={4}
-                        className="tab-btn left ant-btn"
+                    </div>
+                    <div
+                        className="tab-btn ant-btn"
+                        style={{ marginRight: '5px', paddingTop: '1px', paddingBottom: '1px' }}
                         onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
                     >
                         <Checkbox
@@ -195,37 +185,46 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         >
                             Dropoff
                         </Checkbox>
-                    </Col>
-                </Row>
-            )}
-        >
-            <Column
-                title="Correlated Person Properties"
-                key="propertName"
-                render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
-                align="left"
-            />
-            <Column
-                title="Completed"
-                key="success_count"
-                render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
-                width={90}
-                align="center"
-            />
-            <Column
-                title="Dropped off"
-                key="failure_count"
-                render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                width={100}
-                align="center"
-            />
-            <Column
-                title="Actions"
-                key="actions"
-                render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
-                align="left"
-            />
-        </Table>
+                    </div>
+                </span>
+            </span>
+            <Table
+                dataSource={propertyCorrelationValues}
+                loading={propertyCorrelationsLoading}
+                scroll={{ x: 'max-content' }}
+                size="small"
+                rowKey="rowKey"
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                style={{ marginTop: '1rem' }}
+            >
+                <Column
+                    title="Correlated Person Properties"
+                    key="propertName"
+                    render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
+                    align="left"
+                />
+                <Column
+                    title="Completed"
+                    key="success_count"
+                    render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
+                    width={90}
+                    align="center"
+                />
+                <Column
+                    title="Dropped off"
+                    key="failure_count"
+                    render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
+                    width={100}
+                    align="center"
+                />
+                <Column
+                    title="Actions"
+                    key="actions"
+                    render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                    align="left"
+                />
+            </Table>
+        </div>
     ) : null
 }
 
@@ -234,7 +233,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
     const logic = funnelLogic(insightProps)
     const { excludeProperty } = useActions(logic)
     const { isPropertyExcluded } = useValues(logic)
-    const propertyName = (record.event?.event || '').split('::')[0]
+    const propertyName = (record.event.event || '').split('::')[0]
 
     return (
         <Button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)}>
