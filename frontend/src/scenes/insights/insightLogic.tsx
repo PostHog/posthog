@@ -94,6 +94,7 @@ export const insightLogic = kea<insightLogicType>({
         }),
         updateInsight: (insight: Partial<DashboardItemType>) => ({ insight }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
+        setInsightMetadata: (name: string, value: string) => ({ name, value }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -579,6 +580,13 @@ export const insightLogic = kea<insightLogicType>({
                         actions.updateInsight({ filters: insight.filters })
                     }
                 }
+            }
+        },
+        setInsightMetadata: ({ name, value }) => {
+            if (values.insightMode === ItemMode.Edit) {
+                actions.setInsight({ [name]: value }, { shouldMergeWithExisting: true })
+            } else {
+                actions.updateInsight({ [name]: value })
             }
         },
     }),

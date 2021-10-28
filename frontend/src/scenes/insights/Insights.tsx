@@ -24,6 +24,7 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
 import { SceneExport } from 'scenes/sceneTypes'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
+import { EditableField } from 'scenes/insights/InsightMetadata/EditableField'
 
 dayjs.extend(relativeTime)
 
@@ -42,7 +43,8 @@ export function Insights(): JSX.Element {
     const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
     const { insightProps, activeView, filters, controlsCollapsed, insight, insightMode, filtersChanged, savedFilters } =
         useValues(logic)
-    const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight, setFilters } = useActions(logic)
+    const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight, setFilters, setInsightMetadata } =
+        useActions(logic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
@@ -90,12 +92,35 @@ export function Insights(): JSX.Element {
         },
     })
 
+    const insightName = (
+        <EditableField
+            name="name"
+            value={insight.name || ''}
+            placeholder={`Insight #${insight.id ?? '...'}`}
+            onChange={(value) => setInsightMetadata('name', value)}
+            className={'insight-metadata-name'}
+            dataAttr={'insight-name'}
+        />
+    )
+    const insightDescription = (
+        <EditableField
+            multiline
+            name="description"
+            value={insight.description || ''}
+            placeholder={`Description (optional)`}
+            onChange={(value) => setInsightMetadata('description', value)}
+            className={'insight-metadata-description'}
+            dataAttr={'insight-description'}
+        />
+    )
+    const insightTags = <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
+
     const insightScene = (
         <div className="insights-page">
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <div className="insight-metadata">
                     <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
-                        <InsightMetadata.Title insight={insight} insightMode={insightMode} />
+                        {insightName}
                         <div>
                             {insight.id && <SaveToDashboard insight={insight} />}
                             <HotkeyButton
@@ -108,8 +133,8 @@ export function Insights(): JSX.Element {
                             </HotkeyButton>
                         </div>
                     </Row>
-                    <InsightMetadata.Description insight={insight} insightMode={insightMode} />
-                    <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
+                    {insightDescription}
+                    {insightTags}
                     <Col span={24} style={{ marginTop: 16 }}>
                         <InsightContainer />
                     </Col>
@@ -128,9 +153,7 @@ export function Insights(): JSX.Element {
 
                     <div className="insight-metadata">
                         <Row align="middle" style={{ marginTop: 24, justifyContent: 'space-between' }}>
-                            <Col style={{ flex: 1 }}>
-                                <InsightMetadata.Title insight={insight} insightMode={insightMode} />
-                            </Col>
+                            <Col style={{ flex: 1 }}>{insightName}</Col>
                             <Col className="insights-tab-actions">
                                 <>
                                     {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && filtersChanged ? (
@@ -157,12 +180,8 @@ export function Insights(): JSX.Element {
                                 </>
                             </Col>
                         </Row>
-                        <Row>
-                            <InsightMetadata.Description insight={insight} insightMode={insightMode} />
-                        </Row>
-                        <Row>
-                            <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
-                        </Row>
+                        <Row>{insightDescription}</Row>
+                        <Row>{insightTags}</Row>
                     </div>
 
                     <Row style={{ marginTop: 16 }}>

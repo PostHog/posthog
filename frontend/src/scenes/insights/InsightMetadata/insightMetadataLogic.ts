@@ -14,7 +14,7 @@ export interface InsightMetadataLogicProps {
 
 export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadataLogicProps>>({
     props: {} as InsightMetadataLogicProps,
-    key: (props) => `${props.insightProps?.dashboardItemId || 'new'}-${Object.keys(props.insight || {}).join(',')}`,
+    key: ({ insight }) => `${insight?.id || 'unknown'}`,
     actions: {
         setInsightMetadata: (insight: Partial<DashboardItemType>) => ({ insight }),
         saveInsightMetadata: (property: keyof DashboardItemType, shouldPersist: boolean = false) => ({
@@ -61,13 +61,10 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
             await breakpoint(200)
             if (shouldPersist) {
                 // Persists insight metadata by directly making the update api call
-                await actions.updateInsight({ [property]: values.insightMetadata[property] })
+                actions.updateInsight({ [property]: values.insightMetadata[property] })
             } else {
                 // Update local insight state
-                await actions.setInsight(
-                    { [property]: values.insightMetadata[property] },
-                    { shouldMergeWithExisting: true }
-                )
+                actions.setInsight({ [property]: values.insightMetadata[property] }, { shouldMergeWithExisting: true })
             }
             actions.setInsightMetadata({ [property]: values.insightMetadata[property] }) // sync
             actions.showViewMode(property)
