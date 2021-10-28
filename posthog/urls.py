@@ -8,6 +8,7 @@ from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
 from django.urls.base import reverse
 from django.views.decorators.csrf import csrf_exempt
+from django_prometheus import exports
 
 from posthog.api import (
     api_not_found,
@@ -69,6 +70,7 @@ urlpatterns = [
     # internals
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
+    opt_slash_path("_metrics", exports.ExportToDjangoView),
     opt_slash_path("_preflight", preflight_check),
     # admin
     path("admin/", include("loginas.urls")),
