@@ -10,6 +10,8 @@ import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelatio
 import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
 import { IconFeedbackWarning } from 'lib/components/icons'
 import { CloseOutlined } from '@ant-design/icons'
+import { PayCard } from 'lib/components/PayCard/PayCard'
+import { AvailableFeature } from '~/types'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
@@ -19,6 +21,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         correlationFeedbackHidden,
         correlationDetailedFeedbackVisible,
         correlationFeedbackRating,
+        correlationAnalysisAvailable,
     } = useValues(funnelLogic(insightProps))
     const {
         sendCorrelationAnalysisFeedback,
@@ -32,6 +35,16 @@ export const FunnelCorrelation = (): JSX.Element | null => {
 
     if (stepsWithCount.length <= 1) {
         return null
+    }
+
+    if (!correlationAnalysisAvailable) {
+        return (
+            <PayCard
+                identifier={AvailableFeature.CORRELATION_ANALYSIS}
+                title="Get a deeper understanding of what your users are doing"
+                caption="Correlation Analysis allows you to find signals for conversions and dropoffs that help you gain deeper insights."
+            />
+        )
     }
 
     return (
