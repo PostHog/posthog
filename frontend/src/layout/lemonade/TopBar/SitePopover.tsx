@@ -48,17 +48,17 @@ function AccountInfo(): JSX.Element {
     )
 }
 
-function InitialBlob({ name }: { name?: string | null }): JSX.Element {
+function Lettermark({ name }: { name?: string | null }): JSX.Element {
     const initialLetter = name ? name[0].toLocaleUpperCase() : '?'
 
-    return <div className="InitialBlob">{initialLetter}</div>
+    return <div className="Lettermark">{initialLetter}</div>
 }
 
 function CurrentOrganization({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     const { closeSitePopover } = useActions(lemonadeLogic)
 
     return (
-        <LemonRow icon={<InitialBlob name={organization.name} />} fullWidth>
+        <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
             <>
                 <div className="SitePopover__main-info">
                     <b>{organization.name}</b>
@@ -77,7 +77,7 @@ function OtherOrganizationButton({ organization }: { organization: OrganizationB
     return (
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
-            icon={<InitialBlob name={organization.name} />}
+            icon={<Lettermark name={organization.name} />}
             type="stealth"
             align="start"
             title={`Switch to organization ${organization.name}`}
@@ -132,7 +132,7 @@ function License(): JSX.Element {
     const relevantLicense = licenses[0] as LicenseType | undefined
 
     return (
-        <LemonRow icon={<InitialBlob name={relevantLicense ? relevantLicense.plan : '–'} />} fullWidth>
+        <LemonRow icon={<Lettermark name={relevantLicense ? relevantLicense.plan : '–'} />} fullWidth>
             <>
                 <div className="SitePopover__main-info">
                     <div>{relevantLicense ? `${identifierToHuman(relevantLicense.plan)} plan` : 'Free plan'}</div>
