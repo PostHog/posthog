@@ -875,8 +875,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"signup_source": "facebook"})), 3)
+        self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"signup_source": "facebook"})), 3)
         self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"$event_type": "click"})), 6)
         self.assertEqual(
             len(
