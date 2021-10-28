@@ -27,7 +27,7 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
         ...(metadata ?? {}),
         start_time: metadata?.start_time ? +dayjs(metadata?.start_time) : 0,
         end_time: metadata?.end_time ? +dayjs(metadata?.end_time) : 0,
-        recording_duration: parseFloat(metadata?.recording_duration) * 1000 || 0, // s to ms
+        recording_duration: parseFloat(metadata?.recording_duration) * 1000 || 0,
     }
 }
 
@@ -222,7 +222,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 return {
                     ...response.result,
                     session_recording: parseMetadataResponse(response.result?.session_recording),
-                    snapshots: values.sessionPlayerData?.snapshots ?? [], // don't override snapshots
+                    snapshots: values.sessionPlayerData?.snapshots ?? [],
                 }
             },
             loadRecordingSnapshots: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
