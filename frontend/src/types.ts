@@ -1049,7 +1049,7 @@ export interface SetInsightOptions {
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
-    fromApi?: boolean
+    fromPersistentApi?: boolean
 }
 
 export interface FeatureFlagGroupType {

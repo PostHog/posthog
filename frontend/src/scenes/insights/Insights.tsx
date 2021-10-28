@@ -3,7 +3,7 @@ import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { Row, Col, Card, Button, Popconfirm, Tooltip } from 'antd'
+import { Row, Col, Card, Button, Tooltip, Popconfirm } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -41,8 +41,9 @@ export function Insights(): JSX.Element {
     } = useValues(router)
 
     const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
-    const { insightProps, activeView, filters, controlsCollapsed, insight, insightMode } = useValues(logic)
-    const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight } = useActions(logic)
+    const { insightProps, activeView, filters, controlsCollapsed, insight, insightMode, filtersChanged, savedFilters } =
+        useValues(logic)
+    const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight, setFilters } = useActions(logic)
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
@@ -57,8 +58,6 @@ export function Insights(): JSX.Element {
         setActiveView(view)
         reportHotkeyNavigation('insights', hotkey)
     }
-
-    const { push } = useActions(router)
 
     useKeyboardHotkeys({
         t: {
@@ -152,32 +151,27 @@ export function Insights(): JSX.Element {
                             </Col>
                             <Col className="insights-tab-actions">
                                 <>
-                                    <Popconfirm
-                                        title="Are you sure? This will clear all filters and any progress will be lost."
-                                        onConfirm={() => {
-                                            window.scrollTo({ top: 0 })
-                                            push(`/insights?insight=${insight?.filters?.insight}`)
-                                            reportInsightsTabReset()
-                                        }}
-                                    >
-                                        <Tooltip placement="top" title="Reset all filters">
-                                            <Button type="link" className="btn-reset">
-                                                {'Reset'}
-                                            </Button>
-                                        </Tooltip>
-                                    </Popconfirm>
+                                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && filtersChanged ? (
+                                        <Popconfirm
+                                            title="Are you sure? This will discard all unsaved changes in this insight."
+                                            onConfirm={() => {
+                                                setFilters(savedFilters)
+                                                reportInsightsTabReset()
+                                            }}
+                                        >
+                                            <Tooltip placement="top" title="Discard all changes">
+                                                <Button type="link" className="btn-reset">
+                                                    Discard
+                                                </Button>
+                                            </Tooltip>
+                                        </Popconfirm>
+                                    ) : null}
                                     <SaveToDashboard
                                         displayComponent={
                                             <Button style={{ color: 'var(--primary)' }} className="btn-save">
-                                                {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
-                                                    ? 'Save & add to dashboard'
-                                                    : 'Add to dashboard'}
+                                                Add to dashboard
                                             </Button>
                                         }
-                                        tooltipOptions={{
-                                            placement: 'bottom',
-                                            title: 'Save to dashboard',
-                                        }}
                                         item={{
                                             entity: {
                                                 filters: insight.filters || filters,
@@ -186,7 +180,7 @@ export function Insights(): JSX.Element {
                                         }}
                                     />
                                     {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
-                                        <Button style={{ marginLeft: 8 }} type="primary" onClick={() => saveInsight()}>
+                                        <Button style={{ marginLeft: 8 }} type="primary" onClick={saveInsight}>
                                             Save
                                         </Button>
                                     )}

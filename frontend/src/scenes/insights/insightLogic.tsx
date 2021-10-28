@@ -254,8 +254,8 @@ export const insightLogic = kea<insightLogicType>({
             () => props.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (state, { filters }) => cleanFilters(filters, state),
-                setInsight: (state, { insight: { filters }, options: { fromApi } }) =>
-                    fromApi ? cleanFilters(filters || {}) : state,
+                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
+                    overrideFilter ? cleanFilters(filters || {}) : state,
                 loadInsightSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 loadResultsSuccess: (state, { insight }) =>
@@ -266,8 +266,8 @@ export const insightLogic = kea<insightLogicType>({
         savedFilters: [
             () => props.filters || ({} as Partial<FilterType>),
             {
-                setInsight: (state, { insight: { filters }, options: { fromApi } }) =>
-                    fromApi ? cleanFilters(filters || {}) : state,
+                setInsight: (state, { insight: { filters }, options: { fromPersistentApi } }) =>
+                    fromPersistentApi ? cleanFilters(filters || {}) : state,
                 loadInsightSuccess: (_, { insight }) => cleanFilters(insight.filters || {}),
                 updateInsightSuccess: (_, { insight }) => cleanFilters(insight.filters || {}),
             },
@@ -347,6 +347,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
+        /** filters for data that's being displayed, might not be same as savedFilters or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
@@ -358,6 +359,11 @@ export const insightLogic = kea<insightLogicType>({
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
+        ],
+        filtersChanged: [
+            (s) => [s.savedFilters, s.filters],
+            (savedFilters, filters) =>
+                filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
         ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
@@ -504,7 +510,7 @@ export const insightLogic = kea<insightLogicType>({
             )
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
-                { fromApi: true }
+                { fromPersistentApi: true }
             )
             actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             toast(
@@ -532,7 +538,7 @@ export const insightLogic = kea<insightLogicType>({
                 breakpoint()
                 actions.setInsight(
                     { ...insight, ...createdInsight, result: createdInsight.result || insight.result },
-                    { fromApi: true }
+                    {}
                 )
                 if (props.syncWithUrl) {
                     router.actions.replace('/insights', router.values.searchParams, {
@@ -544,11 +550,8 @@ export const insightLogic = kea<insightLogicType>({
                 // This auto-saves new filters into the insight.
                 // Exceptions:
                 if (
-                    // - not saved if "saved insights" feature flag is enabled and we're in view mode
-                    !(
-                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                        values.insightMode === ItemMode.View
-                    ) &&
+                    // - not saved if "saved insights" feature flag is enabled
+                    !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
                     // - not saved if on the history "insight" for some reason
                     (insight.filters.insight as ViewType) !== ViewType.HISTORY &&
                     // - not saved if we came from a dashboard --> there's a separate "save" button for that
@@ -620,7 +623,7 @@ export const insightLogic = kea<insightLogicType>({
                                 (item: DashboardItemType) => item.id === Number(hashParams.fromItem)
                             )
                             if (insight?.result) {
-                                actions.setInsight(insight, { overrideFilter: true, fromApi: true })
+                                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                                 loadedFromDashboard = true
                             }
                         }
@@ -656,7 +659,7 @@ export const insightLogic = kea<insightLogicType>({
                         const logic = dashboardLogic.findMounted({ id: router.values.hashParams.fromDashboard })
                         const insight = logic?.values.allItems?.items?.find((item) => item.id === props.dashboardItemId)
                         if (insight?.result) {
-                            actions.setInsight(insight, { overrideFilter: true, fromApi: true })
+                            actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                             return
                         }
                     }
