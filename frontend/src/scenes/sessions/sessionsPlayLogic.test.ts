@@ -6,6 +6,7 @@ import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
+import recordingEventsJson from './__mocks__/recording_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { combineUrl } from 'kea-router'
 
@@ -16,6 +17,7 @@ const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
     `api/projects/${MOCK_TEAM_ID}/session_recordings/\\d/snapshots`
 )
 const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
+const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events`
 
 describe('sessionsPlayLogic', () => {
     let logic: ReturnType<typeof sessionsPlayLogic.build>
@@ -25,6 +27,8 @@ describe('sessionsPlayLogic', () => {
             return { result: recordingSnapshotsJson }
         } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
             return { result: recordingMetaJson }
+        } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+            return { result: recordingEventsJson }
         } else if (url.pathname === 'api/sessions_filter') {
             return { results: [] }
         }
@@ -142,6 +146,58 @@ describe('sessionsPlayLogic', () => {
         })
     })
 
+    describe('loading session events', () => {
+        it('load events after metadata', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents'])
+                .toMatchValues({
+                    eventsApiParams: {
+                        after: '2021-10-12T05:13:12+00:00',
+                        before: '2021-12-20T14:02:33+00:00',
+                        person_id: 1,
+                    },
+                })
+        })
+        it('no next url', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
+                .toNotHaveDispatchedActions(['loadRecordingSnapshots'])
+        })
+        it('fetch all events', async () => {
+            api.get.mockClear()
+            const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
+            const secondNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
+            const thirdNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
+
+            api.get
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { result: { ...recordingSnapshotsJson, next: firstNext } }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { result: { ...recordingSnapshotsJson, next: secondNext } }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { result: { ...recordingSnapshotsJson, next: thirdNext } }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: recordingSnapshotsJson }
+                    }
+                })
+        })
+        it('server error mid-fetch', async () => {})
+    })
+
     describe('loading session snapshots', () => {
         it('no next url', async () => {
             await expectLogic(logic, () => {
@@ -229,7 +285,7 @@ describe('sessionsPlayLogic', () => {
 
             expect(api.get).toBeCalledTimes(4)
         })
-        it('internal server error mid-way through recording', async () => {
+        it('server error mid-way through recording', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic])
             api.get.mockClear()

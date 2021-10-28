@@ -4,7 +4,6 @@ import { clamp, errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
 import {
     SessionPlayerData,
-    SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
     SessionRecordingUsageType,
@@ -166,6 +165,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         },
         loadEventsSuccess: () => {
             // Fetch next events
+            console.log('session events', values.sessionEvents)
             if (!!values.sessionEvents?.next) {
                 actions.loadEvents(values.sessionEvents.next)
             }
@@ -237,30 +237,29 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 }
             },
         },
-        sessionEvents: [
-            {} as SessionRecordingEvents,
-            {
-                loadEvents: async ({ url }) => {
-                    if (!values.eventsApiParams) {
-                        return values.sessionEvents
-                    }
-                    // Use `url` if there is a `next` url to fetch
-                    const startTime = performance.now()
-                    const apiUrl = url || `api/event/?${toParams(values.eventsApiParams)}`
-                    const response = await api.get(apiUrl)
+        sessionEvents: {
+            loadEvents: async ({ url }) => {
+                if (!values.eventsApiParams) {
+                    return values.sessionEvents
+                }
+                // Use `url` if there is a `next` url to fetch
+                const startTime = performance.now()
+                const apiUrl = url || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
+                const response = await api.get(apiUrl)
 
-                    eventUsageLogic.actions.reportRecordingEventsFetched(
-                        response.results.length ?? 0,
-                        performance.now() - startTime
-                    )
+                eventUsageLogic.actions.reportRecordingEventsFetched(
+                    response.results.length ?? 0,
+                    performance.now() - startTime
+                )
 
-                    return {
-                        ...values.sessionEvents,
-                        events: [...(values.sessionEvents?.events ?? []), ...(response.results ?? [])],
-                    }
-                },
+                console.log('session evenrts', response)
+                return {
+                    ...values.sessionEvents,
+                    next: response?.next,
+                    events: [...(values.sessionEvents?.events ?? []), ...(response.results ?? [])],
+                }
             },
-        ],
+        },
     }),
     selectors: {
         sessionDate: [
