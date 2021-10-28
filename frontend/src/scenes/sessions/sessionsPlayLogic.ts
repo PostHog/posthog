@@ -158,11 +158,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             }
             // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
             if (values.chunkPaginationIndex === 1) {
-                actions.reportUsage(
-                    values.sessionPlayerData,
-                    performance.now() - cache.startTime,
-                    SessionRecordingUsageType.VIEWED
-                )
+                actions.reportUsage(values.sessionPlayerData, performance.now() - cache.startTime)
             }
         },
         loadEventsSuccess: () => {
