@@ -854,25 +854,12 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result = correlation._run()[0]
 
+        # $autocapture results only return elements chain
         self.assertEqual(
             result,
             [
                 {
                     "event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"',
-                    "success_count": 6,
-                    "failure_count": 0,
-                    "odds_ratio": 14.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$autocapture::signup_source::email",
-                    "success_count": 6,
-                    "failure_count": 0,
-                    "odds_ratio": 14.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$autocapture::$event_type::click",
                     "success_count": 6,
                     "failure_count": 0,
                     "odds_ratio": 14.0,
@@ -885,24 +872,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     "odds_ratio": 2.0,
                     "correlation_type": "success",
                 },
-                {
-                    "event": "$autocapture::$event_type::submit",
-                    "success_count": 3,
-                    "failure_count": 0,
-                    "odds_ratio": 2.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$autocapture::signup_source::facebook",
-                    "success_count": 3,
-                    "failure_count": 0,
-                    "odds_ratio": 2.0,
-                    "correlation_type": "success",
-                },
             ],
         )
 
-        self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"signup_source": "facebook"})), 3)
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"signup_source": "facebook"})), 3)
         self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"$event_type": "click"})), 6)
         self.assertEqual(
             len(
