@@ -260,13 +260,13 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.postgres",
     "django.contrib.staticfiles",
-    "django_prometheus",
     "posthog.apps.PostHogConfig",
     "rest_framework",
     "loginas",
     "corsheaders",
     "social_django",
     "django_filters",
+    "django_prometheus",
     "axes",
 ]
 
