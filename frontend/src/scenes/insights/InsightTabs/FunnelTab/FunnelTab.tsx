@@ -183,7 +183,7 @@ export function FunnelTab(): JSX.Element {
                     )}
                     <hr />
                     <h4 className="secondary">Options</h4>
-                    <FunnelConversionWindowFilter />
+                    <FunnelConversionWindowFilter filters={filters} />
                     {!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                         <>
                             <hr />
