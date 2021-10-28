@@ -23,7 +23,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logic: [eventUsageLogic],
         values: [
             sessionsPlayLogic,
-            ['sessionRecordingId', 'sessionPlayerData', 'sessionPlayerDataLoading', 'isPlayable', 'chunkIndex'],
+            ['sessionRecordingId', 'sessionPlayerData', 'sessionPlayerDataLoading', 'isPlayable'],
         ],
         actions: [sessionsPlayLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
     },
