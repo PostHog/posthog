@@ -4,8 +4,8 @@ import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SessionPlayerState, SessionPlayerTime } from '~/types'
 import { eventWithTime, playerMetaData } from 'rrweb/typings/types'
-import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { sessionsPlayLogic } from 'scenes/session-recordings/sessionsPlayLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 

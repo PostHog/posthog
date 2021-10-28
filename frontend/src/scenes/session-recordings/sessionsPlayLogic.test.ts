@@ -1,11 +1,11 @@
-import { parseMetadataResponse, sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
+import { parseMetadataResponse, sessionsPlayLogic } from 'scenes/session-recordings/sessionsPlayLogic'
 import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
-import recordingMetaJson from './__mocks__/recording_meta.json'
+import recordingSnapshotsJson from '../sessions/__mocks__/recording_snapshots.json'
+import recordingMetaJson from '../sessions/__mocks__/recording_meta.json'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { combineUrl } from 'kea-router'
 
@@ -17,7 +17,7 @@ const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
 )
 const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
 
-describe('sessionsPlayLogic', () => {
+describe('sessionsPlayLogicV2', () => {
     let logic: ReturnType<typeof sessionsPlayLogic.build>
 
     mockAPI(async (url) => {
