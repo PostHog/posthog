@@ -129,11 +129,13 @@ export function SessionsPlay(): JSX.Element {
                                 <Player
                                     events={sessionPlayerData?.snapshots || []}
                                     ref={playerRef}
-                                    key="session-player"
+                                    key={`session-player-${
+                                        sessionPlayerData?.session_recording?.recording_duration ?? 0
+                                    }`}
                                     onPlayerTimeChange={setCurrentPlayerTime}
                                     onNext={showNext ? goToNext : undefined}
                                     onPrevious={showPrev ? goToPrevious : undefined}
-                                    duration={sessionPlayerData?.duration ?? 0}
+                                    duration={sessionPlayerData?.session_recording?.recording_duration ?? 0}
                                     isBuffering={sessionPlayerDataLoading}
                                 />
                             </span>
