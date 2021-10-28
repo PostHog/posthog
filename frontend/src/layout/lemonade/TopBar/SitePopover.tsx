@@ -146,7 +146,7 @@ export function SitePopover(): JSX.Element {
                             {otherOrganizations.map((otherOrganization) => (
                                 <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} />
                             ))}
-                            {!preflight?.can_create_org && <NewOrganizationButton />}
+                            {preflight?.can_create_org && <NewOrganizationButton />}
                         </SitePopoverSection>
                     )}
                     <SitePopoverSection title="PostHog status">
