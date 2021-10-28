@@ -109,8 +109,14 @@ export const insightLogic = kea<insightLogicType>({
                 result: props.cachedResults || null,
             } as Partial<DashboardItemType>,
             {
-                loadInsight: async ({ id }) => {
-                    return await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`)
+                loadInsight: async ({ id, doNotLoadResults }) => {
+                    const response = await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`)
+                    if (doNotLoadResults) {
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        const { result, filters, ...rest } = response
+                        return { ...values.insight, ...rest }
+                    }
+                    return response
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
@@ -623,7 +629,7 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
-                let loadedFromDashboard = false
+                let loadedFromAnotherLogic = false
                 if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
                     if (values.insightMode !== ItemMode.Edit) {
                         actions.setInsightMode(ItemMode.Edit, null)
@@ -639,12 +645,12 @@ export const insightLogic = kea<insightLogicType>({
                         if (insight) {
                             actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                             if (insight?.result) {
-                                loadedFromDashboard = true
+                                loadedFromAnotherLogic = true
                             }
                         }
                     }
 
-                    if (!loadedFromDashboard && insightIdChanged) {
+                    if (!loadedFromAnotherLogic && insightIdChanged) {
                         // Do not load the result if missing, as setFilters below will do so anyway.
                         actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
                     }
@@ -656,7 +662,7 @@ export const insightLogic = kea<insightLogicType>({
                 }
 
                 const cleanSearchParams = cleanFilters(searchParams, values.filters)
-                if (!loadedFromDashboard && !objectsEqual(cleanSearchParams, values.filters)) {
+                if (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams)
                 }
             }
