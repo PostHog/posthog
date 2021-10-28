@@ -1,10 +1,14 @@
-from typing import Tuple
+import dataclasses
+import json
+from typing import Dict, List, Tuple
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 from django.test import TestCase
+from django.utils import timezone
 from freezegun import freeze_time
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries import ClickhousePaths
@@ -21,6 +25,7 @@ from posthog.constants import (
 )
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.person import Person
+from posthog.models.team import Team
 from posthog.queries.test.test_paths import paths_test_factory
 from posthog.test.base import test_with_materialized_columns
 
@@ -31,6 +36,31 @@ def _create_event(**kwargs):
 
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
+
+
+@dataclasses.dataclass
+class MockEvent:
+    event: str
+    distinct_id: str
+    team: Team
+    timestamp: str
+    properties: Dict
+
+
+def _create_all_events(all_events: List[Dict]):
+    parsed = ""
+    for event in all_events:
+        mocked_event = MockEvent(**event)
+        parsed += f"""
+        ('{str(uuid4())}', '{mocked_event.event}', '{json.dumps(mocked_event.properties)}', '{mocked_event.timestamp}', {mocked_event.team.pk}, '{mocked_event.distinct_id}', '', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
+        """
+
+    sync_execute(
+        f"""
+    INSERT INTO events (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
+    {parsed}
+    """
+    )
 
 
 class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePaths, _create_event, Person.objects.create)):  # type: ignore
@@ -307,74 +337,76 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     def test_path_by_grouping_replacement(self):
+
         Person.objects.create(distinct_ids=[f"user_1"], team=self.team)
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_1",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$current_url": "test.com/step1"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_1",
-            team=self.team,
-            timestamp="2021-05-01 00:01:00",
-            properties={"$current_url": "test.com/step2"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_1",
-            team=self.team,
-            timestamp="2021-05-01 00:02:00",
-            properties={"$current_url": "test.com/step3?key=value1"},
-        )
-
         Person.objects.create(distinct_ids=[f"user_2"], team=self.team)
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_2",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$current_url": "test.com/step1"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_2",
-            team=self.team,
-            timestamp="2021-05-01 00:01:00",
-            properties={"$current_url": "test.com/step2"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_2",
-            team=self.team,
-            timestamp="2021-05-01 00:02:00",
-            properties={"$current_url": "test.com/step3?key=value2"},
-        )
-
         Person.objects.create(distinct_ids=[f"user_3"], team=self.team)
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_3",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$current_url": "test.com/step1"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_3",
-            team=self.team,
-            timestamp="2021-05-01 00:01:00",
-            properties={"$current_url": "test.com/step2"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_3",
-            team=self.team,
-            timestamp="2021-05-01 00:02:00",
-            properties={"$current_url": "test.com/step3?key=value3"},
-        )
+        events = [
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step3?key=value1"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step3?key=value2"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step3?key=value3"},
+            },
+        ]
+        _create_all_events(events)
 
         self.team.path_cleaning_filters = [{"alias": "?<param>", "regex": "\\?(.*)"}]
         self.team.save()
@@ -428,74 +460,78 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     def test_path_by_grouping_replacement_multiple(self):
+        events = [
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2/5"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step2/5?key=value1"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2/5"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step2/5?key=value2"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2/5"},
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step2/5?key=value3"},
+            },
+        ]
+        _create_all_events(events)
+
         Person.objects.create(distinct_ids=[f"user_1"], team=self.team)
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_1",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$current_url": "test.com/step1"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_1",
-            team=self.team,
-            timestamp="2021-05-01 00:01:00",
-            properties={"$current_url": "test.com/step2/5"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_1",
-            team=self.team,
-            timestamp="2021-05-01 00:02:00",
-            properties={"$current_url": "test.com/step2/5?key=value1"},
-        )
 
         Person.objects.create(distinct_ids=[f"user_2"], team=self.team)
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_2",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$current_url": "test.com/step1"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_2",
-            team=self.team,
-            timestamp="2021-05-01 00:01:00",
-            properties={"$current_url": "test.com/step2/5"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_2",
-            team=self.team,
-            timestamp="2021-05-01 00:02:00",
-            properties={"$current_url": "test.com/step2/5?key=value2"},
-        )
 
         Person.objects.create(distinct_ids=[f"user_3"], team=self.team)
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_3",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$current_url": "test.com/step1"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_3",
-            team=self.team,
-            timestamp="2021-05-01 00:01:00",
-            properties={"$current_url": "test.com/step2/5"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id=f"user_3",
-            team=self.team,
-            timestamp="2021-05-01 00:02:00",
-            properties={"$current_url": "test.com/step2/5?key=value3"},
-        )
 
         correct_response = [
             {
@@ -610,34 +646,96 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     def test_path_by_funnel_after_step_respects_conversion_window(self):
         # note events happen after 1 day
+        events = []
         for i in range(5):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(
-                event="between_step_1_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00"
+            events.extend(
+                [
+                    {
+                        "event": "step one",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-01 00:00:00",
+                        "properties": {},
+                    },
+                    {
+                        "event": "between_step_1_a",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-02 00:00:00",
+                        "properties": {},
+                    },
+                    {
+                        "event": "between_step_1_b",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-03 00:00:00",
+                        "properties": {},
+                    },
+                    {
+                        "event": "between_step_1_c",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-04 00:00:00",
+                        "properties": {},
+                    },
+                    {
+                        "event": "step two",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-05 00:00:00",
+                        "properties": {},
+                    },
+                    {
+                        "event": "step three",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-06 00:00:00",
+                        "properties": {},
+                    },
+                ]
             )
-            _create_event(
-                event="between_step_1_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00"
-            )
-            _create_event(
-                event="between_step_1_c", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-04 00:00:00"
-            )
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-06 00:00:00")
-
         for i in range(15, 35):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(
-                event="step dropoff1", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00"
-            )
-            _create_event(
-                event="step dropoff2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00"
+            events.extend(
+                [
+                    {
+                        "event": "step one",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-01 00:00:00",
+                        "properties": {},
+                    },
+                    {
+                        "event": "step dropoff1",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-02 00:00:00",
+                        "properties": {},
+                    },
+                    {
+                        "event": "step dropoff2",
+                        "distinct_id": f"user_{i}",
+                        "team": self.team,
+                        "timestamp": "2021-05-03 00:00:00",
+                        "properties": {},
+                    },
+                ]
             )
             if i % 2 == 0:
-                _create_event(
-                    event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-04 00:00:00"
+                events.extend(
+                    [
+                        {
+                            "event": "step branch",
+                            "distinct_id": f"user_{i}",
+                            "team": self.team,
+                            "timestamp": "2021-05-04 00:00:00",
+                            "properties": {},
+                        }
+                    ]
                 )
+
+        _create_all_events(events)
 
         data = {
             "insight": INSIGHT_FUNNELS,
