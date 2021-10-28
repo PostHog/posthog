@@ -1,5 +1,3 @@
-# ⚠️ This Repository is Archived and is currently located within the https://github.com/posthog/posthog repository monorepo ⚠️
-
 # PostHog Plugin Server
 
 [![npm package](https://img.shields.io/npm/v/@posthog/plugin-server?style=flat-square)](https://www.npmjs.com/package/@posthog/plugin-server)
