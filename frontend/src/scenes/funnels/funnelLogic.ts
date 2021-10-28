@@ -206,14 +206,15 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
     }),
 
-    reducers: ({ props }) => ({
+    reducers: ({ props, values }) => ({
         people: {
             clearFunnel: () => [],
         },
         conversionWindow: [
             {
-                funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
-                funnel_window_interval: 14,
+                funnel_window_interval_unit:
+                    values.filters.funnel_window_interval_unit || FunnelConversionWindowTimeUnit.Day,
+                funnel_window_interval: values.filters.funnel_window_interval || 14,
             } as FunnelConversionWindow,
             {
                 setConversionWindow: (

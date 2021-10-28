@@ -20,7 +20,7 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
 export function FunnelConversionWindowFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { conversionWindow } = useValues(funnelLogic(insightProps))
-    const { setConversionWindow } = useActions(funnelLogic(insightProps))
+    const { setConversionWindow, setFilters } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
     const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
 
@@ -60,7 +60,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     className="time-value-input"
                     min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    defaultValue={14}
+                    defaultValue={conversionWindow.funnel_window_interval}
                     value={localConversionWindow.funnel_window_interval}
                     onChange={(funnel_window_interval) =>
                         setLocalConversionWindow((state) => ({
@@ -74,14 +74,16 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                 <Select
                     ref={timeUnitRef}
                     className="time-unit-input"
-                    defaultValue={FunnelConversionWindowTimeUnit.Day}
+                    defaultValue={conversionWindow.funnel_window_interval_unit}
                     dropdownMatchSelectWidth={false}
                     value={localConversionWindow.funnel_window_interval_unit}
                     onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit) => {
                         setLocalConversionWindow((state) => ({ ...state, funnel_window_interval_unit }))
+                        setFilters({
+                            funnel_window_interval_unit,
+                        })
                         timeUnitRef.current?.blur()
                     }}
-                    onBlur={onChange}
                 >
                     {options.map(({ value, label }) => (
                         <Select.Option value={value} key={value}>
