@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import {
+    AvailableFeature,
     DashboardItemType,
     FilterType,
     InsightLogicProps,
@@ -31,6 +32,7 @@ import * as Sentry from '@sentry/browser'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -94,7 +96,7 @@ export const insightLogic = kea<insightLogicType>({
         }),
         updateInsight: (insight: Partial<DashboardItemType>) => ({ insight }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
-        setInsightMetadata: (name: string, value: string) => ({ name, value }),
+        setInsightMetadata: (metadata: Partial<DashboardItemType>) => ({ metadata }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -366,6 +368,14 @@ export const insightLogic = kea<insightLogicType>({
             (savedFilters, filters) =>
                 filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
         ],
+        metadataEditable: [
+            () => [featureFlagLogic.selectors.featureFlags, userLogic.selectors.user],
+            (featureFlags, user) =>
+                !!(
+                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
+                    user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION)
+                ),
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, breakpoint, _, previousState) => {
@@ -493,13 +503,10 @@ export const insightLogic = kea<insightLogicType>({
                 errorToast(undefined, 'Oops! Your insight already has that tag.')
                 return
             }
-            actions.setInsight({ tags: [...(values.insight.tags || []), tag] }, { shouldMergeWithExisting: true })
+            actions.setInsightMetadata({ tags: [...(values.insight.tags || []), tag] })
         },
         deleteTag: async ({ tag }) => {
-            actions.setInsight(
-                { tags: values.insight.tags?.filter((_tag) => _tag !== tag) },
-                { shouldMergeWithExisting: true }
-            )
+            actions.setInsightMetadata({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
         saveInsight: async () => {
             const savedInsight = await api.update(
@@ -582,11 +589,11 @@ export const insightLogic = kea<insightLogicType>({
                 }
             }
         },
-        setInsightMetadata: ({ name, value }) => {
+        setInsightMetadata: ({ metadata }) => {
             if (values.insightMode === ItemMode.Edit) {
-                actions.setInsight({ [name]: value }, { shouldMergeWithExisting: true })
+                actions.setInsight(metadata, { shouldMergeWithExisting: true })
             } else {
-                actions.updateInsight({ [name]: value })
+                actions.updateInsight(metadata)
             }
         },
     }),

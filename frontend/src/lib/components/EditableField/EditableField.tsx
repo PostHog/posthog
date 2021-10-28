@@ -1,12 +1,9 @@
 import { Button, Input } from 'antd'
-import { AvailableFeature } from '~/types'
 import { EditOutlined } from '@ant-design/icons'
 import React, { useEffect, useState } from 'react'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import './EditableField.scss'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface EditableFieldProps {
     name: string
@@ -27,11 +24,7 @@ export function EditableField({
     placeholder,
     multiline,
 }: EditableFieldProps): JSX.Element {
-    const flagEnabled = useValues(featureFlagLogic).featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
-    const featureEnabled = useValues(userLogic).user?.organization?.available_features?.includes(
-        AvailableFeature.DASHBOARD_COLLABORATION
-    )
-    const isEditable = flagEnabled && featureEnabled
+    const { metadataEditable } = useValues(insightLogic)
     const [isEditing, setIsEditing] = useState(false)
     const [editedValue, setEditedValue] = useState(value)
     useEffect(() => {
@@ -39,7 +32,7 @@ export function EditableField({
     }, [value])
     return (
         <div className={`editable-field${className ? ` ${className}` : ''}`} data-attr={dataAttr}>
-            {isEditable && isEditing ? (
+            {metadataEditable && isEditing ? (
                 <div className="ant-input-affix-wrapper ant-input-affix-wrapper-lg editable-textarea-wrapper">
                     <Input.TextArea
                         autoFocus
@@ -73,7 +66,7 @@ export function EditableField({
             ) : (
                 <div className={'view-mode'}>
                     <span className="field">{value || placeholder}</span>
-                    {isEditable && (
+                    {metadataEditable && (
                         <Button
                             type="link"
                             onClick={() => {

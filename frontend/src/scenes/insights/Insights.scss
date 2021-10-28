@@ -124,6 +124,7 @@ $funnel_canvas_background: #fafafa;
         padding-left: 1rem;
         display: flex;
         flex-wrap: nowrap;
+        justify-content: flex-end;
 
         .btn-reset {
             color: rgba($danger, 0.8);

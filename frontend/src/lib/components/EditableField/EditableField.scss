@@ -5,7 +5,7 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    max-width: 400px;
+    //max-width: 400px;
     width: 100%;
     min-height: 40px;
 
@@ -16,6 +16,7 @@
     .editable-textarea-wrapper {
         transition: none !important;
         padding: 8px;
+        margin-bottom: 8px;
         textarea {
             padding: 0 !important;
             border: none;
