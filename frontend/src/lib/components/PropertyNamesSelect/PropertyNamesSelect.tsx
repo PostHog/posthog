@@ -119,7 +119,7 @@ export const PropertyNamesSelectBox = ({
                         )}
 
                         <div className="selection-status-text">
-                            {selectedProperties.size} of {properties.length} selected
+                            {selectedProperties.size} of {properties.length}
                         </div>
 
                         <CaretDownFilled />
