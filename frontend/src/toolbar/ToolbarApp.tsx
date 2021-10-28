@@ -4,12 +4,12 @@ import root from 'react-shadow'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { useMountedLogic } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { EditorProps } from '~/types'
+import { ToolbarProps } from '~/types'
 import { Slide, ToastContainer } from 'react-toastify'
 
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
-export function ToolbarApp(props: EditorProps = {}): JSX.Element {
+export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
     useMountedLogic(toolbarLogic(props))
 
     const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)

@@ -87,7 +87,7 @@ export interface ActionFilterRowProps {
     stripeActionRow?: boolean // Whether or not to alternate the color behind the action rows
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
-    groupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     disabled?: boolean
     renderRow?: ({
@@ -126,7 +126,7 @@ export function ActionFilterRow({
     hasBreakdown,
     showNestedArrow = false,
     hideDeleteBtn = false,
-    groupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     disabled = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
@@ -216,7 +216,7 @@ export function ActionFilterRow({
                         })
                     }}
                     onClose={() => selectFilter(null)}
-                    groupTypes={groupTypes}
+                    taxonomicGroupTypes={taxonomicGroupTypes}
                 />
             }
             visible={dropDownCondition}

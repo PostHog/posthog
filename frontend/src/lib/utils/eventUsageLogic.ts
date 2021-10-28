@@ -278,6 +278,8 @@ export const eventUsageLogic = kea<
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
+        reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
+        reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -652,6 +654,12 @@ export const eventUsageLogic = kea<
         },
         reportHelpButtonUsed: (props) => {
             posthog.capture('help button used', props)
+        },
+        reportCorrelationAnalysisFeedback: (props) => {
+            posthog.capture('correlation analysis feedback', props)
+        },
+        reportCorrelationAnalysisDetailedFeedback: (props) => {
+            posthog.capture('correlation analysis detailed feedback', props)
         },
     },
 })
