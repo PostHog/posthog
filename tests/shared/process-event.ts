@@ -419,7 +419,12 @@ export const createProcessEventTests = (
         expect(events[1].properties.$set).toEqual({
             utm_medium: 'instagram',
         })
-        expect(events[1].properties.$set_once).toBeUndefined()
+        expect(events[1].properties.$set_once).toEqual({
+            $initial_browser: 'Firefox',
+            $initial_browser_version: 80,
+            $initial_utm_medium: 'instagram',
+            $initial_current_url: 'https://test.com/pricing',
+        })
 
         const [person] = persons
         const distinctIds = await hub.db.fetchDistinctIdValues(person)
@@ -441,7 +446,7 @@ export const createProcessEventTests = (
             expect(event.elements_hash).toEqual('0679137c0cd2408a2906839143e7a71f')
         }
 
-        // Don't update any props, set and set_once should be undefined
+        // Don't update any props, set and set_once should be what was sent
         await processEvent(
             '2',
             '127.0.0.1',
@@ -469,8 +474,14 @@ export const createProcessEventTests = (
 
         events = await hub.db.fetchEvents()
 
-        expect(events[2].properties.$set).toBeUndefined()
-        expect(events[2].properties.$set_once).toBeUndefined()
+        expect(events[2].properties.$set).toEqual({
+            utm_medium: 'instagram',
+        })
+        expect(events[2].properties.$set_once).toEqual({
+            $initial_browser: 'Firefox',
+            $initial_utm_medium: 'instagram',
+            $initial_current_url: 'https://test.com/pricing',
+        })
 
         team = await getFirstTeam(hub)
 

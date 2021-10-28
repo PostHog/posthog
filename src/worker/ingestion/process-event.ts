@@ -214,7 +214,7 @@ export class EventsProcessor {
         distinctId: string,
         properties: Properties,
         propertiesOnce: Properties
-    ): Promise<Properties> {
+    ): Promise<void> {
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
             throw new Error(
@@ -223,23 +223,14 @@ export class EventsProcessor {
         }
 
         // Figure out which properties we are actually setting
-        const returnedProps: Properties = {}
         const updatedProperties: Properties = { ...personFound.properties }
         Object.entries(propertiesOnce).map(([key, value]) => {
             if (typeof personFound?.properties[key] === 'undefined') {
-                if (!returnedProps['$set_once']) {
-                    returnedProps['$set_once'] = {}
-                }
-                returnedProps['$set_once'][key] = value
                 updatedProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
             if (personFound?.properties[key] !== value) {
-                if (!returnedProps['$set']) {
-                    returnedProps['$set'] = {}
-                }
-                returnedProps['$set'][key] = value
                 updatedProperties[key] = value
             }
         })
@@ -247,11 +238,10 @@ export class EventsProcessor {
         const arePersonsEqual = equal(personFound.properties, updatedProperties)
 
         if (arePersonsEqual && !this.db.kafkaProducer) {
-            return returnedProps
+            return
         }
 
         await this.db.updatePerson(personFound, { properties: updatedProperties })
-        return returnedProps
     }
 
     private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
@@ -500,16 +490,12 @@ export class EventsProcessor {
         if (event === '$groupidentify') {
             await this.upsertGroup(teamId, properties)
         } else if (properties['$set'] || properties['$set_once']) {
-            const updatedSetAndSetOnce = await this.updatePersonProperties(
+            await this.updatePersonProperties(
                 teamId,
                 distinctId,
                 properties['$set'] || {},
                 properties['$set_once'] || {}
             )
-
-            delete properties['$set']
-            delete properties['$set_once']
-            properties = { ...properties, ...updatedSetAndSetOnce }
         }
 
         return await this.createEvent(
