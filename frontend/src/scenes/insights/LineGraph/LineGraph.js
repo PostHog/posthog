@@ -1,29 +1,28 @@
+import './LineGraph.scss'
 import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
+import dayjs from 'dayjs'
+import { toast } from 'react-toastify'
 import { compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { toast } from 'react-toastify'
-import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
+import { Annotations, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-import dayjs from 'dayjs'
-import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { getAnnotationActionsAndValues } from './utils'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
 Chart.defaults.global.animation.duration = 0
 Chart.defaults.global.elements.line.tension = 0
 //--Chart Style Options--//
-
-const noop = () => {}
 
 export function LineGraph({
     datasets,
@@ -53,13 +52,14 @@ export function LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ pageKey: dashboardItemId || null }))
-        : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
-
-    const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ pageKey: dashboardItemId || null }))
-        : { annotationsList: [], annotationsLoading: false }
+    const {
+        createAnnotation,
+        createAnnotationNow,
+        updateDiffType,
+        createGlobalAnnotation,
+        annotationsList,
+        annotationsLoading,
+    } = getAnnotationActionsAndValues(inSharedMode, dashboardItemId)
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)

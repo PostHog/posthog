@@ -6,11 +6,34 @@ import { useDebouncedCallback } from 'use-debounce/lib'
 import { PropertyDefinition } from '~/types'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 
+function DescriptionRow({ description, id }: PropertyDefinition): JSX.Element {
+    const { setEventPropertyDescription, saveAll } = useActions(definitionDrawerLogic)
+    const [newDescription, setNewDescription] = useState(description)
+    const debouncePropertyDescription = useDebouncedCallback((value) => {
+        setEventPropertyDescription(value, id)
+    }, 200)
+
+    return (
+        <Input.TextArea
+            placeholder="Add description"
+            value={newDescription || ''}
+            onChange={(e) => {
+                setNewDescription(e.target.value)
+                debouncePropertyDescription(e.target.value)
+            }}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                    saveAll()
+                }
+            }}
+        />
+    )
+}
+
 export function EventPropertiesStats(): JSX.Element {
     const { eventPropertiesDefinitions, eventsSnippet, eventPropertiesDefinitionTags, tagLoading } =
         useValues(definitionDrawerLogic)
-    const { setNewEventPropertyTag, deleteEventPropertyTag, setEventPropertyDescription, saveAll } =
-        useActions(definitionDrawerLogic)
+    const { setNewEventPropertyTag, deleteEventPropertyTag } = useActions(definitionDrawerLogic)
     const propertyExamples = eventsSnippet[0]?.properties
     const tableColumns = [
         {
@@ -23,28 +46,7 @@ export function EventPropertiesStats(): JSX.Element {
         {
             title: 'Description',
             key: 'description',
-            render: function renderDescription({ description, id }: PropertyDefinition) {
-                const [newDescription, setNewDescription] = useState(description)
-                const debouncePropertyDescription = useDebouncedCallback((value) => {
-                    setEventPropertyDescription(value, id)
-                }, 200)
-
-                return (
-                    <Input.TextArea
-                        placeholder="Add description"
-                        value={newDescription || ''}
-                        onChange={(e) => {
-                            setNewDescription(e.target.value)
-                            debouncePropertyDescription(e.target.value)
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                saveAll()
-                            }
-                        }}
-                    />
-                )
-            },
+            render: DescriptionRow,
         },
         {
             title: 'Tags',

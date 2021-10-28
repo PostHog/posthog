@@ -23,6 +23,7 @@ export function createdAtColumn(): Record<string, any> {
 }
 
 export function createdByColumn(items: Record<string, any>[]): Record<string, any> {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { user } = useValues(userLogic)
     return {
         title: normalizeColumnTitle('Created by'),

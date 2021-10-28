@@ -16,6 +16,7 @@ export function Seekbar(): JSX.Element {
             setSlider(sliderRef)
             setThumb(thumbRef)
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sliderRef.current, thumbRef.current])
 
     return (

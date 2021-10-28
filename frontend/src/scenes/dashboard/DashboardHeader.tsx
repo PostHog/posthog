@@ -43,6 +43,20 @@ export function DashboardHeader(): JSX.Element {
     const nameInputRef = useRef<Input | null>(null)
     const descriptionInputRef = useRef<HTMLInputElement | null>(null)
 
+    useEffect(
+        () => {
+            if (dashboard && dashboardMode === DashboardMode.Edit) {
+                if (lastDashboardModeSource === DashboardEventSource.AddDescription) {
+                    setTimeout(() => descriptionInputRef.current?.focus(), 10)
+                } else if (!isMobile()) {
+                    setTimeout(() => nameInputRef.current?.focus(), 10)
+                }
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [dashboardMode]
+    )
+
     if (!dashboard) {
         return <div />
     }
@@ -162,20 +176,6 @@ export function DashboardHeader(): JSX.Element {
         >
             Finish editing
         </Button>
-    )
-
-    useEffect(
-        () => {
-            if (dashboardMode === DashboardMode.Edit) {
-                if (lastDashboardModeSource === DashboardEventSource.AddDescription) {
-                    setTimeout(() => descriptionInputRef.current?.focus(), 10)
-                } else if (!isMobile()) {
-                    setTimeout(() => nameInputRef.current?.focus(), 10)
-                }
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [dashboardMode]
     )
 
     return (
