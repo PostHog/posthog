@@ -80,7 +80,7 @@ class SmoothingIntervalsMixin(BaseParamMixin):
 
     @include_dict
     def smoothing_intervals_to_dict(self):
-        return {"smoothing_intervals": self.smoothing_intervals}
+        return {SMOOTHING_INTERVALS: self.smoothing_intervals}
 
 
 class SelectorMixin(BaseParamMixin):
