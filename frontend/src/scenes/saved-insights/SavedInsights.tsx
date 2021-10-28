@@ -255,7 +255,6 @@ export function SavedInsights(): JSX.Element {
             render: function Render(_: any, item) {
                 return (
                     <Row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>{item.created_by ? item.created_by.first_name || item.created_by.email : '-'}</div>
                         <Dropdown
                             placement="bottomRight"
                             trigger={['click']}
