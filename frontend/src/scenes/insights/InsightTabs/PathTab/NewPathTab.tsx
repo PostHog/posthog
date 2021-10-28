@@ -45,7 +45,7 @@ export function NewPathTab(): JSX.Element {
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
-    const groupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
+    const taxonomicGroupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
         ? [
               ...filter.include_event_types.map((item) => {
                   if (item === PathType.Screen) {
@@ -269,7 +269,7 @@ export function NewPathTab(): JSX.Element {
                                             start_point: pathItem,
                                         })
                                     }
-                                    groupTypes={groupTypes}
+                                    taxonomicGroupTypes={taxonomicGroupTypes}
                                     disabled={overrideStartInput || overrideEndInput}
                                     wildcardOptions={wildcards}
                                 >
@@ -337,7 +337,7 @@ export function NewPathTab(): JSX.Element {
                                                     end_point: pathItem,
                                                 })
                                             }
-                                            groupTypes={groupTypes}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
                                             disabled={overrideEndInput || overrideStartInput}
                                             wildcardOptions={wildcards}
                                         >
@@ -535,7 +535,7 @@ export function NewPathTab(): JSX.Element {
                                 </Tooltip>
                             </h4>
                             <PathItemFilters
-                                groupTypes={groupTypes}
+                                taxonomicGroupTypes={taxonomicGroupTypes}
                                 pageKey={'exclusion'}
                                 propertyFilters={
                                     filter.exclude_events &&

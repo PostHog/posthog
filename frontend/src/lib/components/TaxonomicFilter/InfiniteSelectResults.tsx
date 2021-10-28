@@ -35,12 +35,15 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, taxonomicGroups, groupTypes } = useValues(taxonomicFilterLogic)
+    const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
 
-    if (groupTypes.length === 1) {
+    if (taxonomicGroupTypes.length === 1) {
         return (
-            <BindLogic logic={infiniteListLogic} props={{ ...taxonomicFilterLogicProps, listGroupType: groupTypes[0] }}>
+            <BindLogic
+                logic={infiniteListLogic}
+                props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0] }}
+            >
                 <InfiniteList />
             </BindLogic>
         )
@@ -56,7 +59,7 @@ export function InfiniteSelectResults({
             tabPosition="top"
             animated={false}
         >
-            {groupTypes.map((groupType) => {
+            {taxonomicGroupTypes.map((groupType) => {
                 return (
                     <Tabs.TabPane
                         key={groupType}
