@@ -108,7 +108,7 @@ jobs:
                   REDIS_URL: 'redis://localhost'
               run: |
                   echo "🔗 Linking this plugin server into posthog(master)/plugins/"
-                  cd plugins-server
+                  cd plugin-server
                   yarn
 
                   echo "🏁 Starting the plugin server dist/ (compiled JS) via posthog(master)/plugins/"
