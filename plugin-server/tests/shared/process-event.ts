@@ -3,7 +3,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
-import { Database, Event, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import { ClickHouseEvent, Database, Event, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
@@ -2159,6 +2159,29 @@ export const createProcessEventTests = (
                 team_id: 2,
                 created_at: expect.any(String),
             })
+        })
+
+        test('properties.$groups passed', async () => {
+            await createPerson(hub, team, ['distinct_id1'])
+
+            await processEvent(
+                'distinct_id1',
+                '',
+                '',
+                {
+                    event: 'some event',
+                    properties: {
+                        $groups: { organization: 'id:5' },
+                    },
+                } as any as PluginEvent,
+                team.id,
+                now,
+                now,
+                new UUIDT().toString()
+            )
+
+            const [event] = await hub.db.fetchEvents()
+            expect((event as ClickHouseEvent).group_0).toEqual('id:5')
         })
     }
 

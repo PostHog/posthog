@@ -31,7 +31,7 @@ import {
 import { status } from '../../utils/status'
 import { castTimestampOrNow, RaceConditionError, UUID, UUIDT } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
-import { addGroupProperties } from './groups'
+import { getGroupColumns } from './groups'
 import { PersonManager } from './person-manager'
 import { TeamManager } from './team-manager'
 
@@ -485,7 +485,7 @@ export class EventsProcessor {
         await this.createPersonIfDistinctIdIsNew(teamId, distinctId, sentAt || DateTime.utc(), personUuid)
 
         properties = personInitialAndUTMProperties(properties)
-        properties = await addGroupProperties(teamId, properties, this.groupTypeManager)
+        const groupsColumns = await getGroupColumns(teamId, properties, this.groupTypeManager)
 
         if (event === '$groupidentify') {
             await this.upsertGroup(teamId, properties)
@@ -506,7 +506,8 @@ export class EventsProcessor {
             properties,
             timestamp,
             elementsList,
-            siteUrl
+            siteUrl,
+            groupsColumns
         )
     }
 
@@ -518,7 +519,8 @@ export class EventsProcessor {
         properties?: Properties,
         timestamp?: DateTime | string,
         elements?: Element[],
-        siteUrl?: string
+        siteUrl?: string,
+        groupsColumns?: Record<string, string>
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
         const timestampString = castTimestampOrNow(
             timestamp,
@@ -535,6 +537,7 @@ export class EventsProcessor {
             distinctId,
             elementsChain,
             createdAt: castTimestampOrNow(),
+            ...groupsColumns,
         }
 
         let eventId: Event['id'] | undefined

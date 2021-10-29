@@ -445,6 +445,11 @@ export interface Event {
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
     uuid: string
     elements_chain: string
+    group_0: string
+    group_1: string
+    group_2: string
+    group_3: string
+    group_4: string
 }
 
 export interface DeadLetterQueueEvent {
