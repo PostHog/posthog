@@ -16,7 +16,8 @@
         "types": ["node", "jest", "long"],
         "resolveJsonModule": true,
         "strict": true,
-        "noImplicitAny": true
+        "noImplicitAny": true,
+        "useUnknownInCatchVariables": false
     },
     "include": ["src"],
     "exclude": ["node_modules", "dist", "bin"]
