@@ -65,10 +65,6 @@ NOTE: $medium is a SCSS var; not a keyword
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
 }
 
-#root {
-    height: 100%;
-}
-
 // Text styles
 
 body b,
@@ -296,8 +292,9 @@ code.code {
 }
 
 .main-app-content {
+    width: 0;
     /* top | horizontal | bottom */
-    padding: 0px $default_spacing * 3 $default_spacing * 3;
+    padding: 0 $default_spacing * 3 $default_spacing * 3;
 
     @media (min-width: 480px) and (max-width: 639px) {
         padding: $default_spacing $default_spacing * 2 !important;
