@@ -7,7 +7,7 @@ export function Seekbar(): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic)
-    const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic)
+    const { thumbLeftPos, bufferPercent, markersWithPositions } = useValues(seekbarLogic)
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -17,6 +17,8 @@ export function Seekbar(): JSX.Element {
             setThumb(thumbRef)
         }
     }, [sliderRef.current, thumbRef.current])
+
+    console.log('EVENTS', markersWithPositions)
 
     return (
         <div className="rrweb-controller-slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>

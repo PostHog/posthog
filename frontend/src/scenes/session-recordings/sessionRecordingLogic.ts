@@ -93,8 +93,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         },
         loadEventsSuccess: () => {
             // Fetch next events
-            if (!!values.sessionEvents?.next) {
-                actions.loadEvents(values.sessionEvents.next)
+            if (!!values.sessionEventsData?.next) {
+                actions.loadEvents(values.sessionEventsData.next)
             }
         },
         loadRecordingMetaFailure: sharedListeners.showErrorToast,
@@ -155,10 +155,10 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 }
             },
         },
-        sessionEvents: {
+        sessionEventsData: {
             loadEvents: async ({ url }) => {
                 if (!values.eventsApiParams) {
-                    return values.sessionEvents
+                    return values.sessionEventsData
                 }
                 // Use `url` if there is a `next` url to fetch
                 const startTime = performance.now()
@@ -171,14 +171,15 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 )
 
                 return {
-                    ...values.sessionEvents,
+                    ...values.sessionEventsData,
                     next: response?.next,
-                    events: [...(values.sessionEvents?.events ?? []), ...(response.results ?? [])],
+                    events: [...(values.sessionEventsData?.events ?? []), ...(response.results ?? [])],
                 }
             },
         },
     }),
     selectors: {
+        sessionEvents: [(selectors) => [selectors.sessionEventsData], (eventsData) => eventsData?.events ?? []],
         firstChunkLoaded: [
             (selectors) => [selectors.chunkPaginationIndex],
             (chunkPaginationIndex) => chunkPaginationIndex > 0,

@@ -58,7 +58,7 @@ const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
 // which gives a ballpark of 1 highlighting every 10 breakdown values
 
-export const funnelLogic = kea<funnelLogicType<Array>>({
+export const funnelLogic = kea<funnelLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
 

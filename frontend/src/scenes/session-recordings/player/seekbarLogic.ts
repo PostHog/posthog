@@ -2,9 +2,10 @@ import { MutableRefObject as ReactMutableRefObject } from 'react'
 import { kea } from 'kea'
 import { seekbarLogicType } from './seekbarLogicType'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { clamp } from 'lib/utils'
 import { playerMetaData } from 'rrweb/typings/types'
-import { SessionPlayerTime } from '~/types'
+import { EventType, SessionPlayerTime } from '~/types'
 import {
     convertValueToX,
     convertXToValue,
@@ -14,10 +15,16 @@ import {
     THUMB_OFFSET,
     THUMB_SIZE,
 } from 'scenes/session-recordings/player/seekbarUtils'
+import dayjs from 'dayjs'
 
 export const seekbarLogic = kea<seekbarLogicType>({
     connect: {
-        values: [sessionRecordingPlayerLogic, ['meta', 'zeroOffsetTime', 'time']],
+        values: [
+            sessionRecordingPlayerLogic,
+            ['meta', 'zeroOffsetTime', 'time'],
+            sessionRecordingLogic,
+            ['sessionEvents'],
+        ],
         actions: [
             sessionRecordingPlayerLogic,
             ['seek', 'clearLoadingState', 'setScrub', 'setCurrentTime', 'setRealTime'],
@@ -74,6 +81,19 @@ export const seekbarLogic = kea<seekbarLogicType>({
             (selectors) => [selectors.zeroOffsetTime, selectors.meta],
             (time: SessionPlayerTime, meta: playerMetaData) =>
                 (Math.max(time.lastBuffered, time.current) * 100) / meta.totalTime,
+        ],
+        markersWithPositions: [
+            (selectors) => [selectors.sessionEvents, selectors.meta],
+            (events: EventType[], meta) => {
+                return events
+                    .map((e) => ({
+                        ...e,
+                        percentage:
+                            (clamp(+dayjs(e.timestamp), meta.startTime, meta.endTime) - meta.startTime) /
+                            meta.totalTime,
+                    }))
+                    .filter((e) => e.percentage >= 0 && e.percentage <= 1) // only show events within session time range
+            },
         ],
     },
     listeners: ({ values, actions }) => ({
