@@ -129,7 +129,6 @@ export const funnelLogic = kea<funnelLogicType>({
         hideSkewWarning: true,
         hideCorrelationAnalysisFeedback: true,
 
-        setExcludedPropertyNames: (excludedPropertyNames: string[]) => ({ excludedPropertyNames }),
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
         excludeProperty: (propertyName: string) => ({ propertyName }),
         excludeEventProperty: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
@@ -1102,7 +1101,9 @@ export const funnelLogic = kea<funnelLogicType>({
 
     events: ({ values, actions }) => ({
         afterMount: () => {
-            actions.setPropertyNames(values.allProperties)
+            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS]) {
+                actions.setPropertyNames(values.allProperties)
+            }
         },
     }),
 })

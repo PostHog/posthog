@@ -25,9 +25,6 @@ export const PropertyNamesSelect = ({
     // Make a key that identifies the logic for this specific component instance
     const propertySelectLogicKey = React.useMemo(() => propertyNameSelectCounter++, [])
 
-    // NOTE: I'm checking that length > 0 here, although this seems a little
-    // hacky. I'm doing this so when we instantiate the propertySelectLogic with
-    // props, we have the props to hand as they will not update on rerender
     return allProperties?.length ? (
         <BindLogic
             logic={propertySelectLogic}
@@ -36,7 +33,7 @@ export const PropertyNamesSelect = ({
             <PropertyNamesSelectBox onChange={onChange} value={value} />
         </BindLogic>
     ) : (
-        <div className="property-names-select">Loading properties...</div>
+        <div className="property-names-select">No properties available</div>
     )
 }
 
