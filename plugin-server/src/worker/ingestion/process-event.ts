@@ -187,7 +187,7 @@ export class EventsProcessor {
         return result
     }
 
-    private handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
+    public handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
         if (data['timestamp']) {
             if (sentAt) {
                 // sent_at - timestamp == now - x
@@ -195,18 +195,26 @@ export class EventsProcessor {
                 try {
                     // timestamp and sent_at must both be in the same format: either both with or both without timezones
                     // otherwise we can't get a diff to add to now
-                    return now.plus(DateTime.fromJSDate(new Date(data['timestamp'])).diff(sentAt))
+                    return now.plus(this.parseDate(data['timestamp']).diff(sentAt))
                 } catch (error) {
                     status.error('⚠️', 'Error when handling timestamp:', error)
                     Sentry.captureException(error, { extra: { data, now, sentAt } })
                 }
             }
-            return DateTime.fromISO(data['timestamp'])
+            return this.parseDate(data['timestamp'])
         }
         if (data['offset']) {
             return now.minus(Duration.fromMillis(data['offset']))
         }
         return now
+    }
+
+    private parseDate(supposedIsoString: string): DateTime {
+        const jsDate = new Date(supposedIsoString)
+        if (Number.isNaN(jsDate.getTime())) {
+            return DateTime.fromISO(supposedIsoString)
+        }
+        return DateTime.fromJSDate(jsDate)
     }
 
     private async updatePersonProperties(
