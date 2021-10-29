@@ -75,7 +75,7 @@ FROM {database}.kafka_{table_name}
     table_name=EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     database=CLICKHOUSE_DATABASE,
-    group_columns=GROUP_TYPE_COLUMN_NAMES
+    group_columns=GROUP_TYPE_COLUMN_NAMES,
 )
 
 INSERT_EVENT_SQL = """
