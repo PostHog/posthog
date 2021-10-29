@@ -29,6 +29,7 @@ export enum Scene {
     MySettings = 'mySettings',
     Annotations = 'annotations',
     Billing = 'billing',
+    BillingSubscribed = 'billingSubscribed',
     Plugins = 'plugins',
     SavedInsights = 'savedInsights',
     // Authentication & onboarding routes
