@@ -36,10 +36,10 @@ function AccountInfo(): JSX.Element {
         <div className="AccountInfo">
             <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
             <div className="AccountInfo__identification SitePopover__main-info">
-                <div>
-                    <strong>{user?.first_name}</strong>
+                <strong>{user?.first_name}</strong>
+                <div className="supplement" title={user?.email}>
+                    {user?.email}
                 </div>
-                <div className="supplement">{user?.email}</div>
             </div>
             <Link to={urls.mySettings()} onClick={closeSitePopover} className="SitePopover__side-link">
                 Manage account

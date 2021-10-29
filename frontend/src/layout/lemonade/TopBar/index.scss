@@ -161,6 +161,7 @@
 
 .AccountInfo__identification {
     margin-left: 0.5rem;
+    overflow: hidden;
 }
 
 .Lettermark {
@@ -174,7 +175,4 @@
     color: #5f3366;
     background: rgba(#6b355f, 0.25);
     user-select: none;
-}
-
-.SystemStatus--warning {
 }
