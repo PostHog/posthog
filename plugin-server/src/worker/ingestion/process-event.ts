@@ -215,6 +215,29 @@ export class EventsProcessor {
         properties: Properties,
         propertiesOnce: Properties
     ): Promise<void> {
+        let useNewPropertiesUpdateFunction = false
+        try {
+            const newPersonPropertiesUpdateTeams = this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS.split(
+                ','
+            ).map((teamId) => Number(teamId))
+            useNewPropertiesUpdateFunction = !!newPersonPropertiesUpdateTeams.includes(teamId)
+        } catch (error) {
+            Sentry.captureException(error)
+        }
+        if (useNewPropertiesUpdateFunction) {
+            console.log('New props update fn')
+            throw Error('Not implemented')
+            return
+        }
+        await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
+    }
+
+    private async updatePersonPropertiesDeprecated(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties
+    ): Promise<void> {
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
             throw new Error(
