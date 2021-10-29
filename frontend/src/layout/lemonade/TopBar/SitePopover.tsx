@@ -5,7 +5,7 @@ import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { LemonRow } from '../../../lib/components/LemonRow'
-import { IconCheckmark, IconOffline, IconPlus, IconSignOut, IconUpdate } from '../../../lib/components/icons'
+import { IconCheckmark, IconOffline, IconPlus, IconLogout, IconUpdate } from '../../../lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
@@ -208,7 +208,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconSignOut />} type="stealth" fullWidth>
+        <LemonButton onClick={logout} icon={<IconLogout />} type="stealth" fullWidth>
             Sign out
         </LemonButton>
     )

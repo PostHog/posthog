@@ -8,6 +8,7 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         values: [featureFlagLogic, ['featureFlags']],
     },
     actions: {
+        toggleSideBar: true,
         hideAnnouncement: true,
         openSitePopover: true,
         closeSitePopover: true,
@@ -20,10 +21,16 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideChangelogModal: true,
     },
     reducers: {
-        isAnnouncementHidden: [
-            false,
+        isSideBarShown: [
+            true, // TODO: Hide sidebar on mobile by default
             {
-                hideAnnouncement: () => true,
+                toggleSideBar: (state) => !state,
+            },
+        ],
+        isAnnouncementShown: [
+            true,
+            {
+                hideAnnouncement: () => false,
             },
         ],
         isSitePopoverOpen: [

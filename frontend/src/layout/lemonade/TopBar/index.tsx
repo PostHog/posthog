@@ -12,29 +12,30 @@ import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrga
 import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInviteModal'
 import { ChangelogModal } from '../../ChangelogModal'
 import { Link } from '../../../lib/components/Link'
+import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
 
 export function TopBar(): JSX.Element {
     const {
+        isSideBarShown,
         announcementMessage,
-        isAnnouncementHidden,
+        isAnnouncementShown,
         isInviteModalShown,
         isCreateOrganizationModalShown,
         isChangelogModalShown,
     } = useValues(lemonadeLogic)
-    const { hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideChangelogModal } =
+    const { toggleSideBar, hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideChangelogModal } =
         useActions(lemonadeLogic)
 
     return (
         <>
             {announcementMessage && (
-                <Announcement
-                    message={announcementMessage}
-                    visible={!isAnnouncementHidden}
-                    onClose={hideAnnouncement}
-                />
+                <Announcement message={announcementMessage} visible={isAnnouncementShown} onClose={hideAnnouncement} />
             )}
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
+                    <div className="TopBar__hamburger" onClick={toggleSideBar}>
+                        {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
+                    </div>
                     <Link to="/" className="TopBar__logo">
                         <FriendlyLogo />
                     </Link>

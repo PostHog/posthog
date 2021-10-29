@@ -32,6 +32,14 @@
     }
 }
 
+.TopBar__hamburger {
+    display: flex;
+    height: 1.5rem;
+    font-size: 1.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
 .TopBar__logo {
     display: flex;
     align-items: center;

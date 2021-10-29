@@ -1,9 +1,11 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import React from 'react'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
+import { lemonadeLogic } from '../lemonadeLogic'
 import './index.scss'
 
 export function ProjectSwitcher(): JSX.Element {
@@ -21,9 +23,11 @@ export function ProjectSwitcher(): JSX.Element {
 }
 
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
+    const { isSideBarShown } = useValues(lemonadeLogic)
+
     return (
         <div className="SideBar__layout">
-            <div className="SideBar">
+            <div className={clsx('SideBar', !isSideBarShown && 'SideBar--hidden')}>
                 <div className="SideBar__content">
                     <ProjectSwitcher />
                 </div>

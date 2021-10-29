@@ -7,12 +7,16 @@
 }
 
 .SideBar {
+    transition: 200ms ease margin;
     position: relative;
     flex-shrink: 0;
     box-sizing: border-box;
     width: 15rem;
     background: var(--bg-side);
     border-right: 1px solid var(--border);
+    &--hidden {
+        margin-left: -15rem;
+    }
 }
 
 .SideBar__content {
