@@ -9,9 +9,6 @@ jobs:
     code-quality:
         name: Code quality
         runs-on: ubuntu-20.04
-        defaults:
-            run:
-                working-directory: 'plugin-server'
 
         steps:
             - uses: actions/checkout@v1
@@ -33,9 +30,6 @@ jobs:
     tests-starts-with-posthog:
         name: Tests / Starts with PostHog
         runs-on: ubuntu-20.04
-        defaults:
-            run:
-                working-directory: 'plugin-server'
 
         services:
             postgres:
@@ -152,9 +146,6 @@ jobs:
     tests-postgres-1:
         name: Tests / Postgres + Redis (1)
         runs-on: ubuntu-20.04
-        defaults:
-            run:
-                working-directory: 'plugin-server'
 
         services:
             postgres:
@@ -227,9 +218,6 @@ jobs:
     tests-postgres-2:
         name: Tests / Postgres + Redis (2)
         runs-on: ubuntu-20.04
-        defaults:
-            run:
-                working-directory: 'plugin-server'
 
         services:
             postgres:
@@ -302,9 +290,6 @@ jobs:
     tests-clickhouse-1:
         name: Tests / ClickHouse + Kafka (1)
         runs-on: ubuntu-20.04
-        defaults:
-            run:
-                working-directory: 'plugin-server'
 
         services:
             postgres:
@@ -391,9 +376,6 @@ jobs:
     tests-clickhouse-2:
         name: Tests / ClickHouse + Kafka (2)
         runs-on: ubuntu-20.04
-        defaults:
-            run:
-                working-directory: 'plugin-server'
 
         services:
             postgres:
