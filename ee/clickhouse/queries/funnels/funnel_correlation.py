@@ -241,8 +241,8 @@ class FunnelCorrelation:
             GROUP BY name
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
-            -- HAVING (success_count + failure_count) > 2
-            -- AND prop.1 NOT IN %(exclude_property_names)s
+            HAVING (success_count + failure_count) > 2
+            AND prop.1 NOT IN %(exclude_property_names)s
 
             UNION ALL
             -- To get the total success/failure numbers, we do an aggregation on
