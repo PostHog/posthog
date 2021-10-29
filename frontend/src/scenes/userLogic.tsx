@@ -82,6 +82,17 @@ export const userLogic = kea<userLogicType>({
                     posthog.register({
                         is_demo_project: teamLogic.values.currentTeam?.is_demo,
                     })
+
+                    if (user.organization) {
+                        posthog.group('organization', user.organization.id, {
+                            id: user.organization.id,
+                            name: user.organization.name,
+                            slug: user.organization.slug,
+                            created_at: user.organization.created_at,
+                            available_features: user.organization.available_features,
+                            domain_whitelist: user.organization.domain_whitelist,
+                        })
+                    }
                 }
             }
         },
