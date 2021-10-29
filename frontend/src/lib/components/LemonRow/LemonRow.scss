@@ -1,0 +1,50 @@
+@import '~/vars';
+
+.LemonRow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.5rem;
+    padding: 0 1rem;
+    background: none;
+    border-radius: var(--radius);
+    border: none;
+    font-size: 0.875rem;
+    text-align: left;
+}
+
+.LemonRow--status-danger {
+    font-weight: 600;
+    color: var(--danger);
+    .LemonRow__icon {
+        color: var(--danger);
+    }
+}
+
+.LemonRow--status-warning {
+    .LemonRow__icon {
+        color: var(--warning);
+    }
+}
+
+.LemonRow--status-success {
+    .LemonRow__icon {
+        color: var(--success);
+    }
+}
+
+.LemonRow--align-start {
+    justify-content: start;
+}
+
+.LemonRow--full-width {
+    width: 100%;
+    padding: 0 0.5rem;
+}
+
+.LemonRow__icon {
+    display: flex;
+    margin-right: 0.5rem;
+    font-size: 1.5rem;
+    color: var(--muted-alt);
+}

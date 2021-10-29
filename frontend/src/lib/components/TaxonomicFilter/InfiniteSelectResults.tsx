@@ -3,7 +3,6 @@ import { Tabs, Tag } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 
@@ -20,9 +19,11 @@ function TabTitle({
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
+    const { taxonomicGroups } = useValues(taxonomicFilterLogic)
     const { totalCount } = useValues(logic)
 
-    const group = groups.find((g) => g.type === groupType)
+    const group = taxonomicGroups.find((g) => g.type === groupType)
+
     return (
         <div data-attr={`taxonomic-tab-${groupType}`}>
             {group?.name} {totalCount != null && <Tag>{totalCount}</Tag>}
@@ -34,12 +35,15 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, groupTypes } = useValues(taxonomicFilterLogic)
+    const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
 
-    if (groupTypes.length === 1) {
+    if (taxonomicGroupTypes.length === 1) {
         return (
-            <BindLogic logic={infiniteListLogic} props={{ ...taxonomicFilterLogicProps, listGroupType: groupTypes[0] }}>
+            <BindLogic
+                logic={infiniteListLogic}
+                props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0] }}
+            >
                 <InfiniteList />
             </BindLogic>
         )
@@ -47,7 +51,7 @@ export function InfiniteSelectResults({
 
     return (
         <Tabs
-            activeKey={activeTab || groups[0].type}
+            activeKey={activeTab || taxonomicGroups[0].type}
             onChange={(value) => {
                 setActiveTab(value as TaxonomicFilterGroupType)
                 focusInput()
@@ -55,7 +59,7 @@ export function InfiniteSelectResults({
             tabPosition="top"
             animated={false}
         >
-            {groupTypes.map((groupType) => {
+            {taxonomicGroupTypes.map((groupType) => {
                 return (
                     <Tabs.TabPane
                         key={groupType}

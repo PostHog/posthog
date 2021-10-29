@@ -1,14 +1,29 @@
 @import '~/vars';
 
-.sub-column-title {
-    font-size: 12px;
-    color: $text_muted_alt;
-    text-transform: uppercase;
-}
+.funnel-steps-table {
+    .sub-column-title {
+        font-size: 12px;
+        color: $text_muted_alt;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        .anticon {
+            margin-right: 4px;
+        }
+    }
 
-.column-title {
-    color: $text_default;
-    font-weight: 500;
+    .column-title {
+        color: $text_default;
+        font-weight: $medium;
+    }
+
+    .ant-btn.funnel-inspect-button {
+        &:disabled {
+            color: $text_default;
+            cursor: initial;
+        }
+    }
 }
 
 .funnel-table-cell {
@@ -139,7 +154,8 @@
 
         .breakdown-label {
             position: absolute;
-            font-weight: 600;
+            font-weight: bold;
+            text-transform: uppercase;
             font-size: 12px;
             color: $text-muted;
             text-align: center;

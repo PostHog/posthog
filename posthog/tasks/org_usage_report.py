@@ -1,21 +1,15 @@
 import logging
 import os
+import time
 from datetime import datetime
-from typing import (
-    Any,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Dict, List, Literal, Optional, TypedDict, Union, cast
 
-from sentry_sdk import capture_exception, configure_scope
+from django.conf import settings
+from django.db.models.manager import BaseManager
+from sentry_sdk import capture_exception
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
-from posthog.models import Event, Team, User
+from posthog.models import Event, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day, is_clickhouse_enabled
 from posthog.version import VERSION
@@ -24,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 
-OrgData = TypedDict("OrgData", {"teams": List[Union[str, int]], "name": str,},)
+OrgData = TypedDict("OrgData", {"teams": List[Union[str, int]], "user_count": int, "name": str, "created_at": str,},)
 
 OrgReportMetadata = TypedDict(
     "OrgReportMetadata",
@@ -64,6 +58,8 @@ OrgReport = TypedDict(
         "event_count_in_month": int,
         "organization_id": str,
         "organization_name": str,
+        "organization_created_at": str,
+        "organization_user_count": int,
         "team_count": int,
         "product": str,
     },
@@ -102,24 +98,23 @@ def send_all_reports(
     org_reports: List[OrgReport] = []
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
-        id = str(team.organization.id)
+        org = team.organization
+        id = str(org.id)
         if id in org_data:
             org_data[id]["teams"].append(team.id)
         else:
             org_data[id] = {
                 "teams": [team.id],
-                "name": team.organization.name,
+                "user_count": get_org_user_count(id),
+                "name": org.name,
+                "created_at": str(org.created_at),
             }
 
     for id, org in org_data.items():
-        org_first_user = User.objects.filter(current_team_id__in=org["teams"]).first()
-        if not org_first_user:
-            with configure_scope() as scope:
-                scope.set_context("org", cast(Dict[str, Any], org))
-                name = org["name"]
-                capture_exception(Exception(f"No user found for org '{name}' ({id})"))
+        org_owner = get_org_owner_or_first_user(id)
+        if not org_owner:
             continue
-        distinct_id = org_first_user.distinct_id
+        distinct_id = org_owner.distinct_id
         try:
             month_start = period_start.replace(day=1)
             usage = get_org_usage(
@@ -134,13 +129,16 @@ def send_all_reports(
                 **usage,
                 "organization_id": id,
                 "organization_name": org["name"],
+                "organization_created_at": org["created_at"],
+                "organization_user_count": org["user_count"],
                 "team_count": len(org["teams"]),
             }
             org_reports.append(report)  # type: ignore
         except Exception as err:
             report_org_usage_failure(distinct_id, str(err))
-        if not dry_run:
+        if not (dry_run or settings.TEST or settings.DEBUG):
             report_org_usage(distinct_id, report)
+            time.sleep(0.25)
 
     return org_reports
 
@@ -183,3 +181,30 @@ def get_product_name(realm: str, license_keys: List[str]) -> str:
         return "scale" if len(license_keys) else "open source"
     else:
         return "unknown"
+
+
+def get_org_memberships(organization_id: str) -> BaseManager:
+    return OrganizationMembership.objects.filter(organization_id=organization_id)
+
+
+def get_org_user_count(organization_id: str) -> int:
+    return get_org_memberships(organization_id=organization_id).count()
+
+
+def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
+    # Find the membership object for the org owner
+    user = None
+    membership = (
+        get_org_memberships(organization_id=organization_id).filter(level=OrganizationMembership.Level.OWNER).first()
+    )
+    if not membership:
+        # If no owner membership is present, pick the first membership association we can find
+        membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
+    if hasattr(membership, "user"):
+        membership = cast(OrganizationMembership, membership)
+        user = membership.user
+    else:
+        capture_exception(
+            Exception("No user found for org while generating report"), {"org": {"organization_id": organization_id}},
+        )
+    return user

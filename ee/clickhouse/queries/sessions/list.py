@@ -1,5 +1,5 @@
 from collections import namedtuple
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
@@ -30,8 +30,10 @@ class ClickhouseSessionsList(SessionsList):
 
         action_filters = format_action_filters(self.filter)
 
-        date_from, date_to, _ = parse_timestamps(self.filter, self.team.pk)
-        distinct_ids = self.fetch_distinct_ids(action_filters, date_from, date_to, limit, distinct_id_offset)
+        date_from, date_to, date_params = parse_timestamps(self.filter, self.team.pk)
+        distinct_ids = self.fetch_distinct_ids(
+            action_filters, date_from, date_to, date_params, limit, distinct_id_offset
+        )
 
         query = SESSION_SQL.format(
             date_from=date_from,
@@ -49,6 +51,7 @@ class ClickhouseSessionsList(SessionsList):
                 "limit": limit,
                 "offset": offset,
                 "distinct_ids": distinct_ids,
+                **date_params,
             },
         )
         result = self._parse_list_results(query_result)
@@ -64,7 +67,13 @@ class ClickhouseSessionsList(SessionsList):
         return join_with_session_recordings(self.team, result, self.filter), pagination
 
     def fetch_distinct_ids(
-        self, action_filters: ActionFiltersSQL, date_from: str, date_to: str, limit: int, distinct_id_offset: int
+        self,
+        action_filters: ActionFiltersSQL,
+        date_from: str,
+        date_to: str,
+        date_params: Dict[str, Any],
+        limit: int,
+        distinct_id_offset: int,
     ) -> List[str]:
         if self.filter.distinct_id:
             persons = get_persons_by_distinct_ids(self.team.pk, [self.filter.distinct_id])
@@ -85,6 +94,7 @@ class ClickhouseSessionsList(SessionsList):
                 **action_filters.params,
                 "team_id": self.team.pk,
                 "distinct_id_limit": distinct_id_offset + limit,
+                **date_params,
             },
         )
 

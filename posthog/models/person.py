@@ -70,13 +70,16 @@ class Person(models.Model):
     properties_last_updated_at: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
     # used for evaluating if we need to override the value or not (value: set or set_once)
-    properties_last_operation: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+    properties_last_operation: models.JSONField = models.JSONField(null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     properties: models.JSONField = models.JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     is_identified: models.BooleanField = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
+
+    # current version of the person, used to sync with ClickHouse and collapse rows correctly
+    version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
 
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 

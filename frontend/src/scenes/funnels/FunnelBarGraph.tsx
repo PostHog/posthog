@@ -1,7 +1,7 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import useSize from '@react-hook/size'
-import { compactNumber, humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -190,7 +190,14 @@ export function BreakdownVerticalBarGroup({
                                     width: barWidth,
                                 }}
                             >
-                                {breakdown.count > 0 ? compactNumber(breakdown.count) : ''}
+                                {breakdown.count > 0
+                                    ? `${humanizeStepCount(breakdown.count)} ${pluralize(
+                                          breakdown.count,
+                                          'user',
+                                          undefined,
+                                          false
+                                      )}`
+                                    : ''}
                             </div>
                         )}
                     </div>
@@ -479,6 +486,8 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                     step.nested_breakdown?.length !== undefined &&
                     !(step.nested_breakdown.length === 1 && step.nested_breakdown[0].breakdown_value === 'Baseline')
 
+                const dropOffCount = step.order > 0 ? steps[stepIndex - 1].count - step.count : 0
+
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
@@ -557,7 +566,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                     popoverMetrics={[
                                                         {
                                                             title: 'Completed step',
-                                                            value: breakdown.count,
+                                                            value: pluralize(breakdown.count, 'user', undefined),
                                                         },
                                                         {
                                                             title: 'Conversion rate (total)',
@@ -578,7 +587,11 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                         },
                                                         {
                                                             title: 'Dropped off',
-                                                            value: breakdown.droppedOffFromPrevious,
+                                                            value: pluralize(
+                                                                breakdown.droppedOffFromPrevious,
+                                                                'user',
+                                                                undefined
+                                                            ),
                                                             visible:
                                                                 step.order !== 0 &&
                                                                 breakdown.droppedOffFromPrevious > 0,
@@ -633,7 +646,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                             popoverMetrics={[
                                                 {
                                                     title: 'Completed step',
-                                                    value: step.count,
+                                                    value: pluralize(step.count, 'user', undefined),
                                                 },
                                                 {
                                                     title: 'Conversion rate (total)',
@@ -650,7 +663,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                 },
                                                 {
                                                     title: 'Dropped off',
-                                                    value: step.droppedOffFromPrevious,
+                                                    value: pluralize(step.droppedOffFromPrevious, 'user', undefined),
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
                                                 {
@@ -698,14 +711,17 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                 <span className="value-inspector-button-icon">
                                                     <ArrowRightOutlined style={{ color: 'var(--success)' }} />
                                                 </span>
-                                                <b>{humanizeStepCount(step.count)}</b>
+                                                <b>
+                                                    {humanizeStepCount(step.count)}{' '}
+                                                    {pluralize(step.count, 'user', undefined, false)}
+                                                </b>
                                             </ValueInspectorButton>
                                             <span className="text-muted-alt">
                                                 (
                                                 {formatDisplayPercentage(
                                                     step.order > 0 ? step.count / steps[stepIndex - 1].count : 1
                                                 )}
-                                                % )
+                                                %)
                                             </span>
                                         </div>
                                         <div
@@ -732,9 +748,8 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                     <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
                                                 </span>
                                                 <b>
-                                                    {humanizeStepCount(
-                                                        step.order > 0 ? steps[stepIndex - 1].count - step.count : 0
-                                                    )}
+                                                    {humanizeStepCount(dropOffCount)}{' '}
+                                                    {pluralize(dropOffCount, 'user', undefined, false)}
                                                 </b>
                                             </ValueInspectorButton>
                                             <span className="text-muted-alt">
@@ -742,7 +757,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                 {formatDisplayPercentage(
                                                     step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0
                                                 )}
-                                                % )
+                                                %)
                                             </span>
                                         </div>
                                         <div className="text-muted-alt conversion-metadata-caption">dropped off</div>

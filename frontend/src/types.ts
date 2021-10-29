@@ -18,6 +18,7 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
+import { PostHog } from 'posthog-js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -181,6 +182,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
+    path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
 }
 
@@ -193,6 +195,7 @@ export interface ActionType {
     last_calculated_at?: string
     name: string
     post_to_slack?: boolean
+    slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
 }
@@ -232,7 +235,7 @@ export interface ElementType {
 
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
 
-export type EditorProps = {
+export interface EditorProps {
     apiURL?: string
     jsURL?: string
     temporaryToken?: string
@@ -243,6 +246,10 @@ export type EditorProps = {
     userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
+}
+
+export interface ToolbarProps extends EditorProps {
+    posthog?: PostHog
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -313,12 +320,34 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
 
 export type SessionRecordingId = string
 
+export interface SessionRecordingMeta {
+    id: string
+    viewed: boolean
+    recording_duration: number
+    start_time: number
+    end_time: number
+    distinct_id: string
+}
+
+export interface LEGACY_SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: number
+    next: string | null
+    duration: number
+}
+
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
-    start_time: string
-    next: string | null
-    duration: number
+    session_recording: SessionRecordingMeta
+    next?: string
+}
+
+export enum SessionRecordingUsageType {
+    VIEWED = 'viewed',
+    ANALYZED = 'analyzed',
+    LOADED = 'loaded',
 }
 
 export enum SessionPlayerState {
@@ -326,6 +355,7 @@ export enum SessionPlayerState {
     PLAY = 'play',
     PAUSE = 'pause',
     SKIP = 'skip',
+    SCRUB = 'scrub',
 }
 
 export interface SessionPlayerTime {
@@ -579,7 +609,7 @@ export interface DashboardItemType {
     refreshing: boolean
     created_by: UserBasicType | null
     is_sample: boolean
-    dashboard: number
+    dashboard: number | null
     dive_dashboard?: number
     result: any | null
     updated_at: string
@@ -806,11 +836,16 @@ export interface FilterType {
     path_start_key?: string // Paths People Start Key
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
+    path_replacements?: boolean
+    local_path_cleaning_filters?: Record<string, any>[]
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
+    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
+    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
 }
 
 export interface SystemStatusSubrows {
@@ -1031,6 +1066,12 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
 }
 
+export interface SetInsightOptions {
+    shouldMergeWithExisting?: boolean
+    /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
+    overrideFilter?: boolean
+}
+
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
@@ -1091,6 +1132,11 @@ interface AuthBackends {
     saml?: boolean
 }
 
+interface InstancePreferencesInterface {
+    debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
+    disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
+}
+
 export interface PreflightStatus {
     // Attributes that accept undefined values (i.e. `?`) are not received when unauthenticated
     django: boolean
@@ -1120,6 +1166,7 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
+    instance_preferences?: InstancePreferencesInterface
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -1262,15 +1309,30 @@ export interface PathEdgeParameters {
 }
 
 export interface FunnelCorrelation {
-    event?: string
-    property?: string
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>
     odds_ratio: number
     success_count: number
     failure_count: number
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
+    result_type:
+        | FunnelCorrelationResultsType.Events
+        | FunnelCorrelationResultsType.Properties
+        | FunnelCorrelationResultsType.EventWithProperties
 }
 
 export enum FunnelCorrelationType {
     Success = 'success',
     Failure = 'failure',
+}
+
+export enum FunnelCorrelationResultsType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
+export enum HelpType {
+    Slack = 'slack',
+    Email = 'email',
+    Docs = 'docs',
 }

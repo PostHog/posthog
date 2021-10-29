@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, TypedDict, Union
+from typing import Any, Dict, List, Union
 
 import pytest
 from django.test import Client
@@ -16,6 +16,7 @@ from posthog.api.test.test_event_definition import (
     create_user,
 )
 from posthog.api.test.test_retention import identify
+from posthog.models.team import Team
 
 
 @pytest.mark.django_db
@@ -47,7 +48,9 @@ def test_includes_only_intervals_within_range(client: Client):
         #  First identify as a member of the cohort
         distinct_id = "abc"
         identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
-        cohort = create_cohort_ok(client=client, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}])
+        cohort = create_cohort_ok(
+            client=client, team_id=team.id, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}]
+        )
 
         for date in ["2021-09-04", "2021-09-05", "2021-09-12", "2021-09-19"]:
             capture_event(
@@ -83,6 +86,7 @@ def test_includes_only_intervals_within_range(client: Client):
                     }
                 ],
             ),
+            team=team,
         )
         assert trends == {
             "is_cached": False,
@@ -124,9 +128,9 @@ class TrendsRequest:
     events: List[Dict[str, Any]]
 
 
-def get_trends(client, request: TrendsRequest):
+def get_trends(client, request: TrendsRequest, team: Team):
     return client.get(
-        "/api/insight/trend/",
+        f"/api/projects/{team.id}/insights/trend/",
         data={
             "date_from": request.date_from,
             "date_to": request.date_to,
@@ -140,7 +144,7 @@ def get_trends(client, request: TrendsRequest):
     )
 
 
-def get_trends_ok(client: Client, request: TrendsRequest):
-    response = get_trends(client=client, request=request)
+def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
+    response = get_trends(client=client, request=request, team=team)
     assert response.status_code == 200, response.content
     return response.json()

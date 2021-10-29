@@ -494,6 +494,58 @@ export function IconFeedbackWarning({ style }: { style?: CSSProperties }): JSX.E
     )
 }
 
+export function IconSignOut(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m17 8-1.41 1.41 1.58 1.59h-8.17v2h8.17l-1.58 1.58 1.41 1.42 4-4zm-12-3h7v-2h-7c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h7v-2h-7z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconPlus(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="m19 13h-6v6h-2v-6h-6v-2h6v-6h2v6h6z" fill="currentColor" />
+        </svg>
+    )
+}
+
+export function IconCheckmark(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m21 5.862-10.269 10.278-3.816-3.816 1.269-1.269 2.547 2.547 9-9zm-1.989 4.536c.117.513.189 1.053.189 1.602 0 3.978-3.222 7.2-7.2 7.2s-7.2-3.222-7.2-7.2 3.222-7.2 7.2-7.2c1.422 0 2.736.414 3.852 1.125l1.296-1.296c-1.458-1.026-3.231-1.629-5.148-1.629-4.968 0-9 4.032-9 9s4.032 9 9 9 9-4.032 9-9c0-1.071-.198-2.097-.54-3.051z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconUpdate(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m18.32 4.2601c-1.48-1.21-3.31-2.01-5.32-2.21v2.02c1.46.18 2.79.76 3.9 1.62zm1.61 6.74h2.02c-.2-2.01-1-3.84-2.21-5.32l-1.43 1.42c.86 1.11 1.44 2.44 1.62 3.9zm-1.62 5.9 1.43 1.43c1.21-1.48 2.01-3.32 2.21-5.32h-2.02c-.18 1.45-.76 2.78-1.62 3.89zm-5.31 3.03v2.02c2.01-.2 3.84-1 5.32-2.21l-1.43-1.43c-1.1.86-2.43 1.44-3.89 1.62zm2.59-9.34-2.59 2.58v-6.17h-2v6.17l-2.59-2.59-1.41 1.42 5 5 5-5zm-4.59 9.34v2.02c-5.05-.5-9-4.76-9-9.95s3.95-9.45 9-9.95v2.02c-3.95.49-7 3.85-7 7.93s3.05 7.44 7 7.93z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconOffline(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m12 2.02c-5.51 0-9.98 4.47-9.98 9.98s4.47 9.98 9.98 9.98 9.98-4.47 9.98-9.98-4.47-9.98-9.98-9.98zm0 17.96c-4.4 0-7.98-3.58-7.98-7.98s3.58-7.98 7.98-7.98 7.98 3.58 7.98 7.98-3.58 7.98-7.98 7.98zm.75-14.98-4.5 8.5h3.14v5.5l4.36-8.5h-3z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 // AntD arrows rotated at convenient angles
 
 export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
@@ -509,5 +561,147 @@ export function ArrowTopRightOutlined({ style }: { style?: CSSProperties }): JSX
         <span className="anticon anticon-wraper-arrow topRight">
             <ArrowUpOutlined style={style} />
         </span>
+    )
+}
+
+// saved insight menu 32x32 icons
+
+interface InsightIconProps {
+    background?: string
+    noBackground?: boolean
+    children?: React.ReactNode
+}
+function InsightIcon({ background = '#747EA2', noBackground = false, children }: InsightIconProps): JSX.Element {
+    return (
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {!noBackground ? <rect width="32" height="32" rx="4" fill={background} /> : null}
+            {children}
+        </svg>
+    )
+}
+
+interface InsightIconInstanceProps extends Omit<InsightIconProps, 'children'> {
+    color?: string
+}
+export function InsightsTrendsIcon({
+    color = 'white',
+    background = '#747EA2',
+    noBackground = false,
+}: InsightIconInstanceProps): JSX.Element {
+    return (
+        <InsightIcon background={background} noBackground={noBackground}>
+            <path
+                d="M7.5 22.4898L13.5 16.4798L17.5 20.4798L26 10.9198L24.59 9.50977L17.5 17.4798L13.5 13.4798L6 20.9898L7.5 22.4898Z"
+                fill={color}
+            />
+        </InsightIcon>
+    )
+}
+
+export function InsightsFunnelsIcon({
+    color = 'white',
+    background = '#747EA2',
+    noBackground = false,
+}: InsightIconInstanceProps): JSX.Element {
+    return (
+        <InsightIcon background={background} noBackground={noBackground}>
+            <path
+                d="M9 9.2002H12V23.0002H9V9.2002ZM14.6 13.0002H17.4V23.0002H14.6V13.0002ZM20.2 17.0002H23V23.0002H20.2V17.0002Z"
+                fill={color}
+            />
+        </InsightIcon>
+    )
+}
+
+export function InsightsSessionsIcon({
+    color = 'white',
+    background = '#747EA2',
+    noBackground = false,
+}: InsightIconInstanceProps): JSX.Element {
+    return (
+        <InsightIcon background={background} noBackground={noBackground}>
+            <path
+                d="M9 8H23C24.11 8 25 8.9 25 10V14H23V12H9V22H11V24H9C7.89 24 7 23.1 7 22V10C7 8.9 7.89 8 9 8Z"
+                fill={color}
+            />
+            <path
+                d="M19.5267 15C16.4094 15 13.8817 17.5277 13.8817 20.645H12L14.4399 23.0849L14.4838 23.1727L17.0178 20.645H15.1361C15.1361 18.2177 17.0993 16.2544 19.5267 16.2544C21.954 16.2544 23.9172 18.2177 23.9172 20.645C23.9172 23.0724 21.954 25.0356 19.5267 25.0356C18.3161 25.0356 17.2185 24.5401 16.4282 23.7435L15.5375 24.6341C16.5599 25.6565 17.9649 26.29 19.5267 26.29C22.644 26.29 25.1717 23.7623 25.1717 20.645C25.1717 17.5277 22.644 15 19.5267 15ZM18.8994 18.1361V21.2722L21.5651 22.8528L22.0481 22.05L19.8403 20.7391V18.1361H18.8994Z"
+                fill={color}
+            />
+        </InsightIcon>
+    )
+}
+
+export function InsightsRetentionIcon({
+    color = 'white',
+    background = '#747EA2',
+    noBackground = false,
+}: InsightIconInstanceProps): JSX.Element {
+    return (
+        <InsightIcon background={background} noBackground={noBackground}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M7.5 6.5C6.94772 6.5 6.5 6.94772 6.5 7.5V9.5C6.5 10.0523 6.94772 10.5 7.5 10.5H9.5C10.0523 10.5 10.5 10.0523 10.5 9.5V7.5C10.5 6.94772 10.0523 6.5 9.5 6.5H7.5ZM7.5 11.5C6.94772 11.5 6.5 11.9477 6.5 12.5V14.5C6.5 15.0523 6.94772 15.5 7.5 15.5H9.5C10.0523 15.5 10.5 15.0523 10.5 14.5V12.5C10.5 11.9477 10.0523 11.5 9.5 11.5H7.5ZM6.5 17.5C6.5 16.9477 6.94772 16.5 7.5 16.5H9.5C10.0523 16.5 10.5 16.9477 10.5 17.5V19.5C10.5 20.0523 10.0523 20.5 9.5 20.5H7.5C6.94772 20.5 6.5 20.0523 6.5 19.5V17.5ZM7.5 21.5C6.94772 21.5 6.5 21.9477 6.5 22.5V24.5C6.5 25.0523 6.94772 25.5 7.5 25.5H9.5C10.0523 25.5 10.5 25.0523 10.5 24.5V22.5C10.5 21.9477 10.0523 21.5 9.5 21.5H7.5ZM11.5 7.5C11.5 6.94772 11.9477 6.5 12.5 6.5H14.5C15.0523 6.5 15.5 6.94772 15.5 7.5V9.5C15.5 10.0523 15.0523 10.5 14.5 10.5H12.5C11.9477 10.5 11.5 10.0523 11.5 9.5V7.5ZM12.5 11.5C11.9477 11.5 11.5 11.9477 11.5 12.5V14.5C11.5 15.0523 11.9477 15.5 12.5 15.5H14.5C15.0523 15.5 15.5 15.0523 15.5 14.5V12.5C15.5 11.9477 15.0523 11.5 14.5 11.5H12.5ZM11.5 17.5C11.5 16.9477 11.9477 16.5 12.5 16.5H14.5C15.0523 16.5 15.5 16.9477 15.5 17.5V19.5C15.5 20.0523 15.0523 20.5 14.5 20.5H12.5C11.9477 20.5 11.5 20.0523 11.5 19.5V17.5ZM17.5 6.5C16.9477 6.5 16.5 6.94772 16.5 7.5V9.5C16.5 10.0523 16.9477 10.5 17.5 10.5H19.5C20.0523 10.5 20.5 10.0523 20.5 9.5V7.5C20.5 6.94772 20.0523 6.5 19.5 6.5H17.5ZM16.5 12.5C16.5 11.9477 16.9477 11.5 17.5 11.5H19.5C20.0523 11.5 20.5 11.9477 20.5 12.5V14.5C20.5 15.0523 20.0523 15.5 19.5 15.5H17.5C16.9477 15.5 16.5 15.0523 16.5 14.5V12.5ZM22.5 6.5C21.9477 6.5 21.5 6.94772 21.5 7.5V9.5C21.5 10.0523 21.9477 10.5 22.5 10.5H24.5C25.0523 10.5 25.5 10.0523 25.5 9.5V7.5C25.5 6.94772 25.0523 6.5 24.5 6.5H22.5Z"
+                fill={color}
+            />
+        </InsightIcon>
+    )
+}
+
+export function InsightsPathsIcon({
+    color = 'white',
+    background = '#747EA2',
+    noBackground = false,
+}: InsightIconInstanceProps): JSX.Element {
+    return (
+        <InsightIcon background={background} noBackground={noBackground}>
+            <path
+                d="M13.5 9.5C14.6 9.5 15.5 8.6 15.5 7.5C15.5 6.4 14.6 5.5 13.5 5.5C12.4 5.5 11.5 6.4 11.5 7.5C11.5 8.6 12.4 9.5 13.5 9.5ZM9.75 12.9L7 27H9.1L10.85 19L13 21V27H15V19.45L12.95 17.4L13.55 14.4C14.85 16 16.8 17 19 17V15C17.15 15 15.55 14 14.65 12.55L13.7 10.95C13.35 10.35 12.7 10 12 10C11.75 10 11.5 10.05 11.25 10.15L6 12.3V17H8V13.65L9.75 12.9ZM17 6V13H20.75V27H22.25V13H26V6H17ZM22.01 12V10.25H18.5V8.75H22.01V7L24.5 9.5L22.01 12Z"
+                fill={color}
+            />
+        </InsightIcon>
+    )
+}
+
+export function InsightsStickinessIcon({
+    color = 'white',
+    background = '#747EA2',
+    noBackground = false,
+}: InsightIconInstanceProps): JSX.Element {
+    return (
+        <InsightIcon background={background} noBackground={noBackground}>
+            <path
+                d="M8 22V21.35C8 21.01 8.16 20.69 8.41 20.54C10.1 19.53 12.03 19 14 19C14.03 19 14.05 19 14.08 19.01C14.18 18.31 14.38 17.64 14.67 17.03C14.45 17.01 14.23 17 14 17C11.58 17 9.32 17.67 7.39 18.82C6.51 19.34 6 20.32 6 21.35V24H15.26C14.84 23.4 14.51 22.72 14.29 22H8Z"
+                fill={color}
+            />
+            <path
+                d="M14 16C16.21 16 18 14.21 18 12C18 9.79 16.21 8 14 8C11.79 8 10 9.79 10 12C10 14.21 11.79 16 14 16ZM14 10C15.1 10 16 10.9 16 12C16 13.1 15.1 14 14 14C12.9 14 12 13.1 12 12C12 10.9 12.9 10 14 10Z"
+                fill={color}
+            />
+            <path
+                d="M22.9119 22.4229L23.8548 23.3657C24.9519 21.7029 24.7719 19.4314 23.3148 17.9657C22.4833 17.1429 21.4033 16.74 20.3148 16.7314L21.1376 15.9086L20.2291 15L17.8033 17.4257L20.2291 19.8514L21.1376 18.9429L20.2033 18.0086C20.2291 18.0086 20.2548 18 20.2805 18C21.0519 18 21.8148 18.2914 22.4062 18.8829C23.3662 19.8429 23.5205 21.2829 22.9119 22.4229Z"
+                fill={color}
+            />
+            <path
+                d="M20.3319 27L22.7576 24.5743L20.3319 22.1486L19.4233 23.0571L20.3491 23.9829C19.5519 24.0086 18.7548 23.7171 18.1548 23.1171C17.1948 22.1571 17.0405 20.7171 17.6491 19.5771L16.7062 18.6343C15.6091 20.2971 15.7891 22.56 17.2548 24.0257C18.0776 24.8486 19.1576 25.2686 20.2376 25.2771L19.4233 26.0914L20.3319 27Z"
+                fill={color}
+            />
+        </InsightIcon>
+    )
+}
+
+export function InsightsLifecycleIcon({
+    color = 'white',
+    background = '#747EA2',
+    noBackground = false,
+}: InsightIconInstanceProps): JSX.Element {
+    return (
+        <InsightIcon background={background} noBackground={noBackground}>
+            <path
+                d="M10 14H13V24H10V14ZM10 9H13V13H10V9ZM20 20H23V24H20V20ZM20 17H23V19H20V17ZM15 17H18V24H15V17ZM15 13H18V16H15V13Z"
+                fill={color}
+            />
+        </InsightIcon>
     )
 }

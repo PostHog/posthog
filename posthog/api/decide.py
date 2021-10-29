@@ -1,3 +1,4 @@
+import re
 import secrets
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -26,9 +27,17 @@ def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
         if hostname:
             permitted_domains.append(hostname)
 
-    return (parse_domain(request.headers.get("Origin")) in permitted_domains) or (
-        parse_domain(request.headers.get("Referer")) in permitted_domains
-    )
+    origin = parse_domain(request.headers.get("Origin"))
+    referer = parse_domain(request.headers.get("Referer"))
+    for permitted_domain in permitted_domains:
+        if "*" in permitted_domain:
+            pattern = "^{}$".format(permitted_domain.replace(".", "\\.").replace("*", "(.*)"))
+            if (origin and re.search(pattern, origin)) or (referer and re.search(pattern, referer)):
+                return True
+        else:
+            if permitted_domain == origin or permitted_domain == referer:
+                return True
+    return False
 
 
 def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:

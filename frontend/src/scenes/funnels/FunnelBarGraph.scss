@@ -1,5 +1,7 @@
 @import '~/vars';
 
+// TODO: Clean up unused styles after `5730-funnel-horizontal-ui` & `5733-funnel-vertical-breakdown` are released or discarded.
+
 $label_position_offset: 8px;
 $series_container_width: 3rem;
 $glyph_margin_top: 10px;
@@ -209,6 +211,7 @@ $funnel_canvas_background: #fafafa;
 
         .funnel-step {
             width: 30%;
+            min-width: 200px;
             display: flex;
             flex-direction: column;
 

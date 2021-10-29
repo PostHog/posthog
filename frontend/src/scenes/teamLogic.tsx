@@ -96,6 +96,12 @@ export const teamLogic = kea<teamLogicType>({
             (currentTeam, currentOrganization): boolean =>
                 (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
         ],
+        pathCleaningFiltersWithNew: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): Record<string, any>[] => {
+                return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
+            },
+        ],
     },
     listeners: ({ actions }) => ({
         deleteTeam: async ({ team }) => {
@@ -117,9 +123,10 @@ export const teamLogic = kea<teamLogicType>({
     events: ({ actions }) => ({
         afterMount: () => {
             const appContext = getAppContext()
-            if (appContext) {
+            const contextualTeam = appContext?.current_team
+            if (contextualTeam) {
                 // If app context is available (it should be practically always) we can immediately know currentTeam
-                actions.loadCurrentTeamSuccess(appContext.current_team)
+                actions.loadCurrentTeamSuccess(contextualTeam)
             } else {
                 // If app context is not available, a traditional request is needed
                 actions.loadCurrentTeam()

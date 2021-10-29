@@ -18,7 +18,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         dashboard = Dashboard.objects.create(
             team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
         )
-        response = self.client.get(f"/api/dashboard/{dashboard.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_retrieve_dashboard_forbidden_for_org_admin(self):
@@ -27,7 +27,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         dashboard = Dashboard.objects.create(
             team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
         )
-        response = self.client.get(f"/api/dashboard/{dashboard.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_retrieve_dashboard_allowed_for_project_member(self):
@@ -37,7 +37,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         dashboard = Dashboard.objects.create(
             team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
         )
-        response = self.client.get(f"/api/dashboard/{dashboard.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_shared_dashboard_in_private_project(self):

@@ -214,8 +214,8 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     template = get_template(template_name)
 
-    context["self_capture"] = False
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
+    context["self_capture"] = settings.SELF_CAPTURE
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -229,7 +229,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["e2e_testing"] = True
 
     if settings.SELF_CAPTURE:
-        context["self_capture"] = True
         api_token = get_self_capture_api_token(request)
 
         if api_token:
@@ -827,11 +826,16 @@ def get_helm_info_env() -> dict:
         return {}
 
 
-OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
-LIMIT_REGEX = re.compile(r"([&?]limit=)(\d+)")
+def format_query_params_absolute_url(
+    request: Request,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset_alias: Optional[str] = "offset",
+    limit_alias: Optional[str] = "limit",
+) -> Optional[str]:
+    OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
+    LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
 
-
-def format_query_params_absolute_url(request: Request, offset: Optional[int] = None, limit: Optional[int] = None):
     url_to_format = request.get_raw_uri()
 
     if not url_to_format:
@@ -841,13 +845,13 @@ def format_query_params_absolute_url(request: Request, offset: Optional[int] = N
         if OFFSET_REGEX.search(url_to_format):
             url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
         else:
-            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"offset={offset}"
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{offset_alias}={offset}"
 
     if limit:
         if LIMIT_REGEX.search(url_to_format):
             url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
         else:
-            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"limit={limit}"
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{limit_alias}={limit}"
 
     return url_to_format
 

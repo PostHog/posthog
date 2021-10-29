@@ -72,6 +72,9 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             interval: autocorrectInterval(filters),
             breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
             breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
+            funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
+            funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
+            funnel_custom_steps: filters.funnel_custom_steps || undefined,
         }
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
@@ -91,6 +94,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
     } else if (filters.insight === ViewType.PATHS) {
         return {
             insight: ViewType.PATHS,
+            properties: filters.properties || [],
             start_point: filters.start_point || undefined,
             end_point: filters.end_point || undefined,
             step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
@@ -108,6 +112,11 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             path_dropoff_key: filters.path_dropoff_key || undefined,
             funnel_filter: filters.funnel_filter || { date_from: filters.date_from },
             funnel_paths: filters.funnel_paths,
+            path_replacements: filters.path_replacements || undefined,
+            local_path_cleaning_filters: filters.local_path_cleaning_filters || [],
+            edge_limit: filters.edge_limit || undefined,
+            min_edge_weight: filters.min_edge_weight || undefined,
+            max_edge_weight: filters.max_edge_weight || undefined,
         }
     } else if (isTrendsInsight(filters.insight) || !filters.insight) {
         const cleanSearchParams: Partial<FilterType> = {

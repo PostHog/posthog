@@ -12152,7 +12152,7 @@
                             }
                         }
                     ],
-                    "hasNext": "http://localhost:8000/api/event/?properties=%7B%7D&orderBy=%5B%22-timestamp%22%5D&after=2021-08-24T10:14:50.240000Z",
+                    "hasNext": "http://localhost:8000/api/projects/1/events/?properties=%7B%7D&orderBy=%5B%22-timestamp%22%5D&after=2021-08-24T10:14:50.240000Z",
                     "orderBy": "-timestamp",
                     "selectedEvent": null,
                     "newEvents": [
@@ -13234,8 +13234,8 @@
                 }
             },
             "rawDashboardsLoading": false,
-            "sharedDashboards": null,
-            "sharedDashboardsLoading": false,
+            "sharedDashboard": null,
+            "sharedDashboardLoading": false,
             "dashboard": null,
             "dashboardLoading": false,
             "redirect": true,

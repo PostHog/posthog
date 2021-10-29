@@ -1,5 +1,4 @@
 import random
-import uuid
 from unittest.mock import patch
 
 from django.core import mail

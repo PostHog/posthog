@@ -37,10 +37,12 @@ $funnel_canvas_background: #fafafa;
         @extend .mixin-base-bordered-card;
     }
 
-    .hotkey {
-        margin-bottom: 0;
-        background-color: rgba($primary, 0.1) !important;
-        border-color: rgba($primary, 0.1) !important;
+    .ant-tabs-tab {
+        .hotkey {
+            margin-bottom: 0;
+            background-color: rgba($primary, 0.1) !important;
+            border-color: rgba($primary, 0.1) !important;
+        }
     }
 
     .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
@@ -119,7 +121,7 @@ $funnel_canvas_background: #fafafa;
 
     .insights-tab-actions {
         margin-left: auto;
-        padding: 0 1rem;
+        padding-left: 1rem;
         display: flex;
         flex-wrap: nowrap;
 
