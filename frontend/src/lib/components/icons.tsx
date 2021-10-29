@@ -494,6 +494,58 @@ export function IconFeedbackWarning({ style }: { style?: CSSProperties }): JSX.E
     )
 }
 
+export function IconSignOut(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m17 8-1.41 1.41 1.58 1.59h-8.17v2h8.17l-1.58 1.58 1.41 1.42 4-4zm-12-3h7v-2h-7c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h7v-2h-7z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconPlus(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="m19 13h-6v6h-2v-6h-6v-2h6v-6h2v6h6z" fill="currentColor" />
+        </svg>
+    )
+}
+
+export function IconCheckmark(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m21 5.862-10.269 10.278-3.816-3.816 1.269-1.269 2.547 2.547 9-9zm-1.989 4.536c.117.513.189 1.053.189 1.602 0 3.978-3.222 7.2-7.2 7.2s-7.2-3.222-7.2-7.2 3.222-7.2 7.2-7.2c1.422 0 2.736.414 3.852 1.125l1.296-1.296c-1.458-1.026-3.231-1.629-5.148-1.629-4.968 0-9 4.032-9 9s4.032 9 9 9 9-4.032 9-9c0-1.071-.198-2.097-.54-3.051z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconUpdate(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m18.32 4.2601c-1.48-1.21-3.31-2.01-5.32-2.21v2.02c1.46.18 2.79.76 3.9 1.62zm1.61 6.74h2.02c-.2-2.01-1-3.84-2.21-5.32l-1.43 1.42c.86 1.11 1.44 2.44 1.62 3.9zm-1.62 5.9 1.43 1.43c1.21-1.48 2.01-3.32 2.21-5.32h-2.02c-.18 1.45-.76 2.78-1.62 3.89zm-5.31 3.03v2.02c2.01-.2 3.84-1 5.32-2.21l-1.43-1.43c-1.1.86-2.43 1.44-3.89 1.62zm2.59-9.34-2.59 2.58v-6.17h-2v6.17l-2.59-2.59-1.41 1.42 5 5 5-5zm-4.59 9.34v2.02c-5.05-.5-9-4.76-9-9.95s3.95-9.45 9-9.95v2.02c-3.95.49-7 3.85-7 7.93s3.05 7.44 7 7.93z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconOffline(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m12 2.02c-5.51 0-9.98 4.47-9.98 9.98s4.47 9.98 9.98 9.98 9.98-4.47 9.98-9.98-4.47-9.98-9.98-9.98zm0 17.96c-4.4 0-7.98-3.58-7.98-7.98s3.58-7.98 7.98-7.98 7.98 3.58 7.98 7.98-3.58 7.98-7.98 7.98zm.75-14.98-4.5 8.5h3.14v5.5l4.36-8.5h-3z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 // AntD arrows rotated at convenient angles
 
 export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {

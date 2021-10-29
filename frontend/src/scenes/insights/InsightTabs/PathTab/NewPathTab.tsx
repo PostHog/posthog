@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { Link } from 'lib/components/Link'
 import { PathCleanFilterInput } from './PathCleanFilterInput'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -34,6 +35,7 @@ export function NewPathTab(): JSX.Element {
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
@@ -500,7 +502,7 @@ export function NewPathTab(): JSX.Element {
                                 </Row>
                             </>
                         )}
-                        {!hasAdvancedPaths && (
+                        {!hasAdvancedPaths && !preflight?.instance_preferences?.disable_paid_fs && (
                             <Row align="middle">
                                 <Col span={24}>
                                     <PayCard
