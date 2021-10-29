@@ -16,19 +16,26 @@ import { userLogic } from 'scenes/userLogic'
 jest.mock('lib/api')
 jest.mock('posthog-js')
 
+type CorrelationConfig = {
+    excluded_person_property_names?: string[]
+}
+
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
-    let excludedProperties: string[] = []
+    let correlationConfig: CorrelationConfig = {}
 
     mockAPI(async (url) => {
         if (['api/projects/@current', `api/projects/${MOCK_TEAM_ID}`].includes(url.pathname)) {
             if (url.method === 'update') {
-                excludedProperties = url.data?.person_property_names_excluded_from_correlation
+                correlationConfig = {
+                    ...correlationConfig,
+                    excluded_person_property_names: url.data?.correlation_config?.excluded_person_property_names,
+                }
             }
 
             return {
                 ...MOCK_DEFAULT_TEAM,
-                person_property_names_excluded_from_correlation: excludedProperties,
+                correlation_config: correlationConfig,
             }
         } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
             return {
@@ -380,7 +387,7 @@ describe('funnelLogic', () => {
             await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
 
             await expectLogic(logic, () => logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } }))
-                .toFinishListeners()
+                .toFinishAllListeners()
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [
@@ -457,7 +464,7 @@ describe('funnelLogic', () => {
 
         it('loads exclude list from Project settings', async () => {
             featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
-            excludedProperties = ['some property']
+            correlationConfig = { excluded_person_property_names: ['some property'] }
 
             // TODO: move api mocking to this test. I couldn't seem to figure
             // out how that would work with mockApi.
@@ -466,7 +473,7 @@ describe('funnelLogic', () => {
                 .toMatchValues({
                     currentTeam: {
                         ...MOCK_DEFAULT_TEAM,
-                        person_property_names_excluded_from_correlation: ['some property'],
+                        correlation_config: { excluded_person_property_names: ['some property'] },
                     },
                 })
 

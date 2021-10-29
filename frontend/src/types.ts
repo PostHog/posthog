@@ -187,7 +187,9 @@ export interface TeamType extends TeamBasicType {
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
-    person_property_names_excluded_from_correlation: string[]
+    correlation_config: {
+        excluded_person_property_names: string[]
+    }
 }
 
 export interface ActionType {

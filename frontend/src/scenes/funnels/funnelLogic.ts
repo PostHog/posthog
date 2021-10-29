@@ -883,7 +883,8 @@ export const funnelLogic = kea<funnelLogicType>({
 
         excludedPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.person_property_names_excluded_from_correlation || null,
+            (currentTeam) =>
+                currentTeam ? currentTeam.correlation_config?.excluded_person_property_names || [] : null,
         ],
     }),
 
@@ -1032,7 +1033,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
         setExcludedPropertyNames: async ({ excludedPropertyNames }) => {
             teamLogic.actions.updateCurrentTeam({
-                person_property_names_excluded_from_correlation: excludedPropertyNames,
+                correlation_config: { excluded_person_property_names: excludedPropertyNames },
             })
         },
 
