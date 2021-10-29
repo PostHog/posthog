@@ -122,6 +122,7 @@
     color: var(--primary);
     font-weight: 600;
     font-size: 0.8125rem;
+    text-align: right;
 }
 
 .SitePopover__crumb {
@@ -160,6 +161,7 @@
 }
 
 .AccountInfo__identification {
+    width: 100%;
     margin-left: 0.5rem;
     overflow: hidden;
 }
