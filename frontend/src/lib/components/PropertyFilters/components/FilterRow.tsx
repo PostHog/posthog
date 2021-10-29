@@ -8,7 +8,7 @@ import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import 'scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
+import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
 

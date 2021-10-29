@@ -2,7 +2,7 @@ import { Input, Row, Table } from 'antd'
 import { useValues, useActions } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import React, { useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce/lib'
+import { useDebouncedCallback } from 'use-debounce'
 import { PropertyDefinition } from '~/types'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 

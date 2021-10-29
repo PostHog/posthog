@@ -5,7 +5,6 @@
             "lib/*": ["./src/lib/*"],
             "scenes/*": ["./src/scenes/*"],
             "~/*": ["./src/*"],
-            "types/*": ["./types/*"],
             "public/*": ["./public/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
