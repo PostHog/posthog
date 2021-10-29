@@ -1,8 +1,7 @@
-import { parseMetadataResponse, sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
+import { parseMetadataResponse, sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
@@ -17,8 +16,8 @@ const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
 )
 const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
 
-describe('sessionsPlayLogic', () => {
-    let logic: ReturnType<typeof sessionsPlayLogic.build>
+describe('sessionsPlayLogicV2', () => {
+    let logic: ReturnType<typeof sessionRecordingLogic.build>
 
     mockAPI(async (url) => {
         if (!!url.pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
@@ -32,21 +31,18 @@ describe('sessionsPlayLogic', () => {
     })
 
     initKeaTestLogic({
-        logic: sessionsPlayLogic,
+        logic: sessionRecordingLogic,
         onLogic: (l) => (logic = l),
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([sessionsTableLogic, eventUsageLogic])
+            await expectLogic(logic).toMount([eventUsageLogic])
         })
         it('has default values', async () => {
             await expectLogic(logic).toMatchValues({
                 sessionRecordingId: null,
                 sessionPlayerData: null,
-                addingTagShown: false,
-                addingTag: '',
-                loadingNextRecording: false,
                 firstChunkLoaded: false,
                 source: RecordingWatchedSource.Unknown,
             })

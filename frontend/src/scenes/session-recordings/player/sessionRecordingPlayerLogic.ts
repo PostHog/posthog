@@ -4,8 +4,8 @@ import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SessionPlayerState, SessionPlayerTime } from '~/types'
 import { eventWithTime, playerMetaData } from 'rrweb/typings/types'
-import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
@@ -22,10 +22,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect: {
         logic: [eventUsageLogic],
         values: [
-            sessionsPlayLogic,
+            sessionRecordingLogic,
             ['sessionRecordingId', 'sessionPlayerData', 'sessionPlayerDataLoading', 'isPlayable'],
         ],
-        actions: [sessionsPlayLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
+        actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
     },
     actions: {
         initReplayer: (frame: HTMLDivElement) => ({ frame }),
