@@ -114,6 +114,9 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             funnel_paths: filters.funnel_paths,
             path_replacements: filters.path_replacements || undefined,
             local_path_cleaning_filters: filters.local_path_cleaning_filters || [],
+            edge_limit: filters.edge_limit || undefined,
+            min_edge_weight: filters.min_edge_weight || undefined,
+            max_edge_weight: filters.max_edge_weight || undefined,
         }
     } else if (isTrendsInsight(filters.insight) || !filters.insight) {
         const cleanSearchParams: Partial<FilterType> = {

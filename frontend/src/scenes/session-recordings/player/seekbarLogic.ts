@@ -13,7 +13,6 @@ import {
     ReactInteractEvent,
     THUMB_OFFSET,
     THUMB_SIZE,
-    TOUCH_ENABLED,
 } from 'scenes/session-recordings/player/seekbarUtils'
 
 export const seekbarLogic = kea<seekbarLogicType>({
@@ -100,7 +99,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
             actions.setRealTime(time)
         },
         setThumbLeftPos: ({ thumbLeftPos, shouldSeek }) => {
-            // Debounce seeking so that scrubbing doesn't sent a bajillion requests.
             if (!values.slider) {
                 return
             }
@@ -140,13 +138,10 @@ export const seekbarLogic = kea<seekbarLogicType>({
             actions.handleSeek(newX)
             actions.clearLoadingState()
 
-            if (TOUCH_ENABLED) {
-                document.removeEventListener('touchmove', actions.handleMove)
-                document.removeEventListener('touchend', actions.handleUp)
-            } else {
-                document.removeEventListener('mousemove', actions.handleMove)
-                document.removeEventListener('mouseup', actions.handleUp)
-            }
+            document.removeEventListener('touchmove', actions.handleMove)
+            document.removeEventListener('touchend', actions.handleUp)
+            document.removeEventListener('mousemove', actions.handleMove)
+            document.removeEventListener('mouseup', actions.handleUp)
         },
         handleDown: ({ event }) => {
             if (!values.thumb) {
@@ -162,13 +157,10 @@ export const seekbarLogic = kea<seekbarLogicType>({
             }
             actions.setCursorDiff(diffFromThumb)
 
-            if (TOUCH_ENABLED) {
-                document.addEventListener('touchmove', actions.handleMove)
-                document.addEventListener('touchend', actions.handleUp)
-            } else {
-                document.addEventListener('mousemove', actions.handleMove)
-                document.addEventListener('mouseup', actions.handleUp)
-            }
+            document.addEventListener('touchmove', actions.handleMove)
+            document.addEventListener('touchend', actions.handleUp)
+            document.addEventListener('mousemove', actions.handleMove)
+            document.addEventListener('mouseup', actions.handleUp)
         },
     }),
     events: ({ actions, values }) => ({

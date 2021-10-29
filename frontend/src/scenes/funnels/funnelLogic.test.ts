@@ -465,19 +465,41 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('goes away on sending feedback, capturing it properly', async () => {
+        it('Captures emoji feedback properly', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setCorrelationFeedbackRating(1)
+            })
+                .toMatchValues(logic, {
+                    // reset after sending feedback
+                    correlationFeedbackRating: 1,
+                })
+                .toDispatchActions(eventUsageLogic, ['reportCorrelationAnalysisFeedback'])
+
+            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 1 })
+        })
+
+        it('goes away on sending feedback, capturing it properly', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setCorrelationFeedbackRating(2)
                 logic.actions.setCorrelationDetailedFeedback('tests')
                 logic.actions.sendCorrelationAnalysisFeedback()
-            }).toMatchValues(logic, {
-                // reset after sending feedback
-                correlationFeedbackRating: 0,
-                correlationDetailedFeedback: '',
-                correlationFeedbackHidden: true,
             })
+                .toMatchValues(logic, {
+                    // reset after sending feedback
+                    correlationFeedbackRating: 0,
+                    correlationDetailedFeedback: '',
+                    correlationFeedbackHidden: true,
+                })
+                .toDispatchActions(eventUsageLogic, ['reportCorrelationAnalysisDetailedFeedback'])
+                .toFinishListeners()
 
-            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 1, comment: 'tests' })
+            await expectLogic(eventUsageLogic).toFinishListeners()
+
+            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 2 })
+            expect(posthog.capture).toBeCalledWith('correlation analysis detailed feedback', {
+                rating: 2,
+                comments: 'tests',
+            })
         })
     })
 })

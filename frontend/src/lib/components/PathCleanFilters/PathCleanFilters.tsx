@@ -17,7 +17,7 @@ interface PropertyFiltersProps {
     popoverPlacement?: TooltipPlacement | null
     taxonomicPopoverPlacement?: Placement
     style?: CSSProperties
-    groupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
 }
 
