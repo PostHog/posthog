@@ -19,7 +19,7 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
     }
 }
 
-export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
+export const sessionRecordingLogic = kea<sessionsPlayLogicType>({
     connect: {
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId']],
