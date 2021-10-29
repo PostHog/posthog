@@ -10,11 +10,18 @@ import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
 import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrganizationModal'
 import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInviteModal'
+import { ChangelogModal } from '../../ChangelogModal'
 
 export function TopBar(): JSX.Element {
-    const { announcementMessage, isAnnouncementHidden, isInviteModalShown, isCreateOrganizationModalShown } =
-        useValues(lemonadeLogic)
-    const { hideAnnouncement, hideInviteModal, hideCreateOrganizationModal } = useActions(lemonadeLogic)
+    const {
+        announcementMessage,
+        isAnnouncementHidden,
+        isInviteModalShown,
+        isCreateOrganizationModalShown,
+        isChangelogModalShown,
+    } = useValues(lemonadeLogic)
+    const { hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideChangelogModal } =
+        useActions(lemonadeLogic)
 
     return (
         <>
@@ -38,6 +45,7 @@ export function TopBar(): JSX.Element {
                 </div>
             </header>
             <CommandPalette />
+            <ChangelogModal onDismiss={hideChangelogModal} visible={isChangelogModalShown} />
             <BulkInviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
         </>

@@ -4,6 +4,7 @@
     transition: background-color 200ms ease;
     font-weight: 600;
     color: var(--primary);
+    cursor: pointer;
     &:hover {
         background: rgba($blue_300, 0.2);
     }

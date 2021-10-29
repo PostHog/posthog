@@ -89,17 +89,25 @@ function OtherOrganizationButton({ organization }: { organization: OrganizationB
 }
 
 function InviteMembersButton(): JSX.Element {
-    const { showInviteModal } = useActions(lemonadeLogic)
+    const { closeSitePopover, showInviteModal } = useActions(lemonadeLogic)
 
     return (
-        <LemonButton icon={<IconPlus />} onClick={showInviteModal} align="start" fullWidth>
+        <LemonButton
+            icon={<IconPlus />}
+            onClick={() => {
+                closeSitePopover()
+                showInviteModal()
+            }}
+            align="start"
+            fullWidth
+        >
             Invite members
         </LemonButton>
     )
 }
 
 function NewOrganizationButton(): JSX.Element {
-    const { showCreateOrganizationModal } = useActions(lemonadeLogic)
+    const { closeSitePopover, showCreateOrganizationModal } = useActions(lemonadeLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (
@@ -110,7 +118,10 @@ function NewOrganizationButton(): JSX.Element {
                     AvailableFeature.ORGANIZATIONS_PROJECTS,
                     'multiple organizations',
                     'Organizations group people building products together. An organization can then have multiple projects.',
-                    showCreateOrganizationModal,
+                    () => {
+                        closeSitePopover()
+                        showCreateOrganizationModal()
+                    },
                     {
                         cloud: false,
                         selfHosted: true,
@@ -173,8 +184,7 @@ function SystemStatus(): JSX.Element {
 }
 
 function Version(): JSX.Element {
-    const { closeSitePopover } = useActions(lemonadeLogic)
-    const { setChangelogModalOpen } = useActions(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { closeSitePopover, showChangelogModal } = useActions(lemonadeLogic)
     const { updateAvailable } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
     const { preflight } = useValues(preflightLogic)
 
@@ -190,8 +200,8 @@ function Version(): JSX.Element {
                 </div>
                 <Link
                     onClick={() => {
+                        showChangelogModal()
                         closeSitePopover()
-                        setChangelogModalOpen(true)
                     }}
                     className="SitePopover__side-link"
                 >
@@ -217,12 +227,13 @@ export function SitePopover(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { isSitePopoverOpen } = useValues(lemonadeLogic)
-    const { toggleSitePopover } = useActions(lemonadeLogic)
+    const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
 
     return (
         <Popup
             visible={isSitePopoverOpen}
             className="SitePopover"
+            onClickOutside={closeSitePopover}
             overlay={
                 <>
                     <SitePopoverSection title="Signed in as">
