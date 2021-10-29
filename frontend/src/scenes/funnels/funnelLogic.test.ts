@@ -436,8 +436,19 @@ describe('funnelLogic', () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
                 logic.actions.excludeProperty('another property')
             })
-                .toFinishListeners()
                 .toMatchValues({
+                    propertyNames: ['some property', 'third property'],
+                    excludedPropertyNames: ['another property'],
+                    allProperties: ['some property', 'third property'],
+                })
+                .toDispatchActions(logic, ['loadPropertyCorrelations'])
+                .toDispatchActions(logic, ['loadPropertyCorrelationsSuccess'])
+                .toFinishListeners()
+                .clearHistory()
+                .toMatchValues({
+                    propertyNames: ['some property', 'third property'],
+                    excludedPropertyNames: ['another property'],
+                    allProperties: ['some property', 'third property'],
                     propertyCorrelations: {
                         events: [
                             {

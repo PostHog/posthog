@@ -1073,7 +1073,6 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setPropertyNames(
                 values.propertyNames.filter((property) => !values.excludedPropertyNames.includes(property))
             )
-            actions.loadPropertyCorrelations()
         },
 
         setPropertyNames: async () => {
