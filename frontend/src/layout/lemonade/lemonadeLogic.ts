@@ -9,12 +9,50 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
     },
     actions: {
         hideAnnouncement: true,
+        openSitePopover: true,
+        closeSitePopover: true,
+        toggleSitePopover: true,
+        showInviteModal: true,
+        hideInviteModal: true,
+        showCreateOrganizationModal: true,
+        hideCreateOrganizationModal: true,
+        showChangelogModal: true,
+        hideChangelogModal: true,
     },
     reducers: {
         isAnnouncementHidden: [
             false,
             {
                 hideAnnouncement: () => true,
+            },
+        ],
+        isSitePopoverOpen: [
+            false,
+            {
+                openSitePopover: () => true,
+                closeSitePopover: () => false,
+                toggleSitePopover: (state) => !state,
+            },
+        ],
+        isInviteModalShown: [
+            false,
+            {
+                showInviteModal: () => true,
+                hideInviteModal: () => false,
+            },
+        ],
+        isCreateOrganizationModalShown: [
+            false,
+            {
+                showCreateOrganizationModal: () => true,
+                hideCreateOrganizationModal: () => false,
+            },
+        ],
+        isChangelogModalShown: [
+            false,
+            {
+                showChangelogModal: () => true,
+                hideChangelogModal: () => false,
             },
         ],
     },

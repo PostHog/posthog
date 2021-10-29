@@ -1,6 +1,9 @@
 @import '~/vars';
 
 .TopBar {
+    z-index: $z_main_nav;
+    position: sticky;
+    top: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -56,7 +59,7 @@
         margin: 0;
     }
     a {
-        color: var(--purple-300);
+        color: var(--purple-light);
         text-decoration: underline;
     }
 }
@@ -107,8 +110,69 @@
     font-weight: 600;
 }
 
-.AccountControl__crumb {
+.SitePopover {
+    width: 20rem;
+}
+
+.SitePopover__main-info {
+    flex-grow: 1;
+}
+
+.SitePopover__side-link {
+    color: var(--primary);
+    font-weight: 600;
+    font-size: 0.8125rem;
+}
+
+.SitePopover__crumb {
     display: flex;
     align-items: center;
+    padding: 0.5rem 0;
     cursor: pointer;
+}
+
+.SitePopover__section {
+    width: 100%;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    &:first-child {
+        padding-top: 0;
+    }
+    &:last-child {
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+    h5 {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted-alt);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding-left: 0.5rem;
+        margin: 0.25rem 0;
+    }
+}
+
+.AccountInfo {
+    display: flex;
+    align-items: center;
+    margin: 0.5rem;
+}
+
+.AccountInfo__identification {
+    margin-left: 0.5rem;
+    overflow: hidden;
+}
+
+.Lettermark {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: var(--radius);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.5rem;
+    text-align: center;
+    color: #5f3366;
+    background: rgba(#6b355f, 0.25);
+    user-select: none;
 }

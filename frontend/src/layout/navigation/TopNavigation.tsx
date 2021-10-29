@@ -123,7 +123,7 @@ function TopNavigationOriginal(): JSX.Element {
         organizationModalShown,
     } = useValues(navigationLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
+    const { user, otherOrganizations } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -207,24 +207,17 @@ function TopNavigationOriginal(): JSX.Element {
             </LinkButton>
             {
                 <div className="organizations">
-                    {user?.organizations
-                        .sort((orgA, orgB) =>
-                            orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
-                        )
-                        .map(
-                            (organization) =>
-                                organization.id !== user.organization?.id && (
-                                    <button
-                                        type="button"
-                                        className="plain-button"
-                                        key={organization.id}
-                                        onClick={() => updateCurrentOrganization(organization.id)}
-                                    >
-                                        <IconBuilding className="mr-05" style={{ width: 14 }} />
-                                        {organization.name}
-                                    </button>
-                                )
-                        )}
+                    {otherOrganizations.map((organization) => (
+                        <button
+                            type="button"
+                            className="plain-button"
+                            key={organization.id}
+                            onClick={() => updateCurrentOrganization(organization.id)}
+                        >
+                            <IconBuilding className="mr-05" style={{ width: 14 }} />
+                            {organization.name}
+                        </button>
+                    ))}
                     {preflight?.can_create_org && (
                         <button
                             type="button"
@@ -372,7 +365,10 @@ function TopNavigationOriginal(): JSX.Element {
             </div>
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
-            <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
+            <CreateOrganizationModal
+                isVisible={organizationModalShown}
+                onClose={() => setOrganizationModalShown(false)}
+            />
             <CommandPalette />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
