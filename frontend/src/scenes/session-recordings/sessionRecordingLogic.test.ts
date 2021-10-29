@@ -19,7 +19,7 @@ const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
 const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
 const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events`
 
-describe('sessionsPlayLogicV2', () => {
+describe('sessionRecordingLogic', () => {
     let logic: ReturnType<typeof sessionRecordingLogic.build>
 
     mockAPI(async (url) => {
