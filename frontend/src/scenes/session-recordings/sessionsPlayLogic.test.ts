@@ -2,7 +2,6 @@ import { parseMetadataResponse, sessionsPlayLogic } from 'scenes/session-recordi
 import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
@@ -38,7 +37,7 @@ describe('sessionsPlayLogicV2', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([sessionsTableLogic, eventUsageLogic])
+            await expectLogic(logic).toMount([eventUsageLogic])
         })
         it('has default values', async () => {
             await expectLogic(logic).toMatchValues({
