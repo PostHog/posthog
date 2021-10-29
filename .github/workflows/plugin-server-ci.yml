@@ -30,7 +30,6 @@ jobs:
             - name: Lint with ESLint
               run: yarn lint
 
-    
     tests-postgres-1:
         name: Tests / Postgres + Redis (1)
         runs-on: ubuntu-20.04
