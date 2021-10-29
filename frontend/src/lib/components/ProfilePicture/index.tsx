@@ -5,7 +5,7 @@ import './ProfilePicture.scss'
 export interface ProfilePictureProps {
     name?: string
     email?: string
-    size?: 'md' | 'sm'
+    size?: 'md' | 'sm' | 'xl'
     style?: React.CSSProperties
 }
 

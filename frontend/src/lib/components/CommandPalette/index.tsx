@@ -20,7 +20,7 @@ export function CommandPalette(): JSX.Element | null {
     )
 
     const boxRef = useRef<HTMLDivElement | null>(null)
-    console.log(isPaletteShown)
+
     useEventListener('keydown', (event) => {
         if (isSqueak && event.key === 'Enter') {
             squeakAudio?.play()

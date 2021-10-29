@@ -811,7 +811,7 @@ export function sampleOne<T>(items: T[]): T {
     return items[Math.floor(Math.random() * items.length)]
 }
 
-/** Convert camelCase, PascalCase or snake_case to Title Case. */
+/** Convert camelCase, PascalCase or snake_case to Sentence case. */
 export function identifierToHuman(identifier: string | number): string {
     const words: string[] = []
     let currentWord: string = ''
@@ -840,7 +840,7 @@ export function identifierToHuman(identifier: string | number): string {
     if (currentWord) {
         words.push(currentWord)
     }
-    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
+    return capitalizeFirstLetter(words.join(' '))
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {

@@ -4,14 +4,21 @@ import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Placement } from '@popperjs/core'
+import clsx from 'clsx'
 
 interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
+    /** Popover trigger element. */
     children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
+    /** Content of the overlay. */
     overlay: React.ReactNode
+    /** Where the popover should start relative to children. */
     placement?: Placement
+    /** Where the popover should start relative to children if there's insufficient space for original placement. */
     fallbackPlacements?: Placement[]
+    /** Whether the popover is actionable rather than just informative - actionable means a colored border. */
+    actionable?: boolean
     className?: string
 }
 
@@ -29,6 +36,7 @@ export function Popup({
     placement = 'bottom-start',
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
     className,
+    actionable,
 }: PopupProps): JSX.Element {
     const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
 
@@ -36,7 +44,7 @@ export function Popup({
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
     const parentPopupId = useContext(PopupContext)
-    const localRefs = [popperElement, referenceElement] as (HTMLElement | null)[]
+    const localRefs = [popperElement, referenceElement]
 
     useEffect(() => {
         if (visible) {
@@ -47,11 +55,15 @@ export function Popup({
         }
     }, [visible, parentPopupId])
 
-    useOutsideClickHandler(localRefs, (event) => {
-        if (visible && !disabledPopups.get(popupId)) {
-            onClickOutside?.(event)
-        }
-    })
+    useOutsideClickHandler(
+        localRefs,
+        (event) => {
+            if (visible && !disabledPopups.get(popupId)) {
+                onClickOutside?.(event)
+            }
+        },
+        [visible, disabledPopups]
+    )
 
     const { styles, attributes } = usePopper(referenceElement, popperElement, {
         placement: placement,
@@ -84,7 +96,7 @@ export function Popup({
             {visible
                 ? ReactDOM.createPortal(
                       <div
-                          className={className ? `popper-tooltip ${className}` : 'popper-tooltip'}
+                          className={clsx('Popup', actionable && 'Popup--actionable', className)}
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}
