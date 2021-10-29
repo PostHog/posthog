@@ -12,4 +12,9 @@ message Event {
   string elements_chain = 8;
   google.protobuf.Timestamp proto_created_at = 9;
   google.protobuf.Timestamp proto_timestamp = 10;
+  optional string group_0 = 11;
+  optional string group_1 = 12;
+  optional string group_2 = 13;
+  optional string group_3 = 14;
+  optional string group_4 = 15;
 }
