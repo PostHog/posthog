@@ -1,4 +1,5 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
+from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
@@ -7,6 +8,9 @@ from .person import GET_TEAM_PERSON_DISTINCT_IDS
 EVENTS_TABLE = "events"
 
 DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+
+GROUP_TYPE_COLUMN_DEFINITIONS = "".join(f", group_{index} VARCHAR" for index in range(GROUP_TYPES_LIMIT))
+GROUP_TYPE_COLUMN_NAMES = "".join(f"group_{index}," for index in range(GROUP_TYPES_LIMIT))
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
@@ -19,6 +23,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     distinct_id VARCHAR,
     elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC')
+    {groups_fields}
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -34,6 +39,7 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
     table_name=EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    groups_fields=GROUP_TYPE_COLUMN_DEFINITIONS,
     extra_fields=KAFKA_COLUMNS,
     sample_by_uuid="SAMPLE BY uuid" if not DEBUG else "",  # https://github.com/PostHog/posthog/issues/5684
     storage_policy=STORAGE_POLICY,
@@ -43,6 +49,7 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
+    groups_fields=GROUP_TYPE_COLUMN_DEFINITIONS,
     extra_fields="",
 )
 
@@ -60,11 +67,15 @@ team_id,
 distinct_id,
 elements_chain,
 created_at,
+{group_columns}
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    table_name=EVENTS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
+    group_columns=GROUP_TYPE_COLUMN_NAMES
 )
 
 INSERT_EVENT_SQL = """
