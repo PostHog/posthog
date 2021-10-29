@@ -427,7 +427,7 @@ def test_parse_prop_clauses_defaults(snapshot):
         data={
             "properties": [
                 {"key": "event_prop", "value": "value"},
-                {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
+                {"key": "parse_prop_email", "type": "person", "value": "posthog", "operator": "icontains"},
             ],
         }
     )
