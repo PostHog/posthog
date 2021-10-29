@@ -27,7 +27,7 @@ interface Params {
     source?: RecordingWatchedSource
 }
 
-export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>>({
+export const sessionsTableLogic = kea<sessionsTableLogicType<Array, SessionRecordingId>>({
     key: (props) => props.personIds || 'global',
     props: {} as {
         personIds?: string[]

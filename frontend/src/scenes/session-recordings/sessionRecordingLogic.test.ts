@@ -5,7 +5,7 @@ import { initKeaTestLogic } from '~/test/init'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
-import recordingEventsJson from "./__mocks__/recording_events.json"
+import recordingEventsJson from './__mocks__/recording_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { combineUrl } from 'kea-router'
 
