@@ -153,6 +153,7 @@ describe('sessionRecordingLogic', () => {
                         after: '2021-10-12T05:13:12+00:00',
                         before: '2021-12-20T14:02:33+00:00',
                         person_id: 1,
+                        orderBy: ['timestamp'],
                     },
                 })
         })
