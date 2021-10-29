@@ -1,0 +1,47 @@
+@import '~/vars';
+
+.SideBar__layout {
+    height: 100%;
+    display: flex;
+}
+
+.SideBar {
+    position: relative;
+    height: 100%;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    width: 15rem;
+    background: var(--bg-side);
+    border-right: 1px solid var(--border);
+}
+
+.SideBar__content {
+    position: sticky;
+    top: 3.5rem;
+    width: 100%;
+    padding: 0.5rem;
+}
+
+.ProjectSwitcher {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.ProjectSwitcher__label {
+    color: var(--text-muted);
+    line-height: 1.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ProjectSwitcher__label {
+    padding: 0 0.5rem;
+    color: var(--text-muted);
+    line-height: 1.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}

@@ -18,6 +18,7 @@ import { navigationLogic } from '../../navigation/navigationLogic'
 import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
 import dayjs from 'dayjs'
 import { identifierToHuman } from '../../../lib/utils'
+import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -36,7 +37,7 @@ function AccountInfo(): JSX.Element {
         <div className="AccountInfo">
             <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
             <div className="AccountInfo__identification SitePopover__main-info">
-                <strong>{user?.first_name}</strong>
+                <b>{user?.first_name}</b>
                 <div className="supplement" title={user?.email}>
                     {user?.email}
                 </div>
@@ -46,12 +47,6 @@ function AccountInfo(): JSX.Element {
             </Link>
         </div>
     )
-}
-
-function Lettermark({ name }: { name?: string | null }): JSX.Element {
-    const initialLetter = name ? name[0].toLocaleUpperCase() : '?'
-
-    return <div className="Lettermark">{initialLetter}</div>
 }
 
 function CurrentOrganization({ organization }: { organization: OrganizationBasicType }): JSX.Element {
@@ -79,7 +74,6 @@ function OtherOrganizationButton({ organization }: { organization: OrganizationB
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark name={organization.name} />}
             type="stealth"
-            align="start"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
@@ -98,7 +92,6 @@ function InviteMembersButton(): JSX.Element {
                 closeSitePopover()
                 showInviteModal()
             }}
-            align="start"
             fullWidth
         >
             Invite members
@@ -128,7 +121,6 @@ function NewOrganizationButton(): JSX.Element {
                     }
                 )
             }
-            align="start"
             fullWidth
         >
             New organization
@@ -216,7 +208,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconSignOut />} type="stealth" align="start" fullWidth>
+        <LemonButton onClick={logout} icon={<IconSignOut />} type="stealth" fullWidth>
             Sign out
         </LemonButton>
     )
@@ -251,11 +243,13 @@ export function SitePopover(): JSX.Element {
                             {preflight?.can_create_org && <NewOrganizationButton />}
                         </SitePopoverSection>
                     )}
-                    <SitePopoverSection title="PostHog status">
-                        {preflight?.cloud ? null : <License />}
-                        {(!preflight?.cloud || user?.is_staff) && <SystemStatus />}
-                        {!preflight?.cloud && <Version />}
-                    </SitePopoverSection>
+                    {(!preflight?.cloud || user?.is_staff) && (
+                        <SitePopoverSection title="PostHog status">
+                            {!preflight?.cloud && <License />}
+                            <SystemStatus />
+                            {!preflight?.cloud && <Version />}
+                        </SitePopoverSection>
+                    )}
                     <SitePopoverSection>
                         <SignOutButton />
                     </SitePopoverSection>

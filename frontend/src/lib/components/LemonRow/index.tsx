@@ -6,7 +6,6 @@ export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends Re
     icon?: React.ReactElement
     tag?: T
     status?: 'success' | 'warning' | 'danger' // CSS variable colors
-    align?: 'start' | 'center'
     fullWidth?: boolean
 }
 
@@ -17,7 +16,6 @@ export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
     className,
     tag,
     status,
-    align,
     fullWidth = false,
     ...props
 }: LemonRowProps<T>): JSX.Element {
@@ -28,7 +26,6 @@ export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
                 'LemonRow',
                 className,
                 status && `LemonRow--status-${status}`,
-                align && `LemonRow--align-${align}`,
                 fullWidth && 'LemonRow--full-width'
             ),
             ...props,

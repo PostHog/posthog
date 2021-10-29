@@ -33,11 +33,8 @@
     }
 }
 
-.LemonRow--align-start {
-    justify-content: start;
-}
-
 .LemonRow--full-width {
+    justify-content: start;
     width: 100%;
     padding: 0 0.5rem;
 }
