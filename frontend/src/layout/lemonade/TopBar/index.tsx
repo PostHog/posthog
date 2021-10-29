@@ -11,6 +11,7 @@ import { CommandPalette } from '../../../lib/components/CommandPalette'
 import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrganizationModal'
 import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInviteModal'
 import { ChangelogModal } from '../../ChangelogModal'
+import { Link } from '../../../lib/components/Link'
 
 export function TopBar(): JSX.Element {
     const {
@@ -34,9 +35,9 @@ export function TopBar(): JSX.Element {
             )}
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
-                    <a href="https://posthog.com" className="TopBar__logo">
+                    <Link to="/" className="TopBar__logo">
                         <FriendlyLogo />
-                    </a>
+                    </Link>
                     <SearchBox />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
