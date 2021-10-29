@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { sessionsPlayLogicType } from './sessionsPlayLogicType'
+import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import { SessionPlayerData, SessionRecordingId, SessionRecordingMeta, SessionRecordingUsageType } from '~/types'
 import dayjs from 'dayjs'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -15,11 +15,11 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
         ...(metadata ?? {}),
         start_time: metadata?.start_time ? +dayjs(metadata?.start_time) : 0,
         end_time: metadata?.end_time ? +dayjs(metadata?.end_time) : 0,
-        recording_duration: parseFloat(metadata?.recording_duration) * 1000 || 0, // s to ms
+        recording_duration: parseFloat(metadata?.recording_duration) * 1000 || 0,
     }
 }
 
-export const sessionRecordingLogic = kea<sessionsPlayLogicType>({
+export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     connect: {
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId']],
@@ -125,7 +125,7 @@ export const sessionRecordingLogic = kea<sessionsPlayLogicType>({
                 return {
                     ...response.result,
                     session_recording: parseMetadataResponse(response.result?.session_recording),
-                    snapshots: values.sessionPlayerData?.snapshots ?? [], // don't override snapshots
+                    snapshots: values.sessionPlayerData?.snapshots ?? [],
                 }
             },
             loadRecordingSnapshots: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
