@@ -426,7 +426,7 @@ def test_parse_prop_clauses_defaults(snapshot):
     filter = Filter(
         data={
             "properties": [
-                {"key": "event_prop", "value": "value"},
+                {"key": "parse_prop_event_prop", "value": "value"},
                 {"key": "parse_prop_email", "type": "person", "value": "posthog", "operator": "icontains"},
             ],
         }
