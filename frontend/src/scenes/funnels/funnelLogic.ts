@@ -1039,7 +1039,7 @@ export const funnelLogic = kea<funnelLogicType>({
         // Make sure that when the teamLogic.currentTeam changes, we also
         // trigger loadPropertyCorrelations, as we may have new
         // excludedPropertyNames
-        updateCurrentTeam: async () => {
+        [teamLogic.actionTypes.updateCurrentTeamSuccess]: async () => {
             actions.loadPropertyCorrelations()
         },
 
