@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.helpers.session_recording import Event, compress_and_chunk_snapshots
-from posthog.models import Person, SessionRecordingEvent
+from posthog.models import Organization, Person, SessionRecordingEvent
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
@@ -278,6 +278,13 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id/snapshots")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        def test_request_to_another_teams_endpoint_returns_401(self):
+            org = Organization.objects.create(name="Separate Org")
+            another_team = Team.objects.create(organization=org)
+            self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
+            response = self.client.get(f"/api/projects/{another_team.pk}/session_recordings/id_no_team_leaking")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     return TestSessionRecordings
 

@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { Link } from 'lib/components/Link'
 import { PathCleanFilterInput } from './PathCleanFilterInput'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -34,6 +35,7 @@ export function NewPathTab(): JSX.Element {
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
@@ -45,7 +47,7 @@ export function NewPathTab(): JSX.Element {
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
-    const groupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
+    const taxonomicGroupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
         ? [
               ...filter.include_event_types.map((item) => {
                   if (item === PathType.Screen) {
@@ -269,7 +271,7 @@ export function NewPathTab(): JSX.Element {
                                             start_point: pathItem,
                                         })
                                     }
-                                    groupTypes={groupTypes}
+                                    taxonomicGroupTypes={taxonomicGroupTypes}
                                     disabled={overrideStartInput || overrideEndInput}
                                     wildcardOptions={wildcards}
                                 >
@@ -337,7 +339,7 @@ export function NewPathTab(): JSX.Element {
                                                     end_point: pathItem,
                                                 })
                                             }
-                                            groupTypes={groupTypes}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
                                             disabled={overrideEndInput || overrideStartInput}
                                             wildcardOptions={wildcards}
                                         >
@@ -500,7 +502,7 @@ export function NewPathTab(): JSX.Element {
                                 </Row>
                             </>
                         )}
-                        {!hasAdvancedPaths && (
+                        {!hasAdvancedPaths && !preflight?.instance_preferences?.disable_paid_fs && (
                             <Row align="middle">
                                 <Col span={24}>
                                     <PayCard
@@ -535,7 +537,7 @@ export function NewPathTab(): JSX.Element {
                                 </Tooltip>
                             </h4>
                             <PathItemFilters
-                                groupTypes={groupTypes}
+                                taxonomicGroupTypes={taxonomicGroupTypes}
                                 pageKey={'exclusion'}
                                 propertyFilters={
                                     filter.exclude_events &&

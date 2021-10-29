@@ -57,7 +57,7 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
                 cohortId !== 'personsModalNew' &&
                 Number(cohortId) !== values.openCohort?.id
             ) {
-                const cohort = await api.get('api/cohort/' + cohortId)
+                const cohort = await api.cohorts.get(parseInt(cohortId))
                 actions.setOpenCohort(cohort)
             } else if (cohortId === 'new') {
                 actions.setOpenCohort(NEW_COHORT)
@@ -147,7 +147,7 @@ export function Cohorts(): JSX.Element {
                         </a>
                         {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && (
                             <DeleteWithUndo
-                                endpoint="cohort"
+                                endpoint={api.cohorts.determineDeleteEndpoint()}
                                 object={{ name: cohort.name, id: cohort.id }}
                                 className="text-danger"
                                 style={{ marginLeft: 8, marginRight: 8 }}

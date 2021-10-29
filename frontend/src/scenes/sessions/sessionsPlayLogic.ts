@@ -2,7 +2,13 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
-import { SessionPlayerData, SessionRecordingId, SessionType } from '~/types'
+import {
+    SessionPlayerData,
+    SessionRecordingId,
+    SessionRecordingMeta,
+    SessionRecordingUsageType,
+    SessionType,
+} from '~/types'
 import dayjs from 'dayjs'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -12,6 +18,15 @@ import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
+export const parseMetadataResponse = (metadata: Record<string, any>): Partial<SessionRecordingMeta> => {
+    return {
+        ...(metadata ?? {}),
+        start_time: metadata?.start_time ? +dayjs(metadata?.start_time) : 0,
+        end_time: metadata?.end_time ? +dayjs(metadata?.end_time) : 0,
+        recording_duration: parseFloat(metadata?.recording_duration) * 1000 || 0, // s to ms
+    }
+}
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
     connect: {
@@ -34,8 +49,12 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         goToPrevious: true,
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
-        reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
-        loadRecording: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
+        reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({
+            recordingData,
+            loadTime,
+        }),
+        loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
+        loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
     },
     reducers: {
         sessionRecordingId: [
@@ -64,16 +83,16 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 closeSessionPlayer: () => false,
             },
         ],
-        chunkIndex: [
+        chunkPaginationIndex: [
             0,
             {
-                loadRecordingSuccess: (state) => state + 1,
+                loadRecordingSnapshotsSuccess: (state) => state + 1,
             },
         ],
         sessionPlayerDataLoading: [
             false,
             {
-                loadRecordingSuccess: (_, { sessionPlayerData }) => {
+                loadRecordingSnapshotsSuccess: (_, { sessionPlayerData }) => {
                     // If sessionPlayerData doesn't have a next url, it means the entire recording is still loading.
                     return !!sessionPlayerData?.next
                 },
@@ -86,7 +105,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             },
         ],
     },
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, sharedListeners, cache }) => ({
         toggleAddingTagShown: () => {
             // Clear text when tag input is dismissed
             if (!values.addingTagShown) {
@@ -96,7 +115,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         goToNext: () => {
             if (values.recordingIndex < values.orderedSessionRecordingIds.length - 1) {
                 const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
-                actions.loadRecording(id)
+                actions.loadRecordingSnapshots(id)
             } else if (values.pagination) {
                 // :TRICKY: Load next page of sessions, which will call appendNewSessions which will call goToNext again
                 actions.openNextRecordingOnLoad()
@@ -107,32 +126,62 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         },
         goToPrevious: () => {
             const id = values.orderedSessionRecordingIds[values.recordingIndex - 1]
-            actions.loadRecording(id)
+            actions.loadRecordingSnapshots(id)
         },
         appendNewSessions: () => {
             if (values.sessionRecordingId && values.loadingNextRecording) {
                 actions.goToNext()
             }
         },
-        loadRecordingSuccess: async () => {
+        loadRecordingSnapshotsSuccess: async () => {
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
             if (!!values.sessionPlayerData?.next) {
-                await actions.loadRecording(undefined, values.sessionPlayerData.next)
+                await actions.loadRecordingSnapshots(undefined, values.sessionPlayerData.next)
+            }
+            // Finished loading entire recording. Now make it known!
+            else {
+                eventUsageLogic.actions.reportRecording(
+                    values.sessionPlayerData,
+                    values.source,
+                    performance.now() - cache.startTime,
+                    SessionRecordingUsageType.LOADED,
+                    0
+                )
+            }
+            // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
+            if (values.chunkPaginationIndex === 1) {
+                actions.reportUsage(values.sessionPlayerData, performance.now() - cache.startTime)
             }
         },
-        loadRecordingFailure: ({ error }) => {
-            errorToast(
-                'Error fetching your session recording',
-                'Your recording returned the following error response:',
-                error
-            )
-        },
+        loadRecordingMetaFailure: sharedListeners.showErrorToast,
+        loadRecordingSnapshotsFailure: sharedListeners.showErrorToast,
         reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
             await breakpoint()
-            eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 0)
+            eventUsageLogic.actions.reportRecording(
+                recordingData,
+                values.source,
+                loadTime,
+                SessionRecordingUsageType.VIEWED,
+                0
+            )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecordingViewed(recordingData, values.source, loadTime, 10)
+            eventUsageLogic.actions.reportRecording(
+                recordingData,
+                values.source,
+                loadTime,
+                SessionRecordingUsageType.ANALYZED,
+                10
+            )
+        },
+    }),
+    sharedListeners: () => ({
+        showErrorToast: ({ error }) => {
+            errorToast(
+                'Error fetching information for your session recording',
+                'The following error response was returned:',
+                error
+            )
         },
     }),
     loaders: ({ values, actions }) => ({
@@ -150,22 +199,33 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             },
         ],
         sessionPlayerData: {
-            loadRecording: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
-                const startTime = performance.now()
+            loadRecordingMeta: async ({ sessionRecordingId }): Promise<SessionPlayerData> => {
+                const params = toParams({ save_view: true })
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}?${params}`
+                )
 
+                return {
+                    ...response.result,
+                    session_recording: parseMetadataResponse(response.result?.session_recording),
+                    snapshots: values.sessionPlayerData?.snapshots ?? [], // don't override snapshots
+                }
+            },
+            loadRecordingSnapshots: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
                 let response
                 if (url) {
                     // Subsequent calls to get rest of recording
                     response = await api.get(url)
                 } else {
                     // Very first call
-                    const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
-                    response = await api.get(`api/projects/${values.currentTeamId}/events/session_recording?${params}`)
-                    actions.reportUsage(response.result, performance.now() - startTime)
+                    response = await api.get(
+                        `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
+                    )
                 }
                 const currData = values.sessionPlayerData
                 return {
-                    ...response.result,
+                    ...currData,
+                    next: response.result?.next,
                     snapshots: [...(currData?.snapshots ?? []), ...(response.result?.snapshots ?? [])],
                 }
             },
@@ -175,10 +235,10 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         sessionDate: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData): string | null => {
-                if (!sessionPlayerData?.start_time) {
+                if (!sessionPlayerData?.session_recording?.start_time) {
                     return null
                 }
-                return dayjs(sessionPlayerData.start_time).format('MMM Do')
+                return dayjs(sessionPlayerData.session_recording.start_time).format('MMM Do')
             },
         ],
         eventIndex: [
@@ -208,7 +268,10 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
             (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
         ],
-        firstChunkLoaded: [(selectors) => [selectors.chunkIndex], (chunkIndex) => chunkIndex > 0],
+        firstChunkLoaded: [
+            (selectors) => [selectors.chunkPaginationIndex],
+            (chunkPaginationIndex) => chunkPaginationIndex > 0,
+        ],
         isPlayable: [
             (selectors) => [
                 selectors.firstChunkLoaded,
@@ -218,7 +281,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             (firstChunkLoaded, sessionPlayerDataLoading, sessionPlayerData) =>
                 (firstChunkLoaded || // If first chunk is ready
                     !sessionPlayerDataLoading) && // data isn't being fetched
-                sessionPlayerData?.snapshots.length >= 2 && // more than two snapshots needed to init Replayed
+                sessionPlayerData?.snapshots.length > 1 && // more than one snapshot needed to init rrweb Replayer
                 !!sessionPlayerData?.snapshots?.find((s: eventWithTime) => s.type === 2), // there's a full snapshot in the data that was loaded
         ],
         highlightedSessionEvents: [
@@ -254,7 +317,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
             },
         ],
     },
-    urlToAction: ({ actions, values }) => {
+    urlToAction: ({ actions, values, cache }) => {
         const urlToAction = (
             _: any,
             params: {
@@ -267,7 +330,10 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
                 actions.setSource(source as RecordingWatchedSource)
             }
             if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
-                actions.loadRecording(sessionRecordingId)
+                // Load meta first. Snapshots are loaded once Replayer ref is mounted in sessionRecordingPlayerLogic
+                cache.startTime = performance.now()
+                actions.loadRecordingMeta(sessionRecordingId)
+                actions.loadRecordingSnapshots(sessionRecordingId)
             }
         }
 

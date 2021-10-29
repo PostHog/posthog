@@ -85,7 +85,7 @@ export function CohortGroup({
                                 )
                             }}
                             propertyFilters={group.properties || {}}
-                            groupTypes={[
+                            taxonomicGroupTypes={[
                                 TaxonomicFilterGroupType.PersonProperties,
                                 TaxonomicFilterGroupType.CohortsWithAllUsers,
                             ]}

@@ -578,7 +578,7 @@ export const commandPaletteLogic = kea<
                     userLogic.values.user?.is_staff ||
                     userLogic.values.user?.is_impersonated ||
                     preflightLogic.values.preflight?.is_debug ||
-                    preflightLogic.values.preflight?.debug_queries
+                    preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: PlusOutlined,
                               display: 'Debug queries (ClickHouse)',

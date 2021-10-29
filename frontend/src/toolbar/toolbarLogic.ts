@@ -1,14 +1,15 @@
 import { kea } from 'kea'
 import { toolbarLogicType } from './toolbarLogicType'
-import { EditorProps } from '~/types'
+import { ToolbarProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { PostHog } from 'posthog-js'
 
 // input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({
-    props: {} as EditorProps,
+    props: {} as ToolbarProps,
 
     actions: () => ({
         authenticate: true,
@@ -20,7 +21,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
         updateFeatureFlags: (flags: Record<string, string | boolean>) => ({ flags }),
     }),
 
-    reducers: ({ props }: { props: EditorProps }) => ({
+    reducers: ({ props }) => ({
         rawApiURL: [props.apiURL as string],
         rawJsURL: [(props.jsURL || props.apiURL) as string],
         temporaryToken: [props.temporaryToken || null, { logout: () => null }],
@@ -32,6 +33,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
             (props.featureFlags || {}) as Record<string, string | boolean>,
             { updateFeatureFlags: (_, { flags }) => flags },
         ],
+        posthog: [(props.posthog ?? null) as PostHog | null],
     }),
 
     selectors: ({ selectors }) => ({

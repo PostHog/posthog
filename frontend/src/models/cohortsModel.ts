@@ -16,7 +16,7 @@ export const cohortsModel = kea<cohortsModelType>({
         cohorts: {
             __default: [] as CohortType[],
             loadCohorts: async () => {
-                const response = await api.get('api/cohort')
+                const response = await api.cohorts.list()
                 return response.results
             },
         },
