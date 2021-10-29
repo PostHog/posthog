@@ -27,7 +27,7 @@ class ClickhouseCohortSerializer(CohortSerializer):
 
 def insert_cohort_people_into_pg(cohort: Cohort):
     ids = sync_execute(
-        "SELECT person_id FROM {} FINAL where team_id = %(team_id)s AND cohort_id = %(cohort_id)s".format(
+        "SELECT person_id FROM {} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s".format(
             PERSON_STATIC_COHORT_TABLE
         ),
         {"cohort_id": cohort.pk, "team_id": cohort.team.pk},
