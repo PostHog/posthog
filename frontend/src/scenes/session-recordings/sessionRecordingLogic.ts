@@ -215,6 +215,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                         .utc(sessionPlayerData.session_recording.start_time)
                         .add(buffer_ms + sessionPlayerData.session_recording.recording_duration, 'ms')
                         .format(),
+                    orderBy: ['timestamp'],
                 }
             },
         ],
