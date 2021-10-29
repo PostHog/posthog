@@ -64,12 +64,6 @@ jobs:
               uses: actions/checkout@v2
               with:
                   repository: 'PostHog/posthog'
-                  path: 'posthog/'
-
-            - name: Check out plugin server
-              uses: actions/checkout@v2
-              with:
-                  path: 'plugin-server'
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -92,14 +86,14 @@ jobs:
             - name: Install requirements.txt dependencies with pip
               run: |
                   pip install --upgrade pip
-                  pip install --upgrade --upgrade-strategy eager -r posthog/requirements.txt
+                  pip install --upgrade --upgrade-strategy eager -r requirements.txt
 
             - name: Set up databases
               env:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python posthog/manage.py setup_test_environment
+              run: python manage.py setup_test_environment
 
             - name: Build the plugin server and link it with yarn
               run: |
@@ -117,8 +111,7 @@ jobs:
                   REDIS_URL: 'redis://localhost'
               run: |
                   echo "🔗 Linking this plugin server into posthog(master)/plugins/"
-                  cd posthog/plugins
-                  yarn link "@posthog/plugin-server"
+                  cd plugins-server
                   yarn
 
                   echo "🏁 Starting the plugin server dist/ (compiled JS) via posthog(master)/plugins/"
@@ -190,12 +183,6 @@ jobs:
               uses: actions/checkout@v2
               with:
                   repository: 'PostHog/posthog'
-                  path: 'posthog/'
-
-            - name: Check out plugin server
-              uses: actions/checkout@v2
-              with:
-                  path: 'plugin-server'
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -218,14 +205,14 @@ jobs:
             - name: Install requirements.txt dependencies with pip
               run: |
                   pip install --upgrade pip
-                  pip install --upgrade --upgrade-strategy eager -r posthog/requirements.txt
+                  pip install --upgrade --upgrade-strategy eager -r requirements.txt
 
             - name: Set up databases
               env:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python posthog/manage.py setup_test_environment
+              run: python manage.py setup_test_environment
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -271,12 +258,6 @@ jobs:
               uses: actions/checkout@v2
               with:
                   repository: 'PostHog/posthog'
-                  path: 'posthog/'
-
-            - name: Check out plugin server
-              uses: actions/checkout@v2
-              with:
-                  path: 'plugin-server'
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -299,14 +280,14 @@ jobs:
             - name: Install requirements.txt dependencies with pip
               run: |
                   pip install --upgrade pip
-                  pip install --upgrade --upgrade-strategy eager -r posthog/requirements.txt
+                  pip install --upgrade --upgrade-strategy eager -r requirements.txt
 
             - name: Set up databases
               env:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python posthog/manage.py setup_test_environment
+              run: python manage.py setup_test_environment
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -356,12 +337,6 @@ jobs:
               uses: actions/checkout@v2
               with:
                   repository: 'PostHog/posthog'
-                  path: 'posthog/'
-
-            - name: Check out plugin server
-              uses: actions/checkout@v2
-              with:
-                  path: 'plugin-server'
 
             - name: Fix Kafka Hostname
               run: |
@@ -370,9 +345,7 @@ jobs:
                   ping -c 1 zookeeper
 
             - name: Start Kafka, ClickHouse, Zookeeper
-              run: |
-                  cd posthog/ee
-                  docker-compose -f docker-compose.ch.yml up -d zookeeper kafka clickhouse
+              run: docker-compose -f ee/docker-compose.ch.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -395,7 +368,7 @@ jobs:
             - name: Install requirements.txt dependencies with pip
               run: |
                   pip install --upgrade pip
-                  pip install --upgrade --upgrade-strategy eager -r posthog/requirements.txt
+                  pip install --upgrade --upgrade-strategy eager -r requirements.txt
 
             - name: Set up databases
               env:
@@ -403,7 +376,7 @@ jobs:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
                   TEST: 'true'
-              run: python posthog/manage.py setup_test_environment
+              run: python manage.py setup_test_environment
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -453,12 +426,6 @@ jobs:
               uses: actions/checkout@v2
               with:
                   repository: 'PostHog/posthog'
-                  path: 'posthog/'
-
-            - name: Check out plugin server
-              uses: actions/checkout@v2
-              with:
-                  path: 'plugin-server'
 
             - name: Fix Kafka Hostname
               run: |
@@ -467,9 +434,7 @@ jobs:
                   ping -c 1 zookeeper
 
             - name: Start Kafka, ClickHouse, Zookeeper
-              run: |
-                  cd posthog/ee
-                  docker-compose -f docker-compose.ch.yml up -d zookeeper kafka clickhouse
+              run: docker-compose -f ee/docker-compose.ch.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -492,7 +457,7 @@ jobs:
             - name: Install requirements.txt dependencies with pip
               run: |
                   pip install --upgrade pip
-                  pip install --upgrade --upgrade-strategy eager -r posthog/requirements.txt
+                  pip install --upgrade --upgrade-strategy eager -r requirements.txt
 
             - name: Set up databases
               env:
@@ -500,7 +465,7 @@ jobs:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
                   TEST: 'true'
-              run: python posthog/manage.py setup_test_environment
+              run: python manage.py setup_test_environment
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
