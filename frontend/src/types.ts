@@ -1106,8 +1106,8 @@ interface AuthBackends {
 }
 
 interface InstancePreferencesInterface {
-    debug_queries: boolean
-    disable_paid_fs: boolean /** Whether debug queries option should be shown on the command palette. */
+    debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
+    disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
 }
 
 export interface PreflightStatus {
