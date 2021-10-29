@@ -259,7 +259,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
 
     def test_can_update_and_retrieve_person_property_names_excluded_from_correlation(self):
         response = self.client.patch(
-            f"/api/projects/@current/", {"person_property_names_excluded_from_correlation": ["$os"]}
+            f"/api/projects/@current/", {"correlation_config": {"excluded_person_property_names": ["$os"]}}
         )
         self.assertEqual(response.status_code, HTTP_200_OK)
 
@@ -268,7 +268,9 @@ class TestProjectEnterpriseAPI(APILicensedTest):
 
         response_data = response.json()
 
-        self.assertDictContainsSubset({"person_property_names_excluded_from_correlation": ["$os"]}, response_data)
+        self.assertDictContainsSubset(
+            {"correlation_config": {"excluded_person_property_names": ["$os"]}}, response_data
+        )
 
     # Fetching projects
 
