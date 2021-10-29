@@ -407,7 +407,7 @@ describe('funnelLogic', () => {
             await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
 
             await expectLogic(logic, () => logic.actions.setExcludedPropertyNames(['another property']))
-                .toFinishListeners()
+                .toFinishAllListeners()
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [
@@ -425,10 +425,12 @@ describe('funnelLogic', () => {
         it('triggers request to correlation endpoint when property excluded', async () => {
             userLogic.mount()
 
+            // Make sure we have loaded the team already
             await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
 
+            // Then try to exclude a property
             await expectLogic(logic, () => logic.actions.excludeProperty('another property'))
-                .toFinishListeners()
+                .toFinishAllListeners()
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [
