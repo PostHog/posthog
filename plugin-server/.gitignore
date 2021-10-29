@@ -1,0 +1,10 @@
+.idea
+.clinic
+node_modules/
+yarn-error.log
+dist/
+yalc.lock
+.yalc/
+src/config/idl/protos.*
+tmp
+*.0x

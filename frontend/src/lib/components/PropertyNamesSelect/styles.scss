@@ -5,7 +5,7 @@
     // Make sure the popover isn't cropped
     overflow: visible;
 
-    min-width: 300px;
+    min-width: 100px;
 
     .property-names-select {
         display: flex;
@@ -42,6 +42,8 @@
         top: calc(100% + 8px);
         left: 0;
         right: 0;
+
+        min-width: 300px;
 
         // Make sure we don't get covered up
         z-index: 100; // number is abritrary

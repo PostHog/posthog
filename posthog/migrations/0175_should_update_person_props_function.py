@@ -9,33 +9,4 @@ class Migration(migrations.Migration):
         ("posthog", "0174_organization_slug"),
     ]
 
-    operations = [
-        migrations.RunSQL(
-            """
-        -- not-null-ignore
-        CREATE OR REPLACE FUNCTION should_update_person_prop(
-            in person_id int, 
-            in prop_key text, 
-            in _timestamp text, 
-            in operation text, 
-            out should_update bool
-        )
-        AS $$ 
-            SELECT NOT property_exists OR
-            stored_timestamp IS NULL OR
-            last_operation IS NULL OR
-            (operation='set' AND _timestamp > stored_timestamp) OR
-            (last_operation='set_once' AND _timestamp < stored_timestamp)
-            FROM (
-                SELECT 
-                    properties->prop_key IS NOT NULL as property_exists, 
-                    properties_last_updated_at ->> prop_key as stored_timestamp,
-                    properties_last_operation ->> prop_key as last_operation 
-                    FROM posthog_person
-                    WHERE id=person_id
-            ) as person_props
-        $$
-        LANGUAGE SQL;
-        """
-        )
-    ]
+    operations = []  # type: ignore

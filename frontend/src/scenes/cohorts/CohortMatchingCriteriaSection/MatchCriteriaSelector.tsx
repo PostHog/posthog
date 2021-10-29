@@ -111,7 +111,7 @@ function PropertyCriteriaRow({
                     }}
                     propertyFilters={group.properties}
                     style={{ margin: '1rem 0 0' }}
-                    groupTypes={[
+                    taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.CohortsWithAllUsers,
                     ]}

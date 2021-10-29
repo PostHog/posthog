@@ -573,6 +573,18 @@ export const insightLogic = kea<insightLogicType>({
                 return ['/insights', values.filters, router.values.hashParams, { replace: true }]
             }
         },
+        setInsightMode: () => {
+            if (props.syncWithUrl) {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { edit: _discard, ...otherHashParams } = router.values.hashParams
+                return [
+                    '/insights',
+                    router.values.searchParams,
+                    values.insightMode === ItemMode.View ? otherHashParams : { ...otherHashParams, edit: true },
+                    { replace: true },
+                ]
+            }
+        },
     }),
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
@@ -605,6 +617,11 @@ export const insightLogic = kea<insightLogicType>({
                     if (!loadedFromDashboard && insightIdChanged) {
                         // Do not load the result if missing, as setFilters below will do so anyway.
                         actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
+                    }
+
+                    const insightModeFromUrl = hashParams.edit ? ItemMode.Edit : ItemMode.View
+                    if (insightModeFromUrl !== values.insightMode) {
+                        actions.setInsightMode(insightModeFromUrl, null)
                     }
                 }
 

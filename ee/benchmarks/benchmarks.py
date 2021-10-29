@@ -16,6 +16,7 @@ from posthog.constants import FunnelCorrelationType
 MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
     ("events", "$host"),
     ("events", "$current_url"),
+    ("events", "$event_type"),
     ("person", "email"),
     ("person", "$browser"),
 ]
@@ -251,6 +252,19 @@ class QuerySuite:
         )
         with no_materialized_columns():
             FunnelCorrelation(filter, self.team).run()
+
+    @benchmark_clickhouse
+    def track_correlations_by_event_properties_materialized(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
+                **SHORT_DATE_RANGE,
+                "funnel_correlation_type": FunnelCorrelationType.EVENT_WITH_PROPERTIES,
+                "funnel_correlation_event_names": ["$autocapture"],
+            },
+            team=self.team,
+        )
+        FunnelCorrelation(filter, self.team).run()
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:

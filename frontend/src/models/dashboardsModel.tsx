@@ -51,7 +51,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             {
                 loadDashboards: async (_, breakpoint) => {
                     await breakpoint(50)
-                    const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards`)
+                    const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`)
                     return idToKey(results)
                 },
             },
@@ -69,7 +69,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
         dashboard: {
             __default: null as null | DashboardType,
             addDashboard: async ({ name, show, useTemplate }) => {
-                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards`, {
+                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
                     name,
                     use_template: useTemplate,
                 })) as DashboardType
@@ -127,7 +127,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 return response
             },
             duplicateDashboard: async ({ id, name, show }) => {
-                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards`, {
+                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
                     use_dashboard: id,
                     name: `${name} (Copy)`,
                 })) as DashboardType
