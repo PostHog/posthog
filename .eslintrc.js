@@ -2,6 +2,7 @@
 /* global module */
 
 module.exports = {
+    ignorePatterns: ['node_modules', 'plugin-server'],
     env: {
         browser: true,
         es6: true,
