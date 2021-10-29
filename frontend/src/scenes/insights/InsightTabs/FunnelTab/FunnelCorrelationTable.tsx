@@ -3,6 +3,7 @@ import { Button, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
+import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { EntityTypes, FunnelCorrelation, FunnelCorrelationType, PropertyFilter, PropertyOperator } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
@@ -10,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './FunnelCorrelationTable.scss'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -23,8 +25,15 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         parseDisplayNameForCorrelation,
         correlationsLoading,
         eventWithPropertyCorrelationsLoading,
+        nestedTableExpandedKeys,
     } = useValues(logic)
-    const { setCorrelationTypes, loadEventWithPropertyCorrelations, openCorrelationPersonsModal } = useActions(logic)
+    const {
+        setCorrelationTypes,
+        loadEventWithPropertyCorrelations,
+        openCorrelationPersonsModal,
+        addNestedTableExpandedKey,
+        removeNestedTableExpandedKey,
+    } = useActions(logic)
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (correlationTypes) {
@@ -124,53 +133,61 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         )
     }
 
-    const renderNestedTable = (eventName?: string): JSX.Element => {
-        if (!eventName) {
-            return <p>Unable to find property correlations for event.</p>
+    const renderNestedTable = (eventName: string): JSX.Element => {
+        if (!eventWithPropertyCorrelationsLoading && !eventWithPropertyCorrelationsValues[eventName]) {
+            return <p>No properties found for event.</p>
         }
 
         return (
-            <Table
-                dataSource={eventWithPropertyCorrelationsValues[eventName]}
-                loading={eventWithPropertyCorrelationsLoading}
-                rowKey="rowKey"
-                style={{ marginTop: '1rem' }}
-            >
-                <Column
-                    title="Correlated Events"
-                    key="eventName"
-                    render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
-                    align="left"
-                />
-                <Column
-                    title="Completed"
-                    key="success_count"
-                    render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
-                    width={90}
-                    align="center"
-                />
-                <Column
-                    title="Dropped off"
-                    key="failure_count"
-                    render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                    width={100}
-                    align="center"
-                />
+            <>
+                <Table
+                    dataSource={eventWithPropertyCorrelationsValues[eventName]}
+                    loading={eventWithPropertyCorrelationsLoading}
+                    rowKey="rowKey"
+                    style={{ margin: '1rem' }}
+                    scroll={{ x: 'max-content' }}
+                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                >
+                    <Column
+                        title="Correlated Properties"
+                        key="eventName"
+                        render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
+                        align="left"
+                        width="80%"
+                    />
+                    <Column
+                        title="Completed"
+                        key="success_count"
+                        render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
+                        width={90}
+                        align="center"
+                    />
+                    <Column
+                        title="Dropped off"
+                        key="failure_count"
+                        render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
+                        width={100}
+                        align="center"
+                    />
 
-                <Column
-                    title="Actions"
-                    key="actions"
-                    render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
-                    align="left"
-                />
-            </Table>
+                    <Column
+                        title="Actions"
+                        key="actions"
+                        render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                        align="left"
+                    />
+                </Table>
+            </>
         )
     }
 
     return stepsWithCount.length > 1 ? (
         <div className="funnel-correlation-table">
             <span className="funnel-correlation-header">
-                <span className="table-header">CORRELATED EVENTS</span>
+                <span className="table-header">
+                    <IconSelectEvents style={{ marginRight: 4 }} />
+                    CORRELATED EVENTS
+                </span>
                 <span className="table-options">
                     <p className="title">CORRELATION</p>
                     <div
@@ -206,14 +223,44 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             <Table
                 dataSource={correlationValues}
                 loading={correlationsLoading}
-                scroll={{ x: 'max-content' }}
                 size="small"
                 rowKey={(record: FunnelCorrelation) => record.event.event || 'rowKey'}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 style={{ marginTop: '1rem' }}
                 expandable={{
                     expandedRowRender: (record) => renderNestedTable(record.event.event),
-                    rowExpandable: (record) => !!record.event.event && eventHasPropertyCorrelations(record.event.event),
+                    expandedRowKeys: nestedTableExpandedKeys,
+                    rowExpandable: () => true,
+                    /* eslint-disable react/display-name */
+                    expandIcon: ({ expanded, onExpand, record }) =>
+                        expanded ? (
+                            <Tooltip title="Collapse">
+                                <div
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => {
+                                        removeNestedTableExpandedKey(record.event.event)
+                                        onExpand(record, e)
+                                    }}
+                                >
+                                    <IconUnfoldLess />
+                                </div>
+                            </Tooltip>
+                        ) : (
+                            <Tooltip title="Expand to see correlated properties for this event">
+                                <div
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => {
+                                        !eventHasPropertyCorrelations(record.event.event) &&
+                                            loadEventWithPropertyCorrelations(record.event.event)
+                                        addNestedTableExpandedKey(record.event.event)
+                                        onExpand(record, e)
+                                    }}
+                                >
+                                    <IconUnfoldMore />
+                                </div>
+                            </Tooltip>
+                        ),
+                    /* eslint-enable react/display-name */
                 }}
             >
                 <Column
@@ -221,6 +268,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     key="eventName"
                     render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                     align="left"
+                    width="60%"
                     ellipsis
                 />
                 <Column
@@ -241,9 +289,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     title="Property correlations"
                     key="operation"
                     render={(_, record: FunnelCorrelation) => (
-                        <a onClick={() => record.event.event && loadEventWithPropertyCorrelations(record.event.event)}>
-                            Run
-                        </a>
+                        <a onClick={() => loadEventWithPropertyCorrelations(record.event.event)}>Run</a>
                     )}
                 />
             </Table>
