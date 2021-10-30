@@ -97,7 +97,8 @@ export const seekbarLogic = kea<seekbarLogicType>({
                             ((clamp(+dayjs(e.timestamp), meta.startTime, meta.endTime) - meta.startTime) * 100) /
                             meta.totalTime,
                     }))
-                    .filter((e, i) => e.percentage >= 0 && e.percentage <= 100 && i % 100 === 0) // only show events within session time range
+                    .filter((e) => e.percentage >= 0 && e.percentage <= 100) // only show events within session time range
+                // .filter((e, i) => e.percentage >= 0 && e.percentage <= 100 && i % 100 === 0)
             },
         ],
     },
