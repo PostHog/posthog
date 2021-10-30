@@ -24,7 +24,7 @@ import { SearchAllBox } from 'scenes/sessions/filters/SearchAllBox'
 import { Tooltip } from 'lib/components/Tooltip'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
-import generatePicker from 'antd/es/date-picker/generatePicker'
+import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { ResizableTable, ResizableColumnType, ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 import { teamLogic } from 'scenes/teamLogic'
 import { IconEventsShort } from 'lib/components/icons'

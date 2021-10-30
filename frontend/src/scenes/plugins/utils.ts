@@ -1,5 +1,5 @@
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { FormInstance } from 'antd'
+import { FormInstance } from 'antd/lib/form'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
 // Keep this in sync with: posthog/api/plugin.py

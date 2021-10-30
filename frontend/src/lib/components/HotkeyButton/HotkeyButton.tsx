@@ -1,4 +1,5 @@
-import { Button, ButtonProps } from 'antd'
+import { Button } from 'antd'
+import { ButtonProps } from 'antd/lib/button'
 import React from 'react'
 import { HotKeys } from '~/types'
 import './HotkeyButton.scss'

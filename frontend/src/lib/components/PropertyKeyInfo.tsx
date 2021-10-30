@@ -3,7 +3,7 @@ import React from 'react'
 import { Popover, Typography } from 'antd'
 import { KeyMapping, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { TooltipPlacement } from 'antd/es/tooltip'
+import { TooltipPlacement } from 'antd/lib/tooltip'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>

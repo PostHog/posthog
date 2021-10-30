@@ -1,4 +1,4 @@
-import { FormInstance } from 'antd'
+import { FormInstance } from 'antd/lib/form'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'

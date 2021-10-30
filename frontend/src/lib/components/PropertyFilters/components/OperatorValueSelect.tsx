@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { PropertyFilterValue, PropertyOperator } from '~/types'
-import { Col, Select, SelectProps } from 'antd'
+import { Col, Select } from 'antd'
+import { SelectProps } from 'antd/lib/select'
 import { isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'

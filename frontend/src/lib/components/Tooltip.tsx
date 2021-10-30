@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
-import { Tooltip as AntdTooltip } from 'antd'
-import { TooltipProps as AntdTooltipProps } from 'antd/lib/tooltip'
+import { Tooltip as _Tooltip } from 'antd'
+import { TooltipProps as _TooltipProps } from 'antd/lib/tooltip'
 import { useDebounce } from 'use-debounce'
 
 const DEFAULT_DELAY_MS = 500
 
-export type TooltipProps = AntdTooltipProps & {
+export type TooltipProps = _TooltipProps & {
     /** Whether Ant Design's default Tooltip behavior should be used instead of PostHog's. */
     isDefaultTooltip?: boolean
     delayMs?: number
@@ -37,11 +37,11 @@ export function Tooltip({
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
     return (
-        <AntdTooltip {...props} visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}>
+        <_Tooltip {...props} visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}>
             {React.cloneElement(child, {
                 onMouseEnter: () => setVisible(true),
                 onMouseLeave: () => setVisible(false),
             })}
-        </AntdTooltip>
+        </_Tooltip>
     )
 }
