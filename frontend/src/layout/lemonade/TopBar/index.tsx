@@ -42,7 +42,7 @@ export function TopBar(): JSX.Element {
                     <SearchBox />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    <HelpButton withCaret placement="bottomRight" />
+                    <HelpButton />
                     <SitePopover />
                 </div>
             </header>
