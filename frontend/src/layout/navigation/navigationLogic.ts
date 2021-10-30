@@ -5,8 +5,8 @@ import { navigationLogicType } from './navigationLogicType'
 import { SystemStatus } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 type WarningType =
