@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { clamp, errorToast, toParams } from 'lib/utils'
+import { errorToast, toParams } from 'lib/utils'
 import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import { SessionPlayerData, SessionRecordingId, SessionRecordingMeta, SessionRecordingUsageType } from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -68,6 +68,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     },
     listeners: ({ values, actions, sharedListeners, cache }) => ({
         loadRecordingMetaSuccess: () => {
+            cache.eventsStartTime = performance.now()
             actions.loadEvents()
         },
         loadRecordingSnapshotsSuccess: async () => {
@@ -95,6 +96,14 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             // Fetch next events
             if (!!values.sessionEvents?.next) {
                 actions.loadEvents(values.sessionEvents.next)
+            }
+            // Finished loading all events.
+            else {
+                eventUsageLogic.actions.reportRecordingEventsFetched(
+                    values.sessionEvents.events.length ?? 0,
+                    performance.now() - cache.eventsStartTime
+                )
+                cache.eventsStartTime = null
             }
         },
         loadRecordingMetaFailure: sharedListeners.showErrorToast,
@@ -161,14 +170,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     return values.sessionEvents
                 }
                 // Use `url` if there is a `next` url to fetch
-                const startTime = performance.now()
                 const apiUrl = url || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
                 const response = await api.get(apiUrl)
-
-                eventUsageLogic.actions.reportRecordingEventsFetched(
-                    response.results.length ?? 0,
-                    performance.now() - startTime
-                )
 
                 return {
                     ...values.sessionEvents,
@@ -206,14 +209,11 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     return null
                 }
 
-                const buffer_ms = clamp(sessionPlayerData.session_recording.recording_duration / 4, 0, 30000) // +- before and after start and end of a recording to query for.
+                const buffer_ms = 60000 // +- before and after start and end of a recording to query for.
                 return {
                     person_id: sessionPlayerData.person.id,
                     after: dayjs.utc(sessionPlayerData.session_recording.start_time).subtract(buffer_ms, 'ms').format(),
-                    before: dayjs
-                        .utc(sessionPlayerData.session_recording.start_time)
-                        .add(buffer_ms + sessionPlayerData.session_recording.recording_duration, 'ms')
-                        .format(),
+                    before: dayjs.utc(sessionPlayerData.session_recording.end_time).add(buffer_ms, 'ms').format(),
                     orderBy: ['timestamp'],
                 }
             },
