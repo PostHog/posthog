@@ -1,6 +1,7 @@
 @import '~/vars';
 
 .LemonRow {
+    transition: background-color 200ms ease, color 200ms ease;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -40,6 +41,7 @@
 }
 
 .LemonRow__icon {
+    transition: background-color 200ms ease, color 200ms ease;
     display: flex;
     margin-right: 0.5rem;
     font-size: 1.5rem;
