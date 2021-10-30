@@ -18,7 +18,7 @@ export function Seekbar(): JSX.Element {
         }
     }, [sliderRef.current, thumbRef.current])
 
-    console.log('EVENTS', markersWithPositions)
+    console.log('EVENTS', markersWithPositions.length)
 
     return (
         <div className="rrweb-controller-slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
@@ -26,6 +26,13 @@ export function Seekbar(): JSX.Element {
             <div className="thumb" ref={thumbRef} style={{ transform: `translateX(${thumbLeftPos}px)` }} />
             <div className="current-bar" style={{ width: `${thumbLeftPos}px` }} />
             <div className="buffer-bar" style={{ width: `${bufferPercent}%` }} />
+            <div className="ticks">
+                {markersWithPositions.map((marker) => (
+                    <div className="tick" key={marker.id} style={{ width: `${marker.percentage}%` }}>
+                        <div className="tick-thumb" />
+                    </div>
+                ))}
+            </div>
         </div>
     )
 }

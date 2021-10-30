@@ -1,7 +1,7 @@
 @import '~/vars';
 
-$buffer_bg: #faaf8c;
 $thumb_size: 14px;
+$tick_size: 12px;
 
 .rrweb-controller-slider {
     width: 100%;
@@ -9,7 +9,7 @@ $thumb_size: 14px;
     position: relative;
 
     .thumb {
-        z-index: 4;
+        z-index: 5;
         backface-visibility: hidden;
         top: 0;
         left: -$thumb_size / 2;
@@ -37,6 +37,17 @@ $thumb_size: 14px;
         top: 5px;
     }
 
+    .buffer-bar {
+        z-index: 2;
+        transition: width 200ms;
+        background-color: $recording_buffer_bg;
+        position: absolute;
+        height: 2px;
+        top: 6px;
+        left: 1px;
+        width: 0; // starting point
+    }
+
     .current-bar {
         z-index: 3;
         background-color: $brand_red;
@@ -47,14 +58,29 @@ $thumb_size: 14px;
         width: 0; // starting point
     }
 
-    .buffer-bar {
-        z-index: 2;
-        transition: width 200ms;
-        background-color: $buffer_bg;
+    .ticks {
+        z-index: 4;
         position: absolute;
-        height: 2px;
-        top: 6px;
-        left: 1px;
-        width: 0; // starting point
+        width: 100%;
+
+        .tick {
+            position: absolute;
+            height: 21px;
+            top: -13px;
+            background-color: transparent;
+            border-right: 1px solid $recording_player_container_bg;
+
+            .tick-thumb {
+                position: absolute;
+                width: $tick_size;
+                height: $tick_size;
+                border-radius: 50%;
+                right: -$tick_size / 2;
+                top: -$tick_size / 2;
+                border: 2px solid $recording_player_container_bg;
+                background-color: $bg_light;
+                transform-origin: center;
+            }
+        }
     }
 }
