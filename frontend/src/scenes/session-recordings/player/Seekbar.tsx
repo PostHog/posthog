@@ -1,7 +1,35 @@
 import './Seekbar.scss'
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
+import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
+import { SeekbarEventType } from '~/types'
+
+function Tick({ marker }: { marker: SeekbarEventType }): JSX.Element {
+    const [hovering, setHovering] = useState(false)
+    const { handleTickClick } = useActions(seekbarLogic)
+    return (
+        <div
+            className="tick-hover-box"
+            style={{ left: `calc(${marker.percentage}% - 2px)` }}
+            onClick={(e) => {
+                e.stopPropagation()
+                handleTickClick(marker.timestamp)
+            }}
+            onMouseEnter={(e) => {
+                e.stopPropagation()
+                setHovering(true)
+            }}
+            onMouseLeave={(e) => {
+                e.stopPropagation()
+                setHovering(false)
+            }}
+        >
+            <div className="tick-marker" />
+            <div className={clsx('tick-thumb', { big: hovering })} />
+        </div>
+    )
+}
 
 export function Seekbar(): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
@@ -18,19 +46,17 @@ export function Seekbar(): JSX.Element {
         }
     }, [sliderRef.current, thumbRef.current])
 
-    console.log('EVENTS', markersWithPositions.length)
-
     return (
-        <div className="rrweb-controller-slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
-            <div className="slider" />
-            <div className="thumb" ref={thumbRef} style={{ transform: `translateX(${thumbLeftPos}px)` }} />
-            <div className="current-bar" style={{ width: `${thumbLeftPos}px` }} />
-            <div className="buffer-bar" style={{ width: `${bufferPercent}%` }} />
+        <div className="rrweb-controller-slider">
+            <div className="slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
+                <div className="slider-bar" />
+                <div className="thumb" ref={thumbRef} style={{ transform: `translateX(${thumbLeftPos}px)` }} />
+                <div className="current-bar" style={{ width: `${thumbLeftPos}px` }} />
+                <div className="buffer-bar" style={{ width: `calc(${bufferPercent}% - 2px)` }} />
+            </div>
             <div className="ticks">
                 {markersWithPositions.map((marker) => (
-                    <div className="tick" key={marker.id} style={{ width: `${marker.percentage}%` }}>
-                        <div className="tick-thumb" />
-                    </div>
+                    <Tick key={marker.id} marker={marker} />
                 ))}
             </div>
         </div>

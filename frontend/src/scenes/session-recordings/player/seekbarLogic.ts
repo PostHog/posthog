@@ -1,7 +1,10 @@
 import { MutableRefObject as ReactMutableRefObject } from 'react'
 import { kea } from 'kea'
 import { seekbarLogicType } from './seekbarLogicType'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    getZeroOffsetTime,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { clamp } from 'lib/utils'
 import { playerMetaData } from 'rrweb/typings/types'
@@ -38,6 +41,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         handleUp: (event: InteractEvent) => ({ event }),
         handleDown: (event: ReactInteractEvent) => ({ event }),
         handleClick: (event: ReactInteractEvent) => ({ event }),
+        handleTickClick: (time: number) => ({ time }),
         setSlider: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
         setThumb: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
@@ -88,11 +92,12 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 return events
                     .map((e) => ({
                         ...e,
+                        timestamp: +dayjs(e.timestamp),
                         percentage:
                             ((clamp(+dayjs(e.timestamp), meta.startTime, meta.endTime) - meta.startTime) * 100) /
                             meta.totalTime,
                     }))
-                    .filter((e) => e.percentage >= 0 && e.percentage <= 100) // only show events within session time range
+                    .filter((e, i) => e.percentage >= 0 && e.percentage <= 100 && i % 100 === 0) // only show events within session time range
             },
         ],
     },
@@ -131,6 +136,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             )
 
             // If it shouldn't seek, the least we can do is set the time
+            console.log('Should seek', shouldSeek)
             if (!shouldSeek) {
                 actions.debouncedSetTime(time)
             } else {
@@ -173,7 +179,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             let diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
             // If click is too far from thumb, move thumb to click position
             if (Math.abs(diffFromThumb) > THUMB_SIZE) {
-                diffFromThumb = -THUMB_OFFSET
+                diffFromThumb = 0
             }
             actions.setCursorDiff(diffFromThumb)
 
@@ -181,6 +187,19 @@ export const seekbarLogic = kea<seekbarLogicType>({
             document.addEventListener('touchend', actions.handleUp)
             document.addEventListener('mousemove', actions.handleMove)
             document.addEventListener('mouseup', actions.handleUp)
+        },
+        handleTickClick: ({ time }) => {
+            if (!values.isSeeking) {
+                console.log('TICK CLICK', time)
+                actions.handleSeek(
+                    convertValueToX(
+                        getZeroOffsetTime(time, values.meta),
+                        values.slider.offsetWidth,
+                        0,
+                        values.meta.totalTime
+                    )
+                )
+            }
         },
     }),
     events: ({ actions, values }) => ({

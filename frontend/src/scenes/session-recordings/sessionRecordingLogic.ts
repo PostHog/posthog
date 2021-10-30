@@ -100,7 +100,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             // Finished loading all events.
             else {
                 eventUsageLogic.actions.reportRecordingEventsFetched(
-                    values.sessionEvents.events.length ?? 0,
+                    values.sessionEvents.length ?? 0,
                     performance.now() - cache.eventsStartTime
                 )
                 cache.eventsStartTime = null
