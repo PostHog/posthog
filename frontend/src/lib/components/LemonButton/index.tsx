@@ -4,24 +4,17 @@ import { LemonRow, LemonRowProps } from '../LemonRow'
 import './LemonButton.scss'
 
 export interface LemonButtonProps extends Omit<LemonRowProps<'button'>, 'tag'> {
-    type?: 'default' | 'primary' | 'stealth'
+    type?: 'default' | 'primary' | 'stealth' | 'highlighted'
 }
 
 /** Styled button. */
-export function LemonButton({
-    children,
-    icon,
-    type = 'default',
-    align,
-    ...buttonProps
-}: LemonButtonProps): JSX.Element {
+export function LemonButton({ children, icon, type = 'default', ...buttonProps }: LemonButtonProps): JSX.Element {
     return (
         <LemonRow
             tag="button"
             className={clsx('LemonButton', type !== 'default' && `LemonButton--${type}`)}
             icon={icon}
             type="button"
-            align={align}
             {...buttonProps}
         >
             {children}

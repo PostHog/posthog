@@ -24,10 +24,12 @@
     top: 3.5rem;
     width: 100%;
     padding: 0.5rem;
+    > * {
+        padding: 0.5rem 0;
+    }
 }
 
 .ProjectSwitcher {
-    padding: 0.5rem 0;
     border-bottom: 1px solid var(--border);
 }
 

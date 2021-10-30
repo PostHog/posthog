@@ -15,6 +15,16 @@ import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations, scenes } from 'scenes/scenes'
 import { FEATURE_FLAGS } from 'lib/constants'
 
+/** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
+const sceneNavAlias: Partial<Record<Scene, Scene>> = {
+    [Scene.Action]: Scene.Events,
+    [Scene.Actions]: Scene.Events,
+    [Scene.EventStats]: Scene.Events,
+    [Scene.EventPropertyStats]: Scene.Events,
+    [Scene.Person]: Scene.Persons,
+    [Scene.Dashboard]: Scene.Dashboards,
+}
+
 export const sceneLogic = kea<sceneLogicType>({
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -104,6 +114,10 @@ export const sceneLogic = kea<sceneLogicType>({
                     ? Scene.ErrorProjectUnavailable
                     : baseActiveScene
             },
+        ],
+        aliasedActiveScene: [
+            (s) => [s.activeScene],
+            (activeScene) => (activeScene ? sceneNavAlias[activeScene] || activeScene : null),
         ],
         activeLoadedScene: [
             (s) => [s.activeScene, s.loadedScenes],

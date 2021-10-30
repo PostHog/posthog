@@ -29,7 +29,7 @@ export function IconDashboard(): JSX.Element {
     )
 }
 
-export function IconPerson({ style }: { style?: CSSProperties }): JSX.Element {
+export function IconPersons({ style }: { style?: CSSProperties }): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
             <path
@@ -569,6 +569,132 @@ export function IconMenuOpen(): JSX.Element {
                 d="m3 18h13v-2h-13zm0-5h10v-2h-10zm0-7v2h13v-2zm18 9.59-3.58-3.59 3.58-3.59-1.41-1.41-5 5 5 5z"
                 fill="currentColor"
             />
+        </svg>
+    )
+}
+
+export function IconGroupedEvents(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                clipRule="evenodd"
+                d="m2 6h2v14h14v2h-14c-1.1 0-2-.9-2-2zm6-4h12c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2h-12c-1.1 0-2-.9-2-2v-12c0-1.1.9-2 2-2zm0 14h12v-12h-12zm4.6851-3.6586-.5398 1.6584h-1.6477l2.5106-7.27275h1.9815l2.5071 7.27275h-1.6477l-.5398-1.6584zm1.2855-3.95242-.8949 2.75212h1.8466l-.8949-2.75212z"
+                fill="currentColor"
+                fillRule="evenodd"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Assistant Photo icon. */
+export function IconFlag(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m12.36 6 .08.39.32 1.61h5.24v6h-3.36l-.08-.39-.32-1.61h-7.24v-6zm1.64-2h-9v17h2v-7h5.6l.4 2h7v-10h-5.6z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Bar Chart icon. */
+export function IconBarChart(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="m5 9.2h3v9.8h-3zm5.6-4.2h2.8v14h-2.8zm5.6 8h2.8v6h-2.8z" fill="currentColor" />
+        </svg>
+    )
+}
+
+export function IconGauge(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m19.5401 9.08537-1.1088 1.66773c.5347 1.0665.7965 2.249.7619 3.4415-.0346 1.1926-.3645 2.3579-.9602 3.3916h-12.49439c-.77421-1.3431-1.09502-2.8999-.91486-4.4397.18015-1.5397.85168-2.9804 1.91502-4.10853 1.06335-1.12809 2.4619-1.88351 3.98833-2.15426 1.5264-.27076 3.0995-.04243 4.486.65113l1.6677-1.10881c-1.698-1.08878-3.712-1.57666-5.72-1.38561-2.00792.19105-3.8938 1.04999-5.35594 2.43944-1.46213 1.38945-2.41605 3.22914-2.70916 5.22474-.2931 1.9956.09153 4.0319 1.09239 5.7831.15731.2725.3832.4991.65521.6572.27201.1582.58068.2424.89531.2443h12.48539c.3177.0012.63-.0815.9055-.2398.2754-.1583.5042-.3866.663-.6617.8306-1.4388 1.2474-3.0792 1.2045-4.74-.043-1.6608-.544-3.2774-1.4479-4.67135zm-8.8254 6.16603c.1675.1676.3663.3006.5852.3914.2189.0907.4535.1374.6904.1374s.4715-.0467.6904-.1374c.2189-.0908.4177-.2238.5852-.3914l5.1023-7.65346-7.6535 5.10236c-.1676.1674-.3006.3662-.3913.5851-.0908.2189-.1375.4535-.1375.6904 0 .237.0467.4716.1375.6905.0907.2188.2237.4177.3913.5851z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Extension icon. */
+export function IconExtension(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m10.5 4.5c.28 0 .5.22.5.5v2h6v6h2c.28 0 .5.22.5.5s-.22.5-.5.5h-2v6h-2.12c-.68-1.75-2.39-3-4.38-3s-3.7 1.25-4.38 3h-2.12v-2.12c1.75-.68 3-2.39 3-4.38s-1.24-3.7-2.99-4.38l-.01-2.12h6v-2c0-.28.22-.5.5-.5zm0-2c-1.38 0-2.5 1.12-2.5 2.5h-4c-1.1 0-1.99.9-1.99 2v3.8h.29c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7h-.3v3.8c0 1.1.9 2 2 2h3.8v-.3c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7v.3h3.8c1.1 0 2-.9 2-2v-4c1.38 0 2.5-1.12 2.5-2.5s-1.12-2.5-2.5-2.5v-4c0-1.1-.9-2-2-2h-4c0-1.38-1.12-2.5-2.5-2.5z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Groups icon. */
+export function IconCohort(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m4 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm1.13 1.1c-.37-.06-.74-.1-1.13-.1-.99 0-1.93.21-2.78.58-.74.32-1.22 1.04-1.22 1.85v1.57h4.5v-1.61c0-.83.23-1.61.63-2.29zm14.87-1.1c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm4 3.43c0-.81-.48-1.53-1.22-1.85-.85-.37-1.79-.58-2.78-.58-.39 0-.76.04-1.13.1.4.68.63 1.46.63 2.29v1.61h4.5zm-7.76-2.78c-1.17-.52-2.61-.9-4.24-.9s-3.07.39-4.24.9c-1.08.48-1.76 1.56-1.76 2.74v1.61h12v-1.61c0-1.18-.68-2.26-1.76-2.74zm-8.17 2.35c.09-.23.13-.39.91-.69.97-.38 1.99-.56 3.02-.56s2.05.18 3.02.56c.77.3.81.46.91.69zm3.93-8c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm0-2c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Handyman icon. */
+export function IconTools(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <g fill="currentColor">
+                <path d="m21.67 18.17-5.3-5.3h-.99l-2.54 2.54v.99l5.3 5.3c.39.39 1.02.39 1.41 0l2.12-2.12c.39-.38.39-1.02 0-1.41zm-2.83 1.42-4.24-4.24.71-.71 4.24 4.24z" />
+                <path d="m17.34 10.19 1.41-1.41 2.12 2.12c1.17-1.17 1.17-3.07 0-4.24l-3.54-3.54-1.41 1.41v-2.82l-.7-.71-3.54 3.54.71.71h2.83l-1.41 1.41 1.06 1.06-2.89 2.89-4.13-4.13v-1.42l-3.02-3.02-2.83 2.83 3.03 3.03h1.41l4.13 4.13-.85.85h-2.12l-5.3 5.3c-.39.39-.39 1.02 0 1.41l2.12 2.12c.39.39 1.02.39 1.41 0l5.3-5.3v-2.12l5.15-5.15zm-7.98 5.15-4.24 4.24-.71-.71 4.24-4.24z" />
+            </g>
+        </svg>
+    )
+}
+
+/** Material Design Comment icon. */
+export function IconComment(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m20 4v13.17l-1.17-1.17h-14.83v-12zm0-2h-16c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4v-18c0-1.1-.9-2-2-2zm-2 10h-12v2h12zm0-3h-12v2h12zm0-3h-12v2h12z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Comment icon. */
+export function IconPerson(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m12 6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 10c2.7 0 5.8 1.29 6 2h-12c.23-.72 3.31-2 6-2zm0-12c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 10c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Handyman icon. */
+export function IconRecording(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="m10 8v8l5-4zm9-5h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2zm0 16h-14v-14h14z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Arrow Drop Down icon. */
+export function IconArrowDropDown(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="m7 10 5 5 5-5z" fill="currentColor" />
         </svg>
     )
 }

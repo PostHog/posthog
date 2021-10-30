@@ -293,7 +293,6 @@ code.code {
 
 .main-app-content {
     min-width: 0;
-    /* top | horizontal | bottom */
     padding: 0 $default_spacing * 3 $default_spacing * 3;
 
     @media (min-width: 480px) and (max-width: 639px) {

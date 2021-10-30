@@ -1,10 +1,27 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import React from 'react'
+import {
+    IconBarChart,
+    IconCohort,
+    IconComment,
+    IconExtension,
+    IconFlag,
+    IconGauge,
+    IconGroupedEvents,
+    IconPerson,
+    IconRecording,
+    IconSettings,
+    IconTools,
+} from '../../../lib/components/icons'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
+import { Link } from '../../../lib/components/Link'
 import { organizationLogic } from '../../../scenes/organizationLogic'
+import { canViewPlugins } from '../../../scenes/plugins/access'
+import { sceneLogic } from '../../../scenes/sceneLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
+import { urls } from '../../../scenes/urls'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './index.scss'
 
@@ -22,6 +39,77 @@ export function ProjectSwitcher(): JSX.Element {
     )
 }
 
+function PageButton({
+    title,
+    icon,
+    identifier,
+    to,
+    onClick,
+}: {
+    title: string
+    icon: React.ReactElement
+    identifier: string
+    to?: string
+    onClick?: () => void
+}): JSX.Element {
+    const { aliasedActiveScene } = useValues(sceneLogic)
+
+    const isActive = identifier === aliasedActiveScene
+
+    return (
+        <Link to={to} onClick={onClick}>
+            <LemonButton icon={icon} fullWidth type={isActive ? 'highlighted' : 'stealth'}>
+                {title}
+            </LemonButton>
+        </Link>
+    )
+}
+
+function Pages(): JSX.Element {
+    const { currentOrganization } = useValues(organizationLogic)
+
+    return (
+        <div>
+            {currentOrganization?.setup.is_active && (
+                <PageButton
+                    title="Setup"
+                    icon={<IconSettings />}
+                    identifier="onboardingSetup"
+                    to={urls.onboardingSetup()}
+                />
+            )}
+            <PageButton title="Dashboards" icon={<IconGauge />} identifier="dashboards" to={urls.dashboards()} />
+            <PageButton title="Insights" icon={<IconBarChart />} identifier="savedInsights" to={urls.savedInsights()} />
+            <PageButton
+                title="Recordings"
+                icon={<IconRecording />}
+                identifier="sessionRecordings"
+                to={urls.sessionRecordings()}
+            />
+            <PageButton title="Feature flags" icon={<IconFlag />} identifier="featureFlags" to={urls.featureFlags()} />
+            <PageButton title="Events & actions" icon={<IconGroupedEvents />} identifier="events" to={urls.events()} />
+            <PageButton title="Persons" icon={<IconPerson />} identifier="persons" to={urls.persons()} />
+            <PageButton title="Cohorts" icon={<IconCohort />} identifier="cohorts" to={urls.cohorts()} />
+            <PageButton title="Annotations" icon={<IconComment />} identifier="annotations" to={urls.annotations()} />
+            {canViewPlugins(currentOrganization) && (
+                <PageButton title="Plugins" icon={<IconExtension />} identifier="plugins" to={urls.plugins()} />
+            )}
+            <PageButton
+                title="Project settings"
+                icon={<IconSettings />}
+                identifier="projectSettings"
+                to={urls.projectSettings()}
+            />
+            <PageButton
+                title="Toolbar"
+                icon={<IconTools />}
+                identifier="toolbar"
+                onClick={() => console.error('TODO')}
+            />
+        </div>
+    )
+}
+
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { isSideBarShown } = useValues(lemonadeLogic)
 
@@ -30,6 +118,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             <div className={clsx('SideBar', !isSideBarShown && 'SideBar--hidden')}>
                 <div className="SideBar__content">
                     <ProjectSwitcher />
+                    <Pages />
                 </div>
             </div>
             {children}
