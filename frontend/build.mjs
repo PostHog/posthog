@@ -11,23 +11,25 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 await build({
     entryPoints: ['src/index.tsx'],
     bundle: true,
+    splitting: true,
+    format: 'esm',
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
-    outdir: path.resolve(__dirname, 'dist2'),
+    outdir: path.resolve(__dirname, 'dist'),
     plugins: [
         {
             name: 'alias',
             setup(build) {
                 build.onResolve({ filter: /!raw-loader!@posthog\/plugin-scaffold/, namespace: 'file' }, (args) => {
                     const file = args.path.replace('!raw-loader!', path.resolve(__dirname, '..', 'node_modules') + '/')
-                    return ({
+                    return {
                         path: file,
-                        watchFiles: [file]
-                    })
+                        watchFiles: [file],
+                    }
                 })
                 build.onLoad({ filter: /@posthog\/plugin-scaffold/, namespace: 'file' }, async (args) => {
                     return {
                         loader: 'text',
-                        contents: fs.readFileSync(args.path, { encoding: 'utf-8'}),
+                        contents: fs.readFileSync(args.path, { encoding: 'utf-8' }),
                         resolveDir: path.dirname(args.path),
                     }
                 })
