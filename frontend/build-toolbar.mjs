@@ -10,6 +10,9 @@ await build({
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
     plugins: [sassPlugin, lessPlugin],
+    define: {
+        global: '{}',
+    },
     loader: {
         '.png': 'file',
         '.svg': 'file',
