@@ -65,3 +65,14 @@ await build({
         '.mp3': 'file',
     },
 }).catch(() => process.exit(1))
+
+fs.writeFileSync(
+    path.resolve(__dirname, 'dist/index.html'),
+    fs
+        .readFileSync(path.resolve(__dirname, 'src/index.html'), { encoding: 'utf-8' })
+        .replace(
+            '</head>',
+            '<script type="module" src="/static/index.js"></script>\n' +
+                '<link rel="stylesheet" href=\'/static/index.css\'>\n</head>'
+        )
+)
