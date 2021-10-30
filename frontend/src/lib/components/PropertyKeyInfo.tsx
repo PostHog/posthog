@@ -495,6 +495,8 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
+export const keyMappingKeys = Object.keys(keyMapping.event)
+
 export function isPostHogProp(key: string): boolean {
     /*
     Returns whether a given property is a PostHog-defined property. If the property is custom-defined, 

@@ -1,6 +1,6 @@
 /* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
-import { isPostHogProp, keyMapping } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
@@ -26,8 +26,6 @@ import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
-
-const keyMappingKeys = Object.keys(keyMapping.event)
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
