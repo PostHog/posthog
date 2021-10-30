@@ -143,15 +143,15 @@ describe('sessionRecordingLogic', () => {
     })
 
     describe('loading session events', () => {
-        it('load events after metadata', async () => {
+        it('load events after metadata with 1min buffer', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents'])
                 .toMatchValues({
                     eventsApiParams: {
-                        after: '2021-10-12T05:13:12+00:00',
-                        before: '2021-12-20T14:02:33+00:00',
+                        after: '2021-10-12T05:12:42+00:00',
+                        before: '2021-10-12T18:48:47+00:00',
                         person_id: 1,
                         orderBy: ['timestamp'],
                     },
