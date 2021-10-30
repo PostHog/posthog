@@ -44,15 +44,32 @@ export function copyPublicFolder() {
     })
 }
 
-export function copyIndexHtml() {
+export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', entry = 'index') {
     fs.writeFileSync(
-        path.resolve(__dirname, 'dist/index.html'),
+        path.resolve(__dirname, to),
         fs
-            .readFileSync(path.resolve(__dirname, 'src/index.html'), { encoding: 'utf-8' })
+            .readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' })
             .replace(
                 '</head>',
-                '<script type="module" src="/static/index.js"></script>\n' +
-                    '<link rel="stylesheet" href=\'/static/index.css\'>\n</head>'
+                `<script type="module" src="/static/${entry}.js"></script>\n` +
+                    `<link rel="stylesheet" href='/static/${entry}.css'>\n</head>`
             )
     )
+}
+
+export const commonConfig = {
+    sourcemap: true,
+    resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
+    publicPath: '/static',
+    plugins: [sassPlugin, lessPlugin],
+    define: {
+        global: '{}',
+    },
+    loader: {
+        '.png': 'file',
+        '.svg': 'file',
+        '.woff': 'file',
+        '.woff2': 'file',
+        '.mp3': 'file',
+    },
 }
