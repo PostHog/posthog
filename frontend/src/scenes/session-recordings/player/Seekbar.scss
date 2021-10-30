@@ -77,7 +77,7 @@ $tick_hover_size: 5px;
             top: -12px;
             width: $tick_hover_size;
             background-color: green;
-            right: -ceil($tick_hover_size / 2);
+            right: -1 * ceil($tick_hover_size / 2);
 
             .tick-marker {
                 position: absolute;
@@ -92,8 +92,8 @@ $tick_hover_size: 5px;
                 width: $tick_size;
                 height: $tick_size;
                 border-radius: 50%;
-                right: -floor($tick_size / 2) + floor($tick_hover_size / 2);
-                top: -floor($tick_size / 2);
+                right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
+                top: -1 * floor($tick_size / 2);
                 border: 2px solid $recording_player_container_bg;
                 background-color: $bg_light;
                 transform-origin: center;
