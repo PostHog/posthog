@@ -6,6 +6,7 @@ await build({
     entryPoints: ['src/index.tsx'],
     bundle: true,
     splitting: true,
+    sourcemap: true,
     format: 'esm',
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     outdir: path.resolve(__dirname, 'dist'),

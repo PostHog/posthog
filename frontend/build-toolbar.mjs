@@ -3,9 +3,9 @@ import * as path from 'path'
 import { __dirname, sassPlugin, lessPlugin } from './build-common.mjs'
 
 await build({
-    entryPoints: ['src/index.tsx'],
+    entryPoints: ['src/toolbar/index.tsx'],
     bundle: true,
-    minify: true,
+    sourcemap: true,
     format: 'iife',
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
