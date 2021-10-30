@@ -62,6 +62,15 @@ export const commonConfig = {
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
     plugins: [sassPlugin, lessPlugin],
+    watch: process.argv.includes('--watch')
+        ? {
+              onRebuild(error, result) {
+                  if (error) console.error('watch build failed:', error)
+                  else console.log('🚀 Rebuilt!')
+              },
+          }
+        : false,
+
     define: {
         global: '{}',
     },
