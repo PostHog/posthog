@@ -24,7 +24,7 @@ import {
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { PersonModalParams } from 'scenes/trends/personsModalLogic'
+import type { PersonModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 
 export enum DashboardEventSource {
