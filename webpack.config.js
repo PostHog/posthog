@@ -72,7 +72,7 @@ function createEntry(entry) {
                 : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
-            extensions: ['.js', '.ts', '.tsx'],
+            extensions: ['.js', '.jsx', '.ts', '.tsx'],
             alias: {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
