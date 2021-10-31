@@ -243,9 +243,7 @@ export function startServer(opts = {}) {
             }),
             createProxyMiddleware(
                 (pathname, req) => {
-                    return (
-                        !pathname.startsWith('/static/') && req.method === 'GET' && req.headers.accept.includes('html')
-                    )
+                    return !pathname.startsWith('/static/') && req.headers.accept.includes('html')
                 },
                 {
                     target: backend,
