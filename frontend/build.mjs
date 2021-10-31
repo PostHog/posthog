@@ -1,5 +1,5 @@
 import * as path from 'path'
-import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isWatch, startServer } from './build-utils.mjs'
+import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isDev, startServer } from './build-utils.mjs'
 
 copyPublicFolder()
 copyIndexHtml()
@@ -7,8 +7,8 @@ copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared
 
 let pauseServer = () => {}
 let resumeServer = () => {}
-if (isWatch) {
-    console.log(`👀 Starting watch mode`)
+if (isDev) {
+    console.log(`👀 Starting dev server`)
     const serverResponse = startServer()
     pauseServer = serverResponse.pauseServer
     resumeServer = serverResponse.resumeServer

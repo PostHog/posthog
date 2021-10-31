@@ -31,7 +31,7 @@
         "build:webpack": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/",
         "build:esbuild": "node frontend/build.mjs",
         "watch": "yarn clean && yarn copy-scripts && yarn watch:esbuild",
-        "watch:esbuild": "node frontend/build.mjs --dev --watch",
+        "watch:esbuild": "node frontend/build.mjs --dev",
         "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc",

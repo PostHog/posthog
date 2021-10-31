@@ -17,8 +17,7 @@ const defaultBackend = 'http://localhost:8000'
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const jsURL = `http://${defaultHost}:${defaultPort}`
 
-export const isWatch = process.argv.includes('--watch') || process.argv.includes('-w')
-export const isDev = process.argv.includes('--dev') || process.argv.includes('-d')
+export const isDev = process.argv.includes('--dev')
 
 export const sassPlugin = _sassPlugin({
     importer: [
@@ -63,15 +62,15 @@ export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', e
             .readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' })
             .replace(
                 '</head>',
-                `<script type="module" src="${isWatch ? jsURL : ''}/static/${entry}.js"></script>\n` +
-                    `<link rel="stylesheet" href='${isWatch ? jsURL : ''}/static/${entry}.css'>\n</head>`
+                `<script type="module" src="${isDev ? jsURL : ''}/static/${entry}.js"></script>\n` +
+                    `<link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css'>\n</head>`
             )
     )
 }
 
 export const commonConfig = {
     sourcemap: true,
-    incremental: isWatch,
+    incremental: isDev,
     minify: !isDev,
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
@@ -88,7 +87,7 @@ export const commonConfig = {
         '.woff2': 'file',
         '.mp3': 'file',
     },
-    metafile: isWatch,
+    metafile: isDev,
 }
 
 function getInputFiles(result) {
@@ -124,7 +123,7 @@ export async function buildOrWatch(config) {
         await buildPromise
         buildPromise = null
         onBuildComplete?.()
-        if (isWatch && buildAgain) {
+        if (isDev && buildAgain) {
             void debouncedBuild()
         }
     }
@@ -144,9 +143,7 @@ export async function buildOrWatch(config) {
                 process.exit(1)
             }
             console.log(
-                `🏁 ${isWatch ? 'First build of' : 'Built'}${name ? ` "${name}"` : ''} in ${
-                    (new Date() - time) / 1000
-                }s`
+                `🏁 ${isDev ? 'First build of' : 'Built'}${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`
             )
         } else {
             result = await result.rebuild()
@@ -155,7 +152,7 @@ export async function buildOrWatch(config) {
         inputFiles = getInputFiles(result)
     }
 
-    if (isWatch) {
+    if (isDev) {
         chokidar
             .watch(path.resolve(__dirname, 'src'), {
                 ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
