@@ -6,9 +6,9 @@ copyIndexHtml()
 copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard')
 
 if (isWatch) {
-    console.log(`🛳 Starting production build`)
-} else {
     console.log(`👀 Starting watch mode`)
+} else {
+    console.log(`🛳 Starting production build`)
 }
 
 await Promise.all([

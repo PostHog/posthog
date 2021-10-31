@@ -87,6 +87,8 @@ export const commonConfig = {
 export async function buildOrWatch(config) {
     const time = new Date()
     const { name, ..._config } = config
+
+    console.log(`🧱 Building${name ? ` "${name}"` : ''}`)
     const result = await build({ ...commonConfig, ..._config }).catch(() => process.exit(1))
 
     console.log(
