@@ -92,9 +92,11 @@ export const commonConfig = {
 
 function getInputFiles(result) {
     return new Set(
-        Object.keys(result.metafile.inputs)
-            .map((key) => (key.includes(':') ? key.split(':')[1] : key))
-            .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
+        result?.metafile
+            ? Object.keys(result.metafile.inputs)
+                  .map((key) => (key.includes(':') ? key.split(':')[1] : key))
+                  .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
+            : []
     )
 }
 
