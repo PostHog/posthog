@@ -4,7 +4,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
-import { clearDOMTextSelection, editingToast, toParams } from 'lib/utils'
+import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -72,7 +72,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
         setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }), // id represents dashboardItem id's
         setRefreshError: (id: number) => ({ id }),
-        setPageTitle: (title: string) => ({ title }),
     },
 
     loaders: ({ actions, props }) => ({
@@ -100,7 +99,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                               })}`
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
-                        actions.setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
+                        setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
@@ -634,9 +633,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     actions.refreshAllDashboardItems()
                 }, values.autoRefresh.interval * 1000)
             }
-        },
-        setPageTitle: ({ title }) => {
-            document.title = title ? `${title} • PostHog` : 'PostHog'
         },
         loadDashboardItemsSuccess: () => {
             // Initial load of actual data for dashboard items after general dashboard is fetched

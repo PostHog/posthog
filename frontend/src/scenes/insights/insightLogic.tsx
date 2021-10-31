@@ -13,7 +13,6 @@ import {
     ViewType,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
@@ -31,6 +30,7 @@ import * as Sentry from '@sentry/browser'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { sceneProxyLogic } from 'scenes/sceneProxyLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -122,7 +122,7 @@ export const insightLogic = kea<insightLogicType>({
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
                     // fetch this now, as it might be different when we report below
-                    const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
+                    const scene = sceneProxyLogic.values.scene
 
                     // If a query is in progress, debounce before making the second query
                     if (cache.abortController) {
@@ -416,7 +416,7 @@ export const insightLogic = kea<insightLogicType>({
                         actions.setShowTimeoutMessage(true)
                         const tags = {
                             insight: values.activeView,
-                            scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                            scene: sceneProxyLogic.values.scene,
                         }
                         posthog.capture('insight timeout message shown', tags)
                         captureInternalMetric({ method: 'incr', metric: 'insight_timeout', value: 1, tags })
@@ -450,7 +450,7 @@ export const insightLogic = kea<insightLogicType>({
                 const duration = new Date().getTime() - values.queryStartTimes[queryId]
                 const tags = {
                     insight: values.activeView,
-                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                    scene: sceneProxyLogic.values.scene,
                     success: !exception,
                     ...exception,
                 }

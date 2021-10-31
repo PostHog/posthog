@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman, setPageTitle } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -47,7 +47,6 @@ export const sceneLogic = kea<sceneLogicType>({
         ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
         hideUpgradeModal: true,
         takeToPricing: true,
-        setPageTitle: (title: string) => ({ title }),
     },
     reducers: {
         scene: [
@@ -172,7 +171,7 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         setScene: () => {
             posthog.capture('$pageview')
-            actions.setPageTitle(identifierToHuman(values.scene || ''))
+            setPageTitle(identifierToHuman(values.scene || ''))
         },
         openScene: ({ scene, params }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
@@ -300,9 +299,6 @@ export const sceneLogic = kea<sceneLogicType>({
                 }
             }
             actions.setScene(scene, params)
-        },
-        setPageTitle: ({ title }) => {
-            document.title = title ? `${title} • PostHog` : 'PostHog'
         },
     }),
 })
