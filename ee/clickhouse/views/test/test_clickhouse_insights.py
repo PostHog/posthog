@@ -497,3 +497,56 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 )
             else:
                 self.assertEqual(response.status_code, 200)
+
+    def test_a_request_for_a_funnel_with_a_single_breakdown_property_does_not_return_an_array(self):
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user a", properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user a", properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user a", properties={"$browser": "Safari"},
+        )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user a", properties={"$browser": "Safari"},
+        )
+
+        filter_with_breakdown = {
+            "insight": "FUNNELS",
+            "date_from": "-14d",
+            "actions": [],
+            "events": [
+                {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+                {"id": "$pageview", "type": "events", "order": 1, "name": "$pageview"},
+            ],
+            "display": "FunnelViz",
+            "interval": "day",
+            "properties": [],
+            "funnel_viz_type": "steps",
+            "exclusions": [],
+            "breakdown": "$browser",
+            "breakdown_type": "event",
+            "funnel_from_step": 0,
+            "funnel_to_step": 1,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel", filter_with_breakdown)
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+        self.assertEqual(response_data["is_cached"], False)
+
+        result = response_data["result"]
+
+        # input events have chrome and safari so results is an array with two arrays as its contents
+        for r in result[0]:
+            self.assertIsInstance(r["name"], str)
+            self.assertEqual("Chrome", r["breakdown"])
+            self.assertEqual("Chrome", r["breakdown_value"])
+
+        for r in result[1]:
+            self.assertIsInstance(r["name"], str)
+            self.assertEqual("Safari", r["breakdown"])
+            self.assertEqual("Safari", r["breakdown_value"])
