@@ -7,9 +7,15 @@ import * as fs from 'fs'
 import * as fse from 'fs-extra'
 import { build } from 'esbuild'
 import chokidar from 'chokidar'
+import liveServer from 'live-server'
+import { createProxyMiddleware } from 'http-proxy-middleware'
+
+const defaultHost = 'localhost'
+const defaultPort = 8234
+const defaultBackend = 'http://localhost:8000'
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
-const jsURL = 'http://localhost:8234'
+const jsURL = `http://${defaultHost}:${defaultPort}`
 
 export const isWatch = process.argv.includes('--watch') || process.argv.includes('-w')
 export const isDev = process.argv.includes('--dev') || process.argv.includes('-d')
@@ -93,8 +99,14 @@ function getInputFiles(result) {
     )
 }
 
+function beforeBuild() {
+    const filename = path.resolve(__dirname, 'tmp', 'reload.txt')
+    fs.mkdirSync(path.dirname(filename), { recursive: true })
+    fs.closeSync(fs.openSync(filename, 'w'))
+}
+
 export async function buildOrWatch(config) {
-    const { name, ..._config } = config
+    const { name, onBuildStart, onBuildComplete, ..._config } = config
 
     let buildPromise = null
     let buildAgain = false
@@ -106,9 +118,12 @@ export async function buildOrWatch(config) {
             return
         }
         buildAgain = false
+        onBuildStart?.()
+        beforeBuild()
         buildPromise = runBuild()
         await buildPromise
         buildPromise = null
+        onBuildComplete?.()
         if (isWatch && buildAgain) {
             void debouncedBuild()
         }
@@ -157,4 +172,110 @@ export async function buildOrWatch(config) {
     }
 
     await debouncedBuild()
+}
+
+export function startServer(opts = {}) {
+    const host = opts.host || defaultHost
+    const port = opts.port || defaultPort
+    const backend = opts.backend || defaultBackend
+    const backendUrls = opts.backendUrls || [
+        '/_',
+        '/admin/',
+        '/authorize_and_redirect/',
+        '/batch/',
+        '/capture/',
+        '/decide/',
+        '/demo',
+        '/e/',
+        '/engage/',
+        '/login',
+        '/logout',
+        '/s/',
+        '/signup/finish/',
+        '/static/recorder.js',
+        '/static/rest_framework/',
+        '/track/',
+    ]
+
+    const INJECTED_CODE = fs.readFileSync(
+        path.join(__dirname, '..', 'node_modules', 'live-server', 'injected.html'),
+        'utf8'
+    )
+    console.log(`🍱 Started server at http://${host}:${port}`)
+
+    let resolve = null
+    let ifPaused = null
+    function pauseServer() {
+        if (!ifPaused) {
+            ifPaused = new Promise((r) => (resolve = r))
+        }
+    }
+    function resumeServer() {
+        resolve?.()
+        ifPaused = null
+    }
+    resumeServer()
+
+    liveServer.start({
+        port,
+        host,
+        root: path.resolve(__dirname, 'dist'),
+        open: false,
+        cors: true,
+        file: 'index.html',
+        mount: [['/static', path.resolve(__dirname, 'dist')]],
+        watch: [path.resolve(__dirname, 'tmp', 'reload.txt')],
+        logLevel: 0,
+        middleware: [
+            async (req, res, next) => {
+                if (ifPaused && !ifPaused.logged) {
+                    console.log('⌛️ Waiting for build to complete...')
+                    ifPaused.logged = true
+                }
+                await ifPaused
+                next()
+            },
+            createProxyMiddleware((pathname) => !!backendUrls.find((u) => pathname.startsWith(u)), {
+                target: backend,
+                changeOrigin: true,
+                logLevel: 'warn',
+            }),
+            createProxyMiddleware(
+                (pathname, req) => {
+                    return (
+                        !pathname.startsWith('/static/') && req.method === 'GET' && req.headers.accept.includes('html')
+                    )
+                },
+                {
+                    target: backend,
+                    bypass: () => '/',
+                    logLevel: 'warn',
+                    changeOrigin: true,
+                    selfHandleResponse: true, // so that the onProxyRes takes care of sending the response
+                    onError: (err, req, res) => {
+                        res.writeHead(500, {
+                            'Content-Type': 'text/html',
+                        })
+                        res.end(
+                            `Can not access <a href="${backend}">${backend}</a>. Is the PostHog Django app running?`
+                        )
+                    },
+                    onProxyRes: (proxyRes, req, res) => {
+                        var body = new Buffer('')
+                        proxyRes.on('data', (data) => {
+                            body = Buffer.concat([body, data])
+                        })
+                        proxyRes.on('end', () => {
+                            const newBody = body.toString().replace('</body>', INJECTED_CODE + '</body>')
+                            res.end(newBody)
+                        })
+                    },
+                }
+            ),
+        ],
+    })
+    return {
+        pauseServer,
+        resumeServer,
+    }
 }
