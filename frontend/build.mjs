@@ -1,5 +1,5 @@
 import * as path from 'path'
-import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isWatch, startServer } from './esbuild-utils.mjs'
+import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isWatch, startServer } from './build-utils.mjs'
 
 copyPublicFolder()
 copyIndexHtml()
