@@ -5,6 +5,8 @@ import * as path from 'path'
 import * as url from 'url'
 import * as fs from 'fs'
 import * as fse from 'fs-extra'
+import { build } from 'esbuild'
+import chokidar from 'chokidar'
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const jsURL = 'http://localhost:8234'
@@ -69,14 +71,6 @@ export const commonConfig = {
     publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
     plugins: [sassPlugin, lessPlugin],
-    watch: isWatch
-        ? {
-              onRebuild(error) {
-                  if (error) {console.error('watch build failed:', error)}
-                  else {console.log('🚀 Rebuilt!')}
-              },
-          }
-        : false,
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
@@ -88,4 +82,49 @@ export const commonConfig = {
         '.woff2': 'file',
         '.mp3': 'file',
     },
+}
+
+export async function buildOrWatch(config) {
+    const time = new Date()
+    const { name, ..._config } = config
+    const result = await build({ ...commonConfig, ..._config }).catch(() => process.exit(1))
+
+    console.log(
+        `🏁 ${isWatch ? 'First build of' : 'Built'}${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`
+    )
+
+    if (!isWatch) {
+        return
+    }
+
+    async function rebuildApp() {
+        const rebuildTime = new Date()
+        await result.rebuild()
+        console.log(`🔄 Rebuilt${name ? ` "${name}"` : ''} in ${(new Date() - rebuildTime) / 1000}s`)
+    }
+
+    let buildPromise = null
+    let buildAgain = false
+    async function debouncedRebuild() {
+        if (buildPromise) {
+            buildAgain = true
+            return
+        }
+        buildAgain = false
+        buildPromise = rebuildApp()
+        await buildPromise
+        buildPromise = null
+        if (buildAgain) {
+            void debouncedRebuild()
+        }
+    }
+
+    chokidar
+        .watch(path.resolve(__dirname, 'src'), {
+            ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
+            ignoreInitial: true,
+        })
+        .on('all', () => {
+            void debouncedRebuild()
+        })
 }
