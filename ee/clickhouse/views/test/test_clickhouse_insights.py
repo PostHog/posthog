@@ -1,4 +1,7 @@
 import json
+
+from typing import List, Any, Union, Dict
+from unittest.mock import patch
 from uuid import uuid4
 
 from rest_framework import status
@@ -498,55 +501,71 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             else:
                 self.assertEqual(response.status_code, 200)
 
-    def test_a_request_for_a_funnel_with_a_single_breakdown_property_does_not_return_an_array(self):
-        _create_person(distinct_ids=["user a"], team=self.team)
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="user a", properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="user a", properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="user a", properties={"$browser": "Safari"},
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="user a", properties={"$browser": "Safari"},
-        )
+    @patch("ee.clickhouse.views.insights.ClickhouseInsightsViewSet.calculate_funnel")
+    def test_that_multi_property_breakdown_is_not_breaking(self, mcf):
 
-        filter_with_breakdown = {
-            "insight": "FUNNELS",
-            "date_from": "-14d",
-            "actions": [],
-            "events": [
-                {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-                {"id": "$pageview", "type": "events", "order": 1, "name": "$pageview"},
-            ],
-            "display": "FunnelViz",
-            "interval": "day",
-            "properties": [],
-            "funnel_viz_type": "steps",
-            "exclusions": [],
-            "breakdown": "$browser",
-            "breakdown_type": "event",
-            "funnel_from_step": 0,
-            "funnel_to_step": 1,
+        test_cases: List[Dict[str, Any]] = [
+            # single property
+            {"breakdown": "$browser", "funnel result": ["Chrome", "Safari"], "expected": ["Chrome", "Safari"]},
+            # single property client, multi property query result
+            {"breakdown": "$browser", "funnel result": [["Chrome"], ["Safari"]], "expected": ["Chrome", "Safari"]},
+            # multi property client, multi property query result
+            {
+                "breakdown": ["$browser"],
+                "funnel result": [["Chrome"], ["Safari"]],
+                "expected": [["Chrome"], ["Safari"]],
+            },
+        ]
+
+        for test_case in test_cases:
+
+            filter_with_breakdown = {
+                "insight": "FUNNELS",
+                "date_from": "-14d",
+                "actions": [],
+                "events": [
+                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+                    {"id": "$pageview", "type": "events", "order": 1, "name": "$pageview"},
+                ],
+                "display": "FunnelViz",
+                "interval": "day",
+                "properties": [],
+                "funnel_viz_type": "steps",
+                "exclusions": [],
+                "breakdown": test_case["breakdown"],
+                "breakdown_type": "event",
+                "funnel_from_step": 0,
+                "funnel_to_step": 1,
+            }
+
+            mcf.return_value = {"result": [[self.as_result(b), self.as_result(b)] for b in test_case["funnel result"]]}
+
+            response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel", filter_with_breakdown)
+            self.assertEqual(200, response.status_code)
+
+            response_data = response.json()
+
+            result = response_data["result"]
+
+            # input events have chrome and safari so results is an array with two arrays as its contents
+            for i in range(0, 2):
+                for r in result[i]:
+                    self.assertIsInstance(r["name"], str)
+                    self.assertEqual(test_case["expected"][i], r["breakdown"])
+                    self.assertEqual(test_case["expected"][i], r["breakdown_value"])
+
+    @staticmethod
+    def as_result(b: Union[str, List[str]]) -> Dict[str, Any]:
+        return {
+            "action_id": "$pageview",
+            "name": "$pageview",
+            "custom_name": None,
+            "order": 0,
+            "people": ["a uuid"],
+            "count": 1,
+            "type": "events",
+            "average_conversion_time": None,
+            "median_conversion_time": None,
+            "breakdown": b,
+            "breakdown_value": b,
         }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel", filter_with_breakdown)
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()
-        self.assertEqual(response_data["is_cached"], False)
-
-        result = response_data["result"]
-
-        # input events have chrome and safari so results is an array with two arrays as its contents
-        for r in result[0]:
-            self.assertIsInstance(r["name"], str)
-            self.assertEqual("Chrome", r["breakdown"])
-            self.assertEqual("Chrome", r["breakdown_value"])
-
-        for r in result[1]:
-            self.assertIsInstance(r["name"], str)
-            self.assertEqual("Safari", r["breakdown"])
-            self.assertEqual("Safari", r["breakdown_value"])
