@@ -228,11 +228,11 @@ export function startServer(opts = {}) {
         logLevel: 0,
         middleware: [
             async (req, res, next) => {
-                if (ifPaused && !ifPaused.logged) {
+                if (ifPaused && !ifPaused.logged && req.url.startsWith('/static/')) {
                     console.log('⌛️ Waiting for build to complete...')
                     ifPaused.logged = true
+                    await ifPaused
                 }
-                await ifPaused
                 next()
             },
             createProxyMiddleware((pathname) => !!backendUrls.find((u) => pathname.startsWith(u)), {
