@@ -305,7 +305,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         is_single_property_breakdown = (
             "insight" in data
             and data["insight"] == "FUNNELS"
+            and "breakdown_type" in data
             and data["breakdown_type"] in ["person", "event"]
+            and "breakdown" in data
             and isinstance(data["breakdown"], str)
         )
         if is_single_property_breakdown:
