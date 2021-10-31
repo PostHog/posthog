@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { teamLogic } from '../scenes/teamLogic'
 
 export const dashboardsModel = kea<dashboardsModelType>({
+    path: ['models', 'dashboardsModel'],
     actions: () => ({
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: number | null) => ({ id }),
