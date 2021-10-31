@@ -82,51 +82,79 @@ export const commonConfig = {
         '.woff2': 'file',
         '.mp3': 'file',
     },
+    metafile: isWatch,
+}
+
+function getInputFiles(result) {
+    return new Set(
+        Object.keys(result.metafile.inputs)
+            .map((key) => (key.includes(':') ? key.split(':')[1] : key))
+            .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
+    )
 }
 
 export async function buildOrWatch(config) {
-    const time = new Date()
     const { name, ..._config } = config
-
-    console.log(`🧱 Building${name ? ` "${name}"` : ''}`)
-    const result = await build({ ...commonConfig, ..._config }).catch(() => process.exit(1))
-
-    console.log(
-        `🏁 ${isWatch ? 'First build of' : 'Built'}${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`
-    )
-
-    if (!isWatch) {
-        return
-    }
-
-    async function rebuildApp() {
-        const rebuildTime = new Date()
-        await result.rebuild()
-        console.log(`🔄 Rebuilt${name ? ` "${name}"` : ''} in ${(new Date() - rebuildTime) / 1000}s`)
-    }
 
     let buildPromise = null
     let buildAgain = false
-    async function debouncedRebuild() {
+    let inputFiles = new Set([])
+
+    async function debouncedBuild() {
         if (buildPromise) {
             buildAgain = true
             return
         }
         buildAgain = false
-        buildPromise = rebuildApp()
+        buildPromise = runBuild()
         await buildPromise
         buildPromise = null
-        if (buildAgain) {
-            void debouncedRebuild()
+        if (isWatch && buildAgain) {
+            void debouncedBuild()
         }
     }
 
-    chokidar
-        .watch(path.resolve(__dirname, 'src'), {
-            ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
-            ignoreInitial: true,
-        })
-        .on('all', () => {
-            void debouncedRebuild()
-        })
+    let result = null
+    let buildCount = 0
+
+    async function runBuild() {
+        buildCount++
+        const time = new Date()
+        if (buildCount === 1) {
+            console.log(`🧱 Building${name ? ` "${name}"` : ''}`)
+            try {
+                result = await build({ ...commonConfig, ..._config })
+            } catch (error) {
+                console.error(error)
+                process.exit(1)
+            }
+            console.log(
+                `🏁 ${isWatch ? 'First build of' : 'Built'}${name ? ` "${name}"` : ''} in ${
+                    (new Date() - time) / 1000
+                }s`
+            )
+        } else {
+            result = await result.rebuild()
+            console.log(`🔄 Rebuilt${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`)
+        }
+        inputFiles = getInputFiles(result)
+    }
+
+    if (isWatch) {
+        chokidar
+            .watch(path.resolve(__dirname, 'src'), {
+                ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
+                ignoreInitial: true,
+            })
+            .on('all', async (event, filePath) => {
+                if (inputFiles.size === 0) {
+                    await buildPromise
+                }
+                if (inputFiles.has(filePath)) {
+                    void debouncedBuild()
+                }
+            })
+    }
+
+    await debouncedBuild()
 }
