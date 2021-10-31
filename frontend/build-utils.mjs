@@ -181,6 +181,7 @@ export function startServer(opts = {}) {
     const backendUrls = opts.backendUrls || [
         '/_',
         '/admin/',
+        '/api/',
         '/authorize_and_redirect/',
         '/batch/',
         '/capture/',
@@ -261,13 +262,13 @@ export function startServer(opts = {}) {
                         )
                     },
                     onProxyRes: (proxyRes, req, res) => {
-                        var body = new Buffer('')
+                        let body = new Buffer('')
                         proxyRes.on('data', (data) => {
                             body = Buffer.concat([body, data])
                         })
                         proxyRes.on('end', () => {
-                            const newBody = body.toString().replace('</body>', INJECTED_CODE + '</body>')
-                            res.end(newBody)
+                            const newBody = body.toString('utf-8').replace('</body>', INJECTED_CODE + '</body>')
+                            res.end(Buffer.from(newBody, 'utf-8'))
                         })
                     },
                 }
