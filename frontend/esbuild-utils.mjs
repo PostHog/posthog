@@ -7,11 +7,15 @@ import * as fs from 'fs'
 import * as fse from 'fs-extra'
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
+const jsURL = 'http://localhost:8234'
+
+export const isWatch = process.argv.includes('--watch') || process.argv.includes('-w')
+export const isDev = process.argv.includes('--dev') || process.argv.includes('-d')
 
 export const sassPlugin = _sassPlugin({
     importer: [
-        (url) => {
-            const [first, ...rest] = url.split('/')
+        (importUrl) => {
+            const [first, ...rest] = importUrl.split('/')
             const paths = {
                 '~': 'src',
                 scenes: 'src/scenes',
@@ -51,28 +55,31 @@ export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', e
             .readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' })
             .replace(
                 '</head>',
-                `<script type="module" src="/static/${entry}.js"></script>\n` +
-                    `<link rel="stylesheet" href='/static/${entry}.css'>\n</head>`
+                `<script type="module" src="${isWatch ? jsURL : ''}/static/${entry}.js"></script>\n` +
+                    `<link rel="stylesheet" href='${isWatch ? jsURL : ''}/static/${entry}.css'>\n</head>`
             )
     )
 }
 
 export const commonConfig = {
     sourcemap: true,
+    incremental: isWatch,
+    minify: !isDev,
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
+    assetNames: 'assets/[name]-[hash]',
     plugins: [sassPlugin, lessPlugin],
-    watch: process.argv.includes('--watch')
+    watch: isWatch
         ? {
-              onRebuild(error, result) {
-                  if (error) console.error('watch build failed:', error)
-                  else console.log('🚀 Rebuilt!')
+              onRebuild(error) {
+                  if (error) {console.error('watch build failed:', error)}
+                  else {console.log('🚀 Rebuilt!')}
               },
           }
         : false,
-
     define: {
-        global: '{}',
+        global: 'globalThis',
+        'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
     },
     loader: {
         '.png': 'file',

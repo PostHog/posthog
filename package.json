@@ -34,12 +34,12 @@
         "build:esbuild:toolbar": "echo \"🔧 Building Toolbar\" && node frontend/build-toolbar.mjs",
         "build:esbuild:shared_dashboard": "echo \"🔧 Building Shared Dahsboards\" && node frontend/build-shared-dashboard.mjs",
         "watch": "yarn watch:esbuild",
-        "watch:esbuild": "concurrently -n app,toolbar,dashboards -c blue,magenta,yellow \"yarn watch:esbuild:app\" \"yarn watch:esbuild:toolbar\" \"yarn watch:esbuild:shared_dashboard\"",
-        "watch:esbuild:app": "echo \"👀 Watching App\" && node frontend/build-app.mjs --watch",
-        "watch:esbuild:toolbar": "echo \"👀 Watching Toolbar\" && node frontend/build-toolbar.mjs --watch",
+        "watch:esbuild": "concurrently -n app,toolbar,dashboards -c blue,magenta,yellow,red \"yarn watch:esbuild:app\" \"yarn watch:esbuild:toolbar\" \"yarn watch:esbuild:shared_dashboard\"",
+        "watch:esbuild:app": "echo \"👀 Watching App\" && node frontend/build-app.mjs --watch --dev",
+        "watch:esbuild:toolbar": "echo \"👀 Watching Toolbar\" && node frontend/build-toolbar.mjs --watch --dev",
         "watch:esbuild:shared_dashboard": "echo \"👀 Watching Shared Dahsboards\" && node frontend/build-shared-dashboard.mjs --watch",
-        "prettier": "prettier --write \"./**/*.{js,ts,tsx,json,yaml,yml,css,scss}\"",
-        "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yaml,yml,css,scss}\"",
+        "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "prettier:check": "prettier --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc",
         "typescript:clean": "tsc --build --clean",
         "eslint": "eslint frontend/src",
@@ -205,8 +205,8 @@
         }
     },
     "lint-staged": {
-        "*.{js,ts,tsx,json,yaml,yml,css,scss}": "prettier --write",
-        "*.{js,ts,tsx}": "eslint --fix",
+        "*.{js,ts,mjs,tsx,json,yaml,yml,css,scss}": "prettier --write",
+        "*.{js,ts,mjs,tsx}": "eslint --fix",
         "*.{py,pyi}": [
             "flake8 --select=E9,F63,F7,F82,W605",
             "black",
