@@ -1,6 +1,5 @@
 import json
-
-from typing import List, Any, Union, Dict
+from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from uuid import uuid4
 
