@@ -230,6 +230,7 @@ export function startServer(opts = {}) {
                     console.log('⌛️ Waiting for build to complete...')
                     ifPaused.logged = true
                     await ifPaused
+                    await new Promise((r) => setTimeout(r, 400))
                 }
                 next()
             },
