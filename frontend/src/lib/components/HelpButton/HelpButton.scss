@@ -3,6 +3,7 @@
 .help-button {
     height: 1.25rem;
     cursor: pointer;
+    display: inline-block;
     .help-icon {
         color: var(--bg-navy);
         font-size: 1.25rem;

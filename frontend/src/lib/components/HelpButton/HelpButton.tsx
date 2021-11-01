@@ -26,9 +26,10 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
 export interface HelpButtonProps {
     withCaret?: boolean
     placement?: TooltipPlacement
+    customComponent?: JSX.Element
 }
 
-export function HelpButton({ withCaret = false, placement }: HelpButtonProps): JSX.Element {
+export function HelpButton({ customComponent, withCaret = false, placement }: HelpButtonProps): JSX.Element {
     const UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
     const { reportHelpButtonUsed, reportHelpButtonViewed } = useActions(eventUsageLogic)
     const { isVisible } = useValues(helpButtonLogic)
@@ -92,8 +93,12 @@ export function HelpButton({ withCaret = false, placement }: HelpButtonProps): J
                 placement={placement}
             >
                 <Row align="middle">
-                    <QuestionCircleOutlined className="help-icon" />
-                    {withCaret && <CaretDownOutlined />}
+                    {customComponent || (
+                        <>
+                            <QuestionCircleOutlined className="help-icon" />
+                            {withCaret && <CaretDownOutlined />}
+                        </>
+                    )}
                 </Row>
             </Popover>
         </div>

@@ -8,7 +8,13 @@
     }
 
     .support-footer {
-        margin-top: $default_spacing;
-        border-top: 1px dashed $border;
+        margin-top: $default_spacing * 1.5;
+        padding-top: $default_spacing * 1.5;
+        border-top: 1.5px dashed $border;
+        text-align: center;
+    }
+
+    .title-icon {
+        font-size: 2rem;
     }
 }
