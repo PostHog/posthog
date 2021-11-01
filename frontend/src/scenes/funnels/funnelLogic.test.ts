@@ -1,5 +1,5 @@
 import { funnelLogic } from './funnelLogic'
-import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { api, defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
@@ -8,7 +8,13 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, ViewType } from '~/types'
+import {
+    FunnelConversionWindowTimeUnit,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    ViewType,
+} from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 jest.mock('lib/api')
@@ -354,6 +360,38 @@ describe('funnelLogic', () => {
                     second_value: '1.2',
                 })
             })
+        })
+    })
+
+    describe('conversion window filter', () => {
+        it('initially is 14 days', async () => {
+            await expectLogic(logic)
+                .toFinishListeners()
+                .toMatchValues({
+                    conversionWindow: {
+                        funnel_window_interval: 14,
+                        funnel_window_interval_unit: 'day',
+                    },
+                })
+        })
+
+        it('are updated when results are loaded', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({
+                    filters: {
+                        insight: ViewType.FUNNELS,
+                        funnel_window_interval: 7,
+                        funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Week,
+                    },
+                })
+            })
+                .toFinishListeners()
+                .toMatchValues({
+                    conversionWindow: {
+                        funnel_window_interval: 7,
+                        funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Week,
+                    },
+                })
         })
     })
 
