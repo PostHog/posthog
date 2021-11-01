@@ -181,7 +181,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/ --cov --cov-report=xml:coverage-postgres.xml
+                  pytest -m "not ee" posthog/ --cov --cov-report=xml:coverage-postgres.xml --store-durations --durations-path posthog/.test_durations
 
             - name: Run EE tests
               env:
@@ -191,7 +191,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml
+                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml --store-durations --durations-path ee/.test_durations
                   pytest posthog -m "ee"
 
             - name: Run SAML tests
@@ -207,6 +207,14 @@ jobs:
                   files: ./coverage-postgres.xml,./coverage-clickhouse.xml
                   fail_ci_if_error: false
                   verbose: true
+
+            - name: Upload results as artifacts
+              uses: actions/upload-artifact@v2
+              with:
+                  name: timing_data
+                  path: |
+                      posthog/.test_durations
+                      ee/.test_durations
 
     cloud:
         needs: changes
