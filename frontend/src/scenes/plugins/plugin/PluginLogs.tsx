@@ -1,4 +1,4 @@
-import { Button, Row, Space } from 'antd'
+import { Button, Checkbox, Row, Space } from 'antd'
 import Search from 'antd/lib/input/Search'
 import { LoadingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -66,7 +66,7 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
     const logic = pluginLogsLogic({ pluginConfigId })
 
     const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad } = useValues(logic)
-    const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch } = useActions(logic)
+    const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch, loadPluginLogsTypes } = useActions(logic)
 
     return (
         <Space direction="vertical" style={{ flexGrow: 1 }} className="ph-no-capture plugin-logs">
@@ -77,6 +77,16 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                     placeholder="Search for messages containing…"
                     allowClear
                 />
+            </Row>
+            <Row>
+                <span>
+                    Show logs of type:&nbsp;
+                    <Checkbox.Group
+                        options={Object.values(PluginLogEntryType)}
+                        defaultValue={Object.values(PluginLogEntryType)}
+                        onChange={loadPluginLogsTypes}
+                    />
+                </span>
             </Row>
             <Row>
                 <Button

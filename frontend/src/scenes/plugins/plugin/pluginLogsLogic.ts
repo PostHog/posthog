@@ -3,12 +3,34 @@ import api from '~/lib/api'
 import { PluginLogEntry } from '~/types'
 import { teamLogic } from '../../teamLogic'
 import { pluginLogsLogicType } from './pluginLogsLogicType'
+import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 
 export interface PluginLogsProps {
     pluginConfigId: number
 }
 
 export const LOGS_PORTION_LIMIT = 50
+
+const makeLogsAPICall = async (
+    pluginConfigId: number,
+    currentTeamId: number | null,
+    searchTerm: string,
+    typeFilters: CheckboxValueType[],
+    trailingEntry: PluginLogEntry | null = null,
+    leadingEntry: PluginLogEntry | null = null
+): Promise<PluginLogEntry[]> => {
+    const type_filters =
+        typeFilters && typeFilters.length > 0 ? `&type_filter=${typeFilters.join('&type_filter=')}` : ''
+    const search = searchTerm ? `&search=${searchTerm}` : ''
+    const before = trailingEntry ? '&before=' + trailingEntry.timestamp : ''
+    const after = leadingEntry ? '&after=' + leadingEntry.timestamp : ''
+
+    const response = await api.get(
+        `api/projects/${currentTeamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}${before}${after}${search}${type_filters}`
+    )
+
+    return response.results
+}
 
 export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
     props: {} as PluginLogsProps,
@@ -34,22 +56,38 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
                 return response.results
             },
             loadPluginLogsSearch: async (searchTerm: string) => {
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}&search=${searchTerm}`
+                const results = await makeLogsAPICall(
+                    pluginConfigId,
+                    values.currentTeamId,
+                    searchTerm,
+                    values.typeFilters
                 )
                 actions.clearPluginLogsBackground()
-                return response.results
+                return results
+            },
+            loadPluginLogsTypes: async (typeFilters: CheckboxValueType[]) => {
+                const results = await makeLogsAPICall(
+                    pluginConfigId,
+                    values.currentTeamId,
+                    values.searchTerm,
+                    typeFilters
+                )
+                actions.clearPluginLogsBackground()
+                return results
             },
             loadPluginLogsMore: async () => {
-                const before = values.trailingEntry ? '&before=' + values.trailingEntry.timestamp : ''
-                const search = values.searchTerm ? `&search=${values.searchTerm}` : ''
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}${before}${search}`
+                const results = await makeLogsAPICall(
+                    pluginConfigId,
+                    values.currentTeamId,
+                    values.searchTerm,
+                    values.typeFilters,
+                    values.trailingEntry
                 )
-                if (response.count < LOGS_PORTION_LIMIT) {
+
+                if (results.length < LOGS_PORTION_LIMIT) {
                     actions.markLogsEnd()
                 }
-                return [...values.pluginLogs, ...response.results]
+                return [...values.pluginLogs, ...results]
             },
             revealBackground: () => {
                 const newArray = [...values.pluginLogsBackground, ...values.pluginLogs]
@@ -63,14 +101,17 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
                 if (values.pluginLogsLoading) {
                     return values.pluginLogsBackground
                 }
-                const after = values.leadingEntry ? 'after=' + values.leadingEntry.timestamp : ''
-                const search = values.searchTerm ? `search=${values.searchTerm}` : ''
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/plugin_configs/${pluginConfigId}/logs?${[after, search]
-                        .filter(Boolean)
-                        .join('&')}`
+
+                const results = await makeLogsAPICall(
+                    pluginConfigId,
+                    values.currentTeamId,
+                    values.searchTerm,
+                    values.typeFilters,
+                    null,
+                    values.leadingEntry
                 )
-                return [...response.results, ...values.pluginLogsBackground]
+
+                return [...results, ...values.pluginLogsBackground]
             },
         },
     }),
@@ -86,6 +127,12 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
             '',
             {
                 loadPluginLogsSearch: (_, searchTerm) => searchTerm || '',
+            },
+        ],
+        typeFilters: [
+            [] as CheckboxValueType[],
+            {
+                loadPluginLogsTypes: (_, types) => types || [],
             },
         ],
         isThereMoreToLoad: [
