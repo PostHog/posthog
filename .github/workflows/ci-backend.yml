@@ -156,8 +156,7 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                docker-compose -f ee/docker-compose.ch.yml up -d db
-                ${{ matrix.foss && '' || 'docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka &' }}
+                docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'clickhouse zookeeper kafka' }}
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
@@ -275,8 +274,7 @@ jobs:
                   cat requirements.txt >> deploy/requirements.txt
             - name: Start stack with Docker Compose
               run: |
-                docker-compose -f ee/docker-compose.ch.yml up -d db
-                docker-compose -f ee/docker-compose.ch.yml up -d clickhouse zookeeper kafka &
+                docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
