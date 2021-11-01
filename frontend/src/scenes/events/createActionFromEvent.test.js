@@ -31,15 +31,15 @@ describe('createActionFromEvent()', () => {
     given('createResponse', () => ({ id: 456 }))
 
     beforeEach(() => {
-        api.get.mockImplementation(() => Promise.resolve(given.event))
-        api.create.mockImplementation(() => Promise.resolve(given.createResponse))
+        api.actions.get.mockImplementation(() => Promise.resolve(given.event))
+        api.actions.create.mockImplementation(() => Promise.resolve(given.createResponse))
     })
 
     describe('action did not exist', () => {
         it('creates the correct action', async () => {
             await given.subject()
 
-            expect(api.create).toHaveBeenCalledWith(`api/projects/${given.teamId}/actions`, {
+            expect(api.actions.create).toHaveBeenCalledWith({
                 name: 'some-event event',
                 steps: [{ event: 'some-event' }],
             })
@@ -58,7 +58,7 @@ describe('createActionFromEvent()', () => {
             it('handles increments', async () => {
                 await given.subject()
 
-                expect(api.create).toHaveBeenCalledWith(`api/projects/${given.teamId}/actions`, {
+                expect(api.actions.create).toHaveBeenCalledWith({
                     name: 'some-event event 4',
                     steps: [{ event: 'some-event' }],
                 })
@@ -73,7 +73,7 @@ describe('createActionFromEvent()', () => {
             it('handles submit $autocapture events with elements', async () => {
                 await given.subject()
 
-                expect(api.create).toHaveBeenCalledWith(`api/projects/${given.teamId}/actions`, {
+                expect(api.actions.create).toHaveBeenCalledWith({
                     name: 'submitted form with text "Submit form!"',
                     steps: [
                         {
@@ -95,7 +95,7 @@ describe('createActionFromEvent()', () => {
             it('is handled', async () => {
                 await given.subject()
 
-                expect(api.create).toHaveBeenCalledWith(`api/projects/${given.teamId}/actions`, {
+                expect(api.actions.create).toHaveBeenCalledWith({
                     name: 'Pageview on /some/path',
                     steps: [{ event: '$pageview', url: 'http://foo.bar/some/path', url_matching: 'exact' }],
                 })
@@ -105,7 +105,7 @@ describe('createActionFromEvent()', () => {
 
     describe('action already exists', () => {
         beforeEach(() => {
-            api.create.mockImplementation(() => {
+            api.actions.create.mockImplementation(() => {
                 throw { type: 'validation_error', code: 'unique' }
             })
         })

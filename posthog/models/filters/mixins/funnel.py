@@ -12,7 +12,10 @@ from posthog.constants import (
     DISPLAY,
     DROP_OFF,
     ENTRANCE_PERIOD_START,
+    FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES,
     FUNNEL_CORRELATION_EVENT_NAMES,
+    FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES,
+    FUNNEL_CORRELATION_EXCLUDE_NAMES,
     FUNNEL_CORRELATION_NAMES,
     FUNNEL_CORRELATION_PERSON_CONVERTED,
     FUNNEL_CORRELATION_PERSON_ENTITY,
@@ -260,17 +263,43 @@ class FunnelCorrelationMixin(BaseParamMixin):
 
     @cached_property
     def correlation_property_names(self) -> List[str]:
+        # Person Property names for which to run Person Properties correlation
         property_names = self._data.get(FUNNEL_CORRELATION_NAMES, [])
         if isinstance(property_names, str):
             return json.loads(property_names)
         return property_names
 
     @cached_property
+    def correlation_property_exclude_names(self) -> List[str]:
+        # Person Property names to exclude from Person Properties correlation
+        property_names = self._data.get(FUNNEL_CORRELATION_EXCLUDE_NAMES, [])
+        if isinstance(property_names, str):
+            return json.loads(property_names)
+        return property_names
+
+    @cached_property
     def correlation_event_names(self) -> List[str]:
+        # Event names for which to run EventWithProperties correlation
         event_names = self._data.get(FUNNEL_CORRELATION_EVENT_NAMES, [])
         if isinstance(event_names, str):
             return json.loads(event_names)
         return event_names
+
+    @cached_property
+    def correlation_event_exclude_names(self) -> List[str]:
+        # Exclude event names from Event correlation
+        property_names = self._data.get(FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES, [])
+        if isinstance(property_names, str):
+            return json.loads(property_names)
+        return property_names
+
+    @cached_property
+    def correlation_event_exclude_property_names(self) -> List[str]:
+        # Event Property names to exclude from EventWithProperties correlation
+        property_names = self._data.get(FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES, [])
+        if isinstance(property_names, str):
+            return json.loads(property_names)
+        return property_names
 
     @include_dict
     def funnel_correlation_to_dict(self):
@@ -279,8 +308,14 @@ class FunnelCorrelationMixin(BaseParamMixin):
             result_dict[FUNNEL_CORRELATION_TYPE] = self.correlation_type
         if self.correlation_property_names:
             result_dict[FUNNEL_CORRELATION_NAMES] = self.correlation_property_names
+        if self.correlation_property_exclude_names:
+            result_dict[FUNNEL_CORRELATION_EXCLUDE_NAMES] = self.correlation_property_exclude_names
         if self.correlation_event_names:
             result_dict[FUNNEL_CORRELATION_EVENT_NAMES] = self.correlation_event_names
+        if self.correlation_event_exclude_names:
+            result_dict[FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES] = self.correlation_event_exclude_names
+        if self.correlation_event_exclude_property_names:
+            result_dict[FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES] = self.correlation_event_exclude_property_names
         return result_dict
 
 

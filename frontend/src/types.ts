@@ -18,6 +18,7 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
+import { PostHog } from 'posthog-js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -234,7 +235,7 @@ export interface ElementType {
 
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
 
-export type EditorProps = {
+export interface EditorProps {
     apiURL?: string
     jsURL?: string
     temporaryToken?: string
@@ -245,6 +246,10 @@ export type EditorProps = {
     userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
+}
+
+export interface ToolbarProps extends EditorProps {
+    posthog?: PostHog
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -315,12 +320,34 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
 
 export type SessionRecordingId = string
 
+export interface SessionRecordingMeta {
+    id: string
+    viewed: boolean
+    recording_duration: number
+    start_time: number
+    end_time: number
+    distinct_id: string
+}
+
+export interface LEGACY_SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: number
+    next: string | null
+    duration: number
+}
+
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
-    start_time: string
-    next: string | null
-    duration: number
+    session_recording: SessionRecordingMeta
+    next?: string
+}
+
+export enum SessionRecordingUsageType {
+    VIEWED = 'viewed',
+    ANALYZED = 'analyzed',
+    LOADED = 'loaded',
 }
 
 export enum SessionPlayerState {
@@ -1039,6 +1066,12 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
 }
 
+export interface SetInsightOptions {
+    shouldMergeWithExisting?: boolean
+    /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
+    overrideFilter?: boolean
+}
+
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
@@ -1099,6 +1132,11 @@ interface AuthBackends {
     saml?: boolean
 }
 
+interface InstancePreferencesInterface {
+    debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
+    disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
+}
+
 export interface PreflightStatus {
     // Attributes that accept undefined values (i.e. `?`) are not received when unauthenticated
     django: boolean
@@ -1128,8 +1166,7 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
-    /** Whether debug queries option should be shown on the command palette. */
-    debug_queries?: boolean
+    instance_preferences?: InstancePreferencesInterface
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode

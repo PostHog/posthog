@@ -18,6 +18,9 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { ColumnType } from 'antd/lib/table'
 import { teamLogic } from '../teamLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { EventsTab, EventsTabs } from 'scenes/events'
+import api from '../../lib/api'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -28,8 +31,14 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
         .map((result) => result.item)
 }
 
+export const scene: SceneExport = {
+    component: ActionsTable,
+    logic: actionsModel,
+    paramsToProps: () => ({ params: 'include_count=1' }),
+}
+
 export function ActionsTable(): JSX.Element {
-    const { currentTeam, currentTeamId } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
     const [searchTerm, setSearchTerm] = useState('')
@@ -152,7 +161,7 @@ export function ActionsTable(): JSX.Element {
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo
-                            endpoint={`projects/${currentTeamId}/actions`}
+                            endpoint={api.actions.determineDeleteEndpoint()}
                             object={action}
                             className="text-danger"
                             style={{ marginLeft: 8, marginRight: 8 }}
@@ -177,7 +186,8 @@ export function ActionsTable(): JSX.Element {
     }
 
     return (
-        <div>
+        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
+            <EventsTabs tab={EventsTab.Actions} />
             <PageHeader
                 title="Actions"
                 caption={

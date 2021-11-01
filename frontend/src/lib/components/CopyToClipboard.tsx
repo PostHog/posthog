@@ -33,30 +33,29 @@ export function CopyToClipboardInline({
     style,
     ...props
 }: InlineProps): JSX.Element {
-    return (
-        <Tooltip title={tooltipMessage}>
-            <span
-                className={isValueSensitive ? 'ph-no-capture' : ''}
-                style={{
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
-                    flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
-                    ...style,
-                }}
-                onClick={() => {
-                    copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
-                }}
-                {...props}
-            >
-                <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
-                <CopyOutlined
-                    style={iconPosition === 'end' ? { marginLeft: 4, ...iconStyle } : { marginRight: 4, ...iconStyle }}
-                />
-            </span>
-        </Tooltip>
+    const content = (
+        <span
+            className={isValueSensitive ? 'ph-no-capture' : ''}
+            style={{
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
+                flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
+                ...style,
+            }}
+            onClick={() => {
+                copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
+            }}
+            {...props}
+        >
+            <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
+            <CopyOutlined
+                style={iconPosition === 'end' ? { marginLeft: 4, ...iconStyle } : { marginRight: 4, ...iconStyle }}
+            />
+        </span>
     )
+    return tooltipMessage ? <Tooltip title={tooltipMessage}>{content}</Tooltip> : <>{content}</>
 }
 
 export function CopyToClipboardInput({

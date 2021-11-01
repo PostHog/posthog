@@ -7,7 +7,7 @@ export function useOutsideClickHandler(
     handleClickOutside?: (event: Event) => void,
     extraDeps: any[] = []
 ): void {
-    const allRefs = (Array.isArray(refOrRefs) ? refOrRefs : [refOrRefs]).map((f) => f)
+    const allRefs = Array.isArray(refOrRefs) ? refOrRefs : [refOrRefs]
 
     useEffect(
         () => {
@@ -22,9 +22,9 @@ export function useOutsideClickHandler(
             }
 
             if (allRefs.length > 0) {
-                // only attach event listeners if there's something to track
-                document.addEventListener('mousedown', handleClick)
-                return () => document.removeEventListener('mousedown', handleClick)
+                // Only attach event listeners if there's something to track
+                document.addEventListener('click', handleClick)
+                return () => document.removeEventListener('click', handleClick)
             }
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps

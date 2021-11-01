@@ -33,4 +33,47 @@
             font-weight: $medium;
         }
     }
+
+    .correlation-feedback {
+        margin-top: $default_spacing;
+
+        .ant-card-body {
+            padding: $default_spacing / 2 $default_spacing;
+        }
+
+        h4 {
+            padding: 0;
+            margin: 0;
+            font-weight: bold;
+            color: $text_muted_alt;
+        }
+
+        .emoji-button {
+            margin-right: 4px;
+            &:last-of-type {
+                margin-right: 0;
+            }
+        }
+
+        .row-initial {
+            display: flex;
+            align-items: center;
+            .ant-col {
+                text-align: right;
+                &:first-of-type {
+                    text-align: left;
+                }
+            }
+        }
+
+        .close-button {
+            color: $text_muted !important;
+            cursor: pointer;
+            z-index: $z_raised;
+        }
+
+        .feedback-button {
+            margin: $default_spacing 0;
+        }
+    }
 }

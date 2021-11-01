@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ActionType } from '~/types'
-import { teamLogic } from '../scenes/teamLogic'
 import { actionsModelType } from './actionsModelType'
 
 interface ActionsModelProps {
@@ -14,9 +13,7 @@ export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
-                const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/actions/?${props.params ? props.params : ''}`
-                )
+                const response = await api.actions.list(props.params)
                 return response.results
             },
         },

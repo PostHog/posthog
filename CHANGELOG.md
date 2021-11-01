@@ -10,7 +10,7 @@
 -   Multivariate support in feature flags. You will now be able to create feature flags with multiple variants to allow for more comprehensive testing and feature releasing.
 -   Private projects. Extra concerns on privacy or compliance? Private projects now lets you have projects to which only certain members of your team have access.
 -   Trailing DAU/WAU/MAU graphs. If you're interested in better measuring your user engagement DAU/WAU, WAU/MAU & DAU/MAU ratios can provide great signals.
--   Plus 350+ improvements and fixes, read more in the PostHog Array: https://app.posthog.com/blog/the-posthog-array-1-29-0
+-   Plus 350+ improvements and fixes, read more in the PostHog Array: https://posthog.com/blog/the-posthog-array-1-29-0
 
 ### 1.28.1 - Monday 27 September 2021
 

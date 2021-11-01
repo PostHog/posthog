@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, TypedDict, Union
+from typing import Any, Dict, List, Union
 
 import pytest
 from django.test import Client
@@ -48,7 +48,9 @@ def test_includes_only_intervals_within_range(client: Client):
         #  First identify as a member of the cohort
         distinct_id = "abc"
         identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
-        cohort = create_cohort_ok(client=client, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}])
+        cohort = create_cohort_ok(
+            client=client, team_id=team.id, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}]
+        )
 
         for date in ["2021-09-04", "2021-09-05", "2021-09-12", "2021-09-19"]:
             capture_event(

@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UsergroupAddOutlined, UserOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, ViewType } from '~/types'
-import { parsePeopleParams, personsModalLogic } from './personsModalLogic'
+import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { midEllipsis } from 'lib/utils'
+import { midEllipsis, pluralize } from 'lib/utils'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
@@ -13,7 +13,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
-import { teamLogic } from '../teamLogic'
+import api from '../../lib/api'
 
 export interface PersonModalProps {
     visible: boolean
@@ -23,12 +23,19 @@ export interface PersonModalProps {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad, clickhouseFeaturesEnabled } =
-        useValues(personsModalLogic)
+    const {
+        people,
+        loadingMorePeople,
+        firstLoadedPeople,
+        searchTerm,
+        isInitialLoad,
+        clickhouseFeaturesEnabled,
+        peopleParams,
+    } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
-    const { currentTeamId } = useValues(teamLogic)
     const { preflight } = useValues(preflightLogic)
+
     const title = useMemo(
         () =>
             isInitialLoad ? (
@@ -41,7 +48,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                 <PropertyKeyInfo value={people?.label || ''} disablePopover />
             ) : filters.insight === ViewType.FUNNELS ? (
                 <>
-                    {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step
+                    {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step{' '}
                     {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
                     {people?.breakdown_value !== undefined &&
                         `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
@@ -54,7 +61,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
             ) : (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
-                    <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
+                    <DateDisplay interval={filters.interval || 'day'} date={people?.day?.toString() || ''} />
                 </>
             ),
         [filters, people, isInitialLoad]
@@ -77,7 +84,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         {isDownloadCsvAvailable && (
                             <Button
                                 icon={<DownloadOutlined />}
-                                href={`/api/projects/${currentTeamId}/actions/people.csv?${parsePeopleParams(
+                                href={api.actions.determinePeopleCsvUrl(
                                     {
                                         label: people.label,
                                         action: people.action,
@@ -86,7 +93,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                         breakdown_value: people.breakdown_value,
                                     },
                                     filters
-                                )}`}
+                                )}
                                 style={{ marginRight: 8 }}
                                 data-attr="person-modal-download-csv"
                             >
@@ -134,6 +141,25 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                 }
                             />
                         )}
+                        <div className="user-count-subheader">
+                            <UserOutlined /> This list contains{' '}
+                            <b>
+                                {people.count} unique {pluralize(people.count, 'user', undefined, false)}
+                            </b>
+                            {peopleParams?.pointValue !== undefined &&
+                                peopleParams.action !== 'session' &&
+                                (!peopleParams.action.math || peopleParams.action.math === 'total') && (
+                                    <>
+                                        {' '}
+                                        who performed the event{' '}
+                                        <b>
+                                            {peopleParams.pointValue} total{' '}
+                                            {pluralize(peopleParams.pointValue, 'time', undefined, false)}
+                                        </b>
+                                    </>
+                                )}
+                            .
+                        </div>
                         <div style={{ background: '#FAFAFA' }}>
                             {people.count > 0 ? (
                                 people?.people.map((person) => (

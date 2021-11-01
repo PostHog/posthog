@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from unittest.case import skip
+from unittest.mock import patch
 
 from django.utils import timezone
 from freezegun import freeze_time
@@ -16,6 +17,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.test.base import APIBaseTest
 from posthog.utils import is_clickhouse_enabled
 
@@ -268,6 +270,34 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(objects[0].filters["date_from"], "-30d")
             self.assertEqual(objects[0].filters["layout"], "horizontal")
             self.assertEqual(len(objects[0].short_id), 8)
+
+        @patch("posthog.api.insight.update_dashboard_item_cache", wraps=update_dashboard_item_cache)
+        def test_insight_refreshing(self, spy_update_dashboard_item_cache):
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                event_factory(team=self.team, event="$pageview", distinct_id="1")
+                event_factory(team=self.team, event="$pageview", distinct_id="2")
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/insights", data={"filters": {"events": [{"id": "$pageview"}]}}
+                ).json()
+                self.assertEqual(response["last_refresh"], None)
+
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true"
+                ).json()
+                self.assertEqual(spy_update_dashboard_item_cache.call_count, 1)
+                self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+                self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+
+            with freeze_time("2012-01-15T05:01:34.000Z"):
+                event_factory(team=self.team, event="$pageview", distinct_id="1")
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true"
+                ).json()
+                self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
+                self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+                self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 

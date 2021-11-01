@@ -21,7 +21,7 @@ def parse_timestamps(
     params = {}
     if filter.date_from:
 
-        date_from = "AND {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
+        date_from = f"AND {table}timestamp >= %(date_from)s"
         params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
     else:
         try:
@@ -29,12 +29,12 @@ def parse_timestamps(
         except IndexError:
             date_from = ""
         else:
-            date_from = "AND {table}timestamp >= '{}'".format(format_ch_timestamp(earliest_date, filter), table=table,)
+            date_from = f"AND {table}timestamp >= %(date_from)s"
             params.update({"date_from": format_ch_timestamp(earliest_date, filter)})
 
     _date_to = filter.date_to
 
-    date_to = "AND {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
+    date_to = f"AND {table}timestamp <= %(date_to)s"
     params.update({"date_to": format_ch_timestamp(_date_to, filter, " 23:59:59")})
 
     return date_from or "", date_to or "", params
