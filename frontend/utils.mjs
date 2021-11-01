@@ -45,12 +45,9 @@ export function copyPublicFolder() {
     const srcDir = path.resolve(__dirname, 'public')
     const destDir = path.resolve(__dirname, 'dist')
 
-    // To copy a folder or file
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
         if (err) {
-            console.error(err) // add if you want to replace existing folder or file with same name
-        } else {
-            console.log('success!')
+            console.error(err)
         }
     })
 }
