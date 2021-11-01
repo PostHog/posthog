@@ -163,3 +163,11 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
         )
+
+    def group_types_to_query(self):
+        group_types_to_query = lambda filter: ColumnOptimizer(
+            filter, self.team.id
+        ).group_types_to_query
+
+        self.assertEqual(group_types_to_query(BASE_FILTER), set())
+        self.assertEqual(group_types_to_query(FILTER_WITH_PROPERTIES), {2})
