@@ -490,7 +490,7 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('isPropertyExcluded returns true initially, then false when excluded', async () => {
+        it('isPropertyExcluded returns true initially, then false when excluded, and is persisted to team config', async () => {
             userLogic.mount()
 
             logic.actions.setPropertyNames(logic.values.allProperties)
@@ -500,6 +500,13 @@ describe('funnelLogic', () => {
             await expectLogic(logic, () => logic.actions.excludeProperty('some property')).toFinishListeners()
 
             expect(logic.values.isPropertyExcluded('some property')).toBe(true)
+
+            await expectLogic(teamLogic).toMatchValues({
+                currentTeam: {
+                    ...MOCK_DEFAULT_TEAM,
+                    correlation_config: { excluded_person_property_names: ['some property'] },
+                },
+            })
         })
 
         it('loads exclude list from Project settings', async () => {

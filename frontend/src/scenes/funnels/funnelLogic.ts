@@ -1068,9 +1068,32 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadEventWithPropertyCorrelations(eventName)
         },
 
-        excludeProperty: () => {
+        excludeProperty: ({ propertyName }) => {
+            const oldCurrentTeam = teamLogic.values.currentTeam
+
+            if (!oldCurrentTeam) {
+                return
+            }
+
+            const oldCorrelationConfig = oldCurrentTeam.correlation_config
+
+            const excludedPropertyNames = (oldCorrelationConfig?.excluded_person_property_names || []).concat([
+                propertyName,
+            ])
+
+            const correlationConfig = {
+                ...oldCorrelationConfig,
+                excluded_person_property_names: excludedPropertyNames,
+            }
+
+            teamLogic.actions.updateCurrentTeam({
+                correlation_config: correlationConfig,
+            })
+
+            // NOTE: we don't wait for updateCurrentTeam to finish, we just
+            // optimistically update setPropertyNames
             actions.setPropertyNames(
-                values.propertyNames.filter((property) => !values.excludedPropertyNames?.includes(property))
+                values.propertyNames.filter((property) => !excludedPropertyNames?.includes(property))
             )
         },
 
