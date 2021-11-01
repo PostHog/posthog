@@ -18,6 +18,7 @@ NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "group"]
 
+
 class Property:
     key: str
     operator: Optional[OperatorType]
@@ -42,7 +43,7 @@ class Property:
         self.group_type_index = group_type_index
 
     def __repr__(self):
-        params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict())
+        params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
         return f"Property({params_repr})"
 
     def to_dict(self) -> Dict[str, Any]:
