@@ -242,7 +242,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
 
     return (
         <Button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)} type="link">
-            Exclude from project
+            Exclude
         </Button>
     )
 }
