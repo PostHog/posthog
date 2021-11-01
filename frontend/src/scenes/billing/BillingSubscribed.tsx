@@ -11,24 +11,25 @@ import { router } from 'kea-router'
 import { billingSubscribedLogicType } from './BillingSubscribedType'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
-enum SubscriptionMode {
+
+enum SubscriptionStatus {
     Success = 'success',
     Failed = 'failed',
 }
 
-const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionMode>>({
+const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionStatus>>({
     connect: {
         actions: [sceneLogic, ['setScene']],
     },
     actions: {
-        setMode: (mode: SubscriptionMode) => ({ mode }),
+        setStatus: (status: SubscriptionStatus) => ({ status }),
         setSubscriptionId: (id: string) => ({ id }),
     },
     reducers: {
-        mode: [
-            SubscriptionMode.Failed,
+        status: [
+            SubscriptionStatus.Failed,
             {
-                setMode: (_, { mode }) => mode,
+                setStatus: (_, { status }) => status,
             },
         ],
         subscriptionId: [
@@ -41,7 +42,7 @@ const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionMode>>
     listeners: ({ values }) => ({
         setScene: async (_, breakpoint) => {
             await breakpoint(100)
-            if (values.mode === SubscriptionMode.Success) {
+            if (values.status === SubscriptionStatus.Success) {
                 sceneLogic.actions.setPageTitle('Subscribed!')
             } else {
                 sceneLogic.actions.setPageTitle('Subscription failed')
@@ -51,7 +52,7 @@ const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionMode>>
     urlToAction: ({ actions }) => ({
         '*': (_, { s, subscription_id }) => {
             if (s === 'success') {
-                actions.setMode(SubscriptionMode.Success)
+                actions.setStatus(SubscriptionStatus.Success)
             }
             if (subscription_id) {
                 actions.setSubscriptionId(subscription_id)
@@ -61,7 +62,7 @@ const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionMode>>
 })
 
 export function BillingSubscribed(): JSX.Element {
-    const { mode } = useValues(billingSubscribedLogic)
+    const { status } = useValues(billingSubscribedLogic)
 
     return (
         <div className="bridge-page billing-subscribed">
@@ -71,7 +72,7 @@ export function BillingSubscribed(): JSX.Element {
                     <div className="inner-wrapper">
                         <WelcomeLogo view="signup" />
                         <div className="inner">
-                            {mode === SubscriptionMode.Success ? <SubscriptionSuccess /> : <SubscriptionFailure />}
+                            {status === SubscriptionStatus.Success ? <SubscriptionSuccess /> : <SubscriptionFailure />}
                             <div className="support-footer">
                                 Have questions? <HelpButton customComponent={<a href="#">Get help</a>} />
                             </div>
