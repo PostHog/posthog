@@ -189,14 +189,17 @@ jobs:
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-            - name: Run FOSS tests
-              if: ${{ matrix.foss }}
+            - name: Set up needed files
               run: |
-                  rm -rf ee/
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
+
+            - name: Run FOSS tests
+              if: ${{ matrix.foss }}
+              run: |
+                  rm -rf ee/
                   pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
 
             - name: Run ee/ tests
