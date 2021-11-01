@@ -13,8 +13,8 @@ OperatorType = Literal[
     "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
 ]
 
-GroupTypeIndex = Optional[int]
-PropertyIdentifier = Tuple[PropertyName, PropertyType, GroupTypeIndex]
+GroupTypeIndex = int
+PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "group"]
