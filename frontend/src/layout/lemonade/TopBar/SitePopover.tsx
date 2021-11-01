@@ -18,6 +18,7 @@ import { navigationLogic } from '../../navigation/navigationLogic'
 import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
 import dayjs from 'dayjs'
 import { identifierToHuman } from '../../../lib/utils'
+import { membershipLevelToName } from '../../../lib/utils/permissioning'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -60,8 +61,11 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     return (
         <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
             <>
-                <div className="SitePopover__main-info">
+                <div className="SitePopover__main-info SitePopover__organization">
                     <b>{organization.name}</b>
+                    <div className="SitePopover__membership-level">
+                        {organization.membership_level && membershipLevelToName.get(organization.membership_level)}
+                    </div>
                 </div>
                 <Link to={urls.organizationSettings()} onClick={closeSitePopover} className="SitePopover__side-link">
                     Settings
@@ -78,12 +82,16 @@ function OtherOrganizationButton({ organization }: { organization: OrganizationB
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark name={organization.name} />}
+            className="SitePopover__organization"
             type="stealth"
             align="start"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
             {organization.name}
+            <div className="SitePopover__membership-level">
+                {organization.membership_level && membershipLevelToName.get(organization.membership_level)}
+            </div>
         </LemonButton>
     )
 }

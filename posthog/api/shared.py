@@ -50,10 +50,19 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
     Also used for nested serializers.
     """
 
+    membership_level = serializers.SerializerMethodField()
+
     class Meta:
         model = Organization
         fields = [
             "id",
             "name",
             "slug",
+            "membership_level",
         ]
+
+    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+        membership = OrganizationMembership.objects.filter(
+            organization=organization, user=self.context["request"].user,
+        ).first()
+        return membership.level if membership is not None else None
