@@ -330,15 +330,6 @@ jobs:
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-            - name: Run posthog tests
-              run: |
-                  cd deploy
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not (skip_on_multitenancy or ee)"
-
             - name: Run cloud tests (posthog-cloud)
               env:
                   PRIMARY_DB: 'clickhouse'
@@ -346,11 +337,3 @@ jobs:
                   source .env.template
                   cd deploy
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
-            - name: Run EE tests
-              env:
-                  PRIMARY_DB: 'clickhouse'
-              run: |
-                  cd deploy/
-                  pytest ee -m "not skip_on_multitenancy"
-                  pytest posthog -m "ee and not skip_on_multitenancy"
-
