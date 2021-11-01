@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { TableProps } from 'antd/lib/table'
+import { TableProps } from 'antd'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
