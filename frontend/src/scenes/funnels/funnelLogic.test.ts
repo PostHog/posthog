@@ -58,6 +58,12 @@ describe('funnelLogic', () => {
             }
         } else if (url.pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
             return { results: [], next: null }
+        } else if (url.pathname === `api/person/properties`) {
+            return [
+                { name: 'some property', count: 20 },
+                { name: 'another property', count: 10 },
+                { name: 'third property', count: 5 },
+            ]
         }
         return defaultAPIMocks(url)
     })
@@ -362,10 +368,10 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('are updated when results are loaded, when feature flag set', async () => {
+        it('Selecting all properties returns expected result', async () => {
             featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
 
-            await expectLogic(logic, () => logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } }))
+            await expectLogic(logic, () => logic.actions.setPropertyNames(logic.values.allProperties))
                 .toFinishListeners()
                 .toMatchValues({
                     propertyCorrelations: {
@@ -387,8 +393,23 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('triggers request to correlation endpoint with excluded names set', async () => {
-            await expectLogic(logic, () => logic.actions.setExcludedPropertyNames(['another property']))
+        it('Deselecting all returns empty result', async () => {
+            await expectLogic(logic, () => logic.actions.setPropertyNames([]))
+                .toFinishListeners()
+                .toMatchValues({
+                    propertyCorrelations: {
+                        events: [],
+                    },
+                })
+        })
+
+        it('are updated when results are loaded, when feature flag set', async () => {
+            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyNames(logic.values.allProperties)
+                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+            })
                 .toFinishListeners()
                 .toMatchValues({
                     propertyCorrelations: {
@@ -399,15 +420,35 @@ describe('funnelLogic', () => {
                                 failure_count: 1,
                                 result_type: FunnelCorrelationResultsType.Properties,
                             },
+                            {
+                                event: { event: 'another property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            },
                         ],
                     },
                 })
         })
 
         it('triggers request to correlation endpoint when property excluded', async () => {
-            await expectLogic(logic, () => logic.actions.excludeProperty('another property'))
-                .toFinishListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyNames(logic.values.allProperties)
+                logic.actions.excludeProperty('another property')
+            })
                 .toMatchValues({
+                    propertyNames: ['some property', 'third property'],
+                    excludedPropertyNames: ['another property'],
+                    allProperties: ['some property', 'third property'],
+                })
+                .toDispatchActions(logic, ['loadPropertyCorrelations'])
+                .toDispatchActions(logic, ['loadPropertyCorrelationsSuccess'])
+                .toFinishListeners()
+                .clearHistory()
+                .toMatchValues({
+                    propertyNames: ['some property', 'third property'],
+                    excludedPropertyNames: ['another property'],
+                    allProperties: ['some property', 'third property'],
                     propertyCorrelations: {
                         events: [
                             {
