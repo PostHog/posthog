@@ -1,14 +1,14 @@
 import React from 'react'
 import './HelpButton.scss'
-import { QuestionCircleOutlined, MailOutlined, SolutionOutlined, CaretDownOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, CaretDownOutlined } from '@ant-design/icons'
 import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
-import slackLogo from 'public/slack-logo.svg'
 import { helpButtonLogicType } from './HelpButtonType'
 import { Popup } from '../Popup/Popup'
 import { Placement } from '@popperjs/core'
 import { LemonButton } from '../LemonButton'
+import { IconArticle, IconGithub, IconMail, IconQuestionAnswer } from '../icons'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -58,7 +58,7 @@ export function HelpButton({ placement }: HelpButtonProps): JSX.Element {
                 <>
                     <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                         <LemonButton
-                            icon={<img src={slackLogo} alt="" height="28" />}
+                            icon={<IconQuestionAnswer />}
                             type="stealth"
                             fullWidth
                             onClick={() => {
@@ -69,9 +69,22 @@ export function HelpButton({ placement }: HelpButtonProps): JSX.Element {
                             Message us on Slack
                         </LemonButton>
                     </a>
+                    <a href="https://github.com/PostHog/posthog/issues/new/choose" rel="noopener" target="_blank">
+                        <LemonButton
+                            icon={<IconGithub />}
+                            type="stealth"
+                            fullWidth
+                            onClick={() => {
+                                reportHelpButtonUsed(HelpType.GitHub)
+                                hideHelp()
+                            }}
+                        >
+                            Create an issue on GitHub
+                        </LemonButton>
+                    </a>
                     <a href="mailto:hey@posthog.com" target="_blank">
                         <LemonButton
-                            icon={<MailOutlined />}
+                            icon={<IconMail />}
                             type="stealth"
                             fullWidth
                             onClick={() => {
@@ -84,7 +97,7 @@ export function HelpButton({ placement }: HelpButtonProps): JSX.Element {
                     </a>
                     <a href={`https://posthog.com/docs${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                         <LemonButton
-                            icon={<SolutionOutlined />}
+                            icon={<IconArticle />}
                             type="stealth"
                             fullWidth
                             onClick={() => {
@@ -92,7 +105,7 @@ export function HelpButton({ placement }: HelpButtonProps): JSX.Element {
                                 hideHelp()
                             }}
                         >
-                            Check out our docs
+                            Read the docs
                         </LemonButton>
                     </a>
                 </>
