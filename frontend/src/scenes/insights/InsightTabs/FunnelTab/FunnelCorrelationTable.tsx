@@ -332,7 +332,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
             }
             type="link"
         >
-            Exclude from project
+            Exclude
         </Button>
     )
 }
