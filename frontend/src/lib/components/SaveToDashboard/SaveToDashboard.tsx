@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
-import { Button } from 'antd'
-import { TooltipProps } from 'antd/lib/tooltip'
+import { Button, TooltipProps } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
 import { router } from 'kea-router'
 import { Tooltip } from 'lib/components/Tooltip'
