@@ -4,11 +4,65 @@ import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import './BillingSubscribed.scss'
 import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { CheckCircleOutlined } from '@ant-design/icons'
-import { useActions } from 'kea'
+import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined } from '@ant-design/icons'
+import { kea, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { billingSubscribedLogicType } from './BillingSubscribedType'
+import { Link } from 'lib/components/Link'
+import { sceneLogic } from 'scenes/sceneLogic'
+enum SubscriptionMode {
+    Success = 'success',
+    Failed = 'failed',
+}
+
+const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionMode>>({
+    connect: {
+        actions: [sceneLogic, ['setScene']],
+    },
+    actions: {
+        setMode: (mode: SubscriptionMode) => ({ mode }),
+        setSubscriptionId: (id: string) => ({ id }),
+    },
+    reducers: {
+        mode: [
+            SubscriptionMode.Failed,
+            {
+                setMode: (_, { mode }) => mode,
+            },
+        ],
+        subscriptionId: [
+            null as string | null,
+            {
+                setSubscriptionId: (_, { id }) => id,
+            },
+        ],
+    },
+    listeners: ({ values }) => ({
+        setScene: async (_, breakpoint) => {
+            await breakpoint(100)
+            if (values.mode === SubscriptionMode.Success) {
+                sceneLogic.actions.setPageTitle('Subscribed!')
+            } else {
+                sceneLogic.actions.setPageTitle('Subscription failed')
+            }
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '*': (_, { s, subscription_id }) => {
+            if (s === 'success') {
+                actions.setMode(SubscriptionMode.Success)
+            }
+            if (subscription_id) {
+                actions.setSubscriptionId(subscription_id)
+            }
+        },
+    }),
+})
+
 export function BillingSubscribed(): JSX.Element {
+    const { mode } = useValues(billingSubscribedLogic)
+
     return (
         <div className="bridge-page billing-subscribed">
             <Row>
@@ -17,7 +71,7 @@ export function BillingSubscribed(): JSX.Element {
                     <div className="inner-wrapper">
                         <WelcomeLogo view="signup" />
                         <div className="inner">
-                            <SubscriptionSuccess />
+                            {mode === SubscriptionMode.Success ? <SubscriptionSuccess /> : <SubscriptionFailure />}
                             <div className="support-footer">
                                 Have questions? <HelpButton customComponent={<a href="#">Get help</a>} />
                             </div>
@@ -42,6 +96,35 @@ function SubscriptionSuccess(): JSX.Element {
             <Button className="btn-bridge outlined" block onClick={() => push('/')}>
                 Continue to PostHog
             </Button>
+        </>
+    )
+}
+
+function SubscriptionFailure(): JSX.Element {
+    const { subscriptionId } = useValues(billingSubscribedLogic)
+    return (
+        <>
+            <CloseCircleOutlined style={{ color: 'var(--danger)' }} className="title-icon" />
+            <h2 className="subtitle">Something went wrong</h2>
+            <p>
+                We couldn't start your subscription. Please try again with a{' '}
+                <b>different payment method or contact us</b> if the problem persists.
+            </p>
+            {subscriptionId && (
+                // Note we include PostHog Cloud specifically (app.posthog.com) because billing can only be set up there.
+                <Button
+                    className="btn-bridge"
+                    block
+                    href={`https://app.posthog.com/billing/setup?session_id=${subscriptionId}`}
+                >
+                    Try again
+                </Button>
+            )}
+            <div className="mt text-center">
+                <Link to="/">
+                    Go to PostHog <ArrowRightOutlined />
+                </Link>
+            </div>
         </>
     )
 }
