@@ -160,7 +160,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
-                self.request.query_params.get("basic", "0"),
+            self.request.query_params.get("basic", "0"),
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
@@ -290,7 +290,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @staticmethod
     def protect_old_clients_from_multi_property_default(
-            data: Dict[str, Any], result: List[List[Dict[str, Any]]]
+        data: Dict[str, Any], result: List[List[Dict[str, Any]]]
     ) -> List[List[Dict[str, Any]]]:
         """
         Implementing multi property breakdown will default breakdown to a list even if it is received as a string.
@@ -303,12 +303,12 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         :return:
         """
         is_single_property_breakdown = (
-                "insight" in data
-                and data["insight"] == "FUNNELS"
-                and "breakdown_type" in data
-                and data["breakdown_type"] in ["person", "event"]
-                and "breakdown" in data
-                and isinstance(data["breakdown"], str)
+            "insight" in data
+            and data["insight"] == "FUNNELS"
+            and "breakdown_type" in data
+            and data["breakdown_type"] in ["person", "event"]
+            and "breakdown" in data
+            and isinstance(data["breakdown"], str)
         )
         if is_single_property_breakdown:
             copied_result = copy.deepcopy(result)

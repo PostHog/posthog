@@ -418,7 +418,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_invalid_action_handled(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
-            {"actions": [{"id": 666, "type": "actions", "order": 0}, ]},
+            {"actions": [{"id": 666, "type": "actions", "order": 0},]},
         )
 
         self.assertEqual(response.status_code, 400)
@@ -441,7 +441,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step one", "type": "events", "order": 0},
                     {"id": "step two", "type": "events", "order": 1},
                 ],
-                "exclusions": [{"id": "step x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}, ],
+                "exclusions": [{"id": "step x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},],
                 "funnel_window_days": 14,
                 "insight": "funnels",
             },
