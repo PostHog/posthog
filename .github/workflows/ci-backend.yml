@@ -213,7 +213,7 @@ jobs:
                       --cov-report=xml:coverage-clickhouse.xml
 
             - name: Run pytest.mark.ee tests
-              if: ${{ matrix.ee }}
+              if: ${{ matrix.ee && matrix.pytest-split-group == '1' }}
               env:
                   PRIMARY_DB: 'clickhouse'
               run: |
