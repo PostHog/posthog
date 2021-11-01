@@ -59,6 +59,7 @@ const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // which gives a ballpark of 1 highlighting every 10 breakdown values
 
 export const funnelLogic = kea<funnelLogicType>({
+    path: ['scenes', 'funnels', 'funnelLogic'],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
 
