@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
 
 from django.db.models import Exists, OuterRef, Q
 
@@ -13,9 +13,10 @@ OperatorType = Literal[
     "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
 ]
 
+GroupTypeIndex = Optional[int]
+PropertyIdentifier = Tuple[PropertyName, PropertyType, GroupTypeIndex]
+
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
-
-
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "group"]
 
 

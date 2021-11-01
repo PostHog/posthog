@@ -25,7 +25,14 @@ from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyName, PropertyType
+from posthog.models.property import (
+    NEGATED_OPERATORS,
+    OperatorType,
+    Property,
+    PropertyIdentifier,
+    PropertyName,
+    PropertyType,
+)
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -382,5 +389,5 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Counter[Tuple[PropertyName, PropertyType]]:
-    return Counter((prop.key, prop.type) for prop in props)
+def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIdentifier]:
+    return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)
