@@ -151,7 +151,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         <div className="funnel-correlation-table">
             <span className="funnel-correlation-header">
                 <span className="table-header">
-                    <IconSelectProperties style={{ marginRight: 4 }} />
+                    <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                     CORRELATED PROPERTIES
                 </span>
                 <span className="table-options">
