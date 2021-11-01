@@ -1,0 +1,22 @@
+.Breadcrumbs {
+    display: flex;
+    align-items: center;
+    margin-top: 1rem;
+    .Lettermark {
+        margin-right: 0.5rem;
+    }
+}
+
+.Breadcrumbs__breadcrumb {
+    display: flex;
+    align-items: center;
+    color: var(--primary);
+    font-weight: 500;
+}
+
+.Breadcrumbs__separator {
+    margin: 0 0.5rem;
+    font-size: 1rem;
+    color: var(--primary-alt);
+    transform: rotate(-90deg);
+}

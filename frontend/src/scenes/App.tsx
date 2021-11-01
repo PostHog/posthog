@@ -19,6 +19,7 @@ import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { SideBar } from '../layout/lemonade/SideBar'
+import { Breadcrumbs } from '../layout/lemonade/Breadcrumbs'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -140,6 +141,7 @@ function AppScene(): JSX.Element | null {
 
     const layoutContent = activeScene ? (
         <Layout.Content className="main-app-content" data-attr="layout-content">
+            {featureFlags[FEATURE_FLAGS.LEMONADE] && <Breadcrumbs />}
             {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
             {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                 <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
