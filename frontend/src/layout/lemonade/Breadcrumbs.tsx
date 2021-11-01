@@ -18,25 +18,32 @@ interface Breadcrumb {
 const breadcrumbsLogic = kea<breadcrumbsLogicType>({
     props: {} as { hashParams: Record<string, any> },
     connect: () => ({
-        values: [organizationLogic, ['currentOrganization'], teamLogic, ['currentTeam']],
+        values: [
+            organizationLogic,
+            ['currentOrganization'],
+            teamLogic,
+            ['currentTeam'],
+            router,
+            ['hashParams', 'location'],
+        ],
     }),
-    selectors: ({ props }) => ({
+    selectors: () => ({
         breadcrumbs: [
-            (s) => [s.currentOrganization, s.currentTeam, () => props.hashParams],
+            (s) => [s.currentOrganization, s.currentTeam, s.hashParams, s.location],
             (currentOrganization, currentTeam, hashParams) => {
-                if (!currentOrganization || !currentTeam) {
-                    return []
-                }
-                const breadcrumbs: Breadcrumb[] = [
-                    {
+                const breadcrumbs: Breadcrumb[] = []
+                if (currentOrganization) {
+                    breadcrumbs.push({
                         name: currentOrganization.name,
                         path: `/organization/settings`,
-                    },
-                    {
+                    })
+                }
+                if (currentTeam) {
+                    breadcrumbs.push({
                         name: currentTeam.name,
                         path: `/project/settings`,
-                    },
-                ]
+                    })
+                }
                 if (hashParams.fromItem) {
                     breadcrumbs.push({
                         name: 'Insights',
@@ -60,19 +67,20 @@ function Breadcrumb({ breadcrumb, withLettermark }: { breadcrumb: Breadcrumb; wi
     )
 }
 
-export function Breadcrumbs(): JSX.Element {
-    const { hashParams } = useValues(router)
-    const { breadcrumbs } = useValues(breadcrumbsLogic({ hashParams }))
+export function Breadcrumbs(): JSX.Element | false {
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
 
     return (
-        <div className="Breadcrumbs">
-            <Breadcrumb breadcrumb={breadcrumbs[0]} withLettermark />
-            {breadcrumbs.slice(1).map((breadcrumb) => (
-                <React.Fragment key={breadcrumb.name}>
-                    <IconExpandMore className="Breadcrumbs__separator" />
-                    <Breadcrumb breadcrumb={breadcrumb} />
-                </React.Fragment>
-            ))}
-        </div>
+        breadcrumbs.length > 0 && (
+            <div className="Breadcrumbs">
+                <Breadcrumb breadcrumb={breadcrumbs[0]} withLettermark />
+                {breadcrumbs.slice(1).map((breadcrumb) => (
+                    <React.Fragment key={breadcrumb.name}>
+                        <IconExpandMore className="Breadcrumbs__separator" />
+                        <Breadcrumb breadcrumb={breadcrumb} />
+                    </React.Fragment>
+                ))}
+            </div>
+        )
     )
 }
