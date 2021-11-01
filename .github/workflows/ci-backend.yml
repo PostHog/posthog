@@ -143,8 +143,11 @@ jobs:
               if: ${{ matrix.saml }}
               run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
+            # :TODO: Make this unique for saml
             - uses: syphar/restore-virtualenv@v1.2
-              id: cache-backend-tests-${{ matrix.name }}
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-${{ matrix.name }}
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
