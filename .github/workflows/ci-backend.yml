@@ -117,7 +117,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.9.0']
+                python-version: ['3.8.5']
                 ee: [true]
                 foss: [false]
                 saml: [false]
@@ -142,7 +142,7 @@ jobs:
                       total-concurrency: 1
                       group: 1
                     # :TRICKY: Run SAML tests in a separate container
-                    - python-version: '3.9.0'
+                    - python-version: '3.8.5'
                       ee: false
                       saml: true
                       foss: false
