@@ -253,6 +253,7 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@v2
+              if: ${{ matrix.ee }}
               with:
                   name: timing_data
                   path: .test_durations
