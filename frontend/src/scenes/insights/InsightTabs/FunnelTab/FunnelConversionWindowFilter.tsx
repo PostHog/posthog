@@ -1,7 +1,7 @@
 import { InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { pluralize } from 'lib/utils'
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
@@ -23,6 +23,10 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     const { setConversionWindow } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
     const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
+
+    useEffect(() => {
+        setLocalConversionWindow(conversionWindow)
+    }, [conversionWindow])
 
     const options = Object.keys(TIME_INTERVAL_BOUNDS).map((unit) => ({
         label: pluralize(conversionWindow.funnel_window_interval ?? 7, unit, `${unit}s`, false),
