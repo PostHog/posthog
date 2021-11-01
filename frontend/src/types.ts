@@ -1333,7 +1333,6 @@ export enum FunnelCorrelationResultsType {
 
 export enum HelpType {
     Slack = 'slack',
-    GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
 }
