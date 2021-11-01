@@ -111,7 +111,7 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.pytest-split-group}}/${{ matrix.total-concurrency }})
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.group}}/${{ matrix.total-concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
@@ -123,7 +123,7 @@ jobs:
                 saml: [false]
                 name: ['']
                 total-concurrency: [5]
-                pytest-split-group: [1, 2, 3, 4, 5]
+                group: [1, 2, 3, 4, 5]
                 include:
                     # :TRICKY: Run FOSS tests in a separate container
                     - python-version: '3.8.5'
@@ -132,7 +132,7 @@ jobs:
                       foss: true
                       name: 'FOSS'
                       total-concurrency: 1
-                      pytest-split-group: 1
+                      group: 1
                     # :TRICKY: Run FOSS tests in a separate container
                     - python-version: '3.9.0'
                       ee: false
@@ -140,7 +140,7 @@ jobs:
                       foss: true
                       name: 'FOSS'
                       total-concurrency: 1
-                      pytest-split-group: 1
+                      group: 1
                     # :TRICKY: Run SAML tests in a separate container
                     - python-version: '3.9.0'
                       ee: false
@@ -148,7 +148,7 @@ jobs:
                       foss: false
                       name: 'SAML'
                       total-concurrency: 1
-                      pytest-split-group: 1
+                      group: 1
         steps:
             - uses: actions/checkout@v1
               with:
@@ -217,14 +217,6 @@ jobs:
               run: |
                   pytest ee -m "saml_only"
 
-            - name: Restore duration cache
-              uses: actions/cache@v2
-              if: ${{ matrix.ee }}
-              id: test_durations_cache
-              with:
-                  path: .test_durations
-                  key: test-durations-cache-
-
             - name: Run ee/ tests
               if: ${{ matrix.ee }}
               env:
@@ -232,13 +224,13 @@ jobs:
               run: |
                   pytest ee -m "not saml_only" \
                       --splits ${{ matrix.total-concurrency }} \
-                      --group ${{ matrix.pytest-split-group }} \
+                      --group ${{ matrix.group }} \
                       --store-durations \
                       --cov \
                       --cov-report=xml:coverage-clickhouse.xml
 
             - name: Run pytest.mark.ee tests
-              if: ${{ matrix.ee && matrix.pytest-split-group == '1' }}
+              if: ${{ matrix.ee && matrix.group == '1' }}
               env:
                   PRIMARY_DB: 'clickhouse'
               run: |
@@ -255,7 +247,7 @@ jobs:
               uses: actions/upload-artifact@v2
               if: ${{ matrix.ee }}
               with:
-                  name: timing_data
+                  name: timing_data-${{ matrix.group }}
                   path: .test_durations
 
     cloud:
