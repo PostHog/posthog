@@ -111,7 +111,7 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.pytest-split-group}}/${{ matrix.total-concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
