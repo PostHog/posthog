@@ -1100,7 +1100,10 @@ export const funnelLogic = kea<funnelLogicType>({
 
     events: ({ values, actions }) => ({
         afterMount: () => {
-            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS]) {
+            if (
+                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+                values.insight.filters?.insight === ViewType.FUNNELS
+            ) {
                 actions.setPropertyNames(values.allProperties)
             }
         },
