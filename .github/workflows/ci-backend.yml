@@ -121,11 +121,20 @@ jobs:
                 saml: [false]
                 cloud: [false]
                 name: ['']
+                total-concurrency: [4]
+                pytest-split-group: [1, 2, 3, 4]
+                exclude:
+                    - python-version: '3.9.0'
+                      saml: false
+                      cloud: false
+                      pytest-split-group: 4
                 include:
+                    # :TRICKY: Run SAML tests along with last parallel group of tests
                     - python-version: '3.9.0'
                       saml: true
                       cloud: false
                       name: 'SAML'
+                      pytest-split-group: 4
         steps:
             - uses: actions/checkout@v1
               with:
@@ -181,17 +190,25 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/ --cov --cov-report=xml:coverage-postgres.xml --store-durations --durations-path posthog/.test_durations
+                  pytest -m "not ee" posthog/ \
+                      --splits ${{ matrix.total-concurrency }} \
+                      --group ${{ matrix.pytest-split-group }}
+                      --store-durations \
+                      --durations-path posthog/test/.test_durations \
+                      --cov \
+                      --cov-report=xml:coverage-postgres.xml
 
             - name: Run EE tests
               env:
                   PRIMARY_DB: 'clickhouse'
               run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml --store-durations --durations-path ee/.test_durations
+                  pytest ee -m "not saml_only" \
+                      --splits ${{ matrix.total-concurrency }} \
+                      --group ${{ matrix.pytest-split-group }}
+                      --store-durations \
+                      --durations-path ee/test/.test_durations \
+                      --cov \
+                      --cov-report=xml:coverage-clickhouse.xml
                   pytest posthog -m "ee"
 
             - name: Run SAML tests
