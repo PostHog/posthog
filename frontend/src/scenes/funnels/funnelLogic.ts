@@ -241,6 +241,11 @@ export const funnelLogic = kea<funnelLogicType>({
                         ...(funnel_window_interval ? { funnel_window_interval } : {}),
                     }
                 },
+                loadResultsSuccess: (state, { insight }) => ({
+                    funnel_window_interval_unit:
+                        insight.filters?.funnel_window_interval_unit || state.funnel_window_interval_unit,
+                    funnel_window_interval: insight.filters?.funnel_window_interval || state.funnel_window_interval,
+                }),
             },
         ],
         stepReference: [
