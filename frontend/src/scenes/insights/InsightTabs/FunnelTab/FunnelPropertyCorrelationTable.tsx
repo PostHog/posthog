@@ -159,7 +159,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     <PropertyNamesSelect
                         value={new Set(propertyNames)}
                         onChange={(selectedProperties: string[]) => setPropertyNames(selectedProperties)}
-                        allProperties={inversePropertyNames(excludedPropertyNames)}
+                        allProperties={inversePropertyNames(excludedPropertyNames || [])}
                     />
                     <p className="title">CORRELATION</p>
                     <div
