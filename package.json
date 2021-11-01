@@ -27,7 +27,7 @@
         "start-https": "yarn start-https:webpack",
         "start-https:webpack": "yarn start-http:webpack --https",
         "start-docker": "yarn start-docker:esbuild",
-        "start-docker:esbuild": "yarn start-http:esbuild",
+        "start-docker:esbuild": "yarn start-http:esbuild --host 0.0.0.0",
         "start-docker:webpack": "yarn start-http:webpack --host 0.0.0.0",
         "start-ch-dev": "concurrently -n DOCKER,WEBPACK,TYPEGEN -c red,blue,green \"docker-compose -f ee/docker-compose.ch.yml pull && CH_WEB_SCRIPT=./ee/bin/docker-ch-dev-backend docker-compose -f ee/docker-compose.ch.yml up\" \"yarn run start-http --host 0.0.0.0\" \"yarn run typegen:watch\"",
         "clear-ch-dev": "docker compose -f ee/docker-compose.ch.yml stop && docker compose -f ee/docker-compose.ch.yml rm -v && docker compose -f ee/docker-compose.ch.yml down",

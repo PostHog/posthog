@@ -10,7 +10,7 @@ import chokidar from 'chokidar'
 import liveServer from 'live-server'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 
-const defaultHost = 'localhost'
+const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
 const defaultBackend = 'http://localhost:8000'
 
