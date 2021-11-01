@@ -111,7 +111,7 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.group}}/${{ matrix.total-concurrency }})
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
@@ -122,7 +122,8 @@ jobs:
                 foss: [false]
                 saml: [false]
                 name: ['']
-                total-concurrency: [5]
+                # :NOTE: Keep concurrency and group's in sync
+                concurrency: [5]
                 group: [1, 2, 3, 4, 5]
                 include:
                     # :TRICKY: Run FOSS tests in a separate container
@@ -131,7 +132,7 @@ jobs:
                       saml: false
                       foss: true
                       name: 'FOSS'
-                      total-concurrency: 1
+                      concurrency: 1
                       group: 1
                     # :TRICKY: Run FOSS tests in a separate container
                     - python-version: '3.9.0'
@@ -139,7 +140,7 @@ jobs:
                       saml: false
                       foss: true
                       name: 'FOSS'
-                      total-concurrency: 1
+                      concurrency: 1
                       group: 1
                     # :TRICKY: Run SAML tests in a separate container
                     - python-version: '3.8.5'
@@ -147,7 +148,7 @@ jobs:
                       saml: true
                       foss: false
                       name: 'SAML'
-                      total-concurrency: 1
+                      concurrency: 1
                       group: 1
         steps:
             - uses: actions/checkout@v1
@@ -223,7 +224,7 @@ jobs:
                   PRIMARY_DB: 'clickhouse'
               run: |
                   pytest ee -m "not saml_only" \
-                      --splits ${{ matrix.total-concurrency }} \
+                      --splits ${{ matrix.concurrency }} \
                       --group ${{ matrix.group }} \
                       --store-durations \
                       --cov \
