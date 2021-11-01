@@ -22,7 +22,9 @@ export function recurseSelector(elements: ElementType[], parts: string, index: n
     return recurseSelector(elements, parts, index + 1)
 }
 
-function elementsToAction(elements: ElementType[]): ActionStepType {
+export function elementsToAction(
+    elements: ElementType[]
+): Pick<ActionStepType, 'selector' | 'text' | 'href' | 'tag_name'> {
     return {
         tag_name: elements[0].tag_name,
         href: elements[0].href,
