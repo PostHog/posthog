@@ -30,7 +30,7 @@ export function TaxonomicBreakdownButton({
                             setOpen(false)
                         }
                     }}
-                    groupTypes={
+                    taxonomicGroupTypes={
                         onlyCohorts
                             ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
                             : [

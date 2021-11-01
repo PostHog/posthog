@@ -1,12 +1,11 @@
 import { kea } from 'kea'
-import { PersonProperty } from '~/types'
 
 import { propertySelectLogicType } from './propertyNamesSelectLogicType'
 export const propertySelectLogic = kea<propertySelectLogicType>({
     props: {
         propertySelectLogicKey: '' as string,
 
-        properties: [] as PersonProperty[],
+        properties: [] as string[],
         initialProperties: undefined as Set<string> | undefined,
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
@@ -61,7 +60,6 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
                     return newSelectedProperties
                 },
                 clearAll: () => new Set([]),
-                selectAll: () => new Set(props.properties.map((property) => property.name)),
             },
         ],
 
@@ -73,11 +71,11 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
         ],
     }),
 
-    selectors: ({ props }) => ({
+    selectors: () => ({
         selectState: [
-            (selectors) => [selectors.selectedProperties],
-            (selectedProperties) =>
-                selectedProperties.size === props.properties.length
+            (selectors) => [selectors.selectedProperties, selectors.properties],
+            (selectedProperties, allProperties) =>
+                selectedProperties.size === allProperties.length
                     ? 'all'
                     : selectedProperties.size === 0
                     ? 'none'
@@ -89,13 +87,13 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
             (selectedProperties: Set<string>) => (propertyName: string) => selectedProperties.has(propertyName),
         ],
 
-        properties: [() => [], () => props.properties],
+        properties: [() => [(_, props) => props.properties], (properties: string[]) => properties],
 
         filteredProperties: [
             (selectors) => [selectors.properties, selectors.query],
             (properties, query) =>
                 query === ''
-                    ? properties.map((property) => ({ ...property, highlightedNameParts: [property.name] }))
+                    ? properties.map((property) => ({ name: property, highlightedNameParts: [property] }))
                     : properties
                           // First we split on query term, case insensitive, and globally,
                           // not just the first
@@ -104,8 +102,8 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
                           // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/split#splitting_with_a_regexp_to_include_parts_of_the_separator_in_the_result
                           // for details
                           .map((property) => ({
-                              ...property,
-                              highlightedNameParts: property.name.split(new RegExp(`(${query})`, 'gi')),
+                              name: property,
+                              highlightedNameParts: property.split(new RegExp(`(${query})`, 'gi')),
                           }))
                           // Then filter where we have a match
                           .filter((property) => property.highlightedNameParts.length > 1),
@@ -145,6 +143,9 @@ export const propertySelectLogic = kea<propertySelectLogicType>({
             if (props.onChange) {
                 props.onChange(Array.from(values.selectedProperties))
             }
+        },
+        selectAll: () => {
+            actions.setSelectedProperties(values.properties)
         },
     }),
 })

@@ -67,5 +67,30 @@ describe('pathsLogic', () => {
                     }),
                 })
         })
+
+        it('insightLogic.setFilters updates edge limits', async () => {
+            await expectLogic(logic, () => {
+                insightLogic(props).actions.setFilters({
+                    insight: 'PATHS',
+                    edge_limit: 60,
+                    min_edge_weight: 5,
+                    max_edge_weight: 10,
+                })
+            })
+                .toMatchValues(logic, {
+                    filter: expect.objectContaining({
+                        edge_limit: 60,
+                        min_edge_weight: 5,
+                        max_edge_weight: 10,
+                    }),
+                })
+                .toMatchValues(insightLogic(props), {
+                    filters: expect.objectContaining({
+                        edge_limit: 60,
+                        min_edge_weight: 5,
+                        max_edge_weight: 10,
+                    }),
+                })
+        })
     })
 })

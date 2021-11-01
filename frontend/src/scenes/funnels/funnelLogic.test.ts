@@ -49,6 +49,7 @@ describe('funnelLogic', () => {
             url.data?.funnel_correlation_type === 'properties'
         ) {
             const excludePropertyNames = url.data?.funnel_correlation_exclude_names || []
+            const includePropertyNames = url.data?.funnel_correlation_names || []
             return {
                 is_cached: true,
                 last_refresh: '2021-09-16T13:41:41.297295Z',
@@ -56,7 +57,13 @@ describe('funnelLogic', () => {
                     events: [
                         { event: { event: 'some property' }, success_count: 1, failure_count: 1 },
                         { event: { event: 'another property' }, success_count: 1, failure_count: 1 },
-                    ].filter((correlation) => !excludePropertyNames.includes(correlation.event.event)),
+                    ]
+                        .filter(
+                            (correlation) =>
+                                includePropertyNames.includes('$all') ||
+                                includePropertyNames.includes(correlation.event.event)
+                        )
+                        .filter((correlation) => !excludePropertyNames.includes(correlation.event.event)),
                 },
                 type: 'Funnel',
             }
@@ -77,6 +84,12 @@ describe('funnelLogic', () => {
             }
         } else if (url.pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
             return { results: [], next: null }
+        } else if (url.pathname === `api/person/properties`) {
+            return [
+                { name: 'some property', count: 20 },
+                { name: 'another property', count: 10 },
+                { name: 'third property', count: 5 },
+            ]
         }
         return defaultAPIMocks(url)
     })
@@ -381,13 +394,11 @@ describe('funnelLogic', () => {
             })
         })
 
-        it('are updated when results are loaded, when feature flag set', async () => {
+        it('Selecting all properties returns expected result', async () => {
             featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
 
-            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
-
-            await expectLogic(logic, () => logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } }))
-                .toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.setPropertyNames(logic.values.allProperties))
+                .toFinishListeners()
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [
@@ -408,18 +419,35 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('triggers request to correlation endpoint with excluded names set', async () => {
-            userLogic.mount()
+        it('Deselecting all returns empty result', async () => {
+            await expectLogic(logic, () => logic.actions.setPropertyNames([]))
+                .toFinishListeners()
+                .toMatchValues({
+                    propertyCorrelations: {
+                        events: [],
+                    },
+                })
+        })
 
-            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
+        it('are updated when results are loaded, when feature flag set', async () => {
+            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
 
-            await expectLogic(logic, () => logic.actions.setExcludedPropertyNames(['another property']))
-                .toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyNames(logic.values.allProperties)
+                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+            })
+                .toFinishListeners()
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [
                             {
                                 event: { event: 'some property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            },
+                            {
+                                event: { event: 'another property' },
                                 success_count: 1,
                                 failure_count: 1,
                                 result_type: FunnelCorrelationResultsType.Properties,
@@ -435,9 +463,19 @@ describe('funnelLogic', () => {
             // Make sure we have loaded the team already
             await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
 
-            // Then try to exclude a property
-            await expectLogic(logic, () => logic.actions.excludeProperty('another property'))
-                .toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyNames(logic.values.allProperties)
+                logic.actions.excludeProperty('another property')
+            })
+                .toMatchValues({
+                    propertyNames: ['some property', 'third property'],
+                    excludedPropertyNames: [],
+                    allProperties: ['some property', 'another property', 'third property'],
+                })
+                .toDispatchActions(logic, ['loadPropertyCorrelations'])
+                .toDispatchActions(logic, ['loadPropertyCorrelationsSuccess'])
+                .toFinishListeners()
+                .clearHistory()
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [
@@ -454,6 +492,8 @@ describe('funnelLogic', () => {
 
         it('isPropertyExcluded returns true initially, then false when excluded', async () => {
             userLogic.mount()
+
+            logic.actions.setPropertyNames(logic.values.allProperties)
 
             expect(logic.values.isPropertyExcluded('some property')).toBe(false)
 
@@ -477,8 +517,11 @@ describe('funnelLogic', () => {
                     },
                 })
 
-            await expectLogic(logic, () => logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } }))
-                .toFinishListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyNames(logic.values.allProperties)
+                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+            })
+                .toFinishAllListeners()
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [
@@ -529,19 +572,41 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('goes away on sending feedback, capturing it properly', async () => {
+        it('Captures emoji feedback properly', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setCorrelationFeedbackRating(1)
+            })
+                .toMatchValues(logic, {
+                    // reset after sending feedback
+                    correlationFeedbackRating: 1,
+                })
+                .toDispatchActions(eventUsageLogic, ['reportCorrelationAnalysisFeedback'])
+
+            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 1 })
+        })
+
+        it('goes away on sending feedback, capturing it properly', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setCorrelationFeedbackRating(2)
                 logic.actions.setCorrelationDetailedFeedback('tests')
                 logic.actions.sendCorrelationAnalysisFeedback()
-            }).toMatchValues(logic, {
-                // reset after sending feedback
-                correlationFeedbackRating: 0,
-                correlationDetailedFeedback: '',
-                correlationFeedbackHidden: true,
             })
+                .toMatchValues(logic, {
+                    // reset after sending feedback
+                    correlationFeedbackRating: 0,
+                    correlationDetailedFeedback: '',
+                    correlationFeedbackHidden: true,
+                })
+                .toDispatchActions(eventUsageLogic, ['reportCorrelationAnalysisDetailedFeedback'])
+                .toFinishListeners()
 
-            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 1, comment: 'tests' })
+            await expectLogic(eventUsageLogic).toFinishListeners()
+
+            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 2 })
+            expect(posthog.capture).toBeCalledWith('correlation analysis detailed feedback', {
+                rating: 2,
+                comments: 'tests',
+            })
         })
     })
 })

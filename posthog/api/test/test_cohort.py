@@ -22,7 +22,8 @@ class TestCohort(APIBaseTest):
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/api/cohort", data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -43,7 +44,7 @@ class TestCohort(APIBaseTest):
         )
 
         response = self.client.patch(
-            "/api/cohort/%s/" % response.json()["id"],
+            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
             data={
                 "name": "whatever2",
                 "description": "A great cohort!",
@@ -93,7 +94,11 @@ email@example.org,
             content_type="application/csv",
         )
 
-        response = self.client.post("/api/cohort/", {"name": "test", "csv": csv, "is_static": True}, format="multipart")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test", "csv": csv, "is_static": True},
+            format="multipart",
+        )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
         self.assertFalse(response.json()["is_calculating"], False)
@@ -115,7 +120,9 @@ User ID,
         client = APIClient()
         client.force_login(self.user)
         response = client.patch(
-            "/api/cohort/%s/" % response.json()["id"], {"name": "test", "csv": csv}, format="multipart"
+            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+            {"name": "test", "csv": csv},
+            format="multipart",
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
@@ -123,7 +130,9 @@ User ID,
         self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
 
         # Only change name without updating CSV
-        response = client.patch("/api/cohort/%s/" % response.json()["id"], {"name": "test2"}, format="multipart")
+        response = client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}", {"name": "test2"}, format="multipart"
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
@@ -152,25 +161,29 @@ email@example.org,
             content_type="application/csv",
         )
 
-        response = self.client.post("/api/cohort/", {"name": "test", "csv": csv, "is_static": True}, format="multipart")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test", "csv": csv, "is_static": True},
+            format="multipart",
+        )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
         self.assertFalse(response.json()["is_calculating"], False)
         self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
 
         response = self.client.patch(
-            "/api/cohort/%s/" % response.json()["id"],
+            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
             {"is_static": False, "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}]},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
 
-def create_cohort(client: Client, name: str, groups: List[Dict[str, Any]]):
-    return client.post("/api/cohort", {"name": name, "groups": json.dumps(groups)})
+def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+    return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
-def create_cohort_ok(client: Client, name: str, groups: List[Dict[str, Any]]):
-    response = create_cohort(client=client, name=name, groups=groups)
+def create_cohort_ok(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+    response = create_cohort(client=client, team_id=team_id, name=name, groups=groups)
     assert response.status_code == 201, response.content
     return response.json()

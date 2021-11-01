@@ -326,12 +326,34 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
 
 export type SessionRecordingId = string
 
+export interface SessionRecordingMeta {
+    id: string
+    viewed: boolean
+    recording_duration: number
+    start_time: number
+    end_time: number
+    distinct_id: string
+}
+
+export interface LEGACY_SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: number
+    next: string | null
+    duration: number
+}
+
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
-    start_time: string
-    next: string | null
-    duration: number
+    session_recording: SessionRecordingMeta
+    next?: string
+}
+
+export enum SessionRecordingUsageType {
+    VIEWED = 'viewed',
+    ANALYZED = 'analyzed',
+    LOADED = 'loaded',
 }
 
 export enum SessionPlayerState {
@@ -1116,6 +1138,11 @@ interface AuthBackends {
     saml?: boolean
 }
 
+interface InstancePreferencesInterface {
+    debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
+    disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
+}
+
 export interface PreflightStatus {
     // Attributes that accept undefined values (i.e. `?`) are not received when unauthenticated
     django: boolean
@@ -1145,8 +1172,7 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
-    /** Whether debug queries option should be shown on the command palette. */
-    debug_queries?: boolean
+    instance_preferences?: InstancePreferencesInterface
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
