@@ -97,7 +97,7 @@ function getInputFiles(result) {
     )
 }
 
-function beforeBuild() {
+function reloadLiveServer() {
     const filename = path.resolve(__dirname, 'tmp', 'reload.txt')
     fs.mkdirSync(path.dirname(filename), { recursive: true })
     fs.closeSync(fs.openSync(filename, 'w'))
@@ -117,7 +117,7 @@ export async function buildOrWatch(config) {
         }
         buildAgain = false
         onBuildStart?.()
-        beforeBuild()
+        reloadLiveServer()
         buildPromise = runBuild()
         await buildPromise
         buildPromise = null
