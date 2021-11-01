@@ -235,8 +235,8 @@ jobs:
               with:
                   name: timing_data
                   path: |
-                      posthog/.test_durations
-                      ee/.test_durations
+                      posthog/test/.test_durations
+                      ee/test/.test_durations
 
     cloud:
         needs: changes
