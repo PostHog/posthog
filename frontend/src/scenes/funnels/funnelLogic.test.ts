@@ -1,4 +1,4 @@
-import { funnelLogic } from './funnelLogic'
+import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelLogic } from './funnelLogic'
 import { api, defaultAPIMocks, mockAPI, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic } from 'kea-test-utils'
@@ -469,7 +469,7 @@ describe('funnelLogic', () => {
             })
                 .toMatchValues({
                     propertyNames: ['some property', 'third property'],
-                    excludedPropertyNames: [],
+                    excludedPropertyNames: DEFAULT_EXCLUDED_PERSON_PROPERTIES,
                     allProperties: ['some property', 'another property', 'third property'],
                 })
                 .toDispatchActions(logic, ['loadPropertyCorrelations'])

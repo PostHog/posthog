@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { Select } from 'antd'
+import { DEFAULT_EXCLUDED_PERSON_PROPERTIES } from 'scenes/funnels/funnelLogic'
 
 export function CorrelationConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -23,7 +24,10 @@ export function CorrelationConfig(): JSX.Element {
                             mode="multiple"
                             allowClear
                             showSearch
-                            value={currentTeam.correlation_config?.excluded_person_property_names || []}
+                            value={
+                                currentTeam.correlation_config?.excluded_person_property_names ||
+                                DEFAULT_EXCLUDED_PERSON_PROPERTIES
+                            }
                             onChange={handleChange}
                             style={{ width: 500 }}
                         >

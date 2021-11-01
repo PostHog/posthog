@@ -58,6 +58,32 @@ const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
 // which gives a ballpark of 1 highlighting every 10 breakdown values
 
+// List of events that should be excluded, if we don't have an explicit list of
+// excluded properties. Copied from
+// https://github.com/PostHog/posthog/issues/6474#issuecomment-952044722
+export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
+    '$initial_geoip_postal_code',
+    '$initial_geoip_latitude',
+    '$initial_geoip_longitude',
+    '$geoip_latitude',
+    '$geoip_longitude',
+    '$geoip_postal_code',
+    '$geoip_continent_code',
+    '$geoip_continent_name',
+    '$initial_geoip_continent_code',
+    '$initial_geoip_continent_name',
+    '$geoip_time_zone',
+    '$geoip_country_code',
+    '$geoip_subdivision_1_code',
+    '$initial_geoip_subdivision_1_code',
+    '$geoip_subdivision_2_code',
+    '$initial_geoip_subdivision_2_code',
+    '$geoip_subdivision_1_code',
+    '$initial_geoip_subdivision_1_code',
+    '$geoip_subdivision_name',
+    '$initial_geoip_subdivision_name',
+]
+
 export const funnelLogic = kea<funnelLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
@@ -911,7 +937,10 @@ export const funnelLogic = kea<funnelLogicType>({
         excludedPropertyNames: [
             () => [selectors.currentTeam],
             (currentTeam) =>
-                currentTeam ? currentTeam.correlation_config?.excluded_person_property_names || [] : null,
+                currentTeam
+                    ? currentTeam.correlation_config?.excluded_person_property_names ||
+                      DEFAULT_EXCLUDED_PERSON_PROPERTIES
+                    : null,
         ],
         inversePropertyNames: [
             (s) => [s.personProperties],
