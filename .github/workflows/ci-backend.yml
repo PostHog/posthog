@@ -210,6 +210,21 @@ jobs:
                   rm -rf ee/
                   pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
 
+            - name: Run SAML tests
+              if: ${{ matrix.saml }}
+              env:
+                  PRIMARY_DB: 'clickhouse'
+              run: |
+                  pytest ee -m "saml_only"
+
+            - name: Restore duration cache
+              uses: actions/cache@v2
+              if: ${{ matrix.ee }}
+              id: test_durations_cache
+              with:
+                  path: .test_durations
+                  key: test-durations-cache-
+
             - name: Run ee/ tests
               if: ${{ matrix.ee }}
               env:
@@ -219,7 +234,6 @@ jobs:
                       --splits ${{ matrix.total-concurrency }} \
                       --group ${{ matrix.pytest-split-group }} \
                       --store-durations \
-                      --durations-path ee/test/.test_durations \
                       --cov \
                       --cov-report=xml:coverage-clickhouse.xml
 
@@ -230,13 +244,6 @@ jobs:
               run: |
                   pytest posthog -m "ee"
 
-            - name: Run SAML tests
-              if: ${{ matrix.saml }}
-              env:
-                  PRIMARY_DB: 'clickhouse'
-              run: |
-                  pytest ee -m "saml_only"
-
             - uses: codecov/codecov-action@v2
               if: ${{ !matrix.saml && !matrix.cloud }}
               with:
@@ -244,11 +251,11 @@ jobs:
                   fail_ci_if_error: false
                   verbose: true
 
-            - name: Upload results as artifacts
+            - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@v2
               with:
                   name: timing_data
-                  path: ee/test/.test_durations
+                  path: .test_durations
 
     cloud:
         needs: changes
