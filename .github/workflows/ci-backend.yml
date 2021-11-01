@@ -330,6 +330,7 @@ jobs:
 
             - name: Set up needed files
               run: |
+                  cd deploy
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
