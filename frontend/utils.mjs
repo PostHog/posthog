@@ -140,16 +140,18 @@ export async function buildOrWatch(config) {
             console.log(`🧱 Building${name ? ` "${name}"` : ''}`)
             try {
                 result = await build({ ...commonConfig, ..._config })
+                console.log(`🥇 Built${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`)
             } catch (error) {
-                console.error(error)
-                process.exit(1)
+                console.log(`🛑 Building${name ? ` "${name}"` : ''} failed in ${(new Date() - time) / 1000}s`)
+                process.exit(1) // must exit since with result === null, result.rebuild() won't work
             }
-            console.log(
-                `🏁 ${isDev ? 'First build of' : 'Built'}${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`
-            )
         } else {
-            result = await result.rebuild()
-            console.log(`🔄 Rebuilt${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`)
+            try {
+                result = await result.rebuild()
+                console.log(`🔄 Rebuilt${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`)
+            } catch (e) {
+                console.log(`🛑 Rebuilding${name ? ` "${name}"` : ''} failed in ${(new Date() - time) / 1000}s`)
+            }
         }
         inputFiles = getInputFiles(result)
     }
