@@ -1,5 +1,6 @@
+#!/usr/bin/env node
 import * as path from 'path'
-import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isDev, startServer } from './build-utils.mjs'
+import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isDev, startServer } from './utils.mjs'
 
 copyPublicFolder()
 copyIndexHtml()
