@@ -329,6 +329,14 @@ export interface SessionRecordingMeta {
     distinct_id: string
 }
 
+export interface LEGACY_SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: number
+    next: string | null
+    duration: number
+}
+
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
