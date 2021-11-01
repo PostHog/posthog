@@ -118,24 +118,29 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.8.5', '3.9.0']
+                ee: [true]
+                foss: [false]
                 saml: [false]
-                cloud: [false]
                 name: ['']
                 total-concurrency: [4]
                 pytest-split-group: [1, 2, 3, 4]
-                exclude:
-                    - python-version: '3.9.0'
-                      saml: false
-                      cloud: false
-                      pytest-split-group: 4
                 include:
-                    # :TRICKY: Run SAML tests along with last parallel group of tests
+                    # :TRICKY: Run FOSS tests in a separate container
                     - python-version: '3.9.0'
+                      ee: false
+                      saml: false
+                      foss: true
+                      name: 'FOSS'
+                      total-concurrency: 1
+                      pytest-split-group: 1
+                    # :TRICKY: Run SAML tests in a separate container
+                    - python-version: '3.9.0'
+                      ee: false
                       saml: true
-                      cloud: false
+                      foss: false
                       name: 'SAML'
-                      pytest-split-group: 4
-                      total-concurrency: 4
+                      total-concurrency: 1
+                      pytest-split-group: 1
         steps:
             - uses: actions/checkout@v1
               with:
@@ -184,21 +189,18 @@ jobs:
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-            - name: Run posthog/ tests
+            - name: Run FOSS tests
+              if: ${{ matrix.foss }}
               run: |
+                  rm -rf ee/
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/ \
-                      --splits ${{ matrix.total-concurrency }} \
-                      --group ${{ matrix.pytest-split-group }} \
-                      --store-durations \
-                      --durations-path posthog/test/.test_durations \
-                      --cov \
-                      --cov-report=xml:coverage-postgres.xml
+                  pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
 
             - name: Run ee/ tests
+              if: ${{ matrix.ee }}
               env:
                   PRIMARY_DB: 'clickhouse'
               run: |
@@ -211,6 +213,7 @@ jobs:
                       --cov-report=xml:coverage-clickhouse.xml
 
             - name: Run pytest.mark.ee tests
+              if: ${{ matrix.ee }}
               env:
                   PRIMARY_DB: 'clickhouse'
               run: |
@@ -340,61 +343,3 @@ jobs:
                   pytest ee -m "not skip_on_multitenancy"
                   pytest posthog -m "ee and not skip_on_multitenancy"
 
-    foss:
-        needs: changes
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
-
-        name: Django tests – FOSS
-        runs-on: ubuntu-latest
-
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: posthog
-                    POSTGRES_PASSWORD: posthog
-                    POSTGRES_DB: posthog
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
-        steps:
-            - uses: actions/checkout@v1
-              with:
-                  fetch-depth: 1
-
-            - name: Set up Python 3.8
-              uses: actions/setup-python@v2
-              with:
-                  python-version: 3.8
-
-            - uses: syphar/restore-virtualenv@v1.2
-              id: cache-backend-tests
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-
-            - name: Install python dependencies
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-              run: |
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
-
-            - name: Remove ee
-              run: |
-                  rm -rf ee/
-
-            - name: Check migrations
-              run: python manage.py makemigrations --check --dry-run
-
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
-            - name: Run tests
-              env:
-                  SAML_DISABLED: '1'
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee"
