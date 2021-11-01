@@ -5,6 +5,7 @@ on: pull_request
 jobs:
     storybook-chromatic:
         runs-on: ubuntu-latest
+        if: github.repository == 'PostHog/posthog'
         steps:
             - uses: actions/checkout@v1
 
