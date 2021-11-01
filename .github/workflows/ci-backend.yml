@@ -122,10 +122,10 @@ jobs:
                 cloud: [false]
                 name: ['']
                 include:
-                  - python-version: '3.9.0'
-                    saml: true
-                    cloud: false
-                    name: 'SAML'
+                    - python-version: '3.9.0'
+                      saml: true
+                      cloud: false
+                      name: 'SAML'
         steps:
             - uses: actions/checkout@v1
               with:
