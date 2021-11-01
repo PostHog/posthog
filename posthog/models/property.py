@@ -73,6 +73,9 @@ class Property:
     def property_to_Q(self) -> Q:
         from .cohort import CohortPeople
 
+        if self.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
+            raise ValueError(f"property_to_Q: type is not supported: {repr(self.type)}")
+
         value = self._parse_value(self.value)
         if self.type == "cohort":
             cohort_id = int(cast(Union[str, int], value))
