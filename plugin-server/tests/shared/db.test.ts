@@ -128,7 +128,7 @@ describe('DB', () => {
         async function updatePersonProperties(
             properties: Properties,
             propertiesOnce: Properties,
-            timestamp: DateTime // todo: do I need to be doing any kind of timestamp conversions?
+            timestamp: DateTime
         ): Promise<Person['properties'] | undefined> {
             await db.updatePersonProperties(team.id, distinct_id, properties, propertiesOnce, timestamp)
             return (await db.fetchPersonByPersonId(team.id, person.id))?.properties
