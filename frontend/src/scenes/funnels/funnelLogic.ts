@@ -1150,6 +1150,11 @@ export const funnelLogic = kea<funnelLogicType>({
             const oldExcludedPropertyNames = values.excludedPropertyNames
             const oldCurrentTeam = teamLogic.values.currentTeam
 
+            eventUsageLogic.actions.reportCorrelationInteraction(
+                FunnelCorrelationResultsType.Properties,
+                'exclude property',
+                { name: propertyName }
+            )
             // If we haven't actually retrieved the current team, we can't
             // update the config.
             if (oldCurrentTeam === null || oldExcludedPropertyNames === null) {
