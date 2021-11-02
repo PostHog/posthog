@@ -5,62 +5,10 @@ import './BillingSubscribed.scss'
 import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined } from '@ant-design/icons'
-import { kea, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-
-import { billingSubscribedLogicType } from './BillingSubscribedType'
 import { Link } from 'lib/components/Link'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { billingLogic } from './billingLogic'
-
-enum SubscriptionStatus {
-    Success = 'success',
-    Failed = 'failed',
-}
-
-const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionStatus>>({
-    connect: {
-        actions: [sceneLogic, ['setScene']],
-    },
-    actions: {
-        setStatus: (status: SubscriptionStatus) => ({ status }),
-        setSubscriptionId: (id: string) => ({ id }),
-    },
-    reducers: {
-        status: [
-            SubscriptionStatus.Failed,
-            {
-                setStatus: (_, { status }) => status,
-            },
-        ],
-        subscriptionId: [
-            null as string | null,
-            {
-                setSubscriptionId: (_, { id }) => id,
-            },
-        ],
-    },
-    listeners: ({ values }) => ({
-        setScene: async (_, breakpoint) => {
-            await breakpoint(100)
-            if (values.status === SubscriptionStatus.Success) {
-                sceneLogic.actions.setPageTitle('Subscribed!')
-            } else {
-                sceneLogic.actions.setPageTitle('Subscription failed')
-            }
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '*': (_, { s, subscription_id }) => {
-            if (s === 'success') {
-                actions.setStatus(SubscriptionStatus.Success)
-            }
-            if (subscription_id) {
-                actions.setSubscriptionId(subscription_id)
-            }
-        },
-    }),
-})
+import { billingSubscribedLogic, SubscriptionStatus } from './billingSubscribedLogic'
 
 export function BillingSubscribed(): JSX.Element {
     const { status } = useValues(billingSubscribedLogic)
@@ -87,7 +35,7 @@ export function BillingSubscribed(): JSX.Element {
 
 function SubscriptionSuccess(): JSX.Element {
     const { push } = useActions(router)
-    const { billing } = useValues(billingLogic)
+    const { billing } = useValues(billingSubscribedLogic)
 
     return (
         <>
@@ -121,7 +69,7 @@ function SubscriptionSuccess(): JSX.Element {
 }
 
 function SubscriptionFailure(): JSX.Element {
-    const { subscriptionId } = useValues(billingSubscribedLogic)
+    const { sessionId } = useValues(billingSubscribedLogic)
     return (
         <>
             <CloseCircleOutlined style={{ color: 'var(--danger)' }} className="title-icon" />
@@ -130,13 +78,13 @@ function SubscriptionFailure(): JSX.Element {
                 We couldn't start your subscription. Please try again with a{' '}
                 <b>different payment method or contact us</b> if the problem persists.
             </p>
-            {subscriptionId && (
+            {sessionId && (
                 /* Note we include PostHog Cloud specifically (app.posthog.com) in case a self-hosted user 
                 ended up here for some reason. Should not happen as these should be processed by license.posthog.com */
                 <Button
                     className="btn-bridge"
                     block
-                    href={`https://app.posthog.com/billing/setup?session_id=${subscriptionId}`}
+                    href={`https://app.posthog.com/billing/setup?session_id=${sessionId}`}
                 >
                     Try again
                 </Button>
