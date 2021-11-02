@@ -172,16 +172,25 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>({
             })
         },
         loadNextInsights: async () => {
+            if (!values.insightsNext) {
+                throw new Error('URL of next page of insights is not known.')
+            }
             const response = await api.get(values.insightsNext)
             actions.setInsightsNext(response.next)
             actions.updateInsights(response.results)
         },
         loadNextSavedInsights: async () => {
+            if (!values.savedInsightsNext) {
+                throw new Error('URL of next page of saved insights is not known.')
+            }
             const response = await api.get(values.savedInsightsNext)
             actions.setSavedInsightsNext(response.next)
             actions.updateSavedInsights(response.results)
         },
         loadNextTeamInsights: async () => {
+            if (!values.teamInsightsNext) {
+                throw new Error('URL of next page of team insights is not known.')
+            }
             const response = await api.get(values.teamInsightsNext)
             actions.setTeamInsightsNext(response.next)
             actions.updateTeamInsights(response.results)

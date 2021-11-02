@@ -10,9 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL("DROP FUNCTION IF EXISTS should_update_person_props;"),
-        migrations.RunSQL("DROP TYPE IF EXISTS person_property_update;"),
-        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;"),
+        migrations.RunSQL("DROP FUNCTION IF EXISTS should_update_person_props;", ""),
+        migrations.RunSQL("DROP TYPE IF EXISTS person_property_update;", ""),
+        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;", ""),
         migrations.RunSQL(
             """
         CREATE TYPE person_property_update AS (
@@ -20,7 +20,8 @@ class Migration(migrations.Migration):
             key text,
             value jsonb
         );
-        """
+        """,
+            "DROP TYPE IF EXISTS person_property_update",
         ),
         migrations.RunSQL(
             """
@@ -76,6 +77,7 @@ class Migration(migrations.Migration):
             WHERE id=person_id;
             END
             $$ LANGUAGE plpgsql;
-        """
+        """,
+            "DROP FUNCTION IF EXISTS update_person_props",
         ),
     ]

@@ -16,6 +16,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import smLogo from 'public/icon-white.svg'
 import { urls } from 'scenes/urls'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: InviteSignup,
+    logic: inviteSignupLogic,
+}
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))

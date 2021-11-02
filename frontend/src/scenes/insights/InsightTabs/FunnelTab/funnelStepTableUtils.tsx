@@ -32,7 +32,9 @@ export function isBreakdownChildType(
     return ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
 }
 
-export const renderSubColumnTitle = (title: string): JSX.Element => <span className="sub-column-title">{title}</span>
+export const renderSubColumnTitle = (title: string | JSX.Element): JSX.Element => (
+    <span className="sub-column-title">{title}</span>
+)
 
 export const renderColumnTitle = (title: string): JSX.Element => <span className="column-title">{title}</span>
 

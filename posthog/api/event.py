@@ -1,5 +1,6 @@
 import json
-from datetime import timedelta
+import urllib
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Prefetch, QuerySet
@@ -105,8 +106,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
         if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
-        order_by_param = self.request.GET.get("orderBy")
-        order_by = ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
+        order_by = self._parse_order_by(self.request)
         return queryset.order_by(*order_by)
 
     def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:
@@ -176,6 +176,39 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 event.elements_group_cache = None  # type: ignore
         return events
 
+    def _build_next_url(self, request: request.Request, last_event_timestamp: datetime) -> str:
+        params = request.GET.dict()
+        reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
+        timestamp = last_event_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        try:
+            del params["after"]
+        except KeyError:
+            pass
+        try:
+            del params["before"]
+        except KeyError:
+            pass
+
+        # Next url is by default unbounded. If both "before" and "after" are supplied, supply an end date
+        clamped_date = ""
+        if request.GET.get("before", None) and request.GET.get("after", None):
+            clamped_date = f"before={request.GET.get('before')}" if reverse else f"after={request.GET.get('after')}"
+
+        return request.build_absolute_uri(
+            "{}?{}{}{}={}{}".format(
+                request.path,
+                urllib.parse.urlencode(params),
+                "&" if len(params) > 0 else "",
+                "after" if reverse else "before",
+                timestamp,
+                f"&{clamped_date}" if clamped_date else "",
+            )
+        )
+
+    def _parse_order_by(self, request: request.Request) -> List[str]:
+        order_by_param = request.GET.get("orderBy")
+        return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
         monday = now() + timedelta(days=-now().weekday())
@@ -197,17 +230,10 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[: (limit + 1)]
             if len(events) < limit + 1:
                 events = queryset[: limit + 1]
-            path = request.get_full_path()
-            reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
+
             if len(events) > limit:
-                next_url = request.build_absolute_uri(
-                    "{}{}{}={}".format(
-                        path,
-                        "&" if "?" in path else "?",
-                        "after" if reverse else "before",
-                        events[limit - 1].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                    )
-                )
+                next_url = self._build_next_url(request, events[limit - 1].timestamp)
+
             events = self.paginator.paginate_queryset(events, request, view=self)  # type: ignore
 
         prefetched_events = self._prefetch_events(list(events))

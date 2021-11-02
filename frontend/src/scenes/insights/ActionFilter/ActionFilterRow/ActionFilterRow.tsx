@@ -14,7 +14,14 @@ import {
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EVENT_MATH_TYPE, FEATURE_FLAGS, MATHS, PROPERTY_MATH_TYPE } from 'lib/constants'
-import { CloseSquareOutlined, DeleteOutlined, DownOutlined, EditOutlined, FilterOutlined } from '@ant-design/icons'
+import {
+    CloseSquareOutlined,
+    DeleteOutlined,
+    DownOutlined,
+    EditOutlined,
+    FilterOutlined,
+    CopyOutlined,
+} from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -80,7 +87,7 @@ export interface ActionFilterRowProps {
     stripeActionRow?: boolean // Whether or not to alternate the color behind the action rows
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
-    groupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     disabled?: boolean
     renderRow?: ({
@@ -119,7 +126,7 @@ export function ActionFilterRow({
     hasBreakdown,
     showNestedArrow = false,
     hideDeleteBtn = false,
-    groupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     disabled = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
@@ -131,6 +138,7 @@ export function ActionFilterRow({
         removeLocalFilter,
         updateFilterProperty,
         setEntityFilterVisibility,
+        duplicateFilter,
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -208,7 +216,7 @@ export function ActionFilterRow({
                         })
                     }}
                     onClose={() => selectFilter(null)}
-                    groupTypes={groupTypes}
+                    taxonomicGroupTypes={taxonomicGroupTypes}
                 />
             }
             visible={dropDownCondition}
@@ -267,9 +275,23 @@ export function ActionFilterRow({
             }}
             className={`row-action-btn show-rename`}
             data-attr={'show-prop-rename-' + index}
-            title="Rename"
+            title="Rename graph series"
         >
             <EditOutlined />
+        </Button>
+    )
+
+    const duplicateRowButton = (
+        <Button
+            type="link"
+            onClick={() => {
+                duplicateFilter(filter)
+            }}
+            className={`row-action-btn show-duplicabe`}
+            data-attr={'show-prop-duplicate-' + index}
+            title="Duplicate graph series"
+        >
+            <CopyOutlined />
         </Button>
     )
 
@@ -374,10 +396,11 @@ export function ActionFilterRow({
                                 )}
                             </>
                         )}
-                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
+                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{duplicateRowButton}</Col>}
                         {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && (horizontalUI || fullWidth) && !hideRename && (
                             <Col>{renameRowButton}</Col>
                         )}
+                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
                         )}

@@ -64,7 +64,7 @@ describe('Merge person', () => {
         cy.get('[data-attr=merge-person-button]').click()
         cy.get('.ant-select-multiple').type('merritt')
         cy.contains('merritt.humphrey@gmail.com').click()
-        cy.contains('OK').click()
+        cy.contains('Merge persons').click()
 
         cy.contains('$create_alias').should('exist')
         cy.get('span:contains(Pageview)').should('have.length', 2)

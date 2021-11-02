@@ -22,7 +22,9 @@ export function recurseSelector(elements: ElementType[], parts: string, index: n
     return recurseSelector(elements, parts, index + 1)
 }
 
-function elementsToAction(elements: ElementType[]): ActionStepType {
+export function elementsToAction(
+    elements: ElementType[]
+): Pick<ActionStepType, 'selector' | 'text' | 'href' | 'tag_name'> {
     return {
         tag_name: elements[0].tag_name,
         href: elements[0].href,
@@ -69,7 +71,7 @@ export async function createActionFromEvent(
 
     let action: ActionType
     try {
-        action = await api.create(`api/projects/${teamId}/actions`, actionData)
+        action = await api.actions.create(actionData)
     } catch (response) {
         if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
             return recurse(teamId, event, increment + 1, recurse)

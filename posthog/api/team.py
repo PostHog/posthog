@@ -62,6 +62,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "is_demo",
             "timezone",
             "data_attributes",
+            "correlation_config",
             "session_recording_opt_in",
             "session_recording_retention_period_days",
             "effective_membership_level",
@@ -123,7 +124,14 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         # This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        return super().get_queryset().filter(organization__in=cast(User, self.request.user).organizations.all())
+        visible_teams_ids = [
+            team.id
+            for team in super()
+            .get_queryset()
+            .filter(organization__in=cast(User, self.request.user).organizations.all())
+            if team.get_effective_membership_level(self.request.user) is not None
+        ]
+        return super().get_queryset().filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
         if self.action == "list":

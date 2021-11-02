@@ -9,7 +9,6 @@ import { EventsTable } from 'scenes/events'
 import dayjs from 'dayjs'
 import { urls } from 'scenes/urls'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { teamLogic } from '../teamLogic'
 import { ActionType } from '../../types'
 
 import { actionLogicType } from './ActionType'
@@ -44,7 +43,10 @@ const actionLogic = kea<actionLogicType<ActionLogicProps>>({
         action: {
             loadAction: async () => {
                 actions.setIsComplete(false)
-                const action = await api.get(`api/projects/${teamLogic.values.currentTeamId}/actions/${props.id}`)
+                if (!props.id) {
+                    throw new Error('Cannot fetch an unsaved action from the API.')
+                }
+                const action = await api.actions.get(props.id)
                 actions.checkIsFinished(action)
                 return action
             },
