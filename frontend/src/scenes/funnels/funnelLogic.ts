@@ -72,14 +72,7 @@ export const funnelLogic = kea<funnelLogicType>({
             personPropertiesModel,
             ['personProperties'],
         ],
-        actions: [
-            insightLogic(props),
-            ['loadResults', 'loadResultsSuccess'],
-            funnelsModel,
-            ['loadFunnels'],
-            visibilitySensorLogic({ id: `correlation-${keyForInsightLogicProps('insight_funnel')(props)}` }),
-            ['setVisible'],
-        ],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -1185,7 +1178,10 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
 
-        setVisible: async ({ visible }, breakpoint) => {
+        [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
+            { visible },
+            breakpoint
+        ) => {
             if (visible) {
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
             }
