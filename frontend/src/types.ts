@@ -184,6 +184,12 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
+
+    // Uses to exclude person properties from correlation analysis results, for
+    // example can be used to exclude properties that have trivial causation
+    correlation_config: {
+        excluded_person_property_names: string[]
+    }
 }
 
 export interface ActionType {
@@ -327,6 +333,14 @@ export interface SessionRecordingMeta {
     start_time: number
     end_time: number
     distinct_id: string
+}
+
+export interface LEGACY_SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: number
+    next: string | null
+    duration: number
 }
 
 export interface SessionPlayerData {
