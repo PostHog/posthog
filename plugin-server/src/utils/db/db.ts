@@ -29,6 +29,7 @@ import {
     Hook,
     Person,
     PersonDistinctId,
+    PersonPropertyUpdateOperation,
     PluginConfig,
     PluginLogEntry,
     PluginLogEntrySource,
@@ -50,6 +51,7 @@ import {
     escapeClickHouseString,
     RaceConditionError,
     sanitizeSqlIdentifier,
+    stringify,
     tryTwice,
     UUID,
     UUIDT,
@@ -60,6 +62,8 @@ import {
     chainToElements,
     generateKafkaPersonUpdateMessage,
     generatePostgresValuesString,
+    getPersonPropertyUpdateExpressions,
+    getPersonPropertyUpdateValues,
     hashElements,
     timeoutGuard,
     unparsePersonPartial,
@@ -527,6 +531,57 @@ export class DB {
         }
 
         return client ? kafkaMessages : updatedPerson
+    }
+
+    public async updatePersonProperties(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties,
+        timestamp: DateTime
+    ): Promise<void> {
+        if (properties.length == 0 && propertiesOnce.length == 0) {
+            return
+        }
+        let values: Array<any> = ['<id>', timestamp.toISO()]
+        const startIndex = values.length + 1
+        values = values.concat(getPersonPropertyUpdateValues(properties, PersonPropertyUpdateOperation.Set))
+        values = values.concat(getPersonPropertyUpdateValues(propertiesOnce, PersonPropertyUpdateOperation.SetOnce))
+        const propertyUpdateExpressions = getPersonPropertyUpdateExpressions(values, startIndex)
+        const query = `SELECT update_person_props($1, $2, ARRAY[ ${propertyUpdateExpressions} ] );`
+
+        let props: Properties = {}
+        let personFound: Person | undefined
+        await this.postgresTransaction(async (client) => {
+            personFound = await this.fetchPerson(teamId, distinctId)
+            if (!personFound) {
+                throw new Error(
+                    `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update props`
+                )
+            }
+            values[0] = personFound.id
+            const updateResult = await client.query(query, values)
+            console.log(updateResult)
+            console.log(updateResult.rows)
+            if (updateResult.rows.length > 0) {
+                props = updateResult.rows[0]
+            }
+            console.log(props)
+        })
+
+        console.log(personFound?.properties)
+
+        if (this.kafkaProducer && personFound && stringify(personFound.properties) != stringify(props)) {
+            // todo: how do I test the kafka part? in process-event.ts?
+            const kafkaMessage = generateKafkaPersonUpdateMessage(
+                timestamp,
+                props,
+                personFound.team_id,
+                personFound.is_identified,
+                personFound.uuid
+            )
+            await this.kafkaProducer.queueMessage(kafkaMessage)
+        }
     }
 
     public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {

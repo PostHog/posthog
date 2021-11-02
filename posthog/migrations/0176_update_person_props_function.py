@@ -10,9 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL("DROP FUNCTION IF EXISTS should_update_person_props;", ""),
-        migrations.RunSQL("DROP TYPE IF EXISTS person_property_update;", ""),
-        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;", ""),
         migrations.RunSQL(
             """
         CREATE TYPE person_property_update AS (
@@ -21,8 +18,9 @@ class Migration(migrations.Migration):
             value jsonb
         );
         """,
-            "DROP TYPE IF EXISTS person_property_update",
+            "",
         ),
+        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;", ""),
         migrations.RunSQL(
             """
             -- not-null-ignore
@@ -30,22 +28,22 @@ class Migration(migrations.Migration):
                     person_id int,
                     event_timestamp text,
                     property_updates person_property_update []
-                ) RETURNS void AS $$
-            DECLARE 
+                ) RETURNS jsonb AS $$
+            DECLARE
                 props jsonb;
                 props_last_updated_at jsonb;
                 props_last_operation jsonb;
                 property_update person_property_update;
-            BEGIN 
-                SELECT properties, COALESCE(properties_last_updated_at, '{}'::jsonb), COALESCE(properties_last_operation, '{}'::jsonb) 
-                INTO props, props_last_updated_at, props_last_operation 
+            BEGIN
+                SELECT properties, COALESCE(properties_last_updated_at, '{}'::jsonb), COALESCE(properties_last_operation, '{}'::jsonb)
+                INTO props, props_last_updated_at, props_last_operation
                 FROM posthog_person WHERE id=person_id
                 FOR UPDATE; -- acquire a row-level lock here
-                FOREACH property_update IN ARRAY property_updates LOOP 
-                    IF TRUE= 
+                FOREACH property_update IN ARRAY property_updates LOOP
+                    IF TRUE=
                         (SELECT NOT property_exists
                             OR (
-                                property_update.update_op = 'set' AND 
+                                property_update.update_op = 'set' AND
                                 (
                                     stored_timestamp IS NULL OR
                                     last_operation IS NULL OR
@@ -58,12 +56,12 @@ class Migration(migrations.Migration):
                                 AND event_timestamp < COALESCE(stored_timestamp, '0')
                             )
                         FROM (
-                                SELECT 
+                                SELECT
                                 props->property_update.key IS NOT NULL as property_exists,
                                 props_last_updated_at->>property_update.key as stored_timestamp,
                                 props_last_operation->>property_update.key as last_operation
                             ) as person_props )
-                    THEN 
+                    THEN
                         props := props || jsonb_build_object(property_update.key,  property_update.value);
                         props_last_updated_at := props_last_updated_at || jsonb_build_object(property_update.key,  event_timestamp);
                         props_last_operation := props_last_operation || jsonb_build_object(property_update.key,  property_update.update_op);
@@ -73,11 +71,13 @@ class Migration(migrations.Migration):
             SET
                 properties = props,
                 properties_last_updated_at=props_last_updated_at,
-                properties_last_operation=props_last_operation
+                properties_last_operation=props_last_operation,
+                version = COALESCE(version, 0)::numeric + 1
             WHERE id=person_id;
+            RETURN props;
             END
             $$ LANGUAGE plpgsql;
         """,
-            "DROP FUNCTION IF EXISTS update_person_props",
+            "",
         ),
     ]

@@ -6,7 +6,7 @@ import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
-import { BasePerson, Element, Person, RawPerson, TimestampFormat } from '../../types'
+import { BasePerson, Element, Person, PersonPropertyUpdateOperation, RawPerson, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
@@ -251,4 +251,21 @@ export function generateKafkaPersonUpdateMessage(
             },
         ],
     }
+}
+
+export function getPersonPropertyUpdateValues(properties: Properties, op: PersonPropertyUpdateOperation): Array<any> {
+    const values: Array<string> = []
+    for (const [key, value] of Object.entries(properties)) {
+        const parsedValue = typeof value === 'string' ? `"${value}"` : value
+        values.push(op, key, parsedValue)
+    }
+    return values
+}
+
+export function getPersonPropertyUpdateExpressions(values: Array<any>, startIndex: number): string {
+    const expressions = []
+    for (; startIndex < values.length; startIndex += 3) {
+        expressions.push(`row($${startIndex}, $${startIndex + 1}, $${startIndex + 2}::jsonb)::person_property_update`)
+    }
+    return expressions.join(',')
 }
