@@ -28,7 +28,7 @@ def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
     for event in events:
         if is_unchunked_snapshot(event):
             session_id = event["properties"]["$session_id"]
-            window_id = event["properties"]["$window_id"]
+            window_id = event["properties"].get("$window_id")
             snapshots_by_session_and_window_id[f"{session_id}-{window_id}"].append(event)
         else:
             result.append(event)
@@ -42,8 +42,10 @@ def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
 def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
     data_list = [event["properties"]["$snapshot_data"] for event in events]
     session_id = events[0]["properties"]["$session_id"]
-    window_id = events[0]["properties"]["$window_id"]
     has_full_snapshot = any(snapshot_data["type"] == FULL_SNAPSHOT for snapshot_data in data_list)
+    window_id = events[0]["properties"].get("$window_id")
+    if window_id:
+        del events[0]["properties"]["$window_id"]
 
     compressed_data = compress_to_string(json.dumps(data_list))
 
