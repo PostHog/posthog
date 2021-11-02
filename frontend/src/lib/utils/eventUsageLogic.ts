@@ -21,6 +21,7 @@ import {
     SessionPlayerData,
     AvailableFeature,
     SessionRecordingUsageType,
+    FunnelCorrelation,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -277,6 +278,15 @@ export const eventUsageLogic = kea<
         ) => ({ recordingData, source, loadTime, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
+        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number) => ({
+            filters,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+        }),
+        reportCorrelationInteraction: (
+            correlationType: FunnelCorrelation['result_type'],
+            action: string,
+            props?: Record<string, any>
+        ) => ({ correlationType, action, props }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
     },
@@ -656,6 +666,9 @@ export const eventUsageLogic = kea<
         },
         reportCorrelationAnalysisDetailedFeedback: (props) => {
             posthog.capture('correlation analysis detailed feedback', props)
+        },
+        reportCorrelationInteraction: ({ correlationType, action, props }) => {
+            posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
         },
     },
 })

@@ -12,6 +12,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { IconSelectProperties } from 'lib/components/icons'
 import './FunnelCorrelationTable.scss'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -28,6 +29,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     } = useValues(logic)
 
     const { setPropertyCorrelationTypes, openPersonsModal, setPropertyNames } = useActions(logic)
+
+    const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
@@ -75,7 +78,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         breakdown_value,
                         breakdown,
                         'person',
-                        undefined
+                        [stepsWithCount.length] // funnel_custom_steps for correlations
                     )
                 }}
             >
@@ -198,7 +201,12 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 scroll={{ x: 'max-content' }}
                 size="small"
                 rowKey={(record: FunnelCorrelation) => record.event.event}
-                pagination={{ pageSize: 5, hideOnSinglePage: true }}
+                pagination={{
+                    pageSize: 5,
+                    hideOnSinglePage: true,
+                    onChange: () =>
+                        reportCorrelationInteraction(FunnelCorrelationResultsType.EventWithProperties, 'load more'),
+                }}
                 style={{ marginTop: '1rem' }}
             >
                 <Column
