@@ -224,31 +224,37 @@ export function SavedInsights(): JSX.Element {
                 return <div style={{ whiteSpace: 'nowrap' }}>{updated_at && <TZLabel time={updated_at} />}</div>
             },
         },
-        {
-            title: (
-                <div
-                    className="order-by"
-                    onClick={() =>
-                        setSavedInsightsFilters({ order: order === 'created_by' ? '-created_by' : 'created_by' })
-                    }
-                >
-                    {normalizeColumnTitle('Created by')}{' '}
-                    {columnSort(order === '-created_by' ? 'up' : order === 'created_by' ? 'down' : 'none')}
-                </div>
-            ),
-            render: function Render(_: any, item) {
-                return item.created_by ? (
-                    <Row align="middle" wrap={false}>
-                        <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
-                        <div style={{ verticalAlign: 'middle', marginLeft: 8 }}>
-                            {item.created_by.first_name || item.created_by.email}
-                        </div>
-                    </Row>
-                ) : (
-                    '-'
-                )
-            },
-        },
+        tab === SavedInsightsTabs.Yours
+            ? {}
+            : {
+                  title: (
+                      <div
+                          className="order-by"
+                          onClick={() =>
+                              setSavedInsightsFilters({ order: order === 'created_by' ? '-created_by' : 'created_by' })
+                          }
+                      >
+                          {normalizeColumnTitle('Created by')}{' '}
+                          {columnSort(order === '-created_by' ? 'up' : order === 'created_by' ? 'down' : 'none')}
+                      </div>
+                  ),
+                  render: function Render(_: any, item) {
+                      return item.created_by ? (
+                          <Row align="middle" wrap={false}>
+                              <ProfilePicture
+                                  name={item.created_by.first_name}
+                                  email={item.created_by.email}
+                                  size="md"
+                              />
+                              <div style={{ verticalAlign: 'middle', marginLeft: 8 }}>
+                                  {item.created_by.first_name || item.created_by.email}
+                              </div>
+                          </Row>
+                      ) : (
+                          '-'
+                      )
+                  },
+              },
         {
             title: '',
             className: 'options-column',
@@ -391,23 +397,25 @@ export function SavedInsights(): JSX.Element {
                         onChange={(fromDate, toDate) => setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })}
                     />
                 </Col>
-                <Col>
-                    Created by
-                    <Select
-                        value={createdBy}
-                        style={{ paddingLeft: 8, width: 140 }}
-                        onChange={(cb) => {
-                            setSavedInsightsFilters({ createdBy: cb })
-                        }}
-                    >
-                        <Select.Option value={'All users'}>All users</Select.Option>
-                        {members.map((member) => (
-                            <Select.Option key={member.user.id} value={member.user.id}>
-                                {member.user.first_name}
-                            </Select.Option>
-                        ))}
-                    </Select>
-                </Col>
+                {tab !== SavedInsightsTabs.Yours ? (
+                    <Col>
+                        Created by
+                        <Select
+                            value={createdBy}
+                            style={{ paddingLeft: 8, width: 140 }}
+                            onChange={(cb) => {
+                                setSavedInsightsFilters({ createdBy: cb })
+                            }}
+                        >
+                            <Select.Option value={'All users'}>All users</Select.Option>
+                            {members.map((member) => (
+                                <Select.Option key={member.user.id} value={member.user.id}>
+                                    {member.user.first_name}
+                                </Select.Option>
+                            ))}
+                        </Select>
+                    </Col>
+                ) : null}
             </Row>
             {insights.count > 0 && (
                 <Row className="list-or-card-layout">

@@ -38,7 +38,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: values.createdBy || 'All users',
+        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
     }
