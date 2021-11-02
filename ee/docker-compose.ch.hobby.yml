@@ -1,0 +1,82 @@
+version: '3'
+
+services:
+    db:
+        image: postgres:12-alpine
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+        ports:
+            - '5432:5432'
+        restart: on-failure
+    redis:
+        image: 'redis:alpine'
+        ports:
+            - '6379:6379'
+        restart: on-failure
+    clickhouse:
+        # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
+        # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
+        image: yandex/clickhouse-server:21.6.5
+        depends_on:
+            - kafka
+            - zookeeper
+        ports:
+            - '8123:8123'
+            - '9000:9000'
+            - '9440:9440'
+            - '9009:9009'
+        volumes:
+            - ./idl:/idl
+            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+        restart: on-failure
+    zookeeper:
+        image: wurstmeister/zookeeper
+        restart: on-failure
+    kafka:
+        image: wurstmeister/kafka
+        depends_on:
+            - zookeeper
+        ports:
+            - '9092:9092'
+        environment:
+            KAFKA_ADVERTISED_HOST_NAME: kafka
+            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_HEAP_OPTS: -Xmx512M -Xms512M
+        restart: on-failure
+    web: 
+        image: posthog/posthog:latest
+        command: bash -c "python manage.py migrate_clickhouse && ./bin/docker"
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            KAFKA_URL: 'kafka://kafka'
+            REDIS_URL: 'redis://redis:6379/'
+            SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
+            DEBUG: 'true'
+            PRIMARY_DB: 'clickhouse'
+            PGHOST: db
+            PGUSER: posthog
+            PGPASSWORD: posthog
+            KAFKA_ENABLED: 'true'
+            KAFKA_HOSTS: 'kafka:9092'
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+        links:
+            - db:db
+            - redis:redis
+            - clickhouse:clickhouse
+            - kafka:kafka
+        ports:
+            - '8000:8000'
+            - '80:8000'
+        restart: on-failure
