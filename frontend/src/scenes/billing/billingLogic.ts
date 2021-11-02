@@ -5,7 +5,7 @@ import { PlanInterface, BillingType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import posthog from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
-import { sceneProxyLogic } from 'scenes/sceneProxyLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -84,7 +84,7 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
             },
         ],
         alertToShow: [
-            (s) => [s.eventAllocation, s.billing, sceneProxyLogic.selectors.scene],
+            (s) => [s.eventAllocation, s.billing, sceneLogic.selectors.scene],
             (eventAllocation: number | null, billing: BillingType, scene: Scene): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 

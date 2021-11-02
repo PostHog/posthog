@@ -15,9 +15,6 @@ import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-// Don't import and use this logic directly as via "scenes/scenes" it pulls in all scenes with
-// their dynamic imports, and hence confuses bundlers.
-// Instead use sceneProxyLogic.
 export const sceneLogic = kea<sceneLogicType>({
     props: {} as { scenes?: Record<Scene, () => any> },
     path: ['scenes', 'sceneLogic'],
