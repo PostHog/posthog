@@ -341,7 +341,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 persist: true,
             },
             {
-                excludeEvent: (state, { eventName }) => [...state, eventName],
+                excludeEvent: (excludedEvents, { eventName }) => [...excludedEvents, eventName],
             },
         ],
         excludedEventPropertyNames: [
@@ -1118,11 +1118,12 @@ export const funnelLogic = kea<funnelLogicType>({
         },
     }),
 
-    events: ({ values, actions }) => ({
+    events: ({ values, actions, props }) => ({
         afterMount: () => {
             if (
                 featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                values.insight.filters?.insight === ViewType.FUNNELS
+                values.insight.filters?.insight === ViewType.FUNNELS &&
+                !props.dashboardItemId // No correlation loads on dashboards
             ) {
                 actions.setPropertyNames(values.allProperties)
             }

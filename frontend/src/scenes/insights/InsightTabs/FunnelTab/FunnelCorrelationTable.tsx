@@ -100,9 +100,13 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         event: FunnelCorrelation['event']
     ): { name: string; properties?: PropertyFilter[] } => {
         const components = event.event.split('::')
+        /*
+          The `event` is either an event name, or event::property::property_value
+        */
         if (components.length === 1) {
             return { name: components[0] }
         } else if (components[0] === '$autocapture') {
+            // We use elementsToAction to generate the required property filters
             const elementData = elementsToAction(event.elements)
             return {
                 name: components[0],
