@@ -15,7 +15,7 @@ jobs:
             - id: set-matrix
               run: |
                   if ${{github.event.pull_request.head.repo.full_name == github.repository}}; then
-                  matrix=$(jq '' .github/workflows/e2e_matrix.json)  
+                  matrix=$(jq 'map(.)' .github/workflows/e2e_matrix.json)  
                   else              
                   matrix=[]
                   fi
