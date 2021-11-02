@@ -55,8 +55,20 @@ describe('funnelLogic', () => {
                 last_refresh: '2021-09-16T13:41:41.297295Z',
                 result: {
                     events: [
-                        { event: { event: 'some property' }, success_count: 1, failure_count: 1 },
-                        { event: { event: 'another property' }, success_count: 1, failure_count: 1 },
+                        {
+                            event: { event: 'some property' },
+                            success_count: 1,
+                            failure_count: 1,
+                            odds_ratio: 1,
+                            correlation_type: 'success',
+                        },
+                        {
+                            event: { event: 'another property' },
+                            success_count: 1,
+                            failure_count: 1,
+                            odds_ratio: 1,
+                            correlation_type: 'failure',
+                        },
                     ]
                         .filter(
                             (correlation) =>
@@ -408,12 +420,16 @@ describe('funnelLogic', () => {
                                 event: { event: 'some property' },
                                 success_count: 1,
                                 failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'success',
                                 result_type: FunnelCorrelationResultsType.Properties,
                             },
                             {
                                 event: { event: 'another property' },
                                 success_count: 1,
                                 failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'failure',
                                 result_type: FunnelCorrelationResultsType.Properties,
                             },
                         ],
@@ -446,12 +462,16 @@ describe('funnelLogic', () => {
                                 event: { event: 'some property' },
                                 success_count: 1,
                                 failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'success',
                                 result_type: FunnelCorrelationResultsType.Properties,
                             },
                             {
                                 event: { event: 'another property' },
                                 success_count: 1,
                                 failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'failure',
                                 result_type: FunnelCorrelationResultsType.Properties,
                             },
                         ],
@@ -460,6 +480,7 @@ describe('funnelLogic', () => {
         })
 
         it('triggers update to correlation list when property excluded from project', async () => {
+            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
             userLogic.mount()
 
             // Make sure we have loaded the team already
@@ -467,6 +488,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
+                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
                 logic.actions.excludePropertyFromProject('another property')
             })
                 .toFinishAllListeners()
@@ -475,21 +497,17 @@ describe('funnelLogic', () => {
                     excludedPropertyNames: DEFAULT_EXCLUDED_PERSON_PROPERTIES.concat(['another property']),
                     allProperties: ['some property', 'third property'],
                 })
-                .toDispatchActions(logic, ['loadPropertyCorrelations'])
-                .toDispatchActions(logic, ['loadPropertyCorrelationsSuccess'])
-                .clearHistory()
-                .toMatchValues({
-                    propertyCorrelations: {
-                        events: [
-                            {
-                                event: { event: 'some property' },
-                                success_count: 1,
-                                failure_count: 1,
-                                result_type: FunnelCorrelationResultsType.Properties,
-                            },
-                        ],
-                    },
-                })
+
+            expect(logic.values.propertyCorrelationValues).toEqual([
+                {
+                    event: { event: 'some property' },
+                    success_count: 1,
+                    failure_count: 1,
+                    odds_ratio: 1,
+                    correlation_type: 'success',
+                    result_type: FunnelCorrelationResultsType.Properties,
+                },
+            ])
         })
 
         it('isPropertyExcludedFromProject returns true initially, then false when excluded, and is persisted to team config', async () => {
@@ -555,6 +573,8 @@ describe('funnelLogic', () => {
                                 event: { event: 'another property' },
                                 success_count: 1,
                                 failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'failure',
                                 result_type: FunnelCorrelationResultsType.Properties,
                             },
                         ],
