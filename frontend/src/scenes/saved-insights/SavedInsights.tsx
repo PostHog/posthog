@@ -113,7 +113,7 @@ export const scene: SceneExport = {
 }
 
 const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
-    <div style={{ fontSize: 10, paddingLeft: 8 }}>
+    <div style={{ fontSize: 10, paddingLeft: 8, whiteSpace: 'nowrap' }}>
         {direction === 'down' ? <ArrowDownOutlined /> : direction === 'up' ? <ArrowUpOutlined /> : null}
         <MenuOutlined />
     </div>
@@ -172,7 +172,7 @@ export function SavedInsights(): JSX.Element {
 
                 return (
                     <Col>
-                        <Row>
+                        <Row wrap={false}>
                             <Link to={link} style={{ marginRight: 12 }}>
                                 <strong>{name || `Insight #${insight.id}`}</strong>
                             </Link>
@@ -238,7 +238,7 @@ export function SavedInsights(): JSX.Element {
             ),
             render: function Render(_: any, item) {
                 return item.created_by ? (
-                    <Row align={'middle'}>
+                    <Row align="middle" wrap={false}>
                         <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
                         <div style={{ verticalAlign: 'middle', marginLeft: 8 }}>
                             {item.created_by.first_name || item.created_by.email}
