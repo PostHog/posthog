@@ -899,7 +899,10 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         parseDisplayNameForCorrelation: [
             () => [],
-            (): ((record: FunnelCorrelation) => { first_value: string; second_value?: string }) => {
+            (): ((record: FunnelCorrelation) => {
+                first_value: string
+                second_value?: string
+            }) => {
                 return (record) => {
                     let first_value = undefined
                     let second_value = undefined
@@ -954,14 +957,6 @@ export const funnelLogic = kea<funnelLogicType>({
             (inversePropertyNames, excludedPropertyNames): string[] => {
                 return inversePropertyNames(excludedPropertyNames)
             },
-        ],
-        elementInViewPort: [
-            (s) => [s.innerHeight],
-            (windowHeight) =>
-                (element: HTMLElement): boolean => {
-                    const rect = element.getBoundingClientRect()
-                    return rect.top >= 0 && rect.top <= windowHeight
-                },
         ],
     }),
 
@@ -1178,8 +1173,4 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
     }),
-
-    windowValues: {
-        innerHeight: (window) => window.innerHeight,
-    },
 })
