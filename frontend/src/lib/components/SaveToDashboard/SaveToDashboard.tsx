@@ -18,15 +18,10 @@ export function SaveToDashboard({ insight }: Props): JSX.Element {
                 onClick={() => setOpenModal(true)}
                 type="default"
                 style={{ color: 'var(--primary)' }}
+                icon={!!insight.dashboard ? <CheckSquareOutlined /> : null}
                 className="btn-save"
             >
-                {!!insight.dashboard ? (
-                    <>
-                        <CheckSquareOutlined /> On Dashboard
-                    </>
-                ) : (
-                    'Add to dashboard'
-                )}
+                {!!insight.dashboard ? 'On dashboard' : 'Add to dashboard'}
             </Button>
         </span>
     )
