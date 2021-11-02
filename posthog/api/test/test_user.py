@@ -62,7 +62,6 @@ class TestUserAPI(APIBaseTest):
             "test_account_filters", response_data["organization"]["teams"][0]
         )  # Ensure we're not returning the full `Team`
         self.assertNotIn("event_names", response_data["organization"]["teams"][0])
-
         self.assertCountEqual(
             response_data["organizations"],
             [
@@ -70,8 +69,14 @@ class TestUserAPI(APIBaseTest):
                     "id": str(self.organization.id),
                     "name": self.organization.name,
                     "slug": slugify(self.organization.name),
+                    "membership_level": 1,
                 },
-                {"id": str(self.new_org.id), "name": "New Organization", "slug": "new-organization"},
+                {
+                    "id": str(self.new_org.id),
+                    "name": "New Organization",
+                    "slug": "new-organization",
+                    "membership_level": 1,
+                },
             ],
         )
 
