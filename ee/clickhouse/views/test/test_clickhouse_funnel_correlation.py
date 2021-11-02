@@ -480,8 +480,9 @@ class FunnelCorrelationRequest:
 
 
 def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):
-    return client.get(
+    return client.post(
         f"/api/projects/{team_id}/insights/funnel/correlation",
+        content_type="application/json",
         data={key: value for key, value in dataclasses.asdict(request).items() if value is not None},
     )
 

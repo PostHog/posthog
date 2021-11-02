@@ -1,6 +1,6 @@
 import dataclasses
 from os import stat
-from typing import Any, Dict, List, Literal, Tuple, TypedDict, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.utils.serializer_helpers import ReturnList
@@ -40,6 +40,30 @@ class EventOddsRatioSerialized(TypedDict):
     failure_count: int
     odds_ratio: float
     correlation_type: Literal["success", "failure"]
+
+
+@dataclasses.dataclass
+class FunnelCorrelationRequest:
+    # NOTE: I've made this the old Filter for now, as I want to avoid getting
+    # into a huge change, but this should at least allow us to restrict out
+    # correlation focus to the other attributes
+    # TODO: define
+    funnel_filter: Filter
+
+    # TODO: separate out mutually exclusive attributes into separate request
+    # object types
+
+    # This filter is applicable to all correlations
+    correlation_type: Optional[FunnelCorrelationType] = dataclasses.field(default=None)
+
+    # These filters are only applicable to property correlations
+    correlation_property_names: List[str] = dataclasses.field(default_factory=list)
+    correlation_property_exclude_names: List[str] = dataclasses.field(default_factory=list)
+
+    # These filters are only applicable to event correlations
+    correlation_event_names: List[str] = dataclasses.field(default_factory=list)
+    correlation_event_exclude_names: List[str] = dataclasses.field(default_factory=list)
+    correlation_event_exclude_property_names: List[str] = dataclasses.field(default_factory=list)
 
 
 class FunnelCorrelationResponse(TypedDict):
@@ -84,17 +108,18 @@ class FunnelCorrelation:
     MIN_PERSON_PERCENTAGE = 0.02
     PRIOR_COUNT = 1
 
-    def __init__(self, filter: Filter, team: Team) -> None:
-        self._filter = filter
+    def __init__(self, request: FunnelCorrelationRequest, team: Team) -> None:
+        self._filter = request
+        self._funnel_filter = request.funnel_filter
         self._team = team
 
-        if self._filter.funnel_step is None:
-            self._filter = self._filter.with_data({"funnel_step": 1})
+        if self._funnel_filter.funnel_step is None:
+            self._funnel_filter = self._funnel_filter.with_data({"funnel_step": 1})
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
         # Used for generating the funnel persons cte
         self._funnel_persons_generator = ClickhouseFunnelPersons(
-            self._filter,
+            self._funnel_filter,
             self._team,
             # NOTE: we want to include the latest timestamp of the `target_step`,
             # from this we can deduce if the person reached the end of the funnel,
@@ -184,8 +209,8 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
-            "funnel_step_names": [entity.id for entity in self._filter.events],
-            "target_step": len(self._filter.entities),
+            "funnel_step_names": [entity.id for entity in self._funnel_filter.events],
+            "target_step": len(self._funnel_filter.entities),
             "exclude_event_names": self._filter.correlation_event_exclude_names,
         }
 
@@ -263,8 +288,8 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
-            "funnel_step_names": [entity.id for entity in self._filter.events],
-            "target_step": len(self._filter.entities),
+            "funnel_step_names": [entity.id for entity in self._funnel_filter.events],
+            "target_step": len(self._funnel_filter.entities),
             "event_names": self._filter.correlation_event_names,
             "exclude_property_names": self._filter.correlation_event_exclude_property_names,
         }
@@ -281,7 +306,7 @@ class FunnelCorrelation:
         person_prop_query, person_prop_params = self._get_properties_prop_clause()
 
         person_query, person_query_params = ClickhousePersonQuery(
-            self._filter, self._team.pk, ColumnOptimizer(self._filter, self._team.pk)
+            self._funnel_filter, self._team.pk, ColumnOptimizer(self._funnel_filter, self._team.pk)
         ).get_query()
 
         query = f"""
@@ -340,7 +365,7 @@ class FunnelCorrelation:
             **funnel_persons_params,
             **person_prop_params,
             **person_query_params,
-            "target_step": len(self._filter.entities),
+            "target_step": len(self._funnel_filter.entities),
             "property_names": self._filter.correlation_property_names,
             "exclude_property_names": self._filter.correlation_property_exclude_names,
         }
@@ -537,7 +562,7 @@ class FunnelCorrelation:
         }
 
     def run(self) -> FunnelCorrelationResponse:
-        if not self._filter.entities:
+        if not self._funnel_filter.entities:
             return FunnelCorrelationResponse(events=[], skewed=False)
 
         return self.format_results(self._run())
@@ -554,6 +579,8 @@ class FunnelCorrelation:
 
         query, params = self.get_contingency_table_query()
         results_with_total = sync_execute(query, params)
+
+        assert isinstance(results_with_total, list)
 
         # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]

@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from typing import Any, Dict, Type
 
 from rest_framework.decorators import action
@@ -16,7 +17,7 @@ from ee.clickhouse.queries.funnels import (
     ClickhouseFunnelTrends,
     ClickhouseFunnelUnordered,
 )
-from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation, FunnelCorrelationRequest
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
@@ -125,10 +126,22 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
     @cached_function
     def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
+        # Put all the request into the existing filter class, so we isolate out
+        # changes to just clarify what is relevant to correlation
+        funnel_filter = Filter(request=request, team=self.team)
+        # Package the funnel_filter up, along with the specific funnel
+        # correlation request params
+        # TODO: further dispatch property and event requests separately
+        # TODO: Define CorrelationPerson request/dispatcher
+        correlation_request = FunnelCorrelationRequest(
+            funnel_filter=funnel_filter,
+            #  NOTE: as we're slightly altering the structure of the request, we
+            #  need to ignore anything not in the FunnelCorrelationRequest
+            #  dataclass
+            **{k: v for k, v in request.data.items() if k in dataclasses.fields(FunnelCorrelationRequest)}
+        )
         team = self.team
-        filter = Filter(request=request)
-
-        result = FunnelCorrelation(filter=filter, team=team).run()
+        result = FunnelCorrelation(request=correlation_request, team=team).run()
 
         return {"result": result}
 
