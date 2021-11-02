@@ -24,22 +24,25 @@
     top: 3.5rem;
     width: 100%;
     padding: 0.5rem;
-    > * {
-        padding: 0.5rem 0;
-    }
 }
 
-.ProjectSwitcher {
-    border-bottom: 1px solid var(--border);
+.SideBar__section {
+    margin: 1rem 0;
 }
 
-.ProjectSwitcher__label {
+.SideBar__heading {
+    margin-left: 0.5rem;
     color: var(--text-muted);
     line-height: 1.5rem;
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+.ProjectSwitcher {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
 }
 
 .ProjectSwitcher__label {

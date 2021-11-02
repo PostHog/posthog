@@ -31,10 +31,19 @@ export function ProjectSwitcher(): JSX.Element {
 
     return (
         <div className="ProjectSwitcher">
-            <div className="ProjectSwitcher__label">Project</div>
+            <div className="SideBar__heading">Project</div>
             <LemonButton icon={<Lettermark name={currentOrganization?.name} />} fullWidth type="stealth">
                 <b>{currentTeam?.name}</b>
             </LemonButton>
+        </div>
+    )
+}
+
+function SideBarSection({ title, children }: { title?: string; children: any }): JSX.Element {
+    return (
+        <div className="SideBar__section">
+            {title && <div className="SideBar__heading">{title}</div>}
+            {children}
         </div>
     )
 }
@@ -69,43 +78,71 @@ function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
 
     return (
-        <div>
+        <div className="Pages">
             {currentOrganization?.setup.is_active && (
+                <SideBarSection>
+                    <PageButton
+                        title="Setup"
+                        icon={<IconSettings />}
+                        identifier="onboardingSetup"
+                        to={urls.onboardingSetup()}
+                    />
+                </SideBarSection>
+            )}
+            <SideBarSection title="Analysis">
+                <PageButton title="Dashboards" icon={<IconGauge />} identifier="dashboards" to={urls.dashboards()} />
                 <PageButton
-                    title="Setup"
-                    icon={<IconSettings />}
-                    identifier="onboardingSetup"
-                    to={urls.onboardingSetup()}
+                    title="Insights"
+                    icon={<IconBarChart />}
+                    identifier="savedInsights"
+                    to={urls.savedInsights()}
                 />
-            )}
-            <PageButton title="Dashboards" icon={<IconGauge />} identifier="dashboards" to={urls.dashboards()} />
-            <PageButton title="Insights" icon={<IconBarChart />} identifier="savedInsights" to={urls.savedInsights()} />
-            <PageButton
-                title="Recordings"
-                icon={<IconRecording />}
-                identifier="sessionRecordings"
-                to={urls.sessionRecordings()}
-            />
-            <PageButton title="Feature flags" icon={<IconFlag />} identifier="featureFlags" to={urls.featureFlags()} />
-            <PageButton title="Events & actions" icon={<IconGroupedEvents />} identifier="events" to={urls.events()} />
-            <PageButton title="Persons" icon={<IconPerson />} identifier="persons" to={urls.persons()} />
-            <PageButton title="Cohorts" icon={<IconCohort />} identifier="cohorts" to={urls.cohorts()} />
-            <PageButton title="Annotations" icon={<IconComment />} identifier="annotations" to={urls.annotations()} />
-            {canViewPlugins(currentOrganization) && (
-                <PageButton title="Plugins" icon={<IconExtension />} identifier="plugins" to={urls.plugins()} />
-            )}
-            <PageButton
-                title="Project settings"
-                icon={<IconSettings />}
-                identifier="projectSettings"
-                to={urls.projectSettings()}
-            />
-            <PageButton
-                title="Toolbar"
-                icon={<IconTools />}
-                identifier="toolbar"
-                onClick={() => console.error('TODO')}
-            />
+                <PageButton
+                    title="Recordings"
+                    icon={<IconRecording />}
+                    identifier="sessionRecordings"
+                    to={urls.sessionRecordings()}
+                />
+                <PageButton
+                    title="Feature flags"
+                    icon={<IconFlag />}
+                    identifier="featureFlags"
+                    to={urls.featureFlags()}
+                />
+            </SideBarSection>
+            <SideBarSection title="Data">
+                <PageButton
+                    title="Events & actions"
+                    icon={<IconGroupedEvents />}
+                    identifier="events"
+                    to={urls.events()}
+                />
+                <PageButton title="Persons" icon={<IconPerson />} identifier="persons" to={urls.persons()} />
+                <PageButton title="Cohorts" icon={<IconCohort />} identifier="cohorts" to={urls.cohorts()} />
+                <PageButton
+                    title="Annotations"
+                    icon={<IconComment />}
+                    identifier="annotations"
+                    to={urls.annotations()}
+                />
+            </SideBarSection>
+            <SideBarSection title="Configuration">
+                {canViewPlugins(currentOrganization) && (
+                    <PageButton title="Plugins" icon={<IconExtension />} identifier="plugins" to={urls.plugins()} />
+                )}
+                <PageButton
+                    title="Toolbar"
+                    icon={<IconTools />}
+                    identifier="toolbar"
+                    onClick={() => console.error('TODO')}
+                />
+                <PageButton
+                    title="Project settings"
+                    icon={<IconSettings />}
+                    identifier="projectSettings"
+                    to={urls.projectSettings()}
+                />
+            </SideBarSection>
         </div>
     )
 }
