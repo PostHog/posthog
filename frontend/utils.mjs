@@ -3,8 +3,7 @@ import { createImporter } from 'sass-extended-importer'
 import { lessLoader } from 'esbuild-plugin-less'
 import * as path from 'path'
 import * as url from 'url'
-import * as fs from 'fs'
-import * as fse from 'fs-extra'
+import fse from 'fs-extra'
 import { build } from 'esbuild'
 import chokidar from 'chokidar'
 import liveServer from 'live-server'
@@ -51,9 +50,9 @@ export function copyPublicFolder() {
 }
 
 export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', entry = 'index') {
-    fs.writeFileSync(
+    fse.writeFileSync(
         path.resolve(__dirname, to),
-        fs
+        fse
             .readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' })
             .replace(
                 '</head>',
@@ -100,8 +99,8 @@ function reloadLiveServer() {
     // We use this file to trigger a reload as soon as we start a build, and then use a middleware
     // to pause serving the files until the build finishes. This gives improves reloads from 5sec to 3sec.
     const filename = path.resolve(__dirname, 'tmp', 'reload.txt')
-    fs.mkdirSync(path.dirname(filename), { recursive: true })
-    fs.closeSync(fs.openSync(filename, 'w'))
+    fse.mkdirSync(path.dirname(filename), { recursive: true })
+    fse.closeSync(fse.openSync(filename, 'w'))
 }
 
 export async function buildOrWatch(config) {
