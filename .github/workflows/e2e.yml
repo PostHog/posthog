@@ -17,7 +17,7 @@ jobs:
                   if ${{github.event.pull_request.head.repo.full_name == github.repository}}; then
                   matrix=$(jq 'map(.)' .github/workflows/e2e_matrix.json)  
                   else              
-                  matrix=[{"containers": [1]}]
+                  matrix='[{"containers": [1]}]'
                   fi
                   echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
 
