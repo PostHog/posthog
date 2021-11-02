@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -1227,8 +1227,8 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
-            { visible },
-            breakpoint
+            { visible }: { visible: boolean },
+            breakpoint: BreakPointFunction
         ) => {
             if (visible) {
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)

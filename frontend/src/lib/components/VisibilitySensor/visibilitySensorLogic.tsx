@@ -32,13 +32,10 @@ export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
             await breakpoint(200)
 
             if (values.checkIsVisible(element) && !values.visible) {
-                console.log('now visible!')
                 actions.setVisible(true)
             } else if (!values.checkIsVisible(element) && values.visible) {
-                console.log('now Not visible!')
                 actions.setVisible(false)
             }
-            console.log('no op')
         },
     }),
 
@@ -49,8 +46,7 @@ export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
                 if (!element) {
                     return false
                 }
-                const { top, bottom } = element.getBoundingClientRect()
-                console.log(top, bottom, offset, windowHeight)
+                const { top } = element.getBoundingClientRect()
                 return top + offset >= 0 && top + offset <= windowHeight
             },
         ],
