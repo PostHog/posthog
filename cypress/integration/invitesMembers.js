@@ -95,7 +95,6 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=change-membership-level]').last().should('contain', 'member')
         cy.get('[data-attr=change-membership-level]').last().click()
         cy.get('[data-test-level=8]').click()
-        cy.get('[data-attr=change-membership-level]').last().should('contain', 'administrator')
 
         // Delete member
         cy.get('[data-attr=delete-org-membership]').last().click()
