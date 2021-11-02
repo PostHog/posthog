@@ -27,7 +27,7 @@ export function FunnelHistogram(): JSX.Element {
             ref={ref}
             data-attr="funnel-histogram"
         >
-            {!dashboardItemId || (width && height) ? (
+            {!dashboardItemId || width ? (
                 <Histogram
                     key={key}
                     data={histogramGraphData}

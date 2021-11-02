@@ -1,21 +1,30 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { FriendlyLogo } from '../../../toolbar/assets/FriendlyLogo'
-import { AccountControl } from './AccountControl'
+import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
 import { SearchBox } from './SearchBox'
 import { lemonadeLogic } from '../lemonadeLogic'
-import './TopBar.scss'
+import './index.scss'
 import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
+import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrganizationModal'
+import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInviteModal'
+import { ChangelogModal } from '../../ChangelogModal'
 
 export function TopBar(): JSX.Element {
-    const { announcementMessage, isAnnouncementHidden } = useValues(lemonadeLogic)
-    const { hideAnnouncement } = useActions(lemonadeLogic)
+    const {
+        announcementMessage,
+        isAnnouncementHidden,
+        isInviteModalShown,
+        isCreateOrganizationModalShown,
+        isChangelogModalShown,
+    } = useValues(lemonadeLogic)
+    const { hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideChangelogModal } =
+        useActions(lemonadeLogic)
 
     return (
         <>
-            <CommandPalette />
             {announcementMessage && (
                 <Announcement
                     message={announcementMessage}
@@ -32,9 +41,13 @@ export function TopBar(): JSX.Element {
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     <HelpButton withCaret placement="bottomRight" />
-                    <AccountControl />
+                    <SitePopover />
                 </div>
             </header>
+            <CommandPalette />
+            <ChangelogModal onDismiss={hideChangelogModal} visible={isChangelogModalShown} />
+            <BulkInviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
+            <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
         </>
     )
 }

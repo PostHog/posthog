@@ -4,7 +4,12 @@ import { useValues } from 'kea'
 import { navigationLogic } from './navigation/navigationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
-export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.Element | null {
+export interface ChangelogModalProps {
+    onDismiss: () => void
+    visible?: boolean
+}
+
+export function ChangelogModal({ onDismiss, visible }: ChangelogModalProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { latestVersion } = useValues(navigationLogic)
 
@@ -15,7 +20,7 @@ export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.El
 
     return (
         <Modal
-            visible
+            visible={visible}
             onOk={onDismiss}
             onCancel={onDismiss}
             footer={<Button onClick={onDismiss}>Close</Button>}

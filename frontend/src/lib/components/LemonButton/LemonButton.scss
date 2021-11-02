@@ -1,0 +1,33 @@
+@import '~/vars';
+
+.LemonButton {
+    transition: background-color 200ms ease;
+    font-weight: 600;
+    color: var(--primary);
+    cursor: pointer;
+    &:hover {
+        background: rgba($blue_300, 0.2);
+    }
+    &:active {
+        background: rgba($blue_300, 0.3);
+    }
+    .LemonRow__icon {
+        color: var(--primary);
+    }
+}
+
+.LemonButton--stealth {
+    font-weight: 400;
+    color: var(--text-default);
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
+.LemonButton--primary {
+    background: var(--primary);
+    color: #fff;
+    .LemonRow__icon {
+        color: #fff;
+    }
+}
