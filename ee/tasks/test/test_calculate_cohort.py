@@ -21,7 +21,7 @@ def _create_person(**kwargs):
     return Person(id=person.uuid)
 
 
-class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event, _create_person)):  # type: ignore
+class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_factory(_create_event, _create_person)):  # type: ignore
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
     def test_create_stickiness_cohort(self, _insert_cohort_from_query):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"])
