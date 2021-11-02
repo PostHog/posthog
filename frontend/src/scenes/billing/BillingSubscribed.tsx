@@ -97,18 +97,18 @@ function SubscriptionSuccess(): JSX.Element {
                 You are now subscribed
                 {billing?.is_billing_active && billing.plan && (
                     <>
+                        {' '}
                         to the <b>{billing.plan.name}</b>
                     </>
-                )}
-                .
-                {billing?.plan?.key === 'standard' && (
-                    <span>
-                        {' '}
-                        You will be billed on the <b>first 3 days of each month</b>. If you use less than 1M events, you
-                        will not be billed.
-                    </span>
-                )}
+                )}{' '}
+                and can use all the premium features immediately.
             </p>
+            {billing?.plan?.key === 'standard' && (
+                <p className="text-muted-alt">
+                    You will be billed on the <b>first 3 days of each month</b>. If you use less than 1M events, you
+                    will not be billed.
+                </p>
+            )}
             <p>
                 Please reach out to <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you have any billing
                 questions.
