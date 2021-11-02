@@ -132,6 +132,22 @@
     cursor: pointer;
 }
 
+.SitePopover__profile-picture {
+    position: relative;
+}
+
+.SitePopover__danger {
+    position: absolute;
+    top: -0.375rem;
+    right: -0.375rem;
+    color: var(--white);
+    background: var(--danger);
+    font-size: 0.75rem;
+    box-sizing: content-box;
+    border-radius: 100%;
+    border: 2px solid var(--bg-bridge);
+}
+
 .SitePopover__section {
     width: 100%;
     padding: 0.5rem 0;

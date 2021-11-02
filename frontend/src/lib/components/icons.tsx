@@ -610,6 +610,18 @@ export function IconOffline(): JSX.Element {
     )
 }
 
+/** Material Design Priority High icon. */
+export function IconExclamation(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path d="m12 21c1.1046 0 2-.8954 2-2s-.8954-2-2-2-2 .8954-2 2 .8954 2 2 2z" />
+                <path d="m10 3h4v12h-4z" />
+            </g>
+        </svg>
+    )
+}
+
 // AntD arrows rotated at convenient angles
 
 export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
