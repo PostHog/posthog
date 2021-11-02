@@ -122,7 +122,7 @@ jobs:
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.json
-                  record: ${{github.event.pull_request.head.repo.full_name == github.repository}}
+                  record: true
                   parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
                   group: 'PostHog Frontend'
                   # We're already installing cypress above
