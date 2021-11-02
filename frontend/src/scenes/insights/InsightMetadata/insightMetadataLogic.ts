@@ -64,7 +64,10 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
                 await actions.updateInsight({ [property]: values.insightMetadata[property] })
             } else {
                 // Update local insight state
-                await actions.setInsight({ [property]: values.insightMetadata[property] }, true)
+                await actions.setInsight(
+                    { [property]: values.insightMetadata[property] },
+                    { shouldMergeWithExisting: true }
+                )
             }
             actions.setInsightMetadata({ [property]: values.insightMetadata[property] }) // sync
             actions.showViewMode(property)

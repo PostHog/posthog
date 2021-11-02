@@ -49,17 +49,12 @@ export function Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(invitesLogic)
     const { deleteInvite } = useActions(invitesLogic)
 
-    const columns: ColumnsType = [
+    const columns: ColumnsType<OrganizationInviteType> = [
         {
             dataIndex: 'target_email',
             key: 'target_email',
             render: function ProfilePictureRender(_, invite) {
-                return (
-                    <ProfilePicture
-                        name={(invite as OrganizationInviteType).first_name}
-                        email={(invite as OrganizationInviteType).target_email}
-                    />
-                )
+                return <ProfilePicture name={invite.first_name} email={invite.target_email} />
             },
             width: 32,
         },
@@ -87,7 +82,7 @@ export function Invites(): JSX.Element {
             title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: (id, invite) => InviteLinkComponent(id as string, invite as OrganizationInviteType),
+            render: (id, invite) => InviteLinkComponent(id as string, invite),
         },
         {
             title: '',

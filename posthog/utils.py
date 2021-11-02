@@ -22,6 +22,7 @@ from typing import (
     Sequence,
     Tuple,
     Union,
+    cast,
 )
 from urllib.parse import urljoin, urlparse
 
@@ -75,6 +76,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
 def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
+    `at` is the datetime to use as a reference point.
     """
 
     if not at:
@@ -87,6 +89,26 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
     )  # very start of the previous Monday
+
+    return (period_start, period_end)
+
+
+def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Returns a pair of datetimes, representing the start and end of the preceding day.
+    `at` is the datetime to use as a reference point.
+    """
+
+    if not at:
+        at = timezone.now()
+
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at - datetime.timedelta(days=1), datetime.time.max, tzinfo=pytz.UTC,
+    )  # very end of the previous day
+
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end, datetime.time.min, tzinfo=pytz.UTC,
+    )  # very start of the previous day
 
     return (period_start, period_end)
 
@@ -192,8 +214,8 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     template = get_template(template_name)
 
-    context["self_capture"] = False
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
+    context["self_capture"] = settings.SELF_CAPTURE
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -207,7 +229,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["e2e_testing"] = True
 
     if settings.SELF_CAPTURE:
-        context["self_capture"] = True
         api_token = get_self_capture_api_token(request)
 
         if api_token:
@@ -221,19 +242,25 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.user import UserSerializer
+        from posthog.api.team import TeamSerializer
+        from posthog.api.user import User, UserSerializer
         from posthog.views import preflight_check
 
-        posthog_app_context: Dict = {
+        posthog_app_context: Dict[str, Any] = {
             "current_user": None,
+            "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
             "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         }
 
         if request.user.pk:
-            user = UserSerializer(request.user, context={"request": request}, many=False)
-            posthog_app_context["current_user"] = user.data
+            user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
+            posthog_app_context["current_user"] = user_serialized.data
+            team = cast(User, request.user).team
+            if team:
+                team_serialized = TeamSerializer(team, context={"request": request}, many=False)
+                posthog_app_context["current_team"] = team_serialized.data
 
         context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
     else:
@@ -797,3 +824,37 @@ def get_helm_info_env() -> dict:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
     except Exception:
         return {}
+
+
+def format_query_params_absolute_url(
+    request: Request,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset_alias: Optional[str] = "offset",
+    limit_alias: Optional[str] = "limit",
+) -> Optional[str]:
+    OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
+    LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
+
+    url_to_format = request.get_raw_uri()
+
+    if not url_to_format:
+        return None
+
+    if offset:
+        if OFFSET_REGEX.search(url_to_format):
+            url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+        else:
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{offset_alias}={offset}"
+
+    if limit:
+        if LIMIT_REGEX.search(url_to_format):
+            url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
+        else:
+            url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{limit_alias}={limit}"
+
+    return url_to_format
+
+
+def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
+    return abs(int((d1 - d2).total_seconds() * 1000))

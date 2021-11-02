@@ -72,7 +72,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         WHERE team_id = %(team_id)s
             AND event = %(event)s
             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime(%(date_from)s))
-            AND timestamp <= '2021-05-07 23:59:59'
+            AND timestamp <= %(date_to)s
         """
 
         self.assertEqual(sqlparse.format(query, reindent=True), sqlparse.format(correct, reindent=True))

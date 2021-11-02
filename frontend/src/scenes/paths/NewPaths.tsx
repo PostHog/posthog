@@ -6,7 +6,7 @@ import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Button, Menu, Dropdown, Tooltip, Row } from 'antd'
-import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
+import { IconPathsCompletedArrow, IconPathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
@@ -22,6 +22,8 @@ import {
 } from './pathUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
+import { userLogic } from 'scenes/userLogic'
+import { AvailableFeature } from '~/types'
 
 function NoData(): JSX.Element {
     return (
@@ -35,6 +37,8 @@ function NoData(): JSX.Element {
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
 
+const isMonochrome = (color: string): boolean => color === 'white' || color === 'black'
+
 interface PathsProps {
     dashboardItemId: number | null
     color: string
@@ -47,11 +51,18 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
     const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(pathsLogic(insightProps))
     const [pathItemCards, setPathItemCards] = useState<PathNodeData[]>([])
+    const { user } = useValues(userLogic)
 
-    useEffect(() => {
-        setPathItemCards([])
-        renderPaths()
-    }, [paths, !pathsLoading, size, color])
+    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
+
+    useEffect(
+        () => {
+            setPathItemCards([])
+            renderPaths()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [paths, !pathsLoading, size, color]
+    )
 
     const createCanvas = (width: number, height: number): D3Selector => {
         return d3
@@ -103,11 +114,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                     return d3.color('purple')
                 }
                 const startNodeColor =
-                    c && d3.color(c)
-                        ? d3.color(c)
-                        : color === 'white' // is this ever not white?
-                        ? d3.color('#5375ff')
-                        : d3.color('#191919')
+                    c && d3.color(c) ? d3.color(c) : isMonochrome(color) ? d3.color('#5375ff') : d3.color('white')
                 return startNodeColor
             })
             .on('mouseover', (data: PathNodeData) => {
@@ -151,8 +158,8 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'var(--item-lighter'))
-            .attr('opacity', 0.2)
+            .attr('stroke', () => (isMonochrome(color) ? 'var(--primary)' : 'white'))
+            .attr('opacity', 0.35)
 
         link.append('path')
             .attr('d', Sankey.sankeyLinkHorizontal())
@@ -196,7 +203,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                 )
             })
             .on('mouseleave', () => {
-                svg.selectAll('path').attr('stroke', 'var(--primary)')
+                svg.selectAll('path').attr('stroke', () => (isMonochrome(color) ? 'var(--primary)' : 'white'))
             })
 
         link.append('g')
@@ -257,10 +264,13 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
             return Math.max(prev, Number(currNum.match(/[^_]*/)))
         }, 0)
 
-        const width =
-            maxLayer > 5 && canvas?.current?.offsetWidth
-                ? (canvas.current.offsetWidth / 5) * maxLayer
-                : canvas?.current?.offsetWidth || 0
+        const minWidth = canvas?.current?.offsetWidth
+            ? canvas.current.offsetWidth > 1000 || maxLayer < 3
+                ? canvas.current.offsetWidth
+                : 1000
+            : 1000
+
+        const width = maxLayer > 5 && canvas?.current?.offsetWidth ? (minWidth / 5) * maxLayer : minWidth
         const height = canvas?.current?.offsetHeight || 0
 
         const svg = createCanvas(width, height)
@@ -319,7 +329,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                                                 >
                                                     <span className="text-small">
                                                         <span style={{ paddingRight: 8 }}>
-                                                            <PathsCompletedArrow />
+                                                            <IconPathsCompletedArrow />
                                                         </span>{' '}
                                                         Continuing
                                                     </span>{' '}
@@ -356,7 +366,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                                                                 alignItems: 'center',
                                                             }}
                                                         >
-                                                            <PathsDropoffArrow />
+                                                            <IconPathsDropoffArrow />
                                                         </span>{' '}
                                                         Dropping off
                                                     </span>{' '}
@@ -474,26 +484,33 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
                                                         >
                                                             Set as path start
                                                         </Menu.Item>
-                                                        <Menu.Item
-                                                            onClick={() =>
-                                                                setFilter({ end_point: pageUrl(pathItemCard) })
-                                                            }
-                                                        >
-                                                            Set as path end
-                                                        </Menu.Item>
-                                                        <Menu.Item
-                                                            onClick={() => {
-                                                                updateExclusions([
-                                                                    ...(filter.exclude_events || []),
-                                                                    pageUrl(pathItemCard, false),
-                                                                ])
-                                                            }}
-                                                        >
-                                                            Exclude path item
-                                                        </Menu.Item>
-                                                        <Menu.Item onClick={() => viewPathToFunnel(pathItemCard)}>
-                                                            View funnel
-                                                        </Menu.Item>
+                                                        {hasAdvancedPaths && (
+                                                            <>
+                                                                <Menu.Item
+                                                                    onClick={() =>
+                                                                        setFilter({ end_point: pageUrl(pathItemCard) })
+                                                                    }
+                                                                >
+                                                                    Set as path end
+                                                                </Menu.Item>
+                                                                <Menu.Item
+                                                                    onClick={() => {
+                                                                        updateExclusions([
+                                                                            ...(filter.exclude_events || []),
+                                                                            pageUrl(pathItemCard, false),
+                                                                        ])
+                                                                    }}
+                                                                >
+                                                                    Exclude path item
+                                                                </Menu.Item>
+
+                                                                <Menu.Item
+                                                                    onClick={() => viewPathToFunnel(pathItemCard)}
+                                                                >
+                                                                    View funnel
+                                                                </Menu.Item>
+                                                            </>
+                                                        )}
                                                         <Menu.Item
                                                             onClick={() => copyToClipboard(pageUrl(pathItemCard))}
                                                         >

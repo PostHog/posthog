@@ -47,6 +47,8 @@ class ClickhouseEventsViewSet(EventViewSet):
     ) -> List:
         limit += 1
         limit_sql = "LIMIT %(limit)s"
+        order = "DESC" if self._parse_order_by(self.request)[0] == "-timestamp" else "ASC"
+
         conditions, condition_params = determine_event_conditions(
             team,
             {
@@ -56,7 +58,7 @@ class ClickhouseEventsViewSet(EventViewSet):
             },
             long_date_from,
         )
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk, has_person_id_joined=False)
 
         if request.GET.get("action_id"):
             try:
@@ -72,13 +74,13 @@ class ClickhouseEventsViewSet(EventViewSet):
         if prop_filters != "":
             return sync_execute(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                    conditions=conditions, limit=limit_sql, filters=prop_filters
+                    conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
-                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql),
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
                 {"team_id": team.pk, "limit": limit, **condition_params},
             )
 
@@ -110,16 +112,7 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         next_url: Optional[str] = None
         if not is_csv_request and len(query_result) > limit:
-            path = request.get_full_path()
-            reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-            next_url = request.build_absolute_uri(
-                "{}{}{}={}".format(
-                    path,
-                    "&" if "?" in path else "?",
-                    "after" if reverse else "before",
-                    query_result[limit - 1][3].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                )
-            )
+            next_url = self._build_next_url(request, query_result[limit - 1][3])
 
         return Response({"next": next_url, "results": result})
 
@@ -166,7 +159,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
-    # /event/session_recording
+    # /events/session_recording
     # params:
     # - session_recording_id: (string) id of the session recording
     # - save_view: (boolean) save view of the recording
@@ -183,11 +176,12 @@ class ClickhouseEventsViewSet(EventViewSet):
                 status=400,
             )
 
-        session_recording = SessionRecording().run(
+        session_recording = SessionRecording(
+            request=request,
             team=self.team,
             filter=Filter(request=request, team=self.team),
             session_recording_id=request.GET["session_recording_id"],
-        )
+        ).run()
 
         if request.GET.get("save_view"):
             SessionRecordingViewed.objects.get_or_create(

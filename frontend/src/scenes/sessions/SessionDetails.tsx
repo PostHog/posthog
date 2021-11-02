@@ -23,11 +23,15 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
     const events = filteredSessionEvents[session.global_session_id]
     const matchingEventIds = useMemo(() => new Set(session.matching_events || []), [session.matching_events])
 
-    useEffect(() => {
-        if (!events) {
-            loadSessionEvents(session)
-        }
-    }, [])
+    useEffect(
+        () => {
+            if (!events) {
+                loadSessionEvents(session)
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        []
+    )
 
     const columns = [
         {

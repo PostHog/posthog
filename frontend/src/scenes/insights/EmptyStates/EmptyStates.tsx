@@ -3,7 +3,7 @@ import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
-import { IllustrationDanger, TrendUp } from 'lib/components/icons'
+import { IllustrationDanger, IconTrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
@@ -256,31 +256,45 @@ export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
 
 const SAVED_INSIGHTS_COPY = {
     [`${SavedInsightsTabs.All}`]: {
-        title: 'There are no insights for this project',
+        title: 'There are no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
     [`${SavedInsightsTabs.Yours}`]: {
-        title: "You haven't created insights for this project",
+        title: "You haven't created insights $CONDITION.",
         description: 'Once you create an insight, it will show up here.',
     },
     [`${SavedInsightsTabs.Favorites}`]: {
-        title: 'There are no favorited insights for this project',
+        title: 'There are no favorited insights $CONDITION.',
         description: 'Once you favorite an insight, it will show up here.',
     },
 }
 
 export function SavedInsightsEmptyState(): JSX.Element {
     const { addGraph } = useActions(savedInsightsLogic)
-    const { tab } = useValues(savedInsightsLogic)
+    const {
+        filters: { tab },
+        insights,
+        usingFilters,
+    } = useValues(savedInsightsLogic)
+
+    // show the search string that was used to make the results, not what it currently is
+    const searchString = insights.filters?.search || null
+    const { title, description } = SAVED_INSIGHTS_COPY[tab]
 
     return (
         <div className="saved-insight-empty-state">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">
-                    <TrendUp />
+                    <IconTrendUp />
                 </div>
-                <h2 className="empty-state__title">{SAVED_INSIGHTS_COPY[tab].title}</h2>
-                <p className="empty-state__description">{SAVED_INSIGHTS_COPY[tab].description}</p>
+                <h2 className="empty-state__title">
+                    {usingFilters
+                        ? searchString
+                            ? title.replace('$CONDITION', `matching "${searchString}"`)
+                            : title.replace('$CONDITION', `matching these filters`)
+                        : title.replace('$CONDITION', 'for this project')}
+                </h2>
+                <p className="empty-state__description">{description}</p>
                 {tab !== SavedInsightsTabs.Favorites && (
                     <Button
                         size="large"

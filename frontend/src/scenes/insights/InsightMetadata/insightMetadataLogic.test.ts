@@ -1,10 +1,10 @@
 import { BuiltLogic } from 'kea'
 import { insightMetadataLogicType } from 'scenes/insights/InsightMetadata/insightMetadataLogicType'
 import { insightMetadataLogic, InsightMetadataLogicProps } from 'scenes/insights/InsightMetadata/insightMetadataLogic'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic, truth } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { truth } from '~/test/kea-test-utils/jest'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AvailableFeature } from '~/types'
@@ -23,7 +23,7 @@ describe('insightMetadataLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (pathname.startsWith('api/insight')) {
+        if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insight`)) {
             return { results: [], next: null }
         }
         return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
@@ -127,7 +127,7 @@ describe('insightMetadataLogic', () => {
                     .toDispatchActions(insightLogic, [
                         insightLogic({ dashboardItemId: undefined }).actionCreators.setInsight(
                             { name: insight.name },
-                            true
+                            { shouldMergeWithExisting: true }
                         ),
                     ])
                     .toDispatchActions(logic, [

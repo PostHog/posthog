@@ -9,6 +9,7 @@ on:
 jobs:
     build-push:
         name: Build Docker images and push them
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-20.04
         steps:
             - name: Checkout default branch

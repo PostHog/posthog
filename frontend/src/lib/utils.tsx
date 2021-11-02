@@ -6,13 +6,11 @@ import dayjs from 'dayjs'
 import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from './logic/featureFlagLogic'
-import { open } from '@papercups-io/chat-widget'
-import posthog from 'posthog-js'
-import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
+import { helpButtonLogic } from './components/HelpButton/HelpButton'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -147,13 +145,11 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
      */
 
     const handleHelp = (): void => {
-        const papercupsOn = featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED]
-        if (papercupsOn) {
-            open()
+        if (helpButtonLogic.isMounted()) {
+            helpButtonLogic.actions.setVisible(true)
         } else {
             window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
         }
-        posthog.capture('error toast help requested', { papercups_enabled: papercupsOn }) // Can't use eventUsageLogic here, not mounted
     }
 
     toast.dismiss('error') // This will ensure only the last error is shown
@@ -184,6 +180,26 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
                 {
                     toastId: 'error', // will ensure only one error is displayed at a time
                 }
+            ),
+        100
+    )
+}
+
+export function successToast(title?: string, message?: string): void {
+    /**
+     * Shows a standardized success message.
+     * @param title Title message of the toast
+     * @param message Body message on the toast
+     */
+    setTimeout(
+        () =>
+            toast.success(
+                <div data-attr="success-toast">
+                    <h1>
+                        <ExclamationCircleOutlined /> {title || 'Success!'}
+                    </h1>
+                    <p>{message || 'Your action was completed successfully.'}</p>
+                </div>
             ),
         100
     )
@@ -366,11 +382,26 @@ export function formatLabel(label: string, action: ActionFilter): string {
             )
             .join(', ')})`
     }
-    return label
+    return label.trim()
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
+}
+
+/** Returns "response" from: obj2 = { ...obj1, ...response }  */
+export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
+    const response: Record<string, any> = { ...obj2 }
+    for (const key of Object.keys(obj1)) {
+        if (key in response) {
+            if (obj1[key] === response[key]) {
+                delete response[key]
+            }
+        } else {
+            response[key] = undefined
+        }
+    }
+    return response
 }
 
 export function idToKey(array: Record<string, any>[], keyField: string = 'id'): Record<string, any> {
@@ -571,7 +602,7 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToName(event: EventType): string {
+export function eventToName(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
@@ -780,7 +811,7 @@ export function sampleOne<T>(items: T[]): T {
     return items[Math.floor(Math.random() * items.length)]
 }
 
-/** Convert camelCase, PascalCase or snake_case to Title Case. */
+/** Convert camelCase, PascalCase or snake_case to Sentence case. */
 export function identifierToHuman(identifier: string | number): string {
     const words: string[] = []
     let currentWord: string = ''
@@ -809,7 +840,7 @@ export function identifierToHuman(identifier: string | number): string {
     if (currentWord) {
         words.push(currentWord)
     }
-    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
+    return capitalizeFirstLetter(words.join(' '))
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {

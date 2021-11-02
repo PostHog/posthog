@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List
 from uuid import uuid4
 
 from django.conf import settings

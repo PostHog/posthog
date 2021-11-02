@@ -281,7 +281,7 @@ export const commandPaletteLogic = kea<
         commandRegistrations: [
             (selectors) => [
                 selectors.rawCommandRegistrations,
-                dashboardsModel.selectors.dashboards,
+                dashboardsModel.selectors.nameSortedDashboards,
                 teamLogic.selectors.currentTeam,
             ],
             (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
@@ -576,11 +576,12 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver:
                     userLogic.values.user?.is_staff ||
+                    userLogic.values.user?.is_impersonated ||
                     preflightLogic.values.preflight?.is_debug ||
-                    userLogic.values.user?.is_impersonated
+                    preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: PlusOutlined,
-                              display: 'Debug ClickHouse Queries',
+                              display: 'Debug queries (ClickHouse)',
                               executor: () => {
                                   debugCHQueries()
                               },

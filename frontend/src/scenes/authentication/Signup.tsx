@@ -13,6 +13,12 @@ import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
 import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: Signup,
+    logic: signupLogic,
+}
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
@@ -142,7 +148,7 @@ export function Signup(): JSX.Element | null {
                                         signupResponse?.errorAttribute === 'password' ? (
                                             signupResponse.errorDetail
                                         ) : (
-                                            <span style={{ paddingBottom: 24 }}>
+                                            <span style={{ paddingBottom: 16 }}>
                                                 <ExclamationCircleFilled style={{ marginRight: 4 }} />
                                                 Passwords must be at least 8 characters
                                             </span>

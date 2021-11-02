@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 import dj_database_url
 import sentry_sdk
+import structlog
 from django.core.exceptions import ImproperlyConfigured
 from kombu import Exchange, Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
@@ -63,21 +64,37 @@ if E2E_TESTING:
         ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
     )
 
-# These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
+# These flags will be force-enabled on the frontend **and OVERRIDE all** flags from `/decide`
 # The features here are released, but the flags are just not yet removed from the code.
 # To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
 env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
 PERSISTED_FEATURE_FLAGS = []
-if env_feature_flags != "0" and env_feature_flags.lower() != "false":
+if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEBUG:
     PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
         # Add hard-coded feature flags for static releases here
+        "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
+        "5440-multivariate-support",
+        "6063-rename-filters",
+        "4141-event-columns",
+        "new-paths-ui",
+        "new-paths-ui-edge-weights",
     ]
 
-SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
+
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
 
-SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+# Instance configuration preferences
+# https://posthog.com/docs/self-host/configure/environment-variables
+SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
+debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
+disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
+INSTANCE_PREFERENCES = {
+    "debug_queries": debug_queries,
+    "disable_paid_fs": disable_paid_fs,
+}
+
+SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234/")
@@ -263,6 +280,8 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    "django_structlog.middlewares.RequestMiddleware",
+    "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -334,7 +353,7 @@ SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
-AUTHENTICATION_BACKENDS = [
+AUTHENTICATION_BACKENDS: List[str] = [
     "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
@@ -471,6 +490,7 @@ REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
+SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relatively short because cached result is used throughout the duration a session recording loads.
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -478,6 +498,8 @@ TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached r
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
+
+PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
 # shell_plus settings
 # https://django-extensions.readthedocs.io/en/latest/shell_plus.html
@@ -595,7 +617,7 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
         (
             "You are using the default SECRET_KEY in a production environment!",
             "For the safety of your instance, you must generate and set a unique key.",
-            "More information on https://posthog.com/docs/deployment/securing-posthog#secret-key",
+            "More information on https://posthog.com/docs/self-host/configure/securing-posthog",
         )
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
@@ -618,17 +640,48 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 # TODO: Temporary
 EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_cast=str_to_bool)
 
+# Setup logging
+LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler",},},
-    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING")},
+    "formatters": {
+        "default": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.dev.ConsoleRenderer(),},
+        "json": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.processors.JSONRenderer(),},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": LOGGING_FORMATTER_NAME,},
+        "null": {"class": "logging.NullHandler",},
+    },
+    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
     "loggers": {
-        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
-        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
-        "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
+        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+        "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
+        "django.utils.autoreload": {
+            "handlers": ["null"],
+        },  # blackhole Django autoreload logs (this is only needed in DEV)
+        "axes": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+        "statsd": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
     },
 }
+
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+    ],
+    context_class=structlog.threadlocal.wrap_dict(dict),
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
 
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"

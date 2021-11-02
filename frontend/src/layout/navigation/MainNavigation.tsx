@@ -4,7 +4,6 @@ import {
     ApiFilled,
     ClockCircleFilled,
     DownOutlined,
-    HomeOutlined,
     MessageOutlined,
     PlusOutlined,
     ProjectFilled,
@@ -14,7 +13,7 @@ import {
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
@@ -45,12 +44,16 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 // to show the right page in the sidebar
-const sceneOverride: Partial<Record<Scene, string>> = {
-    action: 'actions',
-    person: 'persons',
-    dashboard: 'dashboards',
+const sceneOverride: Partial<Record<Scene, Scene>> = {
+    [Scene.Action]: Scene.Events,
+    [Scene.Actions]: Scene.Events,
+    [Scene.EventStats]: Scene.Events,
+    [Scene.EventPropertyStats]: Scene.Events,
+    [Scene.Person]: Scene.Persons,
+    [Scene.Dashboard]: Scene.Dashboards,
 }
 
 interface MenuItemProps {
@@ -147,12 +150,12 @@ const MenuItem = ({
 }
 
 function PinnedDashboards(): JSX.Element {
-    const { pinnedDashboards, dashboards } = useValues(dashboardsModel)
+    const { pinnedDashboards, pinSortedDashboards } = useValues(dashboardsModel)
     const { setPinnedDashboardsVisible } = useActions(navigationLogic)
 
     return (
         <Menu className="pinned-dashboards">
-            {dashboards.length ? (
+            {pinSortedDashboards.length ? (
                 <>
                     {pinnedDashboards.length && (
                         <Menu.ItemGroup title="Pinned dashboards" key="pinned">
@@ -169,9 +172,9 @@ function PinnedDashboards(): JSX.Element {
                             ))}
                         </Menu.ItemGroup>
                     )}
-                    {dashboards.length > pinnedDashboards.length && (
+                    {pinSortedDashboards.length > pinnedDashboards.length && (
                         <Menu.ItemGroup title="All dashboards" key="all" className="all-dashboard-list">
-                            {dashboards
+                            {pinSortedDashboards
                                 .filter((item: DashboardType) => !item.pinned)
                                 .map((item: DashboardType) => (
                                     <Menu.Item key={`dashboard-${item.id}`} style={{ margin: 0 }}>
@@ -223,9 +226,6 @@ function MenuItems(): JSX.Element {
                     to={urls.onboardingSetup()}
                     hotkey="u"
                 />
-            )}
-            {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
-                <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to={urls.home()} />
             )}
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <MenuItem
