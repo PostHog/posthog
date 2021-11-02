@@ -1172,6 +1172,8 @@ export const createProcessEventTests = (
 
     test('identify set', async () => {
         await createPerson(hub, team, ['distinct_id1'])
+        const ts_before = now
+        const ts_after = now.plus({ hours: 1 })
 
         await processEvent(
             'distinct_id1',
@@ -1186,8 +1188,8 @@ export const createProcessEventTests = (
                 },
             } as any as PluginEvent,
             team.id,
-            now,
-            now,
+            ts_before,
+            ts_before,
             new UUIDT().toString()
         )
 
@@ -1214,8 +1216,8 @@ export const createProcessEventTests = (
                 },
             } as any as PluginEvent,
             team.id,
-            now,
-            now,
+            ts_after,
+            ts_after,
             new UUIDT().toString()
         )
         expect((await hub.db.fetchEvents()).length).toBe(2)
@@ -2157,6 +2159,38 @@ export const createProcessEventTests = (
             })
         })
     }
+
+    test('set and set_once on the same key', async () => {
+        await createPerson(hub, team, ['distinct_id_set_set_once_same_key'])
+
+        await processEvent(
+            'distinct_id_set_set_once_same_key',
+            '',
+            '',
+            {
+                event: 'some_event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id_set_set_once_same_key',
+                    $set: { a_prop: 'test-set' },
+                    $set_once: { a_prop: 'test-set_once' },
+                },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        expect((await hub.db.fetchEvents()).length).toBe(1)
+
+        const [event] = await hub.db.fetchEvents()
+        expect(event.properties['$set']).toEqual({ a_prop: 'test-set' })
+        expect(event.properties['$set_once']).toEqual({ a_prop: 'test-set_once' })
+
+        const [person] = await hub.db.fetchPersons()
+        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id_set_set_once_same_key'])
+        expect(person.properties).toEqual({ a_prop: 'test-set' })
+    })
 
     if (includeNewPropertiesUpdatesTests) {
         // TODO: new tests that would fail with the existing properties updates

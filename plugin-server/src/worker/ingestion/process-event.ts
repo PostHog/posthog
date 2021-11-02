@@ -213,7 +213,8 @@ export class EventsProcessor {
         teamId: number,
         distinctId: string,
         properties: Properties,
-        propertiesOnce: Properties
+        propertiesOnce: Properties,
+        timestamp: DateTime
     ): Promise<void> {
         let useNewPropertiesUpdateFunction = false
         try {
@@ -225,7 +226,7 @@ export class EventsProcessor {
             Sentry.captureException(error)
         }
         if (useNewPropertiesUpdateFunction) {
-            await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
+            await this.db.updatePersonProperties(teamId, distinctId, properties, propertiesOnce, timestamp)
             return
         }
         await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
@@ -523,7 +524,8 @@ export class EventsProcessor {
                 teamId,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {}
+                properties['$set_once'] || {},
+                timestamp
             )
         }
 

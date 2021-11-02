@@ -24,5 +24,13 @@ describe('process event (clickhouse)', () => {
         await resetTestDatabaseClickhouse(extraServerConfig)
     })
 
-    createProcessEventTests('clickhouse', false, extraServerConfig)
+    describe('with old update properties', () => {
+        createProcessEventTests('clickhouse', false, extraServerConfig)
+    })
+
+    describe('with new update properties', () => {
+        extraServerConfig['NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS'] = '2'
+
+        createProcessEventTests('clickhouse', true, extraServerConfig)
+    })
 })
