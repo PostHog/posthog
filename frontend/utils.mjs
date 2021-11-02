@@ -8,11 +8,9 @@ import * as fse from 'fs-extra'
 import { build } from 'esbuild'
 import chokidar from 'chokidar'
 import liveServer from 'live-server'
-import { createProxyMiddleware } from 'http-proxy-middleware'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
-const defaultBackend = 'http://localhost:8000'
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const jsURL = `http://${defaultHost}:${defaultPort}`
@@ -175,31 +173,7 @@ export async function buildOrWatch(config) {
 export function startServer(opts = {}) {
     const host = opts.host || defaultHost
     const port = opts.port || defaultPort
-    const backend = opts.backend || defaultBackend
-    const backendUrls = opts.backendUrls || [
-        '/_',
-        '/admin/',
-        '/api/',
-        '/authorize_and_redirect/',
-        '/batch/',
-        '/capture/',
-        '/decide/',
-        '/demo',
-        '/e/',
-        '/engage/',
-        '/login',
-        '/logout',
-        '/s/',
-        '/signup/finish/',
-        '/static/recorder.js',
-        '/static/rest_framework/',
-        '/track/',
-    ]
 
-    const INJECTED_CODE = fs.readFileSync(
-        path.join(__dirname, '..', 'node_modules', 'live-server', 'injected.html'),
-        'utf8'
-    )
     console.log(`🍱 Started server at http://${host}:${port}`)
 
     let resolve = null
@@ -235,41 +209,6 @@ export function startServer(opts = {}) {
                 }
                 next()
             },
-            createProxyMiddleware((pathname) => !!backendUrls.find((u) => pathname.startsWith(u)), {
-                target: backend,
-                changeOrigin: true,
-                logLevel: 'warn',
-            }),
-            createProxyMiddleware(
-                (pathname, req) => {
-                    return !pathname.startsWith('/static/') && req.headers['accept']?.includes('html')
-                },
-                {
-                    target: backend,
-                    bypass: () => '/',
-                    logLevel: 'warn',
-                    changeOrigin: true,
-                    selfHandleResponse: true, // so that the onProxyRes takes care of sending the response
-                    onError: (err, req, res) => {
-                        res.writeHead(500, {
-                            'Content-Type': 'text/html',
-                        })
-                        res.end(
-                            `Can not access <a href="${backend}">${backend}</a>. Is the PostHog Django app running?`
-                        )
-                    },
-                    onProxyRes: (proxyRes, req, res) => {
-                        let body = new Buffer('')
-                        proxyRes.on('data', (data) => {
-                            body = Buffer.concat([body, data])
-                        })
-                        proxyRes.on('end', () => {
-                            const newBody = body.toString('utf-8').replace('</body>', INJECTED_CODE + '</body>')
-                            res.end(Buffer.from(newBody, 'utf-8'))
-                        })
-                    },
-                }
-            ),
         ],
     })
     return {
