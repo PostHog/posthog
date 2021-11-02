@@ -184,6 +184,12 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
+
+    // Uses to exclude person properties from correlation analysis results, for
+    // example can be used to exclude properties that have trivial causation
+    correlation_config: {
+        excluded_person_property_names: string[]
+    }
 }
 
 export interface ActionType {
