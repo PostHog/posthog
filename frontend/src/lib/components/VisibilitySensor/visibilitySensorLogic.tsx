@@ -4,7 +4,7 @@ import { visibilitySensorLogicType } from './visibilitySensorLogicType'
 export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
     props: {} as {
         id: string
-        offset: number
+        offset?: number
     },
 
     key: (props) => props.id || 'new',
@@ -44,9 +44,11 @@ export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
 
     selectors: () => ({
         checkIsVisible: [
-            (selectors) => [selectors.innerHeight, (_, props) => props.offset],
+            (selectors) => [selectors.innerHeight, (_, props) => props.offset || 0],
             (windowHeight, offset) => (element: HTMLElement) => {
-                if (!element) {return false}
+                if (!element) {
+                    return false
+                }
                 const { top, bottom } = element.getBoundingClientRect()
                 console.log(top, bottom, offset, windowHeight)
                 return top + offset >= 0 && top + offset <= windowHeight
