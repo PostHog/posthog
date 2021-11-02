@@ -9,6 +9,8 @@ jobs:
         outputs:
             matrix: ${{ steps.set-matrix.outputs.matrix }}
         steps:
+            - name: Check out
+              uses: actions/checkout@v2
             - id: set-matrix
               run: |
                   matrix=$(jq 'map(.)' e2e_matrix.json)                
