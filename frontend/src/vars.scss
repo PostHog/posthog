@@ -160,10 +160,3 @@ $md: 768px;
 $lg: 992px;
 $xl: 1200px;
 $xxl: 1600px;
-
-// Export variables for TS access
-:export {
-    zDrawer: $z_drawer;
-    zPopup: $z_popup;
-    zGraphAnnotationPrompt: $z_graph_annotation_prompt;
-}
