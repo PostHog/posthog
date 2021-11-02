@@ -9,11 +9,9 @@ jobs:
         outputs:
             matrix: ${{ steps.set-matrix.outputs.matrix }}
         steps:
-            - name: Check out
-              uses: actions/checkout@v2
             - id: set-matrix
               run: |
-                  matrix=$(jq e2e_matrix.json)                
+                  matrix=$(jq 'map(.)' e2e_matrix.json)                
                   echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
 
     cypress:
