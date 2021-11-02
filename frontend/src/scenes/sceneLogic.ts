@@ -12,13 +12,14 @@ import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
-import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations, scenes } from 'scenes/scenes'
+import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 // Don't import and use this logic directly as via "scenes/scenes" it pulls in all scenes with
 // their dynamic imports, and hence confuses bundlers.
 // Instead use sceneProxyLogic.
 export const sceneLogic = kea<sceneLogicType>({
+    props: {} as { scenes?: Record<Scene, () => any> },
     path: ['scenes', 'sceneLogic'],
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -139,7 +140,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
         return mapping
     },
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
@@ -228,7 +229,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 return
             }
 
-            if (!scenes[scene]) {
+            if (!props.scenes?.[scene]) {
                 actions.setScene(Scene.Error404, emptySceneParams)
                 return
             }
@@ -238,7 +239,7 @@ export const sceneLogic = kea<sceneLogicType>({
             if (!loadedScene) {
                 let importedScene
                 try {
-                    importedScene = await scenes[scene]()
+                    importedScene = await props.scenes[scene]()
                 } catch (error) {
                     if (error.name === 'ChunkLoadError') {
                         if (scene !== null) {
