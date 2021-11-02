@@ -18,7 +18,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
-import { SideBar } from '../layout/lemonade/SideBar'
+import { SideBar } from '../layout/lemonade/SideBar/SideBar'
 
 export const appLogic = kea<appLogicType>({
     actions: {

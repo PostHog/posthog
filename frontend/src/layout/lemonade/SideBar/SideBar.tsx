@@ -23,7 +23,7 @@ import { sceneLogic } from '../../../scenes/sceneLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
 import { lemonadeLogic } from '../lemonadeLogic'
-import './index.scss'
+import './SideBar.scss'
 
 export function ProjectSwitcher(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

@@ -4,7 +4,7 @@ import { Layout } from 'antd'
 import { keaStory } from 'lib/storybook/kea-story'
 import lemonadeInitial from './lemonade.initial.json'
 import { TopBar } from '../TopBar'
-import { SideBar } from '../SideBar'
+import { SideBar } from '../SideBar/SideBar'
 
 export default {
     title: 'PostHog/Lemonade',
