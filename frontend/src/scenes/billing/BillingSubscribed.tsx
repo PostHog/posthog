@@ -11,6 +11,7 @@ import { router } from 'kea-router'
 import { billingSubscribedLogicType } from './BillingSubscribedType'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { billingLogic } from './billingLogic'
 
 enum SubscriptionStatus {
     Success = 'success',
@@ -86,13 +87,31 @@ export function BillingSubscribed(): JSX.Element {
 
 function SubscriptionSuccess(): JSX.Element {
     const { push } = useActions(router)
+    const { billing } = useValues(billingLogic)
+
     return (
         <>
             <CheckCircleOutlined style={{ color: 'var(--success)' }} className="title-icon" />
             <h2 className="subtitle">You're all set!</h2>
             <p>
-                You are now subscribed to the <b>Standard Plan</b>. Please reach out to{' '}
-                <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you have any billing questions.
+                You are now subscribed
+                {billing?.is_billing_active && billing.plan && (
+                    <>
+                        to the <b>{billing.plan.name}</b>
+                    </>
+                )}
+                .
+                {billing?.plan?.key === 'standard' && (
+                    <span>
+                        {' '}
+                        You will be billed on the <b>first 3 days of each month</b>. If you use less than 1M events, you
+                        will not be billed.
+                    </span>
+                )}
+            </p>
+            <p>
+                Please reach out to <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you have any billing
+                questions.
             </p>
             <Button className="btn-bridge outlined" block onClick={() => push('/')}>
                 Continue to PostHog
@@ -112,7 +131,8 @@ function SubscriptionFailure(): JSX.Element {
                 <b>different payment method or contact us</b> if the problem persists.
             </p>
             {subscriptionId && (
-                // Note we include PostHog Cloud specifically (app.posthog.com) because billing can only be set up there.
+                /* Note we include PostHog Cloud specifically (app.posthog.com) in case a self-hosted user 
+                ended up here for some reason. Should not happen as these should be processed by license.posthog.com */
                 <Button
                     className="btn-bridge"
                     block
