@@ -7,13 +7,9 @@ services:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
-        ports:
-            - '5432:5432'
         restart: on-failure
     redis:
-        image: 'redis:alpine'
-        ports:
-            - '6379:6379'
+        image: 'redis:6.2.6-alpine'
         restart: on-failure
     clickhouse:
         # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
@@ -22,11 +18,6 @@ services:
         depends_on:
             - kafka
             - zookeeper
-        ports:
-            - '8123:8123'
-            - '9000:9000'
-            - '9440:9440'
-            - '9009:9009'
         volumes:
             - ./idl:/idl
             - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -34,18 +25,20 @@ services:
             - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
         restart: on-failure
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: bitnami/zookeeper:3.7.0
         restart: on-failure
+        environment:
+            ALLOW_ANONYMOUS_LOGIN: 'Yes'
     kafka:
-        image: wurstmeister/kafka
+        image: bitnami/kafka:2.8.1
         depends_on:
             - zookeeper
-        ports:
-            - '9092:9092'
         environment:
             KAFKA_ADVERTISED_HOST_NAME: kafka
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
             KAFKA_HEAP_OPTS: -Xmx512M -Xms512M
+            KAFKA_BROKER_ID: 1000
+            ALLOW_PLAINTEXT_LISTENER: 'Yes'
         restart: on-failure
     web: 
         image: posthog/posthog:latest
@@ -77,6 +70,5 @@ services:
             - clickhouse:clickhouse
             - kafka:kafka
         ports:
-            - '8000:8000'
             - '80:8000'
         restart: on-failure
