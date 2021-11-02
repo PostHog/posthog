@@ -5,8 +5,10 @@ on: pull_request
 jobs:
     storybook-chromatic:
         runs-on: ubuntu-latest
-        if: github.repository_owner == 'PostHog'
+        if: github.event.pull_request.head.repo.full_name == github.repository
         steps:
+            - name: Test
+              run: echo ${{github}}
             - uses: actions/checkout@v2
 
             - name: Install dependencies and chromatic
