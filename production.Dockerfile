@@ -99,7 +99,7 @@ COPY . .
 # the cache hit ratio of the layers above.
 RUN yarn build && \
     yarn cache clean && \
-    rm -rf ./node_modules ./plugins/node_modules
+    rm -rf ./node_modules
 
 # Generate Django's static files
 RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
