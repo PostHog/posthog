@@ -533,6 +533,14 @@ export class DB {
         return client ? kafkaMessages : updatedPerson
     }
 
+    private sanitizePropertiesOnce(properties: Properties, propertiesOnce: Properties): void {
+        // If set and set_once are used for the same key we only use set
+        // because an earlier set_once shouldn't override a key that has seen a set call, but should for set_once
+        Object.keys(properties).map((key) => {
+            delete propertiesOnce[key]
+        })
+    }
+
     public async updatePersonProperties(
         teamId: number,
         distinctId: string,
@@ -543,6 +551,8 @@ export class DB {
         if (properties.length == 0 && propertiesOnce.length == 0) {
             return
         }
+        this.sanitizePropertiesOnce(properties, propertiesOnce)
+
         let values: Array<any> = ['<id>', timestamp.toISO()]
         const startIndex = values.length + 1
         values = values.concat(getPersonPropertyUpdateValues(properties, PersonPropertyUpdateOperation.Set))
@@ -550,7 +560,7 @@ export class DB {
         const propertyUpdateExpressions = getPersonPropertyUpdateExpressions(values, startIndex)
         const query = `SELECT update_person_props($1, $2, ARRAY[ ${propertyUpdateExpressions} ] );`
 
-        let props: Properties = {}
+        let propsAfterUpdate: Properties = {}
         let personFound: Person | undefined
         await this.postgresTransaction(async (client) => {
             personFound = await this.fetchPerson(teamId, distinctId)
@@ -561,21 +571,15 @@ export class DB {
             }
             values[0] = personFound.id
             const updateResult = await client.query(query, values)
-            console.log(updateResult)
-            console.log(updateResult.rows)
             if (updateResult.rows.length > 0) {
-                props = updateResult.rows[0]
+                propsAfterUpdate = updateResult.rows[0]
             }
-            console.log(props)
         })
 
-        console.log(personFound?.properties)
-
-        if (this.kafkaProducer && personFound && stringify(personFound.properties) != stringify(props)) {
-            // todo: how do I test the kafka part? in process-event.ts?
+        if (this.kafkaProducer && personFound && stringify(personFound.properties) != stringify(propsAfterUpdate)) {
             const kafkaMessage = generateKafkaPersonUpdateMessage(
                 timestamp,
-                props,
+                propsAfterUpdate,
                 personFound.team_id,
                 personFound.is_identified,
                 personFound.uuid
