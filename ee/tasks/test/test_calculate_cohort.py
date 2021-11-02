@@ -9,6 +9,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_query
 from posthog.tasks.test.test_calculate_cohort import calculate_cohort_test_factory
+from ee.clickhouse.util import ClickhouseTestMixin
 
 
 def _create_event(**kwargs):
