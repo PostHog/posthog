@@ -159,7 +159,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     <PropertyNamesSelect
                         value={new Set(propertyNames)}
                         onChange={(selectedProperties: string[]) => setPropertyNames(selectedProperties)}
-                        allProperties={inversePropertyNames(excludedPropertyNames)}
+                        allProperties={inversePropertyNames(excludedPropertyNames || [])}
                     />
                     <p className="title">CORRELATION</p>
                     <div
@@ -236,12 +236,16 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { excludeProperty } = useActions(logic)
-    const { isPropertyExcluded } = useValues(logic)
+    const { excludePropertyFromProject } = useActions(logic)
+    const { isPropertyExcludedFromProject } = useValues(logic)
     const propertyName = (record.event.event || '').split('::')[0]
 
     return (
-        <Button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)} type="link">
+        <Button
+            disabled={isPropertyExcludedFromProject(propertyName)}
+            onClick={() => excludePropertyFromProject(propertyName)}
+            type="link"
+        >
             Exclude
         </Button>
     )

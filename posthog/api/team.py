@@ -62,6 +62,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "is_demo",
             "timezone",
             "data_attributes",
+            "correlation_config",
             "session_recording_opt_in",
             "session_recording_retention_period_days",
             "effective_membership_level",
