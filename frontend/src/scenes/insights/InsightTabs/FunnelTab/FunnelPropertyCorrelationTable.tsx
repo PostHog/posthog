@@ -197,8 +197,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 loading={propertyCorrelationsLoading}
                 scroll={{ x: 'max-content' }}
                 size="small"
-                rowKey="rowKey"
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                rowKey={(record: FunnelCorrelation) => record.event.event}
+                pagination={{ pageSize: 5, hideOnSinglePage: true }}
                 style={{ marginTop: '1rem' }}
             >
                 <Column
@@ -226,7 +226,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     title="Actions"
                     key="actions"
                     render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
-                    align="left"
+                    align="center"
                 />
             </Table>
         </div>
@@ -241,8 +241,8 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
     const propertyName = (record.event.event || '').split('::')[0]
 
     return (
-        <Button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)}>
-            Exclude property
+        <Button disabled={isPropertyExcluded(propertyName)} onClick={() => excludeProperty(propertyName)} type="link">
+            Exclude
         </Button>
     )
 }

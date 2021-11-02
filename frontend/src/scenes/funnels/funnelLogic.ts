@@ -131,6 +131,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
         excludeProperty: (propertyName: string) => ({ propertyName }),
+        excludeEvent: (eventName: string) => ({ eventName }),
         excludeEventProperty: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
 
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
@@ -154,6 +155,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'events',
+                            funnel_correlation_exclude_event_names: values.excludedEventNames,
                         })
                     ).result?.events
 
@@ -173,7 +175,7 @@ export const funnelLogic = kea<funnelLogicType>({
             {
                 loadPropertyCorrelations: async () => {
                     const target_properties =
-                        values.propertyNames.length === values.allProperties.length ? ['$all'] : values.propertyNames
+                        values.propertyNames.length >= values.allProperties.length ? ['$all'] : values.propertyNames
 
                     if (target_properties.length === 0) {
                         return { events: [] }
@@ -331,6 +333,15 @@ export const funnelLogic = kea<funnelLogicType>({
             },
             {
                 excludeProperty: (state, { propertyName }) => [...state, propertyName],
+            },
+        ],
+        excludedEventNames: [
+            [] as string[],
+            {
+                persist: true,
+            },
+            {
+                excludeEvent: (excludedEvents, { eventName }) => [...excludedEvents, eventName],
             },
         ],
         excludedEventPropertyNames: [
@@ -908,6 +919,11 @@ export const funnelLogic = kea<funnelLogicType>({
             (excludedPropertyNames) => (propertyName: string) =>
                 excludedPropertyNames.find((name) => name === propertyName) !== undefined,
         ],
+        isEventExcluded: [
+            () => [selectors.excludedEventNames],
+            (excludedEventNames) => (eventName: string) =>
+                excludedEventNames.find((name) => name === eventName) !== undefined,
+        ],
 
         isEventPropertyExcluded: [
             () => [selectors.excludedEventPropertyNames],
@@ -1069,6 +1085,10 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadEventWithPropertyCorrelations(eventName)
         },
 
+        excludeEvent: async () => {
+            actions.loadCorrelations()
+        },
+
         excludeProperty: () => {
             actions.setPropertyNames(
                 values.propertyNames.filter((property) => !values.excludedPropertyNames.includes(property))
@@ -1094,17 +1114,6 @@ export const funnelLogic = kea<funnelLogicType>({
             if (feedbackBoxVisible) {
                 // Don't send event when resetting reducer
                 eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
-            }
-        },
-    }),
-
-    events: ({ values, actions }) => ({
-        afterMount: () => {
-            if (
-                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                values.insight.filters?.insight === ViewType.FUNNELS
-            ) {
-                actions.setPropertyNames(values.allProperties)
             }
         },
     }),
