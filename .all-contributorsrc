@@ -1698,6 +1698,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "pixlwave",
+      "name": "Doug",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6060466?v=4",
+      "profile": "https://pixlwave.uk/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

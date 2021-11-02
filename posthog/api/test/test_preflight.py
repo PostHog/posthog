@@ -7,7 +7,6 @@ from rest_framework import status
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.organization import Organization, OrganizationInvite
-from posthog.settings import INSTANCE_PREFERENCES
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
