@@ -96,6 +96,9 @@ function getInputFiles(result) {
 }
 
 function reloadLiveServer() {
+    // The live-server watches just this one file, and touching it asks it to reload all files.
+    // We use this file to trigger a reload as soon as we start a build, and then use a middleware
+    // to pause serving the files until the build finishes. This gives improves reloads from 5sec to 3sec.
     const filename = path.resolve(__dirname, 'tmp', 'reload.txt')
     fs.mkdirSync(path.dirname(filename), { recursive: true })
     fs.closeSync(fs.openSync(filename, 'w'))
@@ -108,6 +111,11 @@ export async function buildOrWatch(config) {
     let buildAgain = false
     let inputFiles = new Set([])
 
+    // The aim is to make sure that when we request a build, then:
+    // - we only build one thing at a time
+    // - if we request a build when one is running, we'll queue it to start right after this build
+    // - if we request a build multiple times when one is running, only one will start right after this build
+    // - notify with callbacks when builds start and when they end.
     async function debouncedBuild() {
         if (buildPromise) {
             buildAgain = true
@@ -205,6 +213,8 @@ export function startServer(opts = {}) {
                     console.log('⌛️ Waiting for build to complete...')
                     ifPaused.logged = true
                     await ifPaused
+                    // somehow must still delay before the static server reloads
+                    // rewriting to use our own express app would solve this
                     await new Promise((r) => setTimeout(r, 400))
                 }
                 next()
