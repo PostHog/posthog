@@ -5,14 +5,7 @@ import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { LemonRow } from '../../../lib/components/LemonRow'
-import {
-    IconCheckmark,
-    IconOffline,
-    IconPlus,
-    IconSignOut,
-    IconUpdate,
-    IconExclamation,
-} from 'lib/components/icons'
+import { IconCheckmark, IconOffline, IconPlus, IconSignOut, IconUpdate, IconExclamation } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
