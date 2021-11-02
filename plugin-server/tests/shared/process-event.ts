@@ -84,6 +84,7 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 
 export const createProcessEventTests = (
     database: 'postgresql' | 'clickhouse',
+    includeNewPropertiesUpdatesTests: boolean,
     extraServerConfig?: Partial<PluginsServerConfig>,
     createTests?: (response: ReturnWithHub) => void
 ): ReturnWithHub => {
@@ -2155,6 +2156,10 @@ export const createProcessEventTests = (
                 created_at: expect.any(String),
             })
         })
+    }
+
+    if (includeNewPropertiesUpdatesTests) {
+        // TODO: new tests that would fail with the existing properties updates
     }
 
     return returned

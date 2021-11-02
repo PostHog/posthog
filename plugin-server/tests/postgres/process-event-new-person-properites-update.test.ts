@@ -1,11 +1,11 @@
 // Temporary until new person properties completely rolled out copy of process-event.test.ts with the new props enabled for team 99
 import { createUserTeamAndOrganization, getTeams } from '../helpers/sql'
-import { createProcessEventTests } from '../shared/process-event-new-person-properties-update'
+import { createProcessEventTests } from '../shared/process-event'
 
 jest.setTimeout(600000) // 600 sec timeout.
 
 describe('process event (postgresql)', () => {
-    createProcessEventTests('postgresql', { NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '2' }, (response) => {
+    createProcessEventTests('postgresql', true, { NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '2' }, (response) => {
         test('element group', async () => {
             const { hub } = response
             const elements = [{ tag_name: 'button', text: 'Sign up!' }, { tag_name: 'div' }]

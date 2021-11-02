@@ -6,7 +6,7 @@ import { Event, PluginsServerConfig } from '../../src/types'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
-import { createPerson, createProcessEventTests } from '../shared/process-event-new-person-properties-update'
+import { createPerson, createProcessEventTests } from '../shared/process-event'
 
 jest.setTimeout(180_000) // 3 minute timeout
 
@@ -26,5 +26,5 @@ describe('process event (clickhouse)', () => {
         await resetTestDatabaseClickhouse(extraServerConfig)
     })
 
-    createProcessEventTests('clickhouse', extraServerConfig)
+    createProcessEventTests('clickhouse', true, extraServerConfig)
 })

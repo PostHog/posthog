@@ -4,7 +4,7 @@ import { createProcessEventTests } from '../shared/process-event'
 jest.setTimeout(600000) // 600 sec timeout.
 
 describe('process event (postgresql)', () => {
-    createProcessEventTests('postgresql', {}, (response) => {
+    createProcessEventTests('postgresql', false, {}, (response) => {
         test('element group', async () => {
             const { hub } = response
             const elements = [{ tag_name: 'button', text: 'Sign up!' }, { tag_name: 'div' }]
