@@ -12,7 +12,7 @@ import {
     IconSignOut,
     IconUpdate,
     IconExclamation,
-} from '../../../lib/components/icons'
+} from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
