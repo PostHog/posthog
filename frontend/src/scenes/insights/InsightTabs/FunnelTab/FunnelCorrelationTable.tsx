@@ -256,7 +256,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         expanded ? (
                             <Tooltip title="Collapse">
                                 <div
-                                    style={{ cursor: 'pointer' }}
+                                    style={{ cursor: 'pointer', opacity: 0.5, fontSize: 24 }}
                                     onClick={(e) => {
                                         removeNestedTableExpandedKey(record.event.event)
                                         onExpand(record, e)
@@ -268,7 +268,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         ) : (
                             <Tooltip title="Expand to see correlated properties for this event">
                                 <div
-                                    style={{ cursor: 'pointer' }}
+                                    style={{ cursor: 'pointer', opacity: 0.5, fontSize: 24 }}
                                     onClick={(e) => {
                                         !eventHasPropertyCorrelations(record.event.event) &&
                                             loadEventWithPropertyCorrelations(record.event.event)
