@@ -52,7 +52,7 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
     for index, result in enumerate(preprocessed):
         assert result["event"] == "$snapshot"
         assert result["properties"]["$session_id"] == expected_session_ids[index]
-        assert result["properties"]["$snapshot_data"]["window_id"] == expected_window_ids[index]
+        assert result["properties"]["$snapshot_data"].get("window_id") == expected_window_ids[index]
         assert result["properties"]["distinct_id"] == "abc123"
         assert "chunk_id" in result["properties"]["$snapshot_data"]
         assert result["event"] == "$snapshot"
