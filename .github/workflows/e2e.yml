@@ -10,11 +10,11 @@ jobs:
             matrix: ${{ steps.set-matrix.outputs.matrix }}
         steps:
             - name: Check out
-            uses: actions/checkout@v2
+                uses: actions/checkout@v2
             - id: set-matrix
-            run: |
-                matrix=$(jq matrix_includes.json)                
-                echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
+                run: |
+                    matrix=$(jq matrix_includes.json)                
+                    echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
 
     cypress:
         name: Cypress E2E tests (parallel)
