@@ -85,6 +85,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    membership_level: OrganizationMembershipLevel | null
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -98,7 +99,6 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
-    membership_level: OrganizationMembershipLevel | null
 }
 
 /** Member properties relevant at both organization and project level. */
