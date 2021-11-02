@@ -55,8 +55,8 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
             "properties": {
                 **events[0]["properties"],
                 "$session_id": session_id,
-                "$window_id": window_id,
                 "$snapshot_data": {
+                    "window_id": window_id,
                     "chunk_id": id,
                     "chunk_index": index,
                     "chunk_count": len(chunks),
