@@ -205,7 +205,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
-                            funnel_correlation_names: values.propertyNames,
+                            funnel_correlation_names: targetProperties,
                             funnel_correlation_exclude_names: values.excludedPropertyNames,
                         })
                     ).result?.events
