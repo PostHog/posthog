@@ -15,8 +15,15 @@ jobs:
             # https://github.com/cypress-io/github-action/issues/48
             fail-fast: false
             matrix:
+                if: github.event.pull_request.head.repo.full_name == github.repository
                 # run 7 copies of the current job in parallel
                 containers: [1, 2, 3, 4, 5, 6, 7]
+
+            matrix:
+                if: github.event.pull_request.head.repo.full_name != github.repository
+                # if PR is from a fork, only run once as there's no parallelization anyways
+                containers: [1]
+        
         services:
             postgres:
                 image: postgres:12
