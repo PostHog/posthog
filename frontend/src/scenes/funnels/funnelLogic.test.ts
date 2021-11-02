@@ -459,7 +459,7 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('triggers request to correlation endpoint when property excluded', async () => {
+        it('triggers update to correlation list when property excluded from project', async () => {
             userLogic.mount()
 
             // Make sure we have loaded the team already
