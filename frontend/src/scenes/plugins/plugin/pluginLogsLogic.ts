@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from '~/lib/api'
-import { PluginLogEntry } from '~/types'
+import { PluginLogEntry, PluginLogEntryType } from '~/types'
 import { teamLogic } from '../../teamLogic'
 import { pluginLogsLogicType } from './pluginLogsLogicType'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -42,6 +42,9 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
     actions: {
         clearPluginLogsBackground: true,
         markLogsEnd: true,
+        setPluginLogsTypes: (typeFilters: CheckboxValueType[]) => ({
+            typeFilters,
+        }),
     },
 
     loaders: ({ props: { pluginConfigId }, values, actions, cache }) => ({
@@ -115,8 +118,18 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
             },
         },
     }),
-
+    listeners: ({ actions }) => ({
+        setPluginLogsTypes: ({ typeFilters }) => {
+            actions.loadPluginLogsTypes(typeFilters)
+        },
+    }),
     reducers: {
+        pluginLogsTypes: [
+            Object.values(PluginLogEntryType),
+            {
+                setPluginLogsTypes: (_, { typeFilters }) => typeFilters.map((tf) => tf as PluginLogEntryType),
+            },
+        ],
         pluginLogsBackground: [
             [] as PluginLogEntry[],
             {

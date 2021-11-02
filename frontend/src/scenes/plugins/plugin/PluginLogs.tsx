@@ -65,8 +65,8 @@ const columns: ResizableColumnType<PluginLogEntry>[] = [
 export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
     const logic = pluginLogsLogic({ pluginConfigId })
 
-    const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad } = useValues(logic)
-    const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch, loadPluginLogsTypes } = useActions(logic)
+    const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad, pluginLogsTypes } = useValues(logic)
+    const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch, setPluginLogsTypes } = useActions(logic)
 
     return (
         <Space direction="vertical" style={{ flexGrow: 1 }} className="ph-no-capture plugin-logs">
@@ -83,8 +83,8 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                     Show logs of type:&nbsp;
                     <Checkbox.Group
                         options={Object.values(PluginLogEntryType)}
-                        defaultValue={Object.values(PluginLogEntryType)}
-                        onChange={loadPluginLogsTypes}
+                        value={pluginLogsTypes}
+                        onChange={setPluginLogsTypes}
                     />
                 </span>
             </Row>
