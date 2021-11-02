@@ -3,7 +3,7 @@ import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { Row, Col, Card, Button, Tooltip, Popconfirm } from 'antd'
+import { Row, Col, Card, Button, Popconfirm } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
@@ -141,11 +141,9 @@ export function Insights(): JSX.Element {
                                     reportInsightsTabReset()
                                 }}
                             >
-                                <Tooltip placement="top" title="Discard all changes">
-                                    <Button type="link" className="btn-reset">
-                                        Discard
-                                    </Button>
-                                </Tooltip>
+                                <Button type="link" className="btn-reset">
+                                    Discard
+                                </Button>
                             </Popconfirm>
                         ) : null}
                         {insight.id && <SaveToDashboard insight={insight} />}
