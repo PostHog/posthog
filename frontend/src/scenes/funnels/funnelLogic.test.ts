@@ -48,7 +48,7 @@ describe('funnelLogic', () => {
             url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
             url.data?.funnel_correlation_type === 'properties'
         ) {
-            const excludePropertyNames = url.data?.funnel_correlation_exclude_names || []
+            const excludePropertyFromProjectNames = url.data?.funnel_correlation_exclude_names || []
             const includePropertyNames = url.data?.funnel_correlation_names || []
             return {
                 is_cached: true,
@@ -63,7 +63,7 @@ describe('funnelLogic', () => {
                                 includePropertyNames.includes('$all') ||
                                 includePropertyNames.includes(correlation.event.event)
                         )
-                        .filter((correlation) => !excludePropertyNames.includes(correlation.event.event)),
+                        .filter((correlation) => !excludePropertyFromProjectNames.includes(correlation.event.event)),
                 },
                 type: 'Funnel',
             }
@@ -389,9 +389,11 @@ describe('funnelLogic', () => {
         // userLogic.
 
         it('initially not loaded', async () => {
-            await expectLogic(logic).toFinishListeners().toMatchValues({
-                propertyCorrelations: null,
-            })
+            await expectLogic(logic)
+                .toFinishListeners()
+                .toMatchValues({
+                    propertyCorrelations: { events: [] },
+                })
         })
 
         it('Selecting all properties returns expected result', async () => {
@@ -461,20 +463,20 @@ describe('funnelLogic', () => {
             userLogic.mount()
 
             // Make sure we have loaded the team already
-            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishListeners()
+            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam()).toFinishAllListeners()
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.excludeProperty('another property')
+                logic.actions.excludePropertyFromProject('another property')
             })
+                .toFinishAllListeners()
                 .toMatchValues({
-                    propertyNames: ['some property', 'third property'],
-                    excludedPropertyNames: DEFAULT_EXCLUDED_PERSON_PROPERTIES,
-                    allProperties: ['some property', 'another property', 'third property'],
+                    propertyNames: ['some property', 'another property', 'third property'],
+                    excludedPropertyNames: DEFAULT_EXCLUDED_PERSON_PROPERTIES.concat(['another property']),
+                    allProperties: ['some property', 'third property'],
                 })
                 .toDispatchActions(logic, ['loadPropertyCorrelations'])
                 .toDispatchActions(logic, ['loadPropertyCorrelationsSuccess'])
-                .toFinishListeners()
                 .clearHistory()
                 .toMatchValues({
                     propertyCorrelations: {
@@ -490,31 +492,37 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('isPropertyExcluded returns true initially, then false when excluded, and is persisted to team config', async () => {
+        it('isPropertyExcludedFromProject returns true initially, then false when excluded, and is persisted to team config', async () => {
             userLogic.mount()
 
-            logic.actions.setPropertyNames(logic.values.allProperties)
+            expect(logic.values.isPropertyExcludedFromProject('some property')).toBe(false)
 
-            expect(logic.values.isPropertyExcluded('some property')).toBe(false)
+            await expectLogic(logic, () =>
+                logic.actions.excludePropertyFromProject('some property')
+            ).toFinishListeners()
 
-            await expectLogic(logic, () => logic.actions.excludeProperty('some property')).toFinishListeners()
-
-            expect(logic.values.isPropertyExcluded('some property')).toBe(true)
+            expect(logic.values.isPropertyExcludedFromProject('some property')).toBe(true)
 
             await expectLogic(teamLogic).toMatchValues({
                 currentTeam: {
                     ...MOCK_DEFAULT_TEAM,
-                    correlation_config: { excluded_person_property_names: ['some property'] },
+                    correlation_config: {
+                        excluded_person_property_names: DEFAULT_EXCLUDED_PERSON_PROPERTIES.concat(['some property']),
+                    },
                 },
             })
 
             // Also make sure that excluding the property again doesn't double
             // up on the config list
-            await expectLogic(logic, () => logic.actions.excludeProperty('some property')).toFinishListeners()
+            await expectLogic(logic, () =>
+                logic.actions.excludePropertyFromProject('some property')
+            ).toFinishListeners()
             await expectLogic(teamLogic).toMatchValues({
                 currentTeam: {
                     ...MOCK_DEFAULT_TEAM,
-                    correlation_config: { excluded_person_property_names: ['some property'] },
+                    correlation_config: {
+                        excluded_person_property_names: DEFAULT_EXCLUDED_PERSON_PROPERTIES.concat(['some property']),
+                    },
                 },
             })
         })

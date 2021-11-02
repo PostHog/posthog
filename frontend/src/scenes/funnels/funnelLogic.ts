@@ -78,8 +78,6 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
     '$initial_geoip_subdivision_1_code',
     '$geoip_subdivision_2_code',
     '$initial_geoip_subdivision_2_code',
-    '$geoip_subdivision_1_code',
-    '$initial_geoip_subdivision_1_code',
     '$geoip_subdivision_name',
     '$initial_geoip_subdivision_name',
 ]
@@ -156,7 +154,7 @@ export const funnelLogic = kea<funnelLogicType>({
         hideCorrelationAnalysisFeedback: true,
 
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
-        excludeProperty: (propertyName: string) => ({ propertyName }),
+        excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
         excludeEventProperty: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
 
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
@@ -196,10 +194,10 @@ export const funnelLogic = kea<funnelLogicType>({
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
                 loadPropertyCorrelations: async () => {
-                    const target_properties =
+                    const targetProperties =
                         values.propertyNames.length === values.allProperties.length ? ['$all'] : values.propertyNames
 
-                    if (target_properties.length === 0) {
+                    if (targetProperties.length === 0) {
                         return { events: [] }
                     }
 
@@ -207,7 +205,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
-                            funnel_correlation_names: target_properties,
+                            funnel_correlation_names: values.propertyNames,
                             funnel_correlation_exclude_names: values.excludedPropertyNames,
                         })
                     ).result?.events
@@ -346,8 +344,6 @@ export const funnelLogic = kea<funnelLogicType>({
             [] as string[],
             {
                 setPropertyNames: (_, { propertyNames }) => propertyNames,
-                excludeProperty: (propertyNames, { propertyName }) =>
-                    propertyNames.filter((name) => name !== propertyName),
             },
         ],
 
@@ -923,10 +919,10 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
 
-        isPropertyExcluded: [
-            () => [selectors.propertyNames],
-            (propertyNames) => (propertyName: string) =>
-                propertyNames?.find((name) => name === propertyName) === undefined,
+        isPropertyExcludedFromProject: [
+            () => [selectors.excludedPropertyNames],
+            (excludedPropertyNames) => (propertyName: string) =>
+                excludedPropertyNames?.find((name) => name === propertyName) !== undefined,
         ],
 
         isEventPropertyExcluded: [
@@ -1097,20 +1093,17 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadEventWithPropertyCorrelations(eventName)
         },
 
-        excludeProperty: ({ propertyName }) => {
+        excludePropertyFromProject: ({ propertyName }) => {
+            const oldExcludedPropertyNames = values.excludedPropertyNames
             const oldCurrentTeam = teamLogic.values.currentTeam
 
-            if (!oldCurrentTeam) {
+            if (oldCurrentTeam === null || oldExcludedPropertyNames === null) {
                 return
             }
 
             const oldCorrelationConfig = oldCurrentTeam.correlation_config
 
-            const excludedPropertyNames = [
-                ...Array.from(
-                    new Set((oldCorrelationConfig?.excluded_person_property_names || []).concat([propertyName]))
-                ),
-            ]
+            const excludedPropertyNames = [...Array.from(new Set(oldExcludedPropertyNames.concat([propertyName])))]
 
             const correlationConfig = {
                 ...oldCorrelationConfig,
@@ -1120,12 +1113,12 @@ export const funnelLogic = kea<funnelLogicType>({
             teamLogic.actions.updateCurrentTeam({
                 correlation_config: correlationConfig,
             })
+        },
 
-            // NOTE: we don't wait for updateCurrentTeam to finish, we just
-            // optimistically update setPropertyNames
-            actions.setPropertyNames(
-                values.propertyNames.filter((property) => !excludedPropertyNames?.includes(property))
-            )
+        [teamLogic.actionTypes.updateCurrentTeamSuccess]: async () => {
+            // When we have updated the current team, we'll have retrieved the
+            // excluded property names
+            actions.loadPropertyCorrelations()
         },
 
         setPropertyNames: async () => {
