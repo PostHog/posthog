@@ -225,8 +225,7 @@ export class EventsProcessor {
             Sentry.captureException(error)
         }
         if (useNewPropertiesUpdateFunction) {
-            console.log('New props update fn')
-            throw Error('Not implemented')
+            await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
             return
         }
         await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
