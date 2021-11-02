@@ -534,37 +534,36 @@ export function IconSignOut(): JSX.Element {
 
 export function IconSelectProperties({ style }: { style?: CSSProperties }): JSX.Element {
     return (
-        <svg width="24" height="24" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
                 d="M3.73368 17.7247H2.26243C2.10826 17.7247 1.98761 17.5981 2.00102 17.4449C2.0458 16.5963 2.29659 15.7711 2.73195 15.0397C3.16732 14.3084 3.77433 13.6926 4.50115 13.245C3.89455 12.5788 3.5259 11.6995 3.5259 10.7303C3.5259 8.66865 5.19823 7 7.25933 7C9.32043 7 10.9928 8.66865 10.9928 10.7303C10.995 11.6602 10.6471 12.5572 10.0175 13.245C11.4452 14.1243 12.4238 15.6697 12.5176 17.4449C12.5195 17.481 12.5139 17.5171 12.5012 17.551C12.4886 17.5849 12.4691 17.6158 12.444 17.642C12.4189 17.6682 12.3888 17.689 12.3553 17.7032C12.3219 17.7174 12.2859 17.7247 12.2495 17.7247H10.7783C10.6375 17.7247 10.5236 17.6148 10.5135 17.4749C10.3862 15.7929 8.97189 14.4607 7.25598 14.4607C5.54007 14.4607 4.12579 15.7929 3.99844 17.4749C3.98839 17.6148 3.87444 17.7247 3.73368 17.7247ZM8.9884 10.73C8.9884 9.77414 8.21088 8.9981 7.25574 8.9981C6.3006 8.9981 5.52308 9.77414 5.52308 10.73C5.52308 11.6859 6.3006 12.462 7.25574 12.462C8.21088 12.462 8.9884 11.6859 8.9884 10.73ZM14.8829 9.9675H21.7379C21.8819 9.9675 22 10.0436 22 10.1365V11.1508C22 11.2437 21.8819 11.3198 21.7379 11.3198H14.8829C14.7389 11.3198 14.6208 11.2437 14.6208 11.1508V10.1365C14.6208 10.0436 14.7389 9.9675 14.8829 9.9675ZM14.7057 13.0102H19.261C19.309 13.0102 19.3459 13.0863 19.3459 13.1792V14.1935C19.3459 14.2864 19.309 14.3625 19.261 14.3625H14.7057C14.6577 14.3625 14.6208 14.2864 14.6208 14.1935V13.1792C14.6208 13.0863 14.6577 13.0102 14.7057 13.0102Z"
                 fill="currentColor"
-                fillOpacity="0.5"
             />
         </svg>
     )
 }
 
+/** Material Design Unfold More icon. */
 export function IconUnfoldMore({ style }: { style?: CSSProperties }): JSX.Element {
     return (
-        <svg width="24" height="24" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
                 d="M12.0002 5.83L15.1702 9L16.5802 7.59L12.0002 3L7.41016 7.59L8.83016 9L12.0002 5.83ZM12.0002 18.17L8.83016 15L7.42016 16.41L12.0002 21L16.5902 16.41L15.1702 15L12.0002 18.17Z"
                 fill="currentColor"
-                fillOpacity="0.5"
             />
         </svg>
     )
 }
 
+/** Material Design Unfold Less icon. */
 export function IconUnfoldLess({ style }: { style?: CSSProperties }): JSX.Element {
     return (
-        <svg width="24" height="24" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
                 d="M7.41016 18.59L8.83016 20L12.0002 16.83L15.1702 20L16.5802 18.59L12.0002 14L7.41016 18.59ZM16.5902 5.41L15.1702 4L12.0002 7.17L8.83016 4L7.41016 5.41L12.0002 10L16.5902 5.41Z"
                 fill="currentColor"
-                fillOpacity="0.5"
             />
         </svg>
     )
