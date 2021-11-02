@@ -162,7 +162,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 <Table
                     dataSource={eventWithPropertyCorrelationsValues[eventName]}
                     loading={eventWithPropertyCorrelationsLoading}
-                    rowKey="rowKey"
+                    rowKey={(record: FunnelCorrelation) => record.event.event}
                     style={{ margin: '1rem' }}
                     scroll={{ x: 'max-content' }}
                     pagination={{ pageSize: 5, hideOnSinglePage: true }}
@@ -244,7 +244,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 loading={correlationsLoading}
                 size="small"
                 scroll={{ x: 'max-content' }}
-                rowKey={(record: FunnelCorrelation) => record.event.event || 'rowKey'}
+                rowKey={(record: FunnelCorrelation) => record.event.event}
                 pagination={{ pageSize: 5, hideOnSinglePage: true }}
                 style={{ marginTop: '1rem' }}
                 expandable={{

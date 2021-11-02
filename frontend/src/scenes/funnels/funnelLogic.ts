@@ -175,7 +175,7 @@ export const funnelLogic = kea<funnelLogicType>({
             {
                 loadPropertyCorrelations: async () => {
                     const target_properties =
-                        values.propertyNames.length === values.allProperties.length ? ['$all'] : values.propertyNames
+                        values.propertyNames.length >= values.allProperties.length ? ['$all'] : values.propertyNames
 
                     if (target_properties.length === 0) {
                         return { events: [] }
@@ -1114,18 +1114,6 @@ export const funnelLogic = kea<funnelLogicType>({
             if (feedbackBoxVisible) {
                 // Don't send event when resetting reducer
                 eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
-            }
-        },
-    }),
-
-    events: ({ values, actions, props }) => ({
-        afterMount: () => {
-            if (
-                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                values.insight.filters?.insight === ViewType.FUNNELS &&
-                !props.dashboardItemId // No correlation loads on dashboards
-            ) {
-                actions.setPropertyNames(values.allProperties)
             }
         },
     }),

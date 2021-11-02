@@ -197,7 +197,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 loading={propertyCorrelationsLoading}
                 scroll={{ x: 'max-content' }}
                 size="small"
-                rowKey="rowKey"
+                rowKey={(record: FunnelCorrelation) => record.event.event}
                 pagination={{ pageSize: 5, hideOnSinglePage: true }}
                 style={{ marginTop: '1rem' }}
             >
