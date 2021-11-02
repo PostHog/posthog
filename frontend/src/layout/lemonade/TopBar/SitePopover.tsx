@@ -5,7 +5,7 @@ import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { LemonRow } from '../../../lib/components/LemonRow'
-import { IconCheckmark, IconOffline, IconPlus, IconSignOut, IconUpdate } from '../../../lib/components/icons'
+import { IconCheckmark, IconOffline, IconPlus, IconSignOut, IconUpdate, IconExclamation } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
@@ -240,6 +240,7 @@ export function SitePopover(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { isSitePopoverOpen } = useValues(lemonadeLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
+    const { systemStatus } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
 
     return (
         <Popup
@@ -275,7 +276,13 @@ export function SitePopover(): JSX.Element {
             }
         >
             <div className="SitePopover__crumb" onClick={toggleSitePopover}>
-                <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
+                <div
+                    className="SitePopover__profile-picture"
+                    title={systemStatus ? undefined : 'Potential system issue'}
+                >
+                    <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
+                    {!systemStatus && <IconExclamation className="SitePopover__danger" />}
+                </div>
                 <CaretDownOutlined />
             </div>
         </Popup>
