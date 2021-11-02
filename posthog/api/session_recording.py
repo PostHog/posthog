@@ -115,7 +115,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         distinct_id = session_recording_meta_data["distinct_id"]
 
         try:
-            person: Union[Person, None] = Person.objects.get(persondistinctid__distinct_id=distinct_id, team=self.team)
+            person: Union[Person, None] = Person.objects.get(
+                persondistinctid__distinct_id=distinct_id, persondistinctid__team_id=self.team, team=self.team
+            )
         except Person.DoesNotExist:
             person = None
 

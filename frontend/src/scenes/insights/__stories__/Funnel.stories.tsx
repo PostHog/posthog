@@ -17,8 +17,26 @@ import { Provider } from 'kea'
 import { initKea } from '~/initKea'
 import { EventType } from '~/types'
 
+// Needed to be able to interact with project level correlation settings
+let correlationConfig: any = null
+
 export default {
     title: 'PostHog/Scenes/Insights/Funnel',
+    decorators: [
+        (Story) => {
+            worker.use(
+                rest.get('/api/projects/:projectId', (_, res, ctx) => {
+                    return res(ctx.json({ id: 2, correlation_config: correlationConfig }))
+                }),
+                rest.patch('/api/projects/:projectId', (req, res, ctx) => {
+                    correlationConfig = (req.body as { correlation_config: any }).correlation_config
+                    return res(ctx.json({ id: 2, correlation_config: correlationConfig }))
+                })
+            )
+
+            return <Story />
+        },
+    ],
 } as Meta
 
 export const NoEvents = (): JSX.Element => {
