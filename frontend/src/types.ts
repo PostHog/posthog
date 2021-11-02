@@ -85,6 +85,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    membership_level: OrganizationMembershipLevel | null
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -98,7 +99,6 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
-    membership_level: OrganizationMembershipLevel | null
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -184,6 +184,12 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
+
+    // Uses to exclude person properties from correlation analysis results, for
+    // example can be used to exclude properties that have trivial causation
+    correlation_config: {
+        excluded_person_property_names: string[]
+    }
 }
 
 export interface ActionType {
