@@ -5,9 +5,9 @@ on: pull_request
 jobs:
     storybook-chromatic:
         runs-on: ubuntu-latest
-        if: github.repository == 'PostHog/posthog'
+        if: github.repository_owner == 'PostHog'
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
 
             - name: Install dependencies and chromatic
               run: yarn add --dev chromatic
