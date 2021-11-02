@@ -838,10 +838,15 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         propertyCorrelationValues: [
-            () => [selectors.propertyCorrelations, selectors.propertyCorrelationTypes],
-            (propertyCorrelations, propertyCorrelationTypes): FunnelCorrelation[] => {
+            () => [selectors.propertyCorrelations, selectors.propertyCorrelationTypes, selectors.excludedPropertyNames],
+            (propertyCorrelations, propertyCorrelationTypes, excludedPropertyNames): FunnelCorrelation[] => {
                 return propertyCorrelations.events
                     .filter((correlation) => propertyCorrelationTypes.includes(correlation.correlation_type))
+                    .filter(
+                        (correlation) =>
+                            excludedPropertyNames === null ||
+                            !excludedPropertyNames.includes(correlation.event.event.split('::')[0])
+                    )
                     .map((value) => {
                         return {
                             ...value,
@@ -1092,10 +1097,15 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         excludePropertyFromProject: ({ propertyName }) => {
+            // When we exclude a property, we want to update the config stored
+            // on the current Team/Project.
             const oldExcludedPropertyNames = values.excludedPropertyNames
             const oldCurrentTeam = teamLogic.values.currentTeam
 
+            // If we haven't actually retrieved the current team, we can't
+            // update the config.
             if (oldCurrentTeam === null || oldExcludedPropertyNames === null) {
+                console.warn('Attempt to update correlation config without first retrieving existing config')
                 return
             }
 
@@ -1111,12 +1121,6 @@ export const funnelLogic = kea<funnelLogicType>({
             teamLogic.actions.updateCurrentTeam({
                 correlation_config: correlationConfig,
             })
-        },
-
-        [teamLogic.actionTypes.updateCurrentTeamSuccess]: async () => {
-            // When we have updated the current team, we'll have retrieved the
-            // excluded property names
-            actions.loadPropertyCorrelations()
         },
 
         setPropertyNames: async () => {

@@ -517,6 +517,7 @@ describe('funnelLogic', () => {
             await expectLogic(logic, () =>
                 logic.actions.excludePropertyFromProject('some property')
             ).toFinishListeners()
+
             await expectLogic(teamLogic).toMatchValues({
                 currentTeam: {
                     ...MOCK_DEFAULT_TEAM,
