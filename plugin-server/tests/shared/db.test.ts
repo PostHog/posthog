@@ -137,7 +137,6 @@ describe('DB', () => {
         test('update non-existent single property', async () => {
             const props = await updatePersonProperties({ a: 'a' }, {}, PAST_TIMESTAMP)
             expect(props).toEqual({ a: 'a' })
-            //expect(true).toEqual(false)
         })
 
         test('update non-existent property', async () => {
