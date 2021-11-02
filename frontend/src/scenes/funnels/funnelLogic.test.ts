@@ -507,6 +507,16 @@ describe('funnelLogic', () => {
                     correlation_config: { excluded_person_property_names: ['some property'] },
                 },
             })
+
+            // Also make sure that excluding the property again doesn't double
+            // up on the config list
+            await expectLogic(logic, () => logic.actions.excludeProperty('some property')).toFinishListeners()
+            await expectLogic(teamLogic).toMatchValues({
+                currentTeam: {
+                    ...MOCK_DEFAULT_TEAM,
+                    correlation_config: { excluded_person_property_names: ['some property'] },
+                },
+            })
         })
 
         it('loads exclude list from Project settings', async () => {

@@ -1106,9 +1106,11 @@ export const funnelLogic = kea<funnelLogicType>({
 
             const oldCorrelationConfig = oldCurrentTeam.correlation_config
 
-            const excludedPropertyNames = (oldCorrelationConfig?.excluded_person_property_names || []).concat([
-                propertyName,
-            ])
+            const excludedPropertyNames = [
+                ...Array.from(
+                    new Set((oldCorrelationConfig?.excluded_person_property_names || []).concat([propertyName]))
+                ),
+            ]
 
             const correlationConfig = {
                 ...oldCorrelationConfig,
