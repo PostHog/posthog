@@ -193,7 +193,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         propertyCorrelations: [
-            null as Record<'events', FunnelCorrelation[]> | null,
+            { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
                 loadPropertyCorrelations: async () => {
                     const target_properties =
@@ -845,7 +845,7 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.propertyCorrelations, selectors.propertyCorrelationTypes],
             (propertyCorrelations, propertyCorrelationTypes): FunnelCorrelation[] => {
                 return (
-                    propertyCorrelations?.events
+                    propertyCorrelations.events
                         ?.filter((correlation) => propertyCorrelationTypes.includes(correlation.correlation_type))
                         .map((value) => {
                             return {
