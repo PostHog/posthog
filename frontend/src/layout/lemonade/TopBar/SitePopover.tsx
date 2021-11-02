@@ -55,6 +55,14 @@ function Lettermark({ name }: { name?: string | null }): JSX.Element {
     return <div className="Lettermark">{initialLetter}</div>
 }
 
+function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
+    return (
+        <div className="AccessLevelIndicator" title={`Your ${organization.name} organization access level`}>
+            {organization.membership_level ? membershipLevelToName.get(organization.membership_level) : '?'}
+        </div>
+    )
+}
+
 function CurrentOrganization({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     const { closeSitePopover } = useActions(lemonadeLogic)
 
@@ -63,9 +71,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
             <>
                 <div className="SitePopover__main-info SitePopover__organization">
                     <b>{organization.name}</b>
-                    <div className="SitePopover__membership-level">
-                        {organization.membership_level && membershipLevelToName.get(organization.membership_level)}
-                    </div>
+                    <AccessLevelIndicator organization={organization} />
                 </div>
                 <Link to={urls.organizationSettings()} onClick={closeSitePopover} className="SitePopover__side-link">
                     Settings
@@ -89,9 +95,7 @@ function OtherOrganizationButton({ organization }: { organization: OrganizationB
             fullWidth
         >
             {organization.name}
-            <div className="SitePopover__membership-level">
-                {organization.membership_level && membershipLevelToName.get(organization.membership_level)}
-            </div>
+            <AccessLevelIndicator organization={organization} />
         </LemonButton>
     )
 }
