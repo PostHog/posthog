@@ -43,8 +43,6 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v2
-              with:
-                  ref: ${{ github.ref }}
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
