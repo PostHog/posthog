@@ -60,4 +60,3 @@ class TestPersonsTable(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(persons[0][0], 4)  # version
         self.assertEqual(persons[0][1], 1)  # is_deleted
-
