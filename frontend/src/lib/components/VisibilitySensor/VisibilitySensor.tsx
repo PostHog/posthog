@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import React, { useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { visibilitySensorLogic } from './visibilitySensorLogic'
 
 interface VisibilityProps {
@@ -9,11 +9,15 @@ interface VisibilityProps {
 }
 
 export function VisibilitySensor({ id, offset, children }: VisibilityProps): JSX.Element {
-    const { setElementRef } = useActions(visibilitySensorLogic({ id, offset }))
+    const { scrolling } = useActions(visibilitySensorLogic({ id, offset }))
 
     const ref = useRef<HTMLDivElement | null>(null)
 
-    setElementRef(ref)
+    useEffect(() => {
+        const element = ref.current
+        document.addEventListener('scroll', () => scrolling(element))
+        return () => document.removeEventListener('scroll', () => scrolling(element))
+    })
 
     return <div ref={ref}>{children}</div>
 }

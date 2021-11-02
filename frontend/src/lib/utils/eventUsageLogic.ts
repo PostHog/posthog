@@ -670,5 +670,12 @@ export const eventUsageLogic = kea<
         reportCorrelationInteraction: ({ correlationType, action, props }) => {
             posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
         },
+        reportCorrelationViewed: ({ delay, filters }) => {
+            if (delay === 0) {
+                posthog.capture('correlation viewed', { filters })
+            } else {
+                posthog.capture('correlation analysed', { filters })
+            }
+        },
     },
 })

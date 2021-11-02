@@ -52,6 +52,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -927,6 +928,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
+        correlationPropKey: [
+            () => [(_, props) => props],
+            (props): string => `correlation-${keyForInsightLogicProps('insight_funnel')(props)}`,
+        ],
 
         isPropertyExcluded: [
             () => [selectors.excludedPropertyNames],
@@ -1171,6 +1176,15 @@ export const funnelLogic = kea<funnelLogicType>({
                 // Don't send event when resetting reducer
                 eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
             }
+        },
+
+        [visibilitySensorLogic.actionTypes.setVisible]: async ({ visible }, breakpoint) => {
+            if (visible) {
+                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
+            }
+
+            await breakpoint(10000)
+            eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
         },
     }),
 })
