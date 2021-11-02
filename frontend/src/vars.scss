@@ -27,13 +27,15 @@ $bg_mid: #f2f2f2;
 $bg_light: #ffffff;
 $bg_depth: #0f0f0f;
 $bg_menu: #2c3035;
-$bg_bridge: #eeefe9;
+$bg_bridge: #ebece8;
 $bg_overlay: #333333;
+$bg_shaded: rgba(0, 0, 0, 0.05);
 
 // Border colors
 $border_light: #f0f0f0;
-$border: #d9d9d9;
+$border: rgba(0, 0, 0, 0.15);
 $border_dark: #bdbdbd;
+$border_active: #969696;
 
 // Lfecycle series
 $lifecycle_new: #99c5ff;
@@ -148,6 +150,9 @@ $z_graph_annotation_prompt: 99;
 $z_raised: 5;
 $z_city_background_content: 1;
 $z_city_background_image: 0;
+
+// Shadows
+$shadow_popup: 0 3px 6px -4px rgb(0 0 0 / 12%), 0 6px 16px 0 rgb(0 0 0 / 8%), 0 9px 28px 8px rgb(0 0 0 / 5%);
 
 // Breakpoints (from AntD)
 $sm: 576px;

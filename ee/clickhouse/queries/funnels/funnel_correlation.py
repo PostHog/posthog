@@ -201,13 +201,18 @@ class FunnelCorrelation:
         event_join_query = self._get_events_join_query()
 
         if self.support_autocapture_elements():
+            event_type_expression, _ = get_property_string_expr(
+                "events", self.AUTOCAPTURE_EVENT_TYPE, f"'{self.AUTOCAPTURE_EVENT_TYPE}'", "properties",
+            )
             array_join_query = f"""
-                arrayPushBack(prop_keys, 'elements_chain') as prop_keys_with_elements,
-                arrayPushBack(prop_values, concat(trim(BOTH '"' FROM JSONExtractRaw(properties, '{self.AUTOCAPTURE_EVENT_TYPE}')), '{self.ELEMENTS_DIVIDER}', elements_chain)) as prop_values_with_elements,
-                arrayJoin(arrayZip(prop_keys_with_elements, prop_values_with_elements)) as prop
+                'elements_chain' as prop_key,
+                concat({event_type_expression}, '{self.ELEMENTS_DIVIDER}', elements_chain) as prop_value,
+                tuple(prop_key, prop_value) as prop
             """
         else:
             array_join_query = f"""
+                arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
+                arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw(properties, x)), prop_keys) as prop_values,
                 arrayJoin(arrayZip(prop_keys, prop_values)) as prop
             """
 
@@ -228,8 +233,6 @@ class FunnelCorrelation:
                     person.steps as steps,
                     events.event as event_name,
                     -- Same as what we do in $all property queries
-                    arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-                    arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw(properties, x)), prop_keys) as prop_values,
                     {array_join_query}
                 FROM events AS event
                     {event_join_query}

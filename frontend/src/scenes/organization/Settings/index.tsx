@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { Button, Card, Input, Divider, Select, Skeleton, Switch } from 'antd'
-import { UserType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
 import { Members } from './Members'
@@ -11,6 +10,13 @@ import { RestrictedArea, RestrictedComponentProps } from '../../../lib/component
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
+import { userLogic } from 'scenes/userLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: OrganizationSettings,
+    logic: organizationLogic,
+}
 
 function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -137,7 +143,8 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
     )
 }
 
-export function OrganizationSettings({ user }: { user: UserType }): JSX.Element {
+export function OrganizationSettings(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -160,7 +167,7 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
                 )}
                 <Invites />
                 <Divider />
-                <Members user={user} />
+                {user && <Members user={user} />}
                 <Divider />
                 <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />

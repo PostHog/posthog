@@ -18,7 +18,7 @@ export function TaxonomicFilter({
     value,
     onChange,
     onClose,
-    groupTypes = [
+    taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.Cohorts,
@@ -39,7 +39,7 @@ export function TaxonomicFilter({
         groupType,
         value,
         onChange,
-        groupTypes,
+        taxonomicGroupTypes,
         optionsFromProp,
     }
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -50,16 +50,18 @@ export function TaxonomicFilter({
         window.setTimeout(() => focusInput(), 1)
     }, [])
 
-    const placeholder = groupTypes
+    const placeholder = taxonomicGroupTypes
         .map(
             (type, index) =>
-                `${index !== 0 ? (index === groupTypes.length - 1 ? ' or ' : ', ') : ''}${type.split('_').join(' ')}`
+                `${index !== 0 ? (index === taxonomicGroupTypes.length - 1 ? ' or ' : ', ') : ''}${type
+                    .split('_')
+                    .join(' ')}`
         )
         .join('')
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
-            <div className={`taxonomic-filter${groupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
+            <div className={`taxonomic-filter${taxonomicGroupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
                 <Input
                     data-attr="taxonomic-filter-searchfield"
                     placeholder={`Search ${placeholder}`}

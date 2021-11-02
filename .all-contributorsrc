@@ -1671,6 +1671,42 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "xrendan",
+      "name": "Brendan Samek",
+      "avatar_url": "https://avatars.githubusercontent.com/u/13208566?v=4",
+      "profile": "https://github.com/xrendan",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Nishant-Sagar",
+      "name": "Nishant Sagar",
+      "avatar_url": "https://avatars.githubusercontent.com/u/66466895?v=4",
+      "profile": "https://github.com/Nishant-Sagar",
+      "contributions": [
+        "content"
+      ]
+    },
+    {
+      "login": "romj",
+      "name": "Jean Roman",
+      "avatar_url": "https://avatars.githubusercontent.com/u/44766458?v=4",
+      "profile": "https://github.com/romj",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "pixlwave",
+      "name": "Doug",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6060466?v=4",
+      "profile": "https://pixlwave.uk/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

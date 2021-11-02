@@ -24,7 +24,7 @@ from posthog.utils import append_data, friendly_time
 class ClickhouseSessionsAvg:
     def calculate_avg(self, filter: Filter, team: Team):
 
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter, team.pk)
+        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter, team.pk)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk, has_person_id_joined=False)
 
@@ -35,7 +35,7 @@ class ClickhouseSessionsAvg:
         if not entity_conditions:
             entity_conditions = ["event != '$feature_flag_called'"]  # default conditino
 
-        params = {**params, **entity_params}
+        params = {**params, **entity_params, **date_params}
         entity_query = " OR ".join(entity_conditions)
 
         avg_query = SESSIONS_NO_EVENTS_SQL.format(

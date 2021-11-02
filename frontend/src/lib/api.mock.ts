@@ -29,6 +29,12 @@ export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
 export const api = apiReal as any as APIMockReturnType
 
+export const MOCK_DEFAULT_TEAM = {
+    id: MOCK_TEAM_ID,
+    ingested_event: true,
+    completed_snippet_onboarding: true,
+}
+
 export const mockAPI = (cb: (url: APIRoute) => any): void => {
     beforeEach(async () => {
         const methods = ['get', 'update', 'create', 'delete']
@@ -52,11 +58,7 @@ export function defaultAPIMocks(
             team: { ingested_event: true, completed_snippet_onboarding: true },
         }
     } else if (pathname === 'api/projects/@current') {
-        return {
-            id: MOCK_TEAM_ID,
-            ingested_event: true,
-            completed_snippet_onboarding: true,
-        }
+        return MOCK_DEFAULT_TEAM
     } else if (pathname === 'api/organizations/@current') {
         return {
             id: MOCK_ORGANIZATION_ID,
@@ -66,6 +68,7 @@ export function defaultAPIMocks(
             `api/projects/${MOCK_TEAM_ID}/actions/`,
             `api/projects/${MOCK_TEAM_ID}/event_definitions/`,
             `api/projects/${MOCK_TEAM_ID}/dashboards/`,
+            `api/projects/${MOCK_TEAM_ID}/dashboards`,
             'api/projects/@current/event_definitions/',
         ].includes(pathname)
     ) {

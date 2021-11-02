@@ -2,8 +2,9 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Dict, List, Literal, Optional, TypedDict, Union
+from typing import Dict, List, Literal, Optional, TypedDict, Union, cast
 
+from django.conf import settings
 from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
 
@@ -135,7 +136,7 @@ def send_all_reports(
             org_reports.append(report)  # type: ignore
         except Exception as err:
             report_org_usage_failure(distinct_id, str(err))
-        if not dry_run:
+        if not (dry_run or settings.TEST or settings.DEBUG):
             report_org_usage(distinct_id, report)
             time.sleep(0.25)
 
@@ -199,15 +200,11 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     if not membership:
         # If no owner membership is present, pick the first membership association we can find
         membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
-    try:
-        user = membership.user  # type: ignore
-    except AttributeError:
-        # Report problem in next block
-        pass
-    finally:
-        if not user:
-            capture_exception(
-                Exception("No user found for org while generating report"),
-                {"org": {"organization_id": organization_id}},
-            )
-        return user  # type: ignore
+    if hasattr(membership, "user"):
+        membership = cast(OrganizationMembership, membership)
+        user = membership.user
+    else:
+        capture_exception(
+            Exception("No user found for org while generating report"), {"org": {"organization_id": organization_id}},
+        )
+    return user

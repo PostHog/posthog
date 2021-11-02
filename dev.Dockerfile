@@ -61,7 +61,8 @@ RUN apk --update --no-cache --virtual .build-deps add \
 #
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
-COPY package.json yarn.lock plugins/package.json plugins/yarn.lock ./
+COPY package.json yarn.lock ./
+COPY plugins/package.json plugins/yarn.lock ./plugins/
 RUN apk --update --no-cache --virtual .build-deps add \
     "gcc~=10.3" \
     && \

@@ -1,5 +1,7 @@
+import { Provider } from 'kea'
 import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
 import React from 'react'
+import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'
 import { PropertyNamesSelect } from '../PropertyNamesSelect'
 
@@ -29,19 +31,13 @@ export const EmptyWithOptions = (): JSX.Element => {
         )
     )
 
-    return (
-        <PropertyNamesSelect
-            onChange={(selectedProperties) => console.log('Selected Properties', selectedProperties)}
-        />
-    )
-}
-
-export const RequestFailure = (): JSX.Element => {
-    worker.use(mockGetPersonProperties((_, res, ctx) => res(ctx.delay(1500), ctx.status(500))))
+    initKea()
 
     return (
-        <PropertyNamesSelect
-            onChange={(selectedProperties) => console.log('Selected Properties', selectedProperties)}
-        />
+        <Provider>
+            <PropertyNamesSelect
+                onChange={(selectedProperties) => console.log('Selected Properties', selectedProperties)}
+            />
+        </Provider>
     )
 }

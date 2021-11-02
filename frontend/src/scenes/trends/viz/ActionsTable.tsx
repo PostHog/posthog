@@ -14,7 +14,7 @@ export function ActionsTable(): JSX.Element {
 
     let data = indexedResults as any as TrendResultWithAggregate[]
     if (!filters.session && data) {
-        data = data.sort((a, b) => b.aggregated_value - a.aggregated_value)
+        data = [...data].sort((a, b) => b.aggregated_value - a.aggregated_value)
     }
 
     data = data.map((d: any) => {

@@ -2,7 +2,7 @@ import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogicType } from './userLogicType'
-import { AvailableFeature, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -120,6 +120,17 @@ export const userLogic = kea<userLogicType>({
             (user) => {
                 return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
             },
+        ],
+        otherOrganizations: [
+            (s) => [s.user],
+            (user): OrganizationBasicType[] =>
+                user
+                    ? user.organizations
+                          .filter((organization) => organization.id !== user.organization?.id)
+                          .sort((orgA, orgB) =>
+                              orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
+                          )
+                    : [],
         ],
     },
     events: ({ actions }) => ({

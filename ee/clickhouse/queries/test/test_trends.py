@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.trends.person import TrendsPersonQuery
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import TRENDS_BAR_VALUE
 from posthog.models.action import Action
@@ -45,6 +46,10 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
     maxDiff = None
 
+    def _get_trend_people(self, filter, entity):
+        result = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_people()
+        return result
+
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
@@ -81,52 +86,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
         self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
-
-    @test_with_materialized_columns(person_properties=["name"])
-    def test_breakdown_by_person_property(self):
-        self._create_multiple_people()
-        action = _create_action(name="watched movie", team=self.team)
-
-        with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = ClickhouseTrends().run(
-                Filter(
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "name",
-                        "breakdown_type": "person",
-                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                    }
-                ),
-                self.team,
-            )
-            event_response = ClickhouseTrends().run(
-                Filter(
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "name",
-                        "breakdown_type": "person",
-                        "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0,}],
-                    }
-                ),
-                self.team,
-            )
-
-        self.assertListEqual(
-            sorted([res["breakdown_value"] for res in event_response]), sorted(["person1", "person2", "person3"]),
-        )
-
-        for response in event_response:
-            if response["breakdown_value"] == "person1":
-                self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], "watched movie - person1")
-            if response["breakdown_value"] == "person2":
-                self.assertEqual(response["count"], 3)
-            if response["breakdown_value"] == "person3":
-                self.assertEqual(response["count"], 3)
-
-        self.assertEntityResponseEqual(
-            event_response, action_response,
-        )
 
     @test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
     def test_breakdown_with_person_property_filter(self):

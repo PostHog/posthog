@@ -36,12 +36,15 @@ import { AvailableFeature, TeamBasicType, UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
+import { TopBar } from '../lemonade/TopBar'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import { CommandPalette } from '../../lib/components/CommandPalette'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -102,7 +105,7 @@ function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
-export function TopNavigation(): JSX.Element {
+function TopNavigationOriginal(): JSX.Element {
     const {
         setMenuCollapsed,
         setChangelogModalOpen,
@@ -120,7 +123,7 @@ export function TopNavigation(): JSX.Element {
         organizationModalShown,
     } = useValues(navigationLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
+    const { user, otherOrganizations } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -204,24 +207,17 @@ export function TopNavigation(): JSX.Element {
             </LinkButton>
             {
                 <div className="organizations">
-                    {user?.organizations
-                        .sort((orgA, orgB) =>
-                            orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
-                        )
-                        .map(
-                            (organization) =>
-                                organization.id !== user.organization?.id && (
-                                    <button
-                                        type="button"
-                                        className="plain-button"
-                                        key={organization.id}
-                                        onClick={() => updateCurrentOrganization(organization.id)}
-                                    >
-                                        <IconBuilding className="mr-05" style={{ width: 14 }} />
-                                        {organization.name}
-                                    </button>
-                                )
-                        )}
+                    {otherOrganizations.map((organization) => (
+                        <button
+                            type="button"
+                            className="plain-button"
+                            key={organization.id}
+                            onClick={() => updateCurrentOrganization(organization.id)}
+                        >
+                            <IconBuilding className="mr-05" style={{ width: 14 }} />
+                            {organization.name}
+                        </button>
+                    ))}
                     {preflight?.can_create_org && (
                         <button
                             type="button"
@@ -369,8 +365,18 @@ export function TopNavigation(): JSX.Element {
             </div>
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
-            <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
+            <CreateOrganizationModal
+                isVisible={organizationModalShown}
+                onClose={() => setOrganizationModalShown(false)}
+            />
+            <CommandPalette />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
     )
+}
+
+export function TopNavigation(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return featureFlags[FEATURE_FLAGS.LEMONADE] ? <TopBar /> : <TopNavigationOriginal />
 }
