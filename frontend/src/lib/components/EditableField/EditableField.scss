@@ -5,15 +5,18 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    //max-width: 400px;
     width: 100%;
     min-height: 40px;
+
+    &.edit-mode {
+        max-width: 640px;
+    }
 
     .btn-cancel {
         color: $primary;
     }
 
-    .editable-textarea-wrapper {
+    .edit-container {
         transition: none !important;
         padding: 8px;
         margin-bottom: 8px;

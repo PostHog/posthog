@@ -31,9 +31,12 @@ export function EditableField({
         setEditedValue(value)
     }, [value])
     return (
-        <div className={`editable-field${className ? ` ${className}` : ''}`} data-attr={dataAttr}>
+        <div
+            className={`editable-field${className ? ` ${className}` : ''} ${isEditing ? 'edit-mode' : 'view-mode'}`}
+            data-attr={dataAttr}
+        >
             {metadataEditable && isEditing ? (
-                <div className="ant-input-affix-wrapper ant-input-affix-wrapper-lg editable-textarea-wrapper">
+                <div className="edit-container ant-input-affix-wrapper ant-input-affix-wrapper-lg editable-textarea-wrapper">
                     <Input.TextArea
                         autoFocus
                         placeholder={placeholder}
@@ -64,7 +67,7 @@ export function EditableField({
                     </Button>
                 </div>
             ) : (
-                <div className={'view-mode'}>
+                <div className="view-container">
                     <span className="field">{value || placeholder}</span>
                     {metadataEditable && (
                         <Button
