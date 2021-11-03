@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman, setPageTitle } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -12,7 +12,7 @@ import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
-import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations, scenes } from 'scenes/scenes'
+import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
@@ -26,6 +26,8 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
 }
 
 export const sceneLogic = kea<sceneLogicType>({
+    props: {} as { scenes?: Record<Scene, () => any> },
+    path: ['scenes', 'sceneLogic'],
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
             else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
@@ -53,7 +55,6 @@ export const sceneLogic = kea<sceneLogicType>({
         ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
         hideUpgradeModal: true,
         takeToPricing: true,
-        setPageTitle: (title: string) => ({ title }),
     },
     reducers: {
         scene: [
@@ -150,7 +151,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
         return mapping
     },
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
@@ -182,7 +183,7 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         setScene: () => {
             posthog.capture('$pageview')
-            actions.setPageTitle(identifierToHuman(values.scene || ''))
+            setPageTitle(identifierToHuman(values.scene || ''))
         },
         openScene: ({ scene, params }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
@@ -239,7 +240,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 return
             }
 
-            if (!scenes[scene]) {
+            if (!props.scenes?.[scene]) {
                 actions.setScene(Scene.Error404, emptySceneParams)
                 return
             }
@@ -249,7 +250,7 @@ export const sceneLogic = kea<sceneLogicType>({
             if (!loadedScene) {
                 let importedScene
                 try {
-                    importedScene = await scenes[scene]()
+                    importedScene = await props.scenes[scene]()
                 } catch (error) {
                     if (error.name === 'ChunkLoadError') {
                         if (scene !== null) {
@@ -310,9 +311,6 @@ export const sceneLogic = kea<sceneLogicType>({
                 }
             }
             actions.setScene(scene, params)
-        },
-        setPageTitle: ({ title }) => {
-            document.title = title ? `${title} • PostHog` : 'PostHog'
         },
     }),
 })
