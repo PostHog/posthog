@@ -164,7 +164,6 @@
         "eslint-plugin-cypress": "^2.11.2",
         "eslint-plugin-prettier": "^3.1.4",
         "eslint-plugin-react": "^7.20.3",
-        "eslint-plugin-react-hooks": "^4.2.0",
         "file-loader": "^6.1.0",
         "fs-extra": "^10.0.0",
         "givens": "^1.3.6",
