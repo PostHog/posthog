@@ -238,7 +238,10 @@ export const sceneLogic = kea<sceneLogicType>({
                 try {
                     importedScene = await props.scenes[scene]()
                 } catch (error) {
-                    if (error.name === 'ChunkLoadError') {
+                    if (
+                        error.name === 'ChunkLoadError' || // webpack
+                        error.message?.includes('Failed to fetch dynamically imported module') // esbuild
+                    ) {
                         if (scene !== null) {
                             // We were on another page (not the first loaded scene)
                             console.error('App assets regenerated. Reloading this page.')
