@@ -38,16 +38,12 @@ interface ResizeObserverProps {
 export function useResizeObserver({ callback, element }: ResizeObserverProps): void {
     const observer = useRef<ResizeObserver | null>(null)
 
-    useEffect(
-        () => {
-            unobserve()
-            observer.current = new ResizeObserver(callback)
-            observe()
-            return unobserve
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [element.current]
-    )
+    useEffect(() => {
+        unobserve()
+        observer.current = new ResizeObserver(callback)
+        observe()
+        return unobserve
+    }, [element.current])
 
     function observe(): void {
         if (element?.current && observer?.current) {
