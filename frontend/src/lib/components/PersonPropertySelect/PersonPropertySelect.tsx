@@ -28,14 +28,14 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
             {selectedProperties.length > 0 &&
                 selectedProperties.map((name) => {
                     return (
-                        <Row
+                        <span
                             key={name}
-                            align="middle"
                             className="property-filter-row mt-05 mb-05"
                             style={{
                                 width: '100%',
-                                margin: '0.25rem 0',
-                                padding: '0.25rem 0',
+                                margin: '0.25rem',
+                                padding: '0.25rem',
+                                verticalAlign: 'middle',
                             }}
                         >
                             <Button type="primary" shape="round">
@@ -46,7 +46,7 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
                                 onClick={() => handleRemove(name)}
                                 style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                             />
-                        </Row>
+                        </span>
                     )
                 })}
             <Row>
