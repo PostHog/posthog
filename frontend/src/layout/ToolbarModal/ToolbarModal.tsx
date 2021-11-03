@@ -1,4 +1,3 @@
-import './ToolbarModal.scss'
 import React from 'react'
 import { useValues } from 'kea'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
@@ -11,25 +10,24 @@ export function ToolbarModal({ visible, onCancel }: Pick<ModalProps, 'visible' |
     const toolbarEnabled = user?.toolbar_mode !== 'disabled'
 
     return (
-        <Modal bodyStyle={{ padding: 0 }} visible={visible} onCancel={onCancel} footer={null}>
-            <div className="toolbar-modal">
-                {!toolbarEnabled ? (
-                    <>
-                        <h2>Enable the Toolbar to continue</h2>
-                        <ToolbarSettings />
-                    </>
-                ) : (
-                    <>
-                        <h2>Toolbar – Permitted Domains/URLs</h2>
-                        <p>
-                            Make sure you're using the snippet or the latest <code>posthog-js</code> version.
-                            <br />
-                            Clicking a URL launches it with the Toolbar.
-                        </p>
-                        <EditAppUrls allowNavigation />
-                    </>
-                )}
-            </div>
+        <Modal
+            title={toolbarEnabled ? 'Toolbar – permitted domains/URLs' : 'Enable Toolbar'}
+            visible={visible}
+            onCancel={onCancel}
+            footer={null}
+        >
+            {toolbarEnabled ? (
+                <>
+                    <p>
+                        Make sure you're using the snippet or the latest <code>posthog-js</code> version.
+                        <br />
+                        Clicking a URL launches it with the Toolbar.
+                    </p>
+                    <EditAppUrls allowNavigation />
+                </>
+            ) : (
+                <ToolbarSettings />
+            )}
         </Modal>
     )
 }
