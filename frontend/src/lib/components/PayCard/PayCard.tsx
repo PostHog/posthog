@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import './PayCard.scss'
-import { ArrowRightOutlined, RightOutlined, CloseOutlined } from '@ant-design/icons'
+import { ArrowRightOutlined, CloseOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { Col, Row } from 'antd'
@@ -78,16 +78,16 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
                     </p>
                     {preflight?.cloud ? (
                         <p>
-                            Click here to <b>set up your billing details and gain access to these features.</b>
+                            Click to <b>set up your billing details and gain access to these features.</b>
                         </p>
                     ) : (
                         <p>
-                            Click here to <b>explore license options.</b>
+                            Click to <b>explore license options.</b>
                         </p>
                     )}
                 </Col>
-                <Col span={1} style={{ display: 'flex', fontSize: '1.4em', alignItems: 'center' }}>
-                    <RightOutlined />
+                <Col span={1} style={{ display: 'flex', alignItems: 'center' }}>
+                    <ArrowRightOutlined style={{ color: 'var(--muted-alt)', fontSize: '1.2em' }} />
                 </Col>
             </Row>
         </div>

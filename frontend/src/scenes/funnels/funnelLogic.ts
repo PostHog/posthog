@@ -30,6 +30,7 @@ import {
     TrendResult,
     BreakdownType,
     FunnelCorrelationResultsType,
+    AvailableFeature,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -52,6 +53,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
@@ -96,6 +98,8 @@ export const funnelLogic = kea<funnelLogicType>({
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
             ['personProperties'],
+            userLogic,
+            ['hasAvailableFeature'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -985,6 +989,13 @@ export const funnelLogic = kea<funnelLogicType>({
                     .filter((property) => !excludedPersonProperties.includes(property))
             },
         ],
+        correlationAnalysisAvailable: [
+            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
+            (hasAvailableFeature, clickhouseFeaturesEnabled) =>
+                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+                clickhouseFeaturesEnabled &&
+                hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+        ],
         allProperties: [
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],
             (inversePropertyNames, excludedPropertyNames): string[] => {
@@ -1016,10 +1027,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            if (
-                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                values.clickhouseFeaturesEnabled
-            ) {
+            if (values.correlationAnalysisAvailable) {
                 actions.loadCorrelations()
                 actions.loadPropertyCorrelations()
             }

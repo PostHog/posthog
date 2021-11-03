@@ -10,6 +10,9 @@ import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelatio
 import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
 import { IconFeedbackWarning } from 'lib/components/icons'
 import { CloseOutlined } from '@ant-design/icons'
+import { PayCard } from 'lib/components/PayCard/PayCard'
+import { AvailableFeature } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
@@ -20,6 +23,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         correlationFeedbackHidden,
         correlationDetailedFeedbackVisible,
         correlationFeedbackRating,
+        correlationAnalysisAvailable,
         correlationPropKey,
     } = useValues(funnelLogic(insightProps))
     const {
@@ -29,11 +33,22 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         setCorrelationFeedbackRating,
         setCorrelationDetailedFeedback,
     } = useActions(funnelLogic(insightProps))
+    const { preflight } = useValues(preflightLogic)
 
     const detailedFeedbackRef = useRef<HTMLTextAreaElement>(null)
 
     if (stepsWithCount.length <= 1) {
         return null
+    }
+
+    if (!correlationAnalysisAvailable && !preflight?.instance_preferences?.disable_paid_fs) {
+        return (
+            <PayCard
+                identifier={AvailableFeature.CORRELATION_ANALYSIS}
+                title="Get a deeper understanding of why your users are not converting"
+                caption="Correlation analysis automatically finds signals for why users are converting or dropping off."
+            />
+        )
     }
 
     return (
