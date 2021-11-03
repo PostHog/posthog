@@ -1,7 +1,9 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, CohortType, FilterType, PersonType, TeamType } from '../types'
+import { ActionType, CohortType, FilterType, PersonType, PluginLogEntry, TeamType } from '../types'
 import { getCurrentTeamId } from './utils/logics'
+import { CheckboxValueType } from 'antd/lib/checkbox/Group'
+import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -81,6 +83,12 @@ class ApiRequest {
 
     public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projects().addPathComponent(id.toString())
+    }
+
+    public pluginLogs(pluginConfigId: number): ApiRequest {
+        return this.addPathComponent('plugin_configs')
+            .addPathComponent(pluginConfigId.toString())
+            .addPathComponent('logs')
     }
 
     public actions(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
@@ -193,6 +201,32 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
+        },
+    },
+
+    pluginLogs: {
+        async search(
+            pluginConfigId: number,
+            currentTeamId: number | null,
+            searchTerm: string | null = null,
+            typeFilters: CheckboxValueType[] = [],
+            trailingEntry: PluginLogEntry | null = null,
+            leadingEntry: PluginLogEntry | null = null
+        ): Promise<PluginLogEntry[]> {
+            const type_filters =
+                typeFilters && typeFilters.length > 0 ? `&type_filter=${typeFilters.join('&type_filter=')}` : ''
+            const search = searchTerm ? `&search=${searchTerm}` : ''
+            const before = trailingEntry ? '&before=' + trailingEntry.timestamp : ''
+            const after = leadingEntry ? '&after=' + leadingEntry.timestamp : ''
+            const queryParams = `?limit=${LOGS_PORTION_LIMIT}${before}${after}${search}${type_filters}`
+
+            const response = await new ApiRequest()
+                .projectsDetail(currentTeamId || undefined)
+                .pluginLogs(pluginConfigId)
+                .withQueryString(queryParams)
+                .get()
+
+            return response.results
         },
     },
 

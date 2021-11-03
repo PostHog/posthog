@@ -66,14 +66,14 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
     const logic = pluginLogsLogic({ pluginConfigId })
 
     const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad, pluginLogsTypes } = useValues(logic)
-    const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch, setPluginLogsTypes } = useActions(logic)
+    const { revealBackground, loadPluginLogsMore, setPluginLogsTypes, setSearchTerm } = useActions(logic)
 
     return (
         <Space direction="vertical" style={{ flexGrow: 1 }} className="ph-no-capture plugin-logs">
             <Row>
                 <Search
                     loading={pluginLogsLoading}
-                    onSearch={(term) => loadPluginLogsSearch(term)}
+                    onSearch={setSearchTerm}
                     placeholder="Search for messages containing…"
                     allowClear
                 />

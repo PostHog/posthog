@@ -11,27 +11,6 @@ export interface PluginLogsProps {
 
 export const LOGS_PORTION_LIMIT = 50
 
-const makeLogsAPICall = async (
-    pluginConfigId: number,
-    currentTeamId: number | null,
-    searchTerm: string,
-    typeFilters: CheckboxValueType[],
-    trailingEntry: PluginLogEntry | null = null,
-    leadingEntry: PluginLogEntry | null = null
-): Promise<PluginLogEntry[]> => {
-    const type_filters =
-        typeFilters && typeFilters.length > 0 ? `&type_filter=${typeFilters.join('&type_filter=')}` : ''
-    const search = searchTerm ? `&search=${searchTerm}` : ''
-    const before = trailingEntry ? '&before=' + trailingEntry.timestamp : ''
-    const after = leadingEntry ? '&after=' + leadingEntry.timestamp : ''
-
-    const response = await api.get(
-        `api/projects/${currentTeamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}${before}${after}${search}${type_filters}`
-    )
-
-    return response.results
-}
-
 export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
     props: {} as PluginLogsProps,
     key: ({ pluginConfigId }: PluginLogsProps) => pluginConfigId,
@@ -45,41 +24,27 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
         setPluginLogsTypes: (typeFilters: CheckboxValueType[]) => ({
             typeFilters,
         }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
 
     loaders: ({ props: { pluginConfigId }, values, actions, cache }) => ({
         pluginLogs: {
             __default: [] as PluginLogEntry[],
-            loadPluginLogsInitially: async () => {
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}`
-                )
-                cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
-                actions.clearPluginLogsBackground()
-                return response.results
-            },
-            loadPluginLogsSearch: async (searchTerm: string) => {
-                const results = await makeLogsAPICall(
-                    pluginConfigId,
-                    values.currentTeamId,
-                    searchTerm,
-                    values.typeFilters
-                )
-                actions.clearPluginLogsBackground()
-                return results
-            },
-            loadPluginLogsTypes: async (typeFilters: CheckboxValueType[]) => {
-                const results = await makeLogsAPICall(
+            loadPluginLogs: async () => {
+                const results = await api.pluginLogs.search(
                     pluginConfigId,
                     values.currentTeamId,
                     values.searchTerm,
-                    typeFilters
+                    values.typeFilters
                 )
+                if (!cache.pollingInterval) {
+                    cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
+                }
                 actions.clearPluginLogsBackground()
                 return results
             },
             loadPluginLogsMore: async () => {
-                const results = await makeLogsAPICall(
+                const results = await api.pluginLogs.search(
                     pluginConfigId,
                     values.currentTeamId,
                     values.searchTerm,
@@ -105,7 +70,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
                     return values.pluginLogsBackground
                 }
 
-                const results = await makeLogsAPICall(
+                const results = await api.pluginLogs.search(
                     pluginConfigId,
                     values.currentTeamId,
                     values.searchTerm,
@@ -119,8 +84,11 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
         },
     }),
     listeners: ({ actions }) => ({
-        setPluginLogsTypes: ({ typeFilters }) => {
-            actions.loadPluginLogsTypes(typeFilters)
+        setPluginLogsTypes: () => {
+            actions.loadPluginLogs()
+        },
+        setSearchTerm: () => {
+            actions.loadPluginLogs()
         },
     }),
     reducers: {
@@ -139,19 +107,19 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
         searchTerm: [
             '',
             {
-                loadPluginLogsSearch: (_, searchTerm) => searchTerm || '',
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
         typeFilters: [
             [] as CheckboxValueType[],
             {
-                loadPluginLogsTypes: (_, types) => types || [],
+                setPluginLogsTypes: (_, { typeFilters }) => typeFilters || [],
             },
         ],
         isThereMoreToLoad: [
             true,
             {
-                loadPluginLogsInitiallySuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
+                loadPluginLogsSuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
                 markLogsEnd: () => false,
             },
         ],
@@ -186,7 +154,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
 
     events: ({ actions, cache }) => ({
         afterMount: () => {
-            actions.loadPluginLogsInitially()
+            actions.loadPluginLogs()
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)
