@@ -252,13 +252,14 @@ export const sceneLogic = kea<sceneLogicType>({
             actions.loadScene(scene, params, method)
         },
         loadScene: async ({ scene, params, method }, breakpoint) => {
+            const clickedLink = method === 'PUSH'
             if (values.scene === scene) {
-                actions.setScene(scene, params, method)
+                actions.setScene(scene, params, clickedLink)
                 return
             }
 
             if (!props.scenes?.[scene]) {
-                actions.setScene(Scene.Error404, emptySceneParams, method)
+                actions.setScene(Scene.Error404, emptySceneParams, clickedLink)
                 return
             }
 
@@ -280,7 +281,7 @@ export const sceneLogic = kea<sceneLogicType>({
                             parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
                         ) {
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene(Scene.ErrorNetwork, emptySceneParams, method)
+                            actions.setScene(Scene.ErrorNetwork, emptySceneParams, clickedLink)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
                             actions.reloadBrowserDueToImportError()
@@ -332,7 +333,7 @@ export const sceneLogic = kea<sceneLogicType>({
                     }
                 }
             }
-            actions.setScene(scene, params, method === 'PUSH' || wasNotLoaded)
+            actions.setScene(scene, params, clickedLink || wasNotLoaded)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
