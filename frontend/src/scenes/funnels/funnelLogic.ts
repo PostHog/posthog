@@ -99,8 +99,6 @@ export const funnelLogic = kea<funnelLogicType>({
             ['personProperties'],
             userLogic,
             ['hasAvailableFeature'],
-            personPropertiesModel,
-            ['personProperties'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -973,9 +971,13 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         correlationAnalysisAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => {
-                return hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS)
+            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
+            (hasAvailableFeature, clickhouseFeaturesEnabled) => {
+                return (
+                    featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+                    clickhouseFeaturesEnabled &&
+                    hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS)
+                )
             },
         ],
         allProperties: [
@@ -1009,11 +1011,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            if (
-                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                values.clickhouseFeaturesEnabled &&
-                values.correlationAnalysisAvailable
-            ) {
+            if (values.correlationAnalysisAvailable) {
                 actions.loadCorrelations()
                 actions.loadPropertyCorrelations()
             }
