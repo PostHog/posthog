@@ -926,6 +926,19 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         response = ClickhouseTrends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 2)
 
-        # :TODO: This fails due to '' being considered a valid group. Filter out groupless events!
-        # response = ClickhouseTrends().run(filter.with_data({"math_group_type_index": 1}), self.team)
-        # self.assertEqual(response[0]["count"], 1)
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{
+                    "id": "$pageview",
+                    "type": "events",
+                    "order": 0,
+                    "math": "unique_group",
+                    "math_group_type_index": 1
+                }],
+            },
+            team=self.team,
+        )
+        response = ClickhouseTrends().run(filter, self.team)
+        self.assertEqual(response[0]["count"], 1)
