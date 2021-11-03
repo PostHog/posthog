@@ -33,7 +33,7 @@ export function ProjectSwitcher(): JSX.Element {
         <div className="ProjectSwitcher">
             <div className="SideBar__heading">Project</div>
             <LemonButton icon={<Lettermark name={currentOrganization?.name} />} fullWidth type="stealth">
-                <b>{currentTeam?.name}</b>
+                <strong>{currentTeam?.name}</strong>
             </LemonButton>
         </div>
     )

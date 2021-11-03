@@ -38,7 +38,7 @@ function AccountInfo(): JSX.Element {
         <div className="AccountInfo">
             <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
             <div className="AccountInfo__identification SitePopover__main-info">
-                <b>{user?.first_name}</b>
+                <strong>{user?.first_name}</strong>
                 <div className="supplement" title={user?.email}>
                     {user?.email}
                 </div>
@@ -65,7 +65,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
         <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
             <>
                 <div className="SitePopover__main-info SitePopover__organization">
-                    <b>{organization.name}</b>
+                    <strong>{organization.name}</strong>
                     <AccessLevelIndicator organization={organization} />
                 </div>
                 <Link to={urls.organizationSettings()} onClick={closeSitePopover} className="SitePopover__side-link">
@@ -200,7 +200,7 @@ function Version(): JSX.Element {
         >
             <>
                 <div className="SitePopover__main-info">
-                    Version <b>{preflight?.posthog_version}</b>
+                    Version <strong>{preflight?.posthog_version}</strong>
                 </div>
                 <Link
                     onClick={() => {
