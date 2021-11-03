@@ -1,26 +1,17 @@
 @import '~/vars';
 
 .LemonButton {
-    transition: background-color 200ms ease;
-    font-weight: 600;
     color: var(--primary);
+    font-weight: 600;
     cursor: pointer;
     &:hover {
-        background: rgba($blue_300, 0.2);
+        background: rgba($primary, 0.1);
     }
     &:active {
-        background: rgba($blue_300, 0.3);
+        background: rgba($primary, 0.2);
     }
     .LemonRow__icon {
         color: var(--primary);
-    }
-}
-
-.LemonButton--stealth {
-    font-weight: 400;
-    color: var(--text-default);
-    .LemonRow__icon {
-        color: var(--muted-alt);
     }
 }
 
@@ -29,5 +20,22 @@
     color: #fff;
     .LemonRow__icon {
         color: #fff;
+    }
+}
+
+.LemonButton--stealth {
+    color: var(--text-default);
+    font-weight: 400;
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
+.LemonButton--highlighted {
+    background: rgba($primary, 0.1);
+    color: var(--text-default);
+    font-weight: 600;
+    .LemonRow__icon {
+        color: var(--primary);
     }
 }

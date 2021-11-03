@@ -256,6 +256,7 @@ export interface EditorProps {
 
 export interface ToolbarProps extends EditorProps {
     posthog?: PostHog
+    disableExternalStyles?: boolean
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -1081,6 +1082,8 @@ export interface SetInsightOptions {
     shouldMergeWithExisting?: boolean
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
+    /** calling with this updates the "last saved" filters */
+    fromPersistentApi?: boolean
 }
 
 export interface FeatureFlagGroupType {
@@ -1344,6 +1347,7 @@ export enum FunnelCorrelationResultsType {
 
 export enum HelpType {
     Slack = 'slack',
+    GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
 }
