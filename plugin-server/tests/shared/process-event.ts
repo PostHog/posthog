@@ -1,3 +1,4 @@
+import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
@@ -2161,17 +2162,17 @@ export const createProcessEventTests = (
     }
 
     test('set and set_once on the same key', async () => {
-        await createPerson(hub, team, ['distinct_id_set_set_once_same_key'])
+        await createPerson(hub, team, ['distinct_id1'])
 
         await processEvent(
-            'distinct_id_set_set_once_same_key',
+            'distinct_id1',
             '',
             '',
             {
                 event: 'some_event',
                 properties: {
                     token: team.api_token,
-                    distinct_id: 'distinct_id_set_set_once_same_key',
+                    distinct_id: 'distinct_id1',
                     $set: { a_prop: 'test-set' },
                     $set_once: { a_prop: 'test-set_once' },
                 },
@@ -2188,13 +2189,100 @@ export const createProcessEventTests = (
         expect(event.properties['$set_once']).toEqual({ a_prop: 'test-set_once' })
 
         const [person] = await hub.db.fetchPersons()
-        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id_set_set_once_same_key'])
+        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
         expect(person.properties).toEqual({ a_prop: 'test-set' })
     })
 
-    if (includeNewPropertiesUpdatesTests) {
-        // TODO: new tests that would fail with the existing properties updates
-    }
+    describe('ingestion in any order', () => {
+        const ts0: DateTime = now
+        const ts1: DateTime = now.plus({ minutes: 1 })
+        const ts2: DateTime = now.plus({ minutes: 2 })
+        const ts3: DateTime = now.plus({ minutes: 3 })
+        const set0: Properties = { s0123o0123: 's0a', s02o13: 's0b', s013: 's0e' }
+        const setOnce0: Properties = { s0123o0123: 'o0a', s13o02: 'o0g', o023: 'o0f' }
+        const set1: Properties = { s0123o0123: 's1a', s13o02: 's1g', s1: 's1c', s013: 's1e' }
+        const setOnce1: Properties = { s0123o0123: 'o1a', s02o13: 'o1b', o1: 'o1d' }
+        const set2: Properties = { s0123o0123: 's2a', s02o13: 's2b' }
+        const setOnce2: Properties = { s0123o0123: 'o2a', s13o02: 'o2g', o023: 'o2f' }
+        const set3: Properties = { s0123o0123: 's3a', s13o02: 's3g', s013: 's3e' }
+        const setOnce3: Properties = { s0123o0123: 'o3a', s02o13: 'o3b', o023: 'o3f' }
+
+        beforeEach(async () => {
+            await createPerson(hub, team, ['distinct_id1'])
+        })
+
+        async function verifyResult() {
+            expect((await hub.db.fetchEvents()).length).toBe(4)
+
+            const [person] = await hub.db.fetchPersons()
+            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+            expect(person.properties).toEqual({
+                s0123o0123: 's3a',
+                s02o13: 's2b',
+                s1: 's1c',
+                o1: 'o1d',
+                s013: 's3e',
+                o023: 'o0f',
+                s13o02: 's3g',
+            })
+        }
+
+        async function runProcessEvent(set: Properties, setOnce: Properties, ts: DateTime) {
+            await processEvent(
+                'distinct_id1',
+                '',
+                '',
+                {
+                    event: 'some_event',
+                    $set: set,
+                    $set_once: setOnce,
+                } as any as PluginEvent,
+                team.id,
+                ts,
+                ts,
+                new UUIDT().toString()
+            )
+        }
+
+        async function ingest0() {
+            await runProcessEvent(set0, setOnce0, ts0)
+        }
+        async function ingest1() {
+            await runProcessEvent(set1, setOnce1, ts1)
+        }
+        async function ingest2() {
+            await runProcessEvent(set2, setOnce2, ts2)
+        }
+        async function ingest3() {
+            await runProcessEvent(set3, setOnce3, ts3)
+        }
+
+        test('ingestion in order', async () => {
+            await ingest0()
+            await ingest1()
+            await ingest2()
+            await ingest3()
+            await verifyResult()
+        })
+
+        if (includeNewPropertiesUpdatesTests) {
+            test('ingestion in reverse', async () => {
+                await ingest3()
+                await ingest2()
+                await ingest1()
+                await ingest0()
+                await verifyResult()
+            })
+
+            test('ingestion mixed order', async () => {
+                await ingest2()
+                await ingest0()
+                await ingest1()
+                await ingest3()
+                await verifyResult()
+            })
+        }
+    })
 
     return returned
 }
