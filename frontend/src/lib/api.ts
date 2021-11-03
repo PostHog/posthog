@@ -218,9 +218,9 @@ const api = {
                 {
                     limit: LOGS_PORTION_LIMIT,
                     type_filter: typeFilters,
-                    search: searchTerm || '',
-                    before: trailingEntry?.timestamp || '',
-                    after: leadingEntry?.timestamp || '',
+                    search: searchTerm || undefined,
+                    before: trailingEntry?.timestamp,
+                    after: leadingEntry?.timestamp,
                 },
                 true
             )

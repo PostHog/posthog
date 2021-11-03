@@ -35,9 +35,9 @@ describe('toParams', () => {
         expect(left).toEqual(right)
     })
 
-    it('does not send empty string', () => {
-        const actual = toParams({ include: 'tomat', exclude: '' })
-        expect(actual).toEqual('include=tomat')
+    it('can handle numeric values', () => {
+        const actual = toParams({ a: 123 })
+        expect(actual).toEqual('a=123')
     })
 
     it('encodes arrays as a single query param', () => {

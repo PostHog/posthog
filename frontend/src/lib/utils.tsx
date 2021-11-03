@@ -82,8 +82,14 @@ export function toParams(obj: Record<string, any>, explodeArrays: boolean = fals
 
     return Object.entries(obj)
         .filter((item) => item[1] != undefined && item[1] != null)
-        .filter((item) => item[1].length > 0)
         .reduce((acc, [key, val]) => {
+            /**
+             *  query parameter arrays can be handled in two ways
+             *  either they are encoded as a single query parameter
+             *    a=[1, 2] => a=%5B1%2C2%5D
+             *  or they are "exploded" so each item in the array is sent separately
+             *    a=[1, 2] => a=1&a=2
+             **/
             if (explodeArrays && Array.isArray(val)) {
                 val.forEach((v) => acc.push([key, v]))
             } else {
