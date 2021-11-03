@@ -3,7 +3,7 @@ import dayjs from 'dayjs'
 import { Button } from 'antd'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
-import generatePicker from 'antd/es/date-picker/generatePicker'
+import generatePicker from 'antd/lib/date-picker/generatePicker'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 

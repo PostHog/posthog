@@ -14,7 +14,6 @@ import {
     ViewType,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
@@ -32,6 +31,7 @@ import * as Sentry from '@sentry/browser'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
