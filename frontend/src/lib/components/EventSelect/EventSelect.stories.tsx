@@ -10,6 +10,17 @@ import { EventSelect } from './EventSelect'
 
 export default {
     title: 'PostHog/Components/EventSelect',
+    decorators: [
+        (Story) => {
+            worker.use(
+                rest.get('/api/projects/:projectId', (_, res, ctx) => {
+                    return res(ctx.json({ id: 2 }))
+                })
+            )
+
+            return <Story />
+        },
+    ],
 } as Meta
 
 export const Default = (): JSX.Element => {
@@ -20,7 +31,7 @@ export const Default = (): JSX.Element => {
             res(
                 ctx.delay(1500),
                 ctx.json({
-                    count: 22,
+                    count: 3,
                     next: null,
                     previous: null,
                     results: [
@@ -68,10 +79,10 @@ type GetEventDefinitionsResponse = EventDefinitionStorage
 type GetEventDefinitionsRequest = undefined
 
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types, @typescript-eslint/explicit-function-return-type
-export const mockGetEventDefinitions = (
+const mockGetEventDefinitions = (
     handler: ResponseResolver<RestRequest<GetEventDefinitionsRequest, any>, RestContext, GetEventDefinitionsResponse>
 ) =>
     rest.get<GetEventDefinitionsRequest, GetEventDefinitionsResponse>(
-        '/api/projects/@current/event_definitions',
+        '/api/projects/:projectId/event_definitions',
         handler
     )
