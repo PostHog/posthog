@@ -15,6 +15,8 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
+from sentry_sdk import capture_exception, push_scope
+
 
 class SessionRecordingSerializer(serializers.Serializer):
     session_id = serializers.CharField()
@@ -47,9 +49,17 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         ).get_snapshots()
 
     def _get_session_recording_meta_data(self, request, filter, session_recording_id):
-        return SessionRecording(
-            request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
-        ).get_metadata()
+        # noinspection PyBroadException
+        try:
+            return SessionRecording(
+                request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
+            ).get_metadata()
+        except Exception as e:
+            # attempts to capture a reported customer error to allow debugging
+            with push_scope() as scope:
+                scope.set_tag("session_recording_id", session_recording_id)
+                capture_exception(e)
+            raise
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
