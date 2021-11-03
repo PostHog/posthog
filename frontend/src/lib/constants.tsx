@@ -268,3 +268,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
 // Cohort types
 export const COHORT_STATIC = 'static'
 export const COHORT_DYNAMIC = 'dynamic'
+
+/**
+ * Mock Node.js `process`, which is required by VFile that is used by ReactMarkdown.
+ * See https://github.com/remarkjs/react-markdown/issues/339.
+ */
+export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process

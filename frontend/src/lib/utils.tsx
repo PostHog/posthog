@@ -1116,3 +1116,7 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
 }
+
+export function setPageTitle(title: string): void {
+    document.title = title ? `${title} • PostHog` : 'PostHog'
+}
