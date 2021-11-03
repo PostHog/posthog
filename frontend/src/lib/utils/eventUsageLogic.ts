@@ -670,10 +670,14 @@ export const eventUsageLogic = kea<
             posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
         },
         reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
+            // TODO: This event is still buggy (see relevant PR #6788 for details)
             if (delay === 0) {
-                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
             } else {
-                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, { filters, delay })
+                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} analyzed`, {
+                    filters,
+                    delay,
+                })
             }
         },
     },

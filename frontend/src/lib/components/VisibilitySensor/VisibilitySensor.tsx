@@ -4,7 +4,7 @@ import { visibilitySensorLogic } from './visibilitySensorLogic'
 
 interface VisibilityProps {
     id: string // Must be unique for each component
-    offset: number
+    offset?: number
     children: React.ReactNode | null
 }
 
