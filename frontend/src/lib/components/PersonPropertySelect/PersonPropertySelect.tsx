@@ -45,8 +45,7 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
                             </Tag>
                         )
                     })}
-            </div>
-            <div style={{ marginTop: '0.5em' }}>
+
                 <Popup
                     visible={open}
                     overlay={
