@@ -18,7 +18,6 @@ export const toolbarLogic = kea<toolbarLogicType>({
         clearUserIntent: true,
         showButton: true,
         hideButton: true,
-        updateFeatureFlags: (flags: Record<string, string | boolean>) => ({ flags }),
     }),
 
     reducers: ({ props }) => ({
@@ -29,10 +28,6 @@ export const toolbarLogic = kea<toolbarLogicType>({
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         dataAttributes: [(props.dataAttributes || []) as string[]],
-        featureFlags: [
-            (props.featureFlags || {}) as Record<string, string | boolean>,
-            { updateFeatureFlags: (_, { flags }) => flags },
-        ],
         posthog: [(props.posthog ?? null) as PostHog | null],
     }),
 

@@ -238,7 +238,6 @@ export const FEATURE_FLAGS = {
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI: 'new-paths-ui', // owner: @EDsCODE
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
-    TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags', // owner: @mariusandra
     REMOVE_SESSIONS: '6050-remove-sessions', // owner: @rcmarron
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown', // owner: @alexkim
     RENAME_FILTERS: '6063-rename-filters', // owner: @alexkim
