@@ -2,7 +2,7 @@ import React from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Button, Row } from 'antd'
+import { Button } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 import { CloseButton } from 'lib/components/CloseButton'
