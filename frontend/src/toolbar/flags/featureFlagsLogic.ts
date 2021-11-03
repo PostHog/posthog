@@ -20,6 +20,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             {
                 getUserFlags: async (_, breakpoint) => {
                     const response = await toolbarFetch('/api/projects/@current/feature_flags/my_flags')
+
+                    if (response.status >= 400) {
+                        toolbarLogic.actions.tokenExpired()
+                        return []
+                    }
+
                     breakpoint()
                     if (!response.ok) {
                         return []

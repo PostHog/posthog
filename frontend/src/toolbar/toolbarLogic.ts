@@ -6,14 +6,19 @@ import { posthog } from '~/toolbar/posthog'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { PostHog } from 'posthog-js'
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 // input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({
     props: {} as ToolbarProps,
+    connect: () => [
+        featureFlagsLogic, // makes an API call that invalidates the token on error
+    ],
 
     actions: () => ({
         authenticate: true,
         logout: true,
+        tokenExpired: true,
         processUserIntent: true,
         clearUserIntent: true,
         showButton: true,
@@ -24,7 +29,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
     reducers: ({ props }) => ({
         rawApiURL: [props.apiURL as string],
         rawJsURL: [(props.jsURL || props.apiURL) as string],
-        temporaryToken: [props.temporaryToken || null, { logout: () => null }],
+        temporaryToken: [props.temporaryToken || null, { logout: () => null, tokenExpired: () => null }],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
@@ -54,6 +59,11 @@ export const toolbarLogic = kea<toolbarLogicType>({
         },
         logout: () => {
             posthog.capture('toolbar logout')
+            clearSessionToolbarToken()
+        },
+        tokenExpired: () => {
+            posthog.capture('toolbar token expired')
+            console.log('PostHog Toolbar API token expired. Clearing session.')
             clearSessionToolbarToken()
         },
         processUserIntent: async () => {
