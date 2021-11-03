@@ -36,7 +36,6 @@ export function CorrelationConfig(): JSX.Element {
                 {currentTeam && (
                     <>
                         <h3>Excluded person properties:</h3>
-
                         <PersonPropertySelect
                             onChange={handlePersonPropertiesChange}
                             selectedProperties={currentTeam.correlation_config.excluded_person_property_names || []}
