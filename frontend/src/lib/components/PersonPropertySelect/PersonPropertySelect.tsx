@@ -5,7 +5,6 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { Button, Tag } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
-import { CloseButton } from 'lib/components/CloseButton'
 
 interface PersonPropertySelectProps {
     onChange: (names: string[]) => void
