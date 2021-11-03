@@ -33,14 +33,16 @@ export function CorrelationConfig(): JSX.Element {
     return (
         <div style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 8 }}>
-                <h3>Excluded person properties:</h3>
                 {currentTeam && (
                     <>
+                        <h3>Excluded person properties:</h3>
+
                         <PersonPropertySelect
                             onChange={handlePersonPropertiesChange}
                             selectedProperties={currentTeam.correlation_config.excluded_person_property_names || []}
                         />
 
+                        <h3>Excluded events:</h3>
                         <EventSelect
                             onChange={handleEventsChange}
                             selectedEvents={currentTeam.correlation_config.excluded_events || []}
