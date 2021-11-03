@@ -1,101 +1,124 @@
 import React from 'react'
 import './HelpButton.scss'
-import { QuestionCircleOutlined, MailOutlined, SolutionOutlined, CaretDownOutlined } from '@ant-design/icons'
-import { Button, Popover, Row } from 'antd'
+import { QuestionCircleOutlined, CaretDownOutlined } from '@ant-design/icons'
 import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
-import slackLogo from 'public/slack-logo.svg'
 import { helpButtonLogicType } from './HelpButtonType'
-import { TooltipPlacement } from 'antd/lib/tooltip'
+import { Popup } from '../Popup/Popup'
+import { Placement } from '@popperjs/core'
+import { LemonButton } from '../LemonButton'
+import { IconArticle, IconGithub, IconMail, IconQuestionAnswer } from '../icons'
+
+const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
 export const helpButtonLogic = kea<helpButtonLogicType>({
+    connect: {
+        actions: [eventUsageLogic, ['reportHelpButtonViewed']],
+    },
     actions: {
-        setVisible: (visible: boolean) => ({ visible }),
+        toggleHelp: true,
+        showHelp: true,
+        hideHelp: true,
     },
     reducers: {
-        isVisible: [
+        isHelpVisible: [
             false,
             {
-                setVisible: (_, { visible }) => visible,
+                toggleHelp: (previousState) => !previousState,
+                showHelp: () => true,
+                hideHelp: () => false,
             },
         ],
     },
+    listeners: ({ actions, values }) => ({
+        showHelp: () => {
+            actions.reportHelpButtonViewed()
+        },
+        toggleHelp: () => {
+            if (values.isHelpVisible) {
+                actions.reportHelpButtonViewed()
+            }
+        },
+    }),
 })
 
 export interface HelpButtonProps {
-    withCaret?: boolean
-    placement?: TooltipPlacement
+    placement?: Placement
 }
 
-export function HelpButton({ withCaret = false, placement }: HelpButtonProps): JSX.Element {
-    const UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
-    const { reportHelpButtonUsed, reportHelpButtonViewed } = useActions(eventUsageLogic)
-    const { isVisible } = useValues(helpButtonLogic)
-    const { setVisible } = useActions(helpButtonLogic)
+export function HelpButton({ placement }: HelpButtonProps): JSX.Element {
+    const { reportHelpButtonUsed } = useActions(eventUsageLogic)
+    const { isHelpVisible } = useValues(helpButtonLogic)
+    const { toggleHelp, hideHelp } = useActions(helpButtonLogic)
 
-    const overlay = (
-        <div className="help-button-overlay-inner">
-            <h3>Get help now</h3>
-            <div className="support-link">
-                <Button
-                    href={`https://posthog.com/slack${UTM_TAGS}`}
-                    rel="noopener"
-                    target="_blank"
-                    icon={<img src={slackLogo} alt="" height="28" />}
-                    style={{ paddingLeft: 6 }} // paddingLeft accounts for the padding in the Slack logo image
-                    block
-                    onClick={() => reportHelpButtonUsed(HelpType.Slack)}
-                >
-                    Message us on Slack
-                </Button>
-            </div>
-            <div className="support-link">
-                <Button
-                    href="mailto:hey@posthog.com"
-                    target="_blank"
-                    icon={<MailOutlined />}
-                    block
-                    onClick={() => reportHelpButtonUsed(HelpType.Email)}
-                >
-                    Send us an email
-                </Button>
-            </div>
-            <div className="support-link">
-                <Button
-                    href={`https://posthog.com/docs${UTM_TAGS}`}
-                    rel="noopener"
-                    target="_blank"
-                    icon={<SolutionOutlined />}
-                    block
-                    onClick={() => reportHelpButtonUsed(HelpType.Docs)}
-                >
-                    Check out our docs
-                </Button>
-            </div>
-        </div>
-    )
     return (
-        <div className="help-button">
-            <Popover
-                content={overlay}
-                trigger="click"
-                overlayClassName="help-button-overlay"
-                arrowContent={<></>}
-                onVisibleChange={(visible) => {
-                    setVisible(visible)
-                    if (visible) {
-                        reportHelpButtonViewed()
-                    }
-                }}
-                visible={isVisible}
-                placement={placement}
-            >
-                <Row align="middle">
-                    <QuestionCircleOutlined className="help-icon" />
-                    {withCaret && <CaretDownOutlined />}
-                </Row>
-            </Popover>
-        </div>
+        <Popup
+            overlay={
+                <>
+                    <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+                        <LemonButton
+                            icon={<IconQuestionAnswer />}
+                            type="stealth"
+                            fullWidth
+                            onClick={() => {
+                                reportHelpButtonUsed(HelpType.Slack)
+                                hideHelp()
+                            }}
+                        >
+                            Message us on Slack
+                        </LemonButton>
+                    </a>
+                    <a href="https://github.com/PostHog/posthog/issues/new/choose" rel="noopener" target="_blank">
+                        <LemonButton
+                            icon={<IconGithub />}
+                            type="stealth"
+                            fullWidth
+                            onClick={() => {
+                                reportHelpButtonUsed(HelpType.GitHub)
+                                hideHelp()
+                            }}
+                        >
+                            Create an issue on GitHub
+                        </LemonButton>
+                    </a>
+                    <a href="mailto:hey@posthog.com" target="_blank">
+                        <LemonButton
+                            icon={<IconMail />}
+                            type="stealth"
+                            fullWidth
+                            onClick={() => {
+                                reportHelpButtonUsed(HelpType.Email)
+                                hideHelp()
+                            }}
+                        >
+                            Send us an email
+                        </LemonButton>
+                    </a>
+                    <a href={`https://posthog.com/docs${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+                        <LemonButton
+                            icon={<IconArticle />}
+                            type="stealth"
+                            fullWidth
+                            onClick={() => {
+                                reportHelpButtonUsed(HelpType.Docs)
+                                hideHelp()
+                            }}
+                        >
+                            Read the docs
+                        </LemonButton>
+                    </a>
+                </>
+            }
+            onClickOutside={hideHelp}
+            visible={isHelpVisible}
+            placement={placement}
+            actionable
+        >
+            <div className="help-button" onClick={toggleHelp}>
+                <QuestionCircleOutlined className="help-icon" />
+                <CaretDownOutlined />
+            </div>
+        </Popup>
     )
 }

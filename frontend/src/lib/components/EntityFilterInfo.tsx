@@ -1,7 +1,7 @@
 import { ActionFilter, EntityFilter, EntityTypes, FunnelStepRangeEntityFilter } from '~/types'
 import { Typography } from 'antd'
 import React from 'react'
-import { TextProps } from 'antd/es/typography/Text'
+import { TextProps } from 'antd/lib/typography/Text'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 

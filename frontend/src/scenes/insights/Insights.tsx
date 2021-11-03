@@ -3,9 +3,8 @@ import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { Row, Col, Card, Button, Popconfirm, Tooltip } from 'antd'
+import { Row, Col, Card, Button, Popconfirm } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
@@ -22,9 +21,10 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { InsightMetadata } from 'scenes/insights/InsightMetadata'
 import { SceneExport } from 'scenes/sceneTypes'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { ObjectTags } from 'lib/components/ObjectTags'
 
 dayjs.extend(relativeTime)
 
@@ -41,9 +41,29 @@ export function Insights(): JSX.Element {
     } = useValues(router)
 
     const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
-    const { insightProps, activeView, filters, controlsCollapsed, insight, insightMode } = useValues(logic)
-    const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight } = useActions(logic)
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
+    const {
+        insightProps,
+        activeView,
+        filters,
+        controlsCollapsed,
+        insight,
+        insightMode,
+        filtersChanged,
+        savedFilters,
+        tagLoading,
+        metadataEditable,
+    } = useValues(logic)
+    const {
+        setActiveView,
+        toggleControlsCollapsed,
+        setInsightMode,
+        saveInsight,
+        setFilters,
+        setInsightMetadata,
+        saveNewTag,
+        deleteTag,
+    } = useActions(logic)
+
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
@@ -57,8 +77,6 @@ export function Insights(): JSX.Element {
         setActiveView(view)
         reportHotkeyNavigation('insights', hotkey)
     }
-
-    const { push } = useActions(router)
 
     useKeyboardHotkeys({
         t: {
@@ -93,30 +111,43 @@ export function Insights(): JSX.Element {
         },
     })
 
+    const viewMode = featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View
+
     const insightScene = (
         <div className="insights-page">
-            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
-                <div className="insight-metadata">
-                    <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
-                        <InsightMetadata.Title insight={insight} insightMode={insightMode} />
-                        <div>
-                            <SaveToDashboard
-                                displayComponent={
-                                    <Button style={{ color: 'var(--primary)' }} className="btn-save">
-                                        Add to dashboard
-                                    </Button>
-                                }
-                                tooltipOptions={{
-                                    placement: 'bottom',
-                                    title: 'Save to dashboard',
+            <div className="insight-metadata">
+                <Row justify="space-between" align="top" style={{ marginTop: 24 }}>
+                    <Col xs={{ span: 24, order: 2 }} sm={{ order: 1 }} style={{ flex: 1 }}>
+                        <EditableField
+                            name="name"
+                            value={insight.name || ''}
+                            placeholder={`Insight #${insight.id ?? '...'}`}
+                            onChange={(value) => setInsightMetadata({ name: value })}
+                            className={'insight-metadata-name'}
+                            dataAttr={'insight-name'}
+                        />
+                    </Col>
+                    <Col
+                        className="insights-tab-actions"
+                        xs={{ span: 24, order: 1 }}
+                        sm={{ order: 2 }}
+                        style={{ flex: 0 }}
+                    >
+                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && filtersChanged ? (
+                            <Popconfirm
+                                title="Are you sure? This will discard all unsaved changes in this insight."
+                                onConfirm={() => {
+                                    setFilters(savedFilters)
+                                    reportInsightsTabReset()
                                 }}
-                                item={{
-                                    entity: {
-                                        filters: insight.filters || filters,
-                                        annotations: annotationsToCreate,
-                                    },
-                                }}
-                            />
+                            >
+                                <Button type="link" className="btn-reset">
+                                    Discard changes
+                                </Button>
+                            </Popconfirm>
+                        ) : null}
+                        {insight.id && <SaveToDashboard insight={insight} />}
+                        {viewMode ? (
                             <HotkeyButton
                                 type="primary"
                                 style={{ marginLeft: 8 }}
@@ -125,82 +156,43 @@ export function Insights(): JSX.Element {
                             >
                                 Edit
                             </HotkeyButton>
-                        </div>
-                    </Row>
-                    <InsightMetadata.Description insight={insight} insightMode={insightMode} />
-                    <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
+                        ) : featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? (
+                            <Button style={{ marginLeft: 8 }} type="primary" onClick={saveInsight}>
+                                Save
+                            </Button>
+                        ) : null}
+                    </Col>
+                </Row>
+                <EditableField
+                    multiline
+                    name="description"
+                    value={insight.description || ''}
+                    placeholder={`Description (optional)`}
+                    onChange={(value) => setInsightMetadata({ description: value })}
+                    className={'insight-metadata-description'}
+                    dataAttr={'insight-description'}
+                />
+                {metadataEditable ? (
+                    <div className={'insight-metadata-tags'} data-attr="insight-tags">
+                        <ObjectTags
+                            tags={insight.tags ?? []}
+                            onTagSave={saveNewTag}
+                            onTagDelete={deleteTag}
+                            saving={tagLoading}
+                            tagsAvailable={[]}
+                        />
+                    </div>
+                ) : null}
+            </div>
+
+            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
+                <Row>
                     <Col span={24} style={{ marginTop: 16 }}>
                         <InsightContainer />
                     </Col>
-                </div>
+                </Row>
             ) : (
                 <>
-                    <SaveCohortModal
-                        visible={cohortModalVisible}
-                        onOk={(title: string) => {
-                            saveCohortWithFilters(title, filters)
-                            setCohortModalVisible(false)
-                            reportCohortCreatedFromPersonModal(filters)
-                        }}
-                        onCancel={() => setCohortModalVisible(false)}
-                    />
-
-                    <div className="insight-metadata">
-                        <Row align="middle" style={{ marginTop: 24, justifyContent: 'space-between' }}>
-                            <Col style={{ flex: 1 }}>
-                                <InsightMetadata.Title insight={insight} insightMode={insightMode} />
-                            </Col>
-                            <Col className="insights-tab-actions">
-                                <>
-                                    <Popconfirm
-                                        title="Are you sure? This will clear all filters and any progress will be lost."
-                                        onConfirm={() => {
-                                            window.scrollTo({ top: 0 })
-                                            push(`/insights?insight=${insight?.filters?.insight}`)
-                                            reportInsightsTabReset()
-                                        }}
-                                    >
-                                        <Tooltip placement="top" title="Reset all filters">
-                                            <Button type="link" className="btn-reset">
-                                                {'Reset'}
-                                            </Button>
-                                        </Tooltip>
-                                    </Popconfirm>
-                                    <SaveToDashboard
-                                        displayComponent={
-                                            <Button style={{ color: 'var(--primary)' }} className="btn-save">
-                                                {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
-                                                    ? 'Save & add to dashboard'
-                                                    : 'Add to dashboard'}
-                                            </Button>
-                                        }
-                                        tooltipOptions={{
-                                            placement: 'bottom',
-                                            title: 'Save to dashboard',
-                                        }}
-                                        item={{
-                                            entity: {
-                                                filters: insight.filters || filters,
-                                                annotations: annotationsToCreate,
-                                            },
-                                        }}
-                                    />
-                                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
-                                        <Button style={{ marginLeft: 8 }} type="primary" onClick={() => saveInsight()}>
-                                            Save
-                                        </Button>
-                                    )}
-                                </>
-                            </Col>
-                        </Row>
-                        <Row>
-                            <InsightMetadata.Description insight={insight} insightMode={insightMode} />
-                        </Row>
-                        <Row>
-                            <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
-                        </Row>
-                    </div>
-
                     <Row style={{ marginTop: 16 }}>
                         <InsightsNav />
                     </Row>
@@ -261,6 +253,16 @@ export function Insights(): JSX.Element {
                     <NPSPrompt />
                 </>
             )}
+
+            <SaveCohortModal
+                visible={cohortModalVisible}
+                onOk={(title: string) => {
+                    saveCohortWithFilters(title, filters)
+                    setCohortModalVisible(false)
+                    reportCohortCreatedFromPersonModal(filters)
+                }}
+                onCancel={() => setCohortModalVisible(false)}
+            />
         </div>
     )
 
