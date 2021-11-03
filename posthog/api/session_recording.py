@@ -4,6 +4,7 @@ from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from sentry_sdk import capture_exception, push_scope
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
@@ -14,8 +15,6 @@ from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
-
-from sentry_sdk import capture_exception, push_scope
 
 
 class SessionRecordingSerializer(serializers.Serializer):
