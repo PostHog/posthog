@@ -45,6 +45,7 @@ export const sceneLogic = kea<sceneLogicType>({
         ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
         hideUpgradeModal: true,
         takeToPricing: true,
+        reloadBrowserDueToImportError: true,
     },
     reducers: {
         scene: [
@@ -82,6 +83,13 @@ export const sceneLogic = kea<sceneLogicType>({
                 showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
                 hideUpgradeModal: () => null,
                 takeToPricing: () => null,
+            },
+        ],
+        lastReloadAt: [
+            null as number | null,
+            { persist: true },
+            {
+                reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
     },
@@ -242,16 +250,18 @@ export const sceneLogic = kea<sceneLogicType>({
                         error.name === 'ChunkLoadError' || // webpack
                         error.message?.includes('Failed to fetch dynamically imported module') // esbuild
                     ) {
-                        if (scene !== null) {
-                            // We were on another page (not the first loaded scene)
-                            console.error('App assets regenerated. Reloading this page.')
-                            window.location.reload()
-                            return
-                        } else {
-                            // First scene, show an error page
+                        // Reloaded once in the last 20 seconds and now reloading again? Show network error
+                        if (
+                            values.lastReloadAt &&
+                            parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
+                        ) {
                             console.error('App assets regenerated. Showing error page.')
                             actions.setScene(Scene.ErrorNetwork, emptySceneParams)
+                        } else {
+                            console.error('App assets regenerated. Reloading this page.')
+                            actions.reloadBrowserDueToImportError()
                         }
+                        return
                     } else {
                         throw error
                     }
@@ -300,6 +310,9 @@ export const sceneLogic = kea<sceneLogicType>({
                 }
             }
             actions.setScene(scene, params)
+        },
+        reloadBrowserDueToImportError: () => {
+            window.location.reload()
         },
     }),
 })
