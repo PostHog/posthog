@@ -129,7 +129,7 @@ $top_nav_height: 50px;
     max-width: calc(100% - 8px);
 }
 
-// Z-indexes
+// Z-indexes, sync with vars.ts
 $z_nps_overlay: 5200;
 $z_bottom_notice: 5100;
 $z_command_palette: 1875;
@@ -160,10 +160,3 @@ $md: 768px;
 $lg: 992px;
 $xl: 1200px;
 $xxl: 1600px;
-
-// Export variables for TS access
-:export {
-    zDrawer: $z_drawer;
-    zPopup: $z_popup;
-    zGraphAnnotationPrompt: $z_graph_annotation_prompt;
-}

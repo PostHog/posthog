@@ -256,6 +256,7 @@ export interface EditorProps {
 
 export interface ToolbarProps extends EditorProps {
     posthog?: PostHog
+    disableExternalStyles?: boolean
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null

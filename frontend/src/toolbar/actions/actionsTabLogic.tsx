@@ -9,7 +9,7 @@ import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionType } from '~/types'
 import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
-import { FormInstance } from 'antd/es/form'
+import { FormInstance } from 'antd/lib/form'
 import { posthog } from '~/toolbar/posthog'
 
 function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
