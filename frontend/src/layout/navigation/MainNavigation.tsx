@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Layout, Menu, Modal, Popover } from 'antd'
+import { Layout, Menu, Popover } from 'antd'
 import {
     ApiFilled,
     ClockCircleFilled,
@@ -417,14 +417,7 @@ export function MainNavigation(): JSX.Element {
                 </div>
             </Layout.Sider>
 
-            <Modal
-                bodyStyle={{ padding: 0 }}
-                visible={toolbarModalOpen}
-                footer={null}
-                onCancel={() => setToolbarModalOpen(false)}
-            >
-                <ToolbarModal />
-            </Modal>
+            <ToolbarModal visible={toolbarModalOpen} onCancel={() => setToolbarModalOpen(false)} />
         </>
     )
 }

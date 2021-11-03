@@ -22,6 +22,7 @@ import { canViewPlugins } from '../../../scenes/plugins/access'
 import { sceneLogic } from '../../../scenes/sceneLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
+import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './SideBar.scss'
 
@@ -71,6 +72,7 @@ function PageButton({
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
+    const { showToolbarModal } = useActions(lemonadeLogic)
 
     return (
         <div className="Pages">
@@ -103,12 +105,7 @@ function Pages(): JSX.Element {
             {canViewPlugins(currentOrganization) && (
                 <PageButton title="Plugins" icon={<IconExtension />} identifier="plugins" to={urls.plugins()} />
             )}
-            <PageButton
-                title="Toolbar"
-                icon={<IconTools />}
-                identifier="toolbar"
-                onClick={() => console.error('TODO')}
-            />
+            <PageButton title="Toolbar" icon={<IconTools />} identifier="toolbar" onClick={showToolbarModal} />
             <PageButton
                 title="Project settings"
                 icon={<IconSettings />}
@@ -120,8 +117,8 @@ function Pages(): JSX.Element {
 }
 
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
-    const { isSideBarShown } = useValues(lemonadeLogic)
-    const { hideSideBar } = useActions(lemonadeLogic)
+    const { isSideBarShown, isToolbarModalShown } = useValues(lemonadeLogic)
+    const { hideSideBar, hideToolbarModal } = useActions(lemonadeLogic)
 
     return (
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
@@ -134,6 +131,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             </div>
             <div className="SideBar__overlay" onClick={hideSideBar} />
             {children}
+            <ToolbarModal visible={isToolbarModalShown} onCancel={hideToolbarModal} />
         </div>
     )
 }
