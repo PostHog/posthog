@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { delay, identifierToHuman, setPageTitle } from 'lib/utils'
+import { identifierToHuman, setPageTitle } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -35,7 +35,7 @@ export const sceneLogic = kea<sceneLogicType>({
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
         loadScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
         // 3. Set the `scene` reducer
-        setScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
+        setScene: (scene: Scene, params: SceneParams, scrollToTop: boolean = false) => ({ scene, params, scrollToTop }),
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
         }),
@@ -192,13 +192,13 @@ export const sceneLogic = kea<sceneLogicType>({
             const pricingTab = preflightLogic.values.preflight?.cloud ? 'cloud' : 'vpc'
             window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
-        setScene: ({ scene, method }, _, __, previousState) => {
+        setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
             setPageTitle(identifierToHuman(scene || ''))
 
             // if we clicked on a link, scroll to top
             const previousScene = selectors.scene(previousState)
-            if (method === 'PUSH' && scene !== previousScene) {
+            if (scrollToTop && scene !== previousScene) {
                 window.scrollTo(0, 0)
             }
         },
@@ -263,6 +263,7 @@ export const sceneLogic = kea<sceneLogicType>({
             }
 
             let loadedScene = values.loadedScenes[scene]
+            const wasNotLoaded = !loadedScene
 
             if (!loadedScene) {
                 let importedScene
@@ -326,7 +327,7 @@ export const sceneLogic = kea<sceneLogicType>({
                     delay(1000).then(unmount)
                 }
             }
-            actions.setScene(scene, params, method)
+            actions.setScene(scene, params, method === 'PUSH' || wasNotLoaded)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
