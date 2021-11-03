@@ -20,6 +20,8 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideCreateOrganizationModal: true,
         showChangelogModal: true,
         hideChangelogModal: true,
+        showToolbarModal: true,
+        hideToolbarModal: true,
     },
     reducers: {
         isSideBarShown: [
@@ -62,6 +64,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
             {
                 showChangelogModal: () => true,
                 hideChangelogModal: () => false,
+            },
+        ],
+        isToolbarModalShown: [
+            false,
+            {
+                showToolbarModal: () => true,
+                hideToolbarModal: () => false,
             },
         ],
     },
