@@ -17,24 +17,18 @@ export function LemonButton({
     icon,
     type = 'default',
     className,
+    onClick,
     ...buttonProps
 }: LemonButtonProps): JSX.Element {
-    const { onClick, ...buttonPropsInternal } = buttonProps
-    let onClickInternal: LemonRowProps<'button'>['onClick'] | undefined
-    let link: string | undefined
-    if (typeof onClick === 'string') {
-        link = onClick
-    } else {
-        onClickInternal = onClick
-    }
+    const link = typeof onClick !== 'string' ? null : onClick
     const row = (
         <LemonRow
             tag="button"
             className={clsx('LemonButton', type !== 'default' && `LemonButton--${type}`, className)}
             icon={icon}
             type="button"
-            onClick={onClickInternal}
-            {...buttonPropsInternal}
+            {...buttonProps}
+            onClick={typeof onClick !== 'string' ? onClick : undefined}
         >
             {children}
         </LemonRow>
