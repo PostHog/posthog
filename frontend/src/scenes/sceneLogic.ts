@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { identifierToHuman, setPageTitle } from 'lib/utils'
+import { delay, identifierToHuman, setPageTitle } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -31,11 +31,11 @@ export const sceneLogic = kea<sceneLogicType>({
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
             else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
-        openScene: (scene: Scene, params: SceneParams) => ({ scene, params }),
+        openScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
-        loadScene: (scene: Scene, params: SceneParams) => ({ scene, params }),
+        loadScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
         // 3. Set the `scene` reducer
-        setScene: (scene: Scene, params: SceneParams) => ({ scene, params }),
+        setScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
         }),
@@ -142,7 +142,10 @@ export const sceneLogic = kea<sceneLogicType>({
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
     },
     urlToAction: ({ actions }) => {
-        const mapping: Record<string, (params: Params, searchParams: Params, hashParams: Params) => any> = {}
+        const mapping: Record<
+            string,
+            (params: Params, searchParams: Params, hashParams: Params, payload: { method: string }) => any
+        > = {}
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
@@ -151,15 +154,15 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         }
         for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams) =>
-                actions.openScene(scene, { params, searchParams, hashParams })
+            mapping[path] = (params, searchParams, hashParams, { method }) =>
+                actions.openScene(scene, { params, searchParams, hashParams }, method)
         }
 
-        mapping['/*'] = () => actions.loadScene(Scene.Error404, emptySceneParams)
+        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
 
         return mapping
     },
-    listeners: ({ values, actions, props }) => ({
+    listeners: ({ values, actions, props, selectors }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
@@ -189,11 +192,15 @@ export const sceneLogic = kea<sceneLogicType>({
             const pricingTab = preflightLogic.values.preflight?.cloud ? 'cloud' : 'vpc'
             window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
-        setScene: () => {
+        setScene: ({ scene, method }, _, __, previousState) => {
+            const previousScene = selectors.scene(previousState)
+            if (method === 'PUSH' && scene !== previousScene) {
+                window.scrollTo(0, 0)
+            }
             posthog.capture('$pageview')
-            setPageTitle(identifierToHuman(values.scene || ''))
+            setPageTitle(identifierToHuman(scene || ''))
         },
-        openScene: ({ scene, params }) => {
+        openScene: ({ scene, params, method }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
@@ -240,16 +247,16 @@ export const sceneLogic = kea<sceneLogicType>({
                 }
             }
 
-            actions.loadScene(scene, params)
+            actions.loadScene(scene, params, method)
         },
-        loadScene: async ({ scene, params }, breakpoint) => {
+        loadScene: async ({ scene, params, method }, breakpoint) => {
             if (values.scene === scene) {
-                actions.setScene(scene, params)
+                actions.setScene(scene, params, method)
                 return
             }
 
             if (!props.scenes?.[scene]) {
-                actions.setScene(Scene.Error404, emptySceneParams)
+                actions.setScene(Scene.Error404, emptySceneParams, method)
                 return
             }
 
@@ -270,7 +277,7 @@ export const sceneLogic = kea<sceneLogicType>({
                             parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
                         ) {
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene(Scene.ErrorNetwork, emptySceneParams)
+                            actions.setScene(Scene.ErrorNetwork, emptySceneParams, method)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
                             actions.reloadBrowserDueToImportError()
@@ -310,20 +317,14 @@ export const sceneLogic = kea<sceneLogicType>({
                 }
                 actions.setLoadedScene(loadedScene)
 
-                let unmount
                 if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] && loadedScene.logic) {
-                    // initialize the logic and give it 50ms to load before opening the scene
-                    unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
-                    try {
-                        await breakpoint(50)
-                    } catch (e) {
-                        // if we change the scene while waiting these 50ms, unmount
-                        unmount()
-                        throw e
-                    }
+                    // Init the logic before React renders and asks for it itself
+                    const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
+                    // Disconnect our lock from this logic after a second
+                    delay(1000).then(unmount)
                 }
             }
-            actions.setScene(scene, params)
+            actions.setScene(scene, params, method)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
