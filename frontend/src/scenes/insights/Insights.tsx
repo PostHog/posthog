@@ -142,7 +142,7 @@ export function Insights(): JSX.Element {
                                 }}
                             >
                                 <Button type="link" className="btn-reset">
-                                    Discard
+                                    Discard changes
                                 </Button>
                             </Popconfirm>
                         ) : null}
