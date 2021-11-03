@@ -533,12 +533,14 @@ export class DB {
         return client ? kafkaMessages : updatedPerson
     }
 
-    private sanitizePropertiesOnce(properties: Properties, propertiesOnce: Properties): void {
+    private sanitizePropertiesOnce(properties: Properties, propertiesOnce: Properties): Properties {
         // If set and set_once are used for the same key we only use set
         // because an earlier set_once shouldn't override a key that has seen a set call, but should for set_once
+        const propsOnce = { ...propertiesOnce }
         Object.keys(properties).map((key) => {
-            delete propertiesOnce[key]
+            delete propsOnce[key]
         })
+        return propsOnce
     }
 
     public async updatePersonProperties(
@@ -551,7 +553,7 @@ export class DB {
         if (properties.length == 0 && propertiesOnce.length == 0) {
             return
         }
-        this.sanitizePropertiesOnce(properties, propertiesOnce)
+        propertiesOnce = this.sanitizePropertiesOnce(properties, propertiesOnce)
 
         let values: Array<any> = ['<id>', timestamp.toISO()]
         const startIndex = values.length + 1
