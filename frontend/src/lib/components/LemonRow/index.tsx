@@ -1,11 +1,14 @@
 import React from 'react'
 import clsx from 'clsx'
 import './LemonRow.scss'
+import { Tooltip } from '../Tooltip'
 
 export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends React.HTMLProps<React.HTMLAttributes<T>> {
     icon?: React.ReactElement
     tag?: T
     status?: 'success' | 'warning' | 'danger' // CSS variable colors
+    tooltip?: string
+    compact?: boolean
     fullWidth?: boolean
 }
 
@@ -16,16 +19,19 @@ export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
     className,
     tag,
     status,
+    tooltip,
+    compact = false,
     fullWidth = false,
     ...props
 }: LemonRowProps<T>): JSX.Element {
-    return React.createElement(
+    const element = React.createElement(
         tag || 'div',
         {
             className: clsx(
                 'LemonRow',
                 className,
                 status && `LemonRow--status-${status}`,
+                compact && 'LemonRow--compact',
                 fullWidth && 'LemonRow--full-width'
             ),
             ...props,
@@ -33,10 +39,11 @@ export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
         icon ? (
             <>
                 <span className="LemonRow__icon">{icon}</span>
-                {children}
+                <div className="LemonRow__content">{children}</div>
             </>
         ) : (
             children
         )
     )
+    return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
 }
