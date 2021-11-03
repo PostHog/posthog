@@ -6,6 +6,7 @@ jest.mock('lib/api')
 
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof propertySelectLogic.build>
+    const allProperties: string[] = ['property 1', 'property 2']
 
     initKeaTestLogic({
         logic: propertySelectLogic,
@@ -13,10 +14,7 @@ describe('funnelLogic', () => {
             initialProperties: new Set() as Set<string>,
             onChange: jest.fn(),
             propertySelectLogicKey: '123',
-            properties: [
-                { name: 'property 1', count: 1 },
-                { name: 'property 2', count: 2 },
-            ],
+            properties: allProperties,
         },
         onLogic: (l) => (logic = l),
     })
@@ -54,7 +52,7 @@ describe('funnelLogic', () => {
     describe('property search', () => {
         it('should have not filtered anything on initial load', () => {
             expect(logic.values.filteredProperties).toEqual(
-                logic.values.properties.map((property) => ({ ...property, highlightedNameParts: [property.name] }))
+                allProperties.map((property) => ({ name: property, highlightedNameParts: [property] }))
             )
         })
 
@@ -62,7 +60,7 @@ describe('funnelLogic', () => {
             expectLogic(logic, () => logic.actions.setQuery('erty 1')).toMatchValues({
                 filteredProperties: [
                     {
-                        ...logic.values.properties[0],
+                        name: logic.values.properties[0],
                         highlightedNameParts: ['prop', 'erty 1', ''],
                     },
                 ],

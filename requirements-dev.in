@@ -28,4 +28,5 @@ pytest
 pytest-django
 pytest-mock
 pytest-cov
+pytest-split
 syrupy

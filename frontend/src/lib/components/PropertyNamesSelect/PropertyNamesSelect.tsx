@@ -3,8 +3,6 @@ import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
 import { Checkbox, Input } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { PersonProperty } from '~/types'
 import { propertySelectLogic } from './propertyNamesSelectLogic'
 import './styles.scss'
 
@@ -14,36 +12,35 @@ let propertyNameSelectCounter = 0
 export const PropertyNamesSelect = ({
     onChange,
     value = new Set(),
+    allProperties,
 }: {
     onChange?: (selectedProperties: string[]) => void
     value?: Set<string>
+    allProperties?: string[]
 }): JSX.Element => {
     /*
         Provides a super simple multiselect box for selecting property names.
     */
-    const { personProperties: properties } = useValues(personPropertiesModel)
 
     // Make a key that identifies the logic for this specific component instance
     const propertySelectLogicKey = React.useMemo(() => propertyNameSelectCounter++, [])
 
-    // NOTE: I'm checking that length > 0 here, although this seems a little
-    // hacky. I'm doing this so when we instantiate the propertySelectLogic with
-    // props, we have the props to hand as they will not update on rerender
-    return properties?.length ? (
-        <BindLogic logic={propertySelectLogic} props={{ properties, propertySelectLogicKey, value, onChange }}>
-            <PropertyNamesSelectBox onChange={onChange} properties={properties} value={value} />
+    return allProperties?.length ? (
+        <BindLogic
+            logic={propertySelectLogic}
+            props={{ properties: allProperties, propertySelectLogicKey, value, onChange }}
+        >
+            <PropertyNamesSelectBox onChange={onChange} value={value} />
         </BindLogic>
     ) : (
-        <div className="property-names-select">Loading properties...</div>
+        <div className="property-names-select">No properties available</div>
     )
 }
 
 export const PropertyNamesSelectBox = ({
-    properties,
     onChange,
     value,
 }: {
-    properties: PersonProperty[]
     value: Set<string>
     onChange?: (selectedProperties: string[]) => void
 }): JSX.Element => {
@@ -53,6 +50,7 @@ export const PropertyNamesSelectBox = ({
 
         // selection actions/values
         selectedProperties,
+        properties,
         selectState,
     } = useValues(propertySelectLogic)
 
@@ -98,7 +96,7 @@ export const PropertyNamesSelectBox = ({
                                     selectAll()
 
                                     if (onChange) {
-                                        onChange(properties.map((property) => property.name))
+                                        onChange(properties)
                                     }
                                     evt.stopPropagation()
                                 }}
@@ -111,7 +109,7 @@ export const PropertyNamesSelectBox = ({
                                     selectAll()
 
                                     if (onChange) {
-                                        onChange(properties.map((property) => property.name))
+                                        onChange(properties)
                                     }
                                     evt.stopPropagation()
                                 }}

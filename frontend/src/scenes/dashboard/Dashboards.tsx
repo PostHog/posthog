@@ -22,11 +22,10 @@ import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
-    logic: sceneLogic,
+    logic: dashboardsLogic,
 }
 
 export function Dashboards(): JSX.Element {

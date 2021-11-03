@@ -18,6 +18,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 export type TabName = 'overview' | 'internal_metrics'
 
 export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
+    path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
     actions: {
         setTab: (tab: TabName) => ({ tab }),
         setOpenSections: (sections: string[]) => ({ sections }),

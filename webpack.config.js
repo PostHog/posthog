@@ -12,22 +12,6 @@ function createEntry(entry) {
     const commonLoadersForSassAndLess = [
         {
             loader: 'style-loader',
-            options:
-                entry === 'toolbar'
-                    ? {
-                          insert: function insertAtTop(element) {
-                              // tunnel behind the shadow root
-                              if (window.__PHGTLB_ADD_STYLES__) {
-                                  window.__PHGTLB_ADD_STYLES__(element)
-                              } else {
-                                  if (!window.__PHGTLB_STYLES__) {
-                                      window.__PHGTLB_STYLES__ = []
-                                  }
-                                  window.__PHGTLB_STYLES__.push(element)
-                              }
-                          },
-                      }
-                    : undefined,
         },
         {
             // This loader resolves url() and @imports inside CSS
@@ -72,7 +56,7 @@ function createEntry(entry) {
                 : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
-            extensions: ['.js', '.ts', '.tsx'],
+            extensions: ['.js', '.jsx', '.ts', '.tsx'],
             alias: {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),

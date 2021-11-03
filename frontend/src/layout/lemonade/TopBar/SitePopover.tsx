@@ -5,7 +5,7 @@ import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { LemonRow } from '../../../lib/components/LemonRow'
-import { IconCheckmark, IconOffline, IconPlus, IconSignOut, IconUpdate } from '../../../lib/components/icons'
+import { IconCheckmark, IconOffline, IconPlus, IconLogout, IconUpdate, IconExclamation } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
@@ -18,6 +18,8 @@ import { navigationLogic } from '../../navigation/navigationLogic'
 import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
 import dayjs from 'dayjs'
 import { identifierToHuman } from '../../../lib/utils'
+import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
+import { membershipLevelToName } from '../../../lib/utils/permissioning'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -48,10 +50,12 @@ function AccountInfo(): JSX.Element {
     )
 }
 
-function Lettermark({ name }: { name?: string | null }): JSX.Element {
-    const initialLetter = name ? name[0].toLocaleUpperCase() : '?'
-
-    return <div className="Lettermark">{initialLetter}</div>
+function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
+    return (
+        <div className="AccessLevelIndicator" title={`Your ${organization.name} organization access level`}>
+            {organization.membership_level ? membershipLevelToName.get(organization.membership_level) : '?'}
+        </div>
+    )
 }
 
 function CurrentOrganization({ organization }: { organization: OrganizationBasicType }): JSX.Element {
@@ -60,8 +64,9 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     return (
         <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
             <>
-                <div className="SitePopover__main-info">
-                    <b>{organization.name}</b>
+                <div className="SitePopover__main-info SitePopover__organization">
+                    <strong>{organization.name}</strong>
+                    <AccessLevelIndicator organization={organization} />
                 </div>
                 <Link to={urls.organizationSettings()} onClick={closeSitePopover} className="SitePopover__side-link">
                     Settings
@@ -78,12 +83,13 @@ function OtherOrganizationButton({ organization }: { organization: OrganizationB
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark name={organization.name} />}
+            className="SitePopover__organization"
             type="stealth"
-            align="start"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
             {organization.name}
+            <AccessLevelIndicator organization={organization} />
         </LemonButton>
     )
 }
@@ -98,7 +104,6 @@ function InviteMembersButton(): JSX.Element {
                 closeSitePopover()
                 showInviteModal()
             }}
-            align="start"
             fullWidth
         >
             Invite members
@@ -128,7 +133,6 @@ function NewOrganizationButton(): JSX.Element {
                     }
                 )
             }
-            align="start"
             fullWidth
         >
             New organization
@@ -185,7 +189,7 @@ function SystemStatus(): JSX.Element {
 
 function Version(): JSX.Element {
     const { closeSitePopover, showChangelogModal } = useActions(lemonadeLogic)
-    const { updateAvailable } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { updateAvailable, latestVersion } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -196,7 +200,10 @@ function Version(): JSX.Element {
         >
             <>
                 <div className="SitePopover__main-info">
-                    Version <b>{preflight?.posthog_version}</b>
+                    <div>
+                        Version <strong>{preflight?.posthog_version}</strong>
+                    </div>
+                    {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
                 <Link
                     onClick={() => {
@@ -216,7 +223,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconSignOut />} type="stealth" align="start" fullWidth>
+        <LemonButton onClick={logout} icon={<IconLogout />} type="stealth" fullWidth>
             Sign out
         </LemonButton>
     )
@@ -228,6 +235,7 @@ export function SitePopover(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { isSitePopoverOpen } = useValues(lemonadeLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
+    const { systemStatus } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
 
     return (
         <Popup
@@ -251,11 +259,13 @@ export function SitePopover(): JSX.Element {
                             {preflight?.can_create_org && <NewOrganizationButton />}
                         </SitePopoverSection>
                     )}
-                    <SitePopoverSection title="PostHog status">
-                        {preflight?.cloud ? null : <License />}
-                        {(!preflight?.cloud || user?.is_staff) && <SystemStatus />}
-                        {!preflight?.cloud && <Version />}
-                    </SitePopoverSection>
+                    {(!preflight?.cloud || user?.is_staff) && (
+                        <SitePopoverSection title="PostHog status">
+                            {!preflight?.cloud && <License />}
+                            <SystemStatus />
+                            {!preflight?.cloud && <Version />}
+                        </SitePopoverSection>
+                    )}
                     <SitePopoverSection>
                         <SignOutButton />
                     </SitePopoverSection>
@@ -263,7 +273,13 @@ export function SitePopover(): JSX.Element {
             }
         >
             <div className="SitePopover__crumb" onClick={toggleSitePopover}>
-                <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
+                <div
+                    className="SitePopover__profile-picture"
+                    title={systemStatus ? undefined : 'Potential system issue'}
+                >
+                    <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
+                    {!systemStatus && <IconExclamation className="SitePopover__danger" />}
+                </div>
                 <CaretDownOutlined />
             </div>
         </Popup>

@@ -13,7 +13,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import EE_AVAILABLE
+from posthog.settings import EE_AVAILABLE, SITE_URL
 from posthog.utils import (
     get_helm_info_env,
     get_instance_realm,
@@ -151,12 +151,19 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
     if not dry_run:
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        posthoganalytics.capture(get_machine_id(), name, {**report, "scope": "machine"})
+        posthoganalytics.capture(get_machine_id(), name, {**report, "scope": "machine"}, groups={"instance": SITE_URL})
+
+        if "instance_usage_summary" in report:
+            posthoganalytics.group_identify("instance", SITE_URL, fetch_instance_params(report))
 
         for user in User.objects.all():
             posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
     else:
         print(name, json.dumps(report))  # noqa: T001
+
+
+def fetch_instance_params(report: Dict[str, Any]) -> dict:
+    return {"site_url": SITE_URL, "machine_id": get_machine_id(), **report["instance_usage_summary"]}
 
 
 def fetch_event_counts_by_lib(params: Tuple[Any, ...]) -> dict:

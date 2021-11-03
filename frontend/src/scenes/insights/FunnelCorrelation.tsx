@@ -62,13 +62,13 @@ export const FunnelCorrelation = (): JSX.Element | null => {
             {!correlationFeedbackHidden && (
                 <Card className="correlation-feedback">
                     <Row className="row-initial">
-                        <Col span={15}>
+                        <Col span={14}>
                             <h4>
                                 <CommentOutlined style={{ marginRight: 4 }} />
                                 Was this correlation analysis report useful?
                             </h4>
                         </Col>
-                        <Col span={8} style={{ alignContent: 'right' }}>
+                        <Col span={9} style={{ alignContent: 'right' }}>
                             {!!correlationFeedbackRating && (
                                 <i style={{ color: 'var(--success)', marginRight: 8 }}>Thanks for your feedback!</i>
                             )}

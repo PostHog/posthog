@@ -1,6 +1,6 @@
 import React, { CSSProperties, useMemo, useState } from 'react'
 
-import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
+import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm, Table } from 'antd'
 import { NumberOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
@@ -13,8 +13,6 @@ import { copyToClipboard } from 'lib/utils'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
-
-const keyMappingKeys = Object.keys(keyMapping.event)
 
 const iconStyle: CSSProperties = { display: 'inline-block', marginRight: '0.5rem', opacity: 0.75 }
 

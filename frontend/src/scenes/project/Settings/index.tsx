@@ -30,6 +30,7 @@ import { AccessControl } from './AccessControl'
 import { PathCleaningFiltersConfig } from './PathCleaningFiltersConfig'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { CorrelationConfig } from './CorrelationConfig'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -188,6 +189,15 @@ export function ProjectSettings(): JSX.Element {
                     you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
                 </p>
                 <TestAccountFiltersConfig />
+                {featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
+                    <>
+                        <Divider />
+                        <h2 className="subtitle" id="internal-users-filtering">
+                            Filter Out Correlation Person Property Noise
+                        </h2>
+                        <CorrelationConfig />
+                    </>
+                ) : null}
                 <Divider />
                 <h2 className="subtitle" id="path_cleaning_filtering">
                     Path Cleaning Rules
