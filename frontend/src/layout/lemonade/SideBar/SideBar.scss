@@ -1,21 +1,49 @@
 @import '~/vars';
 
 .SideBar__layout {
+    position: relative;
     flex-grow: 1;
     height: 100%;
     display: flex;
 }
 
-.SideBar {
-    transition: 200ms ease margin;
-    position: relative;
+.SideBar__slider {
+    z-index: $z_lemon_sidebar;
+    transition: 200ms ease margin, 200ms ease transform;
+    position: absolute;
     flex-shrink: 0;
-    box-sizing: border-box;
+    height: 100%;
     width: 15rem;
     background: var(--bg-side);
     border-right: 1px solid var(--border);
-    &--hidden {
-        margin-left: -15rem;
+    .SideBar--hidden & {
+        // As an optimization we use transform instead of margin on mobile,
+        // because the sidebar does not affect the rest of the layout on mobile
+        transform: translateX(-15rem);
+    }
+    @media screen and (min-width: $sm) {
+        height: initial;
+        position: relative;
+        .SideBar--hidden & {
+            margin-left: -15rem;
+        }
+    }
+}
+
+.SideBar__overlay {
+    z-index: $z_mobile_nav_overlay;
+    transition: 200ms ease opacity;
+    opacity: 1;
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    background: var(--text-muted);
+    .SideBar--hidden & {
+        opacity: 0;
+        pointer-events: none;
+    }
+    @media screen and (min-width: $sm) {
+        display: none;
     }
 }
 
@@ -23,6 +51,8 @@
     position: sticky;
     top: 3.5rem;
     width: 100%;
+    max-height: calc(100vh - 3.5rem);
+    overflow: auto;
     padding: 0.5rem;
     > div {
         margin: 0.5rem 0;

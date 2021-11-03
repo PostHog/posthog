@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 import {
     IconBarChart,
@@ -121,16 +121,18 @@ function Pages(): JSX.Element {
 
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { isSideBarShown } = useValues(lemonadeLogic)
+    const { hideSideBar } = useActions(lemonadeLogic)
 
     return (
-        <div className="SideBar__layout">
-            <div className={clsx('SideBar', !isSideBarShown && 'SideBar--hidden')}>
+        <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
+            <div className="SideBar__slider">
                 <div className="SideBar__content">
                     <ProjectSwitcher />
                     <Spacer />
                     <Pages />
                 </div>
             </div>
+            <div className="SideBar__overlay" onClick={hideSideBar} />
             {children}
         </div>
     )

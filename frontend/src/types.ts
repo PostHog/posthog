@@ -577,6 +577,11 @@ export interface SessionRecordingType {
     person?: PersonType
 }
 
+export interface SessionRecordingEvents {
+    next?: string
+    events: EventType[]
+}
+
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
