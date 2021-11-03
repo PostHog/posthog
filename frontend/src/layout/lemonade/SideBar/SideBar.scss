@@ -17,16 +17,15 @@
     background: var(--bg-side);
     border-right: 1px solid var(--border);
     .SideBar--hidden & {
-        margin-left: -15rem;
+        // As an optimization we use transform instead of margin on mobile,
+        // because the sidebar does not affect the rest of the layout on mobile
+        transform: translateX(-15rem);
     }
     @media screen and (min-width: $sm) {
         height: initial;
         position: relative;
         .SideBar--hidden & {
-            margin-left: unset;
-            // As an optimization we use transform instead of margin on mobile,
-            // because the sidebar does not affect the rest of the layout on mobile
-            transform: translateX(-15rem);
+            margin-left: -15rem;
         }
     }
 }
