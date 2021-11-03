@@ -10,6 +10,8 @@ from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.utils import sane_repr
 
+MATH_TYPE = Literal["total", "dau", "weekly_active", "monthly_active", "sum", "min", "max", "median", "p90", "p95", "p99"]
+
 
 class Entity(PropertyMixin):
     """
@@ -23,7 +25,7 @@ class Entity(PropertyMixin):
     order: Optional[int]
     name: Optional[str]
     custom_name: Optional[str]
-    math: Optional[str]
+    math: Optional[MATH_TYPE]
     math_property: Optional[str]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
     # Used for identifying entities within a single query during query building,
