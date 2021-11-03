@@ -12,6 +12,7 @@ import { IconFeedbackWarning } from 'lib/components/icons'
 import { CloseOutlined } from '@ant-design/icons'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { AvailableFeature } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
@@ -30,6 +31,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         setCorrelationFeedbackRating,
         setCorrelationDetailedFeedback,
     } = useActions(funnelLogic(insightProps))
+    const { preflight } = useValues(preflightLogic)
 
     const detailedFeedbackRef = useRef<HTMLTextAreaElement>(null)
 
@@ -37,12 +39,12 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         return null
     }
 
-    if (!correlationAnalysisAvailable) {
+    if (!correlationAnalysisAvailable && !preflight?.instance_preferences?.disable_paid_fs) {
         return (
             <PayCard
                 identifier={AvailableFeature.CORRELATION_ANALYSIS}
-                title="Get a deeper understanding of what your users are doing"
-                caption="Correlation Analysis automates analysis over your events to find signals for why users are converting or dropping off."
+                title="Get a deeper understanding of why your users are not converting"
+                caption="Correlation analysis automatically finds signals for why users are converting or dropping off."
             />
         )
     }

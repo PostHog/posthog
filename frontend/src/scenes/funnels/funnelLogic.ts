@@ -972,13 +972,10 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         correlationAnalysisAvailable: [
             (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
-            (hasAvailableFeature, clickhouseFeaturesEnabled) => {
-                return (
-                    featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                    clickhouseFeaturesEnabled &&
-                    hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS)
-                )
-            },
+            (hasAvailableFeature, clickhouseFeaturesEnabled) =>
+                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+                clickhouseFeaturesEnabled &&
+                hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
         allProperties: [
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],
