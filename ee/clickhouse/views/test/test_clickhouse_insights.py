@@ -548,10 +548,10 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
             # input events have chrome and safari so results is an array with two arrays as its contents
             for i in range(0, 2):
-                for result in range[i]:
-                    self.assertIsInstance(result["name"], str)
-                    self.assertEqual(test_case["expected"][i], result["breakdown"])
-                    self.assertEqual(test_case["expected"][i], result["breakdown_value"])
+                for funnel_data in result[i]:
+                    self.assertIsInstance(funnel_data["name"], str)
+                    self.assertEqual(test_case["expected"][i], funnel_data["breakdown"])
+                    self.assertEqual(test_case["expected"][i], funnel_data["breakdown_value"])
 
     @staticmethod
     def as_result(breakdown_properties: Union[str, List[str]]) -> Dict[str, Any]:
