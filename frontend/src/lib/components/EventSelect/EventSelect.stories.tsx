@@ -40,18 +40,21 @@ export const Default = (): JSX.Element => {
                             name: '$autocapture',
                             volume_30_day: null,
                             query_usage_30_day: null,
+                            description: '',
                         },
                         {
                             id: '017ce199-a10e-0000-6783-7167743302f4',
                             name: '$capture_failed_request',
                             volume_30_day: null,
                             query_usage_30_day: null,
+                            description: '',
                         },
                         {
                             id: '017cdbee-0c77-0000-ecf1-bd5a9e253b92',
                             name: '$capture_metrics',
                             volume_30_day: null,
                             query_usage_30_day: null,
+                            description: '',
                         },
                     ],
                 })
