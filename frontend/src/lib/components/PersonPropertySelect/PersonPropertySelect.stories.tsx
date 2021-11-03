@@ -9,11 +9,30 @@ import { mockGetPersonProperties } from '../TaxonomicFilter/__stories__/Taxonomi
 import { PersonPropertySelect } from './PersonPropertySelect'
 
 export default {
-    title: 'Components/PersonPropertySelect',
+    title: 'PostHog/Components/PersonPropertySelect',
 } as Meta
 
 export const Default = (): JSX.Element => {
-    const [selectedProperties, setSelectProperties] = React.useState<string[]>([])
+    const [selectedProperties, setSelectProperties] = React.useState<string[]>([
+        '$initial_geoip_postal_code',
+        '$initial_geoip_latitude',
+        '$initial_geoip_longitude',
+        '$geoip_latitude',
+        '$geoip_longitude',
+        '$geoip_postal_code',
+        '$geoip_continent_code',
+        '$geoip_continent_name',
+        '$initial_geoip_continent_code',
+        '$initial_geoip_continent_name',
+        '$geoip_time_zone',
+        '$geoip_country_code',
+        '$geoip_subdivision_1_code',
+        '$initial_geoip_subdivision_1_code',
+        '$geoip_subdivision_2_code',
+        '$initial_geoip_subdivision_2_code',
+        '$geoip_subdivision_name',
+        '$initial_geoip_subdivision_name',
+    ])
 
     worker.use(
         mockGetPersonProperties((_, res, ctx) =>

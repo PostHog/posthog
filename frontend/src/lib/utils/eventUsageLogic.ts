@@ -286,6 +286,7 @@ export const eventUsageLogic = kea<
             action: string,
             props?: Record<string, any>
         ) => ({ correlationType, action, props }),
+        reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
     },
@@ -641,6 +642,9 @@ export const eventUsageLogic = kea<
                 source: source,
             }
             posthog.capture(`recording ${type}`, payload)
+        },
+        reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
+            posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)
