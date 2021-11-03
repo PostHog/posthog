@@ -276,9 +276,10 @@ export const eventUsageLogic = kea<
         ) => ({ recordingData, source, loadTime, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
-        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number) => ({
+        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
             filters,
             delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            propertiesTable,
         }),
         reportCorrelationInteraction: (
             correlationType: FunnelCorrelation['result_type'],
@@ -668,11 +669,11 @@ export const eventUsageLogic = kea<
         reportCorrelationInteraction: ({ correlationType, action, props }) => {
             posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
         },
-        reportCorrelationViewed: ({ delay, filters }) => {
+        reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
             if (delay === 0) {
-                posthog.capture('correlation viewed', { filters })
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
             } else {
-                posthog.capture('correlation analyzed', { filters })
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, { filters, delay })
             }
         },
     },

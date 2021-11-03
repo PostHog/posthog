@@ -1238,5 +1238,17 @@ export const funnelLogic = kea<funnelLogicType>({
             await breakpoint(10000)
             eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
         },
+
+        [visibilitySensorLogic({ id: `${values.correlationPropKey}-properties` }).actionTypes.setVisible]: async (
+            { visible }: { visible: boolean },
+            breakpoint: BreakPointFunction
+        ) => {
+            if (visible) {
+                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
+            }
+
+            await breakpoint(10000)
+            eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
+        },
     }),
 })
