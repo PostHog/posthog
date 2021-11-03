@@ -321,10 +321,15 @@ export const sceneLogic = kea<sceneLogicType>({
                 actions.setLoadedScene(loadedScene)
 
                 if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] && loadedScene.logic) {
-                    // Init the logic before React renders and asks for it itself
+                    // initialize the logic and give it 50ms to load before opening the scene
                     const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
-                    // Disconnect our lock from this logic after a second
-                    delay(1000).then(unmount)
+                    try {
+                        await breakpoint(50)
+                    } catch (e) {
+                        // if we change the scene while waiting these 50ms, unmount
+                        unmount()
+                        throw e
+                    }
                 }
             }
             actions.setScene(scene, params, method === 'PUSH' || wasNotLoaded)
