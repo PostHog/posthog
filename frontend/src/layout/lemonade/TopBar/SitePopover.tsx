@@ -189,7 +189,7 @@ function SystemStatus(): JSX.Element {
 
 function Version(): JSX.Element {
     const { closeSitePopover, showChangelogModal } = useActions(lemonadeLogic)
-    const { updateAvailable } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { updateAvailable, latestVersion } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -200,7 +200,10 @@ function Version(): JSX.Element {
         >
             <>
                 <div className="SitePopover__main-info">
-                    Version <strong>{preflight?.posthog_version}</strong>
+                    <div>
+                        Version <strong>{preflight?.posthog_version}</strong>
+                    </div>
+                    {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
                 <Link
                     onClick={() => {
