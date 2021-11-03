@@ -191,6 +191,7 @@ export interface TeamType extends TeamBasicType {
     // example can be used to exclude properties that have trivial causation
     correlation_config: {
         excluded_person_property_names: string[]
+        excluded_events: string[]
     }
 }
 
@@ -1246,7 +1247,7 @@ export interface LicenseType {
 export interface EventDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
