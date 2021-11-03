@@ -70,6 +70,7 @@ class Entity(PropertyMixin):
             "custom_name": self.custom_name,
             "math": self.math,
             "math_property": self.math_property,
+            "math_group_type_index": self.math_group_type_index,
             "properties": [prop.to_dict() for prop in self.properties],
         }
 

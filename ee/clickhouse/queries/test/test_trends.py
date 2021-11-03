@@ -874,3 +874,58 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         response = ClickhouseTrends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
+
+    def test_aggregating_by_group(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(
+            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
+        )
+
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:6", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{
+                    "id": "$pageview",
+                    "type": "events",
+                    "order": 0,
+                    "math": "unique_group",
+                    "math_group_type_index": 0
+                }],
+            },
+            team=self.team,
+        )
+
+
+        response = ClickhouseTrends().run(filter, self.team)
+        self.assertEqual(response[0]["count"], 2)
+
+        # :TODO: This fails due to '' being considered a valid group. Filter out groupless events!
+        # response = ClickhouseTrends().run(filter.with_data({"math_group_type_index": 1}), self.team)
+        # self.assertEqual(response[0]["count"], 1)
