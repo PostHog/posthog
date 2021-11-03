@@ -79,14 +79,15 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                 />
             </Row>
             <Row>
-                <span>
-                    Show logs of type:&nbsp;
+                <Space>
+                    <span>Show logs of type:&nbsp;</span>
                     <Checkbox.Group
                         options={Object.values(PluginLogEntryType)}
                         value={pluginLogsTypes}
                         onChange={setPluginLogsTypes}
+                        style={{ marginLeft: '8px' }}
                     />
-                </span>
+                </Space>
             </Row>
             <Row>
                 <Button
