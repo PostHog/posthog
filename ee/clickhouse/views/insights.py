@@ -1,6 +1,7 @@
 import json
 import dataclasses
 from typing import Any, Dict, Type
+from structlog import get_logger
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -23,6 +24,12 @@ from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.insight import InsightViewSet
 from posthog.constants import (
+    FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES,
+    FUNNEL_CORRELATION_EVENT_NAMES,
+    FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES,
+    FUNNEL_CORRELATION_EXCLUDE_NAMES,
+    FUNNEL_CORRELATION_NAMES,
+    FUNNEL_CORRELATION_TYPE,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     INSIGHT_SESSIONS,
@@ -38,6 +45,9 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+
+
+logger = get_logger(__name__)
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
@@ -126,9 +136,10 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
     @cached_function
     def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
+        logger.debug("CALCULATE_FUNNEL_CORRELATION", filter_data=request.data)
         # Put all the request into the existing filter class, so we isolate out
         # changes to just clarify what is relevant to correlation
-        funnel_filter = Filter(request=request, team=self.team)
+        funnel_filter = Filter(request=request)
         # Package the funnel_filter up, along with the specific funnel
         # correlation request params
         # TODO: further dispatch property and event requests separately
@@ -138,7 +149,15 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             #  NOTE: as we're slightly altering the structure of the request, we
             #  need to ignore anything not in the FunnelCorrelationRequest
             #  dataclass
-            **{k: v for k, v in request.data.items() if k in dataclasses.fields(FunnelCorrelationRequest)}
+            correlation_type=request.data.get(FUNNEL_CORRELATION_TYPE, None),
+            # NOTE: some attributes are further json encoded, so we need to decode these also
+            correlation_property_names=json.loads(request.data.get(FUNNEL_CORRELATION_NAMES, "[]")),
+            correlation_property_exclude_names=json.loads(request.data.get(FUNNEL_CORRELATION_EXCLUDE_NAMES, "[]")),
+            correlation_event_names=json.loads(request.data.get(FUNNEL_CORRELATION_EVENT_NAMES, "[]")),
+            correlation_event_exclude_names=json.loads(request.data.get(FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES, "[]")),
+            correlation_event_exclude_property_names=json.loads(
+                request.data.get(FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES, "[]")
+            ),
         )
         team = self.team
         result = FunnelCorrelation(request=correlation_request, team=team).run()

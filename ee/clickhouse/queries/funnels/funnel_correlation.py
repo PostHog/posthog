@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.utils.serializer_helpers import ReturnList
+from structlog.stdlib import get_logger
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements
@@ -16,6 +17,9 @@ from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
 from posthog.models import Filter, Team
 from posthog.models.filters import Filter
+
+
+logger = get_logger(__name__)
 
 
 class EventDefinition(TypedDict):
@@ -562,6 +566,8 @@ class FunnelCorrelation:
         }
 
     def run(self) -> FunnelCorrelationResponse:
+        logger.debug("FUNNEL_CORRELATION_RUN", filter=self._filter)
+
         if not self._funnel_filter.entities:
             return FunnelCorrelationResponse(events=[], skewed=False)
 
