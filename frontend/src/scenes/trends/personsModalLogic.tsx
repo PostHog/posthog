@@ -5,7 +5,15 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { ActionFilter, FilterType, ViewType, FunnelVizType, PropertyFilter, PersonType } from '~/types'
+import {
+    ActionFilter,
+    FilterType,
+    ViewType,
+    FunnelVizType,
+    PropertyFilter,
+    PersonType,
+    FunnelCorrelationResultsType,
+} from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -208,6 +216,15 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                             ...filters,
                             funnel_step: funnelStep,
                             ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
+                        }
+
+                        // getting property correlations from funnel
+                        if (params.funnel_custom_steps) {
+                            eventUsageLogic.actions.reportCorrelationInteraction(
+                                FunnelCorrelationResultsType.Properties,
+                                'person modal',
+                                filters.funnel_correlation_person_entity
+                            )
                         }
                     }
                     const cleanedParams = cleanFilters(params)
