@@ -34,6 +34,21 @@ describe('toParams', () => {
         const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
         expect(left).toEqual(right)
     })
+
+    it('does not send empty string', () => {
+        const actual = toParams({ include: 'tomat', exclude: '' })
+        expect(actual).toEqual('include=tomat')
+    })
+
+    it('encodes arrays as a single query param', () => {
+        const actual = toParams({ include: ['a', 'b'] })
+        expect(actual).toEqual('include=%5B%22a%22%2C%22b%22%5D')
+    })
+
+    it('can explode arrays to individual parameters', () => {
+        const actual = toParams({ include: ['a', 'b'] }, true)
+        expect(actual).toEqual('include=a&include=b')
+    })
 })
 
 describe('capitalizeFirstLetter()', () => {

@@ -67,7 +67,7 @@ export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
     )
 }
 
-export function toParams(obj: Record<string, any>): string {
+export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
     if (!obj) {
         return ''
     }
@@ -79,8 +79,19 @@ export function toParams(obj: Record<string, any>): string {
         val = typeof val === 'object' ? JSON.stringify(val) : val
         return encodeURIComponent(val)
     }
+
     return Object.entries(obj)
         .filter((item) => item[1] != undefined && item[1] != null)
+        .filter((item) => item[1].length > 0)
+        .reduce((acc, [key, val]) => {
+            if (explodeArrays && Array.isArray(val)) {
+                val.forEach((v) => acc.push([key, v]))
+            } else {
+                acc.push([key, val])
+            }
+
+            return acc
+        }, [] as [string, any][])
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }

@@ -4,6 +4,7 @@ import { ActionType, CohortType, FilterType, PersonType, PluginLogEntry, TeamTyp
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
+import { toParams } from 'lib/utils'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -213,17 +214,21 @@ const api = {
             trailingEntry: PluginLogEntry | null = null,
             leadingEntry: PluginLogEntry | null = null
         ): Promise<PluginLogEntry[]> {
-            const type_filters =
-                typeFilters && typeFilters.length > 0 ? `&type_filter=${typeFilters.join('&type_filter=')}` : ''
-            const search = searchTerm ? `&search=${searchTerm}` : ''
-            const before = trailingEntry ? '&before=' + trailingEntry.timestamp : ''
-            const after = leadingEntry ? '&after=' + leadingEntry.timestamp : ''
-            const queryParams = `?limit=${LOGS_PORTION_LIMIT}${before}${after}${search}${type_filters}`
+            const params = toParams(
+                {
+                    limit: LOGS_PORTION_LIMIT,
+                    type_filter: typeFilters,
+                    search: searchTerm || '',
+                    before: trailingEntry?.timestamp || '',
+                    after: leadingEntry?.timestamp || '',
+                },
+                true
+            )
 
             const response = await new ApiRequest()
                 .projectsDetail(currentTeamId || undefined)
                 .pluginLogs(pluginConfigId)
-                .withQueryString(queryParams)
+                .withQueryString(params)
                 .get()
 
             return response.results
