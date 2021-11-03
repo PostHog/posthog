@@ -59,10 +59,9 @@ interface PageButtonProps extends Pick<LemonButtonProps, 'title' | 'icon'> {
 function PageButton({ title, icon, sideAction, identifier, onClick }: PageButtonProps): JSX.Element {
     const { aliasedActiveScene } = useValues(sceneLogic)
 
-    const isActive: boolean = identifier === aliasedActiveScene
-    const buttonType = isActive ? 'highlighted' : 'stealth'
-
     const isActiveSide: boolean = sideAction?.identifier === aliasedActiveScene
+    const isActive: boolean = isActiveSide || identifier === aliasedActiveScene
+
     let sideActionInternal: LemonButtonWithSideActionProps['sideAction']
     if (sideAction) {
         sideActionInternal = { ...sideAction, type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth' }
@@ -72,7 +71,7 @@ function PageButton({ title, icon, sideAction, identifier, onClick }: PageButton
         <LemonButtonWithSideAction
             icon={icon}
             fullWidth
-            type={buttonType}
+            type={isActive ? 'highlighted' : 'stealth'}
             onClick={onClick}
             sideAction={sideActionInternal}
         >
