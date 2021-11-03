@@ -2,7 +2,7 @@ import React from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Button } from 'antd'
+import { Button, Tag } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 import { CloseButton } from 'lib/components/CloseButton'
@@ -25,26 +25,24 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
 
     return (
         <div>
-            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+            <div>
                 {selectedProperties.length > 0 &&
                     selectedProperties.map((name) => {
                         return (
-                            <div
+                            <Tag
                                 key={name}
+                                closable
+                                onClose={(): void => handleRemove(name)}
                                 style={{
                                     margin: '0.25rem',
-                                    padding: '0.25rem',
-                                    verticalAlign: 'middle',
+                                    padding: '0.25rem 0.5em',
+                                    background: '#D9D9D9',
+                                    border: '1px solid #D9D9D9',
+                                    borderRadius: '40px',
                                 }}
                             >
-                                <Button type="primary" shape="round">
-                                    {name}
-                                </Button>{' '}
-                                <CloseButton
-                                    onClick={() => handleRemove(name)}
-                                    style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                                />
-                            </div>
+                                {name}
+                            </Tag>
                         )
                     })}
             </div>
