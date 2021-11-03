@@ -231,7 +231,7 @@ export const FEATURE_FLAGS = {
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
     TRAILING_WAU_MAU: '3638-trailing-wau-mau', // owner: @EDsCODE
-    EVENT_COLUMN_CONFIG: '4141-event-columns', // owner: @paolodamico
+    EVENT_COLUMN_CONFIG: '4141-event-columns', // owner: @pauldambra
     SAVED_INSIGHTS: '3408-saved-insights', // owner: @alexkim
     MULTIVARIATE_SUPPORT: '5440-multivariate-support', // owner: @mariusandra
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim
@@ -268,3 +268,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
 // Cohort types
 export const COHORT_STATIC = 'static'
 export const COHORT_DYNAMIC = 'dynamic'
+
+/**
+ * Mock Node.js `process`, which is required by VFile that is used by ReactMarkdown.
+ * See https://github.com/remarkjs/react-markdown/issues/339.
+ */
+export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process

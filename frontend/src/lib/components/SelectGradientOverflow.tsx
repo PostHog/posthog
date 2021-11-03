@@ -85,11 +85,13 @@ export function SelectGradientOverflow({
         }
     }
 
-    const onFocus = (): void => {
+    const onFocus: React.FocusEventHandler<HTMLElement> = (e) => {
+        props.onFocus?.(e)
         setTimeout(() => setOpen(true), delayBeforeAutoOpen || 0)
     }
 
-    const onBlur = (): void => {
+    const onBlur: React.FocusEventHandler<HTMLElement> = (e) => {
+        props.onBlur?.(e)
         if (isOpen) {
             setOpen(false)
             handleBlur()

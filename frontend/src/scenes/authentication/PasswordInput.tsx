@@ -1,5 +1,5 @@
 import { Form, Input } from 'antd'
-import { FormItemProps } from 'antd/es/form'
+import { FormItemProps } from 'antd/lib/form'
 import React, { lazy, Suspense } from 'react'
 import './PasswordInput.scss'
 import { ExclamationCircleFilled } from '@ant-design/icons'

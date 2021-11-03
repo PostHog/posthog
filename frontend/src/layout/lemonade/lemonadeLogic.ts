@@ -8,6 +8,8 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         values: [featureFlagLogic, ['featureFlags']],
     },
     actions: {
+        toggleSideBar: true,
+        hideSideBar: true,
         hideAnnouncement: true,
         openSitePopover: true,
         closeSitePopover: true,
@@ -18,12 +20,21 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideCreateOrganizationModal: true,
         showChangelogModal: true,
         hideChangelogModal: true,
+        showToolbarModal: true,
+        hideToolbarModal: true,
     },
     reducers: {
-        isAnnouncementHidden: [
-            false,
+        isSideBarShown: [
+            window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
             {
-                hideAnnouncement: () => true,
+                toggleSideBar: (state) => !state,
+                hideSideBar: () => false,
+            },
+        ],
+        isAnnouncementShown: [
+            true,
+            {
+                hideAnnouncement: () => false,
             },
         ],
         isSitePopoverOpen: [
@@ -53,6 +64,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
             {
                 showChangelogModal: () => true,
                 hideChangelogModal: () => false,
+            },
+        ],
+        isToolbarModalShown: [
+            false,
+            {
+                showToolbarModal: () => true,
+                hideToolbarModal: () => false,
             },
         ],
     },

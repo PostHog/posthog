@@ -18,4 +18,5 @@
 !frontend/src
 !frontend/types
 !frontend/public
+!frontend/*.*
 !ee

@@ -1,43 +1,12 @@
 @import '~/vars';
 
 .help-button {
-    height: 1.25rem;
+    display: flex;
+    align-items: center;
+    height: 2.5rem;
     cursor: pointer;
     .help-icon {
         color: var(--bg-navy);
         font-size: 1.25rem;
-    }
-}
-
-.help-button-overlay {
-    .ant-popover-inner {
-        border: 1px solid $border;
-        padding: 6px 12px;
-    }
-
-    h3 {
-        text-transform: uppercase;
-        font-size: 0.9em;
-        font-weight: $medium;
-        color: $text_muted_alt;
-    }
-
-    .support-link {
-        margin-bottom: $default_spacing;
-
-        .ant-btn {
-            span:not(.anticon) {
-                color: $primary;
-                flex-grow: 1;
-            }
-            .anticon {
-                padding-top: 4px;
-            }
-            padding: 6px 15px;
-            height: unset;
-            font-weight: $medium;
-            display: flex;
-            align-items: center;
-        }
     }
 }

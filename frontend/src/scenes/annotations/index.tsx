@@ -14,7 +14,7 @@ import { createdByColumn } from 'lib/components/Table/Table'
 import { AnnotationType, AnnotationScope } from '~/types'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
-import generatePicker from 'antd/es/date-picker/generatePicker'
+import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
