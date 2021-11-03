@@ -548,13 +548,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
             # input events have chrome and safari so results is an array with two arrays as its contents
             for i in range(0, 2):
-                for r in result[i]:
-                    self.assertIsInstance(r["name"], str)
-                    self.assertEqual(test_case["expected"][i], r["breakdown"])
-                    self.assertEqual(test_case["expected"][i], r["breakdown_value"])
+                for result in result[i]:
+                    self.assertIsInstance(result["name"], str)
+                    self.assertEqual(test_case["expected"][i], result["breakdown"])
+                    self.assertEqual(test_case["expected"][i], result["breakdown_value"])
 
     @staticmethod
-    def as_result(b: Union[str, List[str]]) -> Dict[str, Any]:
+    def as_result(breakdown_properties: Union[str, List[str]]) -> Dict[str, Any]:
         return {
             "action_id": "$pageview",
             "name": "$pageview",
@@ -565,6 +565,6 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "type": "events",
             "average_conversion_time": None,
             "median_conversion_time": None,
-            "breakdown": b,
-            "breakdown_value": b,
+            "breakdown": breakdown_properties,
+            "breakdown_value": breakdown_properties,
         }

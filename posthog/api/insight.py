@@ -312,12 +312,12 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
         if is_single_property_breakdown:
             copied_result = copy.deepcopy(result)
-            for i_index, i in enumerate(result):
-                for j_index, j in enumerate(i):
-                    if isinstance(j["breakdown"], List):
-                        copied_result[i_index][j_index]["breakdown"] = j["breakdown"][0]
-                    if isinstance(j["breakdown_value"], List):
-                        copied_result[i_index][j_index]["breakdown_value"] = j["breakdown_value"][0]
+            for series_index, series in enumerate(result):
+                for data_index, data in enumerate(series):
+                    if isinstance(data["breakdown"], List):
+                        copied_result[series_index][data_index]["breakdown"] = data["breakdown"][0]
+                    if isinstance(data["breakdown_value"], List):
+                        copied_result[series_index][data_index]["breakdown_value"] = data["breakdown_value"][0]
             return copied_result
         else:
             return result
