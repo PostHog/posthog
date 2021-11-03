@@ -1,5 +1,14 @@
 import json
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from django.db.models import Exists, OuterRef, Q
 
