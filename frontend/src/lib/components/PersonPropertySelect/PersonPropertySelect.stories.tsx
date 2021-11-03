@@ -1,7 +1,6 @@
 import { Meta } from '@storybook/react'
 import { Provider } from 'kea'
 import React from 'react'
-import { DEFAULT_EXCLUDED_PERSON_PROPERTIES } from 'scenes/funnels/funnelLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'
