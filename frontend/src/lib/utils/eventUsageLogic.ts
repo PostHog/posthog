@@ -1,6 +1,6 @@
 /* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
-import { isPostHogProp, keyMapping } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
@@ -20,13 +20,12 @@ import {
     HelpType,
     SessionPlayerData,
     AvailableFeature,
+    SessionRecordingUsageType,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { PersonModalParams } from 'scenes/trends/personsModalLogic'
+import type { PersonModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
-
-const keyMappingKeys = Object.keys(keyMapping.event)
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -69,7 +68,8 @@ interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
     load_time: number // How much time it took to load the session (backend) (milliseconds)
     duration: number // How long is the total recording (milliseconds)
-    start_time?: string // Start time of the session
+    start_time?: number // Start timestamp of the session
+    end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
     user_is_identified?: boolean
@@ -145,7 +145,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 export const eventUsageLogic = kea<
     eventUsageLogicType<DashboardEventSource, GraphSeriesAddedSource, RecordingWatchedSource>
 >({
-    connect: [preflightLogic],
+    connect: () => [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
@@ -266,12 +266,13 @@ export const eventUsageLogic = kea<
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
-        reportRecordingViewed: (
+        reportRecording: (
             recordingData: SessionPlayerData,
             source: RecordingWatchedSource,
             loadTime: number,
-            delay: number
-        ) => ({ recordingData, source, loadTime, delay }),
+            type: SessionRecordingUsageType,
+            delay?: number
+        ) => ({ recordingData, source, loadTime, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
@@ -616,18 +617,19 @@ export const eventUsageLogic = kea<
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
         },
-        reportRecordingViewed: ({ recordingData, source, loadTime, delay }) => {
+        reportRecording: ({ recordingData, source, loadTime, type }) => {
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData?.start_time,
+                start_time: recordingData?.session_recording?.start_time,
+                end_time: recordingData?.session_recording?.end_time,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 user_is_identified: recordingData.person?.is_identified,
                 source: source,
             }
-            posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, payload)
+            posthog.capture(`recording ${type}`, payload)
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)

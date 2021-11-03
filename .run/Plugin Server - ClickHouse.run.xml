@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Plugin Server - ClickHouse" type="js.build_tools.npm">
-    <package-json value="$PROJECT_DIR$/plugins/package.json" />
+    <package-json value="$PROJECT_DIR$/plugin-server/package.json" />
     <command value="run" />
     <scripts>
       <script value="start" />

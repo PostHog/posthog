@@ -20,6 +20,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --bg-side: #{$bg_side};
     --bg-navy: #{$bg_navy};
     --bg-charcoal: #{$bg_charcoal};
     --bg-bridge: #{$bg_bridge};
@@ -37,10 +38,11 @@ NOTE: $medium is a SCSS var; not a keyword
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{$purple_500};
+    --indigo: #{$purple_700};
+    --purple-light: #{$purple_300};
     --salmon: #ff906e;
     --yellow: #ffc035;
     --green: #{$success};
-    --indigo: #{$purple_700};
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
@@ -52,10 +54,6 @@ NOTE: $medium is a SCSS var; not a keyword
     --lime: #bfef45;
     --apricot: #ffd8b1;
     --brown: #9a6324;
-    // Purple
-    --purple-700: #{$purple_700};
-    --purple-500: #{$purple_500};
-    --purple-300: #{$purple_300};
     // Lifecycle series
     --lifecycle-new: #{$lifecycle_new};
     --lifecycle-returning: #{$lifecycle_returning};
@@ -68,6 +66,13 @@ NOTE: $medium is a SCSS var; not a keyword
 }
 
 // Text styles
+
+body b,
+body strong {
+    // body is specified to increase specificity – otherwise Ant Design's "bolder" takes precedence over "600"
+    font-weight: 600;
+}
+
 .text-default {
     color: $text_default;
     font-size: 14px;
@@ -163,6 +168,14 @@ NOTE: $medium is a SCSS var; not a keyword
 
 .primary {
     color: $primary;
+}
+
+// Supplement text, such as email under user name
+.supplement {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    color: var(--muted-alt);
+    font-size: 0.8125rem;
 }
 
 code.code {
@@ -279,8 +292,8 @@ code.code {
 }
 
 .main-app-content {
-    /* top | horizontal | bottom */
-    padding: 0px $default_spacing * 3 $default_spacing * 3;
+    min-width: 0;
+    padding: 0 $default_spacing * 3 $default_spacing * 3;
 
     @media (min-width: 480px) and (max-width: 639px) {
         padding: $default_spacing $default_spacing * 2 !important;

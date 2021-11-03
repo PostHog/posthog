@@ -53,7 +53,7 @@ export function getReasonForAccessLevelChangeProhibition(
 
 export const membershipLevelToName = new Map<EitherMembershipLevel, string>([
     [OrganizationMembershipLevel.Member, 'member'],
-    [OrganizationMembershipLevel.Admin, 'administrator'],
+    [OrganizationMembershipLevel.Admin, 'admin'],
     [OrganizationMembershipLevel.Owner, 'owner'],
 ])
 

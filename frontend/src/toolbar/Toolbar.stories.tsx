@@ -20,18 +20,20 @@ const toolbarStory = (json: Record<string, any>): (() => JSX.Element) => {
     const editorParams: EditorProps = { ...rest, apiURL: rawApiURL, jsURL: rawJsUrl, userEmail: 'foobar@posthog.com' }
     return keaStory(() => {
         useEffect(() => {
-            const styleTags: HTMLStyleElement[] = Array.from(document.getElementsByTagName('style'))
-            ;(window as any)['__PHGTLB_STYLES__'] = styleTags.map((tag) => {
+            const head = document.getElementsByTagName('head')[0]
+            const shadowRoot = window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
+            const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
+            styleTags.forEach((tag) => {
                 const style = document.createElement('style')
                 style.appendChild(document.createTextNode(tag.innerText))
-                return style
+                shadowRoot?.appendChild(tag)
             })
         }, [])
         return (
             <div>
                 <div>The toolbar should show up now!</div>
                 <button>Click Me</button>
-                <ToolbarApp {...editorParams} />
+                <ToolbarApp {...editorParams} disableExternalStyles />
             </div>
         )
     }, json)

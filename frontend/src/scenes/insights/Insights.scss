@@ -121,9 +121,10 @@ $funnel_canvas_background: #fafafa;
 
     .insights-tab-actions {
         margin-left: auto;
-        padding: 0 1rem;
+        padding-left: 1rem;
         display: flex;
         flex-wrap: nowrap;
+        justify-content: flex-end;
 
         .btn-reset {
             color: rgba($danger, 0.8);
@@ -143,6 +144,27 @@ $funnel_canvas_background: #fafafa;
         border: 0;
         input::placeholder {
             color: $text_default;
+        }
+    }
+
+    .insight-metadata-description {
+        .field {
+            color: $text_muted_alt;
+            font-style: italic;
+        }
+    }
+
+    .insight-metadata-name {
+        .field {
+            font-size: 28px;
+            font-weight: 600;
+            line-height: 40px;
+        }
+    }
+
+    .insight-metadata-tags {
+        .ant-tag {
+            margin-top: 0 !important;
         }
     }
 }

@@ -14,13 +14,10 @@ export function CommandPalette(): JSX.Element | null {
     const { setInput, hidePalette, togglePalette, backFlow } = useActions(commandPaletteLogic)
     const { input, isPaletteShown, isSqueak, activeFlow, commandSearchResults } = useValues(commandPaletteLogic)
 
-    const squeakAudio: HTMLAudioElement | null = useMemo(
-        () => squeakAudio || (isSqueak ? new Audio(squeakFile) : null),
-        [isSqueak]
-    )
+    const squeakAudio: HTMLAudioElement | null = useMemo(() => (isSqueak ? new Audio(squeakFile) : null), [isSqueak])
 
     const boxRef = useRef<HTMLDivElement | null>(null)
-    console.log(isPaletteShown)
+
     useEventListener('keydown', (event) => {
         if (isSqueak && event.key === 'Enter') {
             squeakAudio?.play()

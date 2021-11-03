@@ -1,9 +1,7 @@
-import { isTouchDevice } from 'lib/utils'
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 
 export const THUMB_SIZE = 14
 export const THUMB_OFFSET = THUMB_SIZE / 2
-export const TOUCH_ENABLED = isTouchDevice()
 
 export type ReactInteractEvent = ReactMouseEvent<HTMLDivElement, MouseEvent> | ReactTouchEvent<HTMLDivElement>
 export type InteractEvent = MouseEvent | TouchEvent
@@ -11,7 +9,7 @@ export type InteractEvent = MouseEvent | TouchEvent
 export function isTouchEvent(
     event: ReactInteractEvent | InteractEvent
 ): event is ReactTouchEvent<HTMLDivElement> | TouchEvent {
-    return 'touches' in event && TOUCH_ENABLED
+    return 'touches' in event
 }
 
 export function isMouseEvent(
