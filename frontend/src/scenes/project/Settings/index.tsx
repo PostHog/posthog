@@ -192,9 +192,6 @@ export function ProjectSettings(): JSX.Element {
                 {featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
                     <>
                         <Divider />
-                        <h2 className="subtitle" id="internal-users-filtering">
-                            Filter Out Correlation Person Property Noise
-                        </h2>
                         <CorrelationConfig />
                     </>
                 ) : null}
