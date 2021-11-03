@@ -3,8 +3,8 @@ import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import Title from 'antd/es/typography/Title'
-import Paragraph from 'antd/es/typography/Paragraph'
+import Title from 'antd/lib/typography/Title'
+import Paragraph from 'antd/lib/typography/Paragraph'
 
 export function CustomPlugin(): JSX.Element {
     const { customPluginUrl, pluginError, loading } = useValues(pluginsLogic)

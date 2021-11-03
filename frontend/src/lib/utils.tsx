@@ -146,7 +146,7 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
 
     const handleHelp = (): void => {
         if (helpButtonLogic.isMounted()) {
-            helpButtonLogic.actions.setVisible(true)
+            helpButtonLogic.actions.showHelp()
         } else {
             window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
         }
@@ -1115,4 +1115,8 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
+}
+
+export function setPageTitle(title: string): void {
+    document.title = title ? `${title} • PostHog` : 'PostHog'
 }

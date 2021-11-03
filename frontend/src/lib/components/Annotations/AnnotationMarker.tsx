@@ -11,7 +11,7 @@ import { dashboardColors } from 'lib/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { AnnotationScope, AnnotationType } from '~/types'
-import styles from '~/vars.scss'
+import { styles } from '../../../vars'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 
