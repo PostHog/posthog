@@ -1,0 +1,26 @@
+[
+    {
+        "id": "$pageview",
+        "name": "$pageview",
+        "type": "events",
+        "order": 0
+    },
+    {
+        "id": "$pageview",
+        "name": "$pageview",
+        "type": "events",
+        "order": 1
+    },
+    {
+        "id": "$autocapture",
+        "name": "$autocapture",
+        "type": "events",
+        "order": 2
+    },
+    {
+        "id": "9",
+        "name": "Users signed up",
+        "type": "actions",
+        "order": 3
+    }
+]

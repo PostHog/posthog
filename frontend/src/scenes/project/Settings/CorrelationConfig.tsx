@@ -14,6 +14,7 @@ export function CorrelationConfig(): JSX.Element {
     return (
         <div style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 8 }}>
+                <h3>Excluded person properties:</h3>
                 {currentTeam && (
                     <PersonPropertySelect
                         onChange={handleChange}
