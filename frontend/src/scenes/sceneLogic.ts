@@ -193,12 +193,14 @@ export const sceneLogic = kea<sceneLogicType>({
             window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
         setScene: ({ scene, method }, _, __, previousState) => {
+            posthog.capture('$pageview')
+            setPageTitle(identifierToHuman(scene || ''))
+
+            // if we clicked on a link, scroll to top
             const previousScene = selectors.scene(previousState)
             if (method === 'PUSH' && scene !== previousScene) {
                 window.scrollTo(0, 0)
             }
-            posthog.capture('$pageview')
-            setPageTitle(identifierToHuman(scene || ''))
         },
         openScene: ({ scene, params, method }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
