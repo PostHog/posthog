@@ -1,6 +1,7 @@
 import { Meta } from '@storybook/react'
 import { Provider } from 'kea'
 import React from 'react'
+import { DEFAULT_EXCLUDED_PERSON_PROPERTIES } from 'scenes/funnels/funnelLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'
@@ -13,7 +14,26 @@ export default {
 } as Meta
 
 export const Default = (): JSX.Element => {
-    const [selectedProperties, setSelectProperties] = React.useState<string[]>([])
+    const [selectedProperties, setSelectProperties] = React.useState<string[]>([
+        '$initial_geoip_postal_code',
+        '$initial_geoip_latitude',
+        '$initial_geoip_longitude',
+        '$geoip_latitude',
+        '$geoip_longitude',
+        '$geoip_postal_code',
+        '$geoip_continent_code',
+        '$geoip_continent_name',
+        '$initial_geoip_continent_code',
+        '$initial_geoip_continent_name',
+        '$geoip_time_zone',
+        '$geoip_country_code',
+        '$geoip_subdivision_1_code',
+        '$initial_geoip_subdivision_1_code',
+        '$geoip_subdivision_2_code',
+        '$initial_geoip_subdivision_2_code',
+        '$geoip_subdivision_name',
+        '$initial_geoip_subdivision_name',
+    ])
 
     worker.use(
         mockGetPersonProperties((_, res, ctx) =>
