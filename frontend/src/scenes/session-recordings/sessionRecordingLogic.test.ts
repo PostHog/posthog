@@ -5,6 +5,7 @@ import { initKeaTestLogic } from '~/test/init'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
+import recordingEventsJson from './__mocks__/recording_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { combineUrl } from 'kea-router'
 
@@ -15,8 +16,9 @@ const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
     `api/projects/${MOCK_TEAM_ID}/session_recordings/\\d/snapshots`
 )
 const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
+const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events`
 
-describe('sessionsPlayLogicV2', () => {
+describe('sessionRecordingLogic', () => {
     let logic: ReturnType<typeof sessionRecordingLogic.build>
 
     mockAPI(async (url) => {
@@ -24,6 +26,8 @@ describe('sessionsPlayLogicV2', () => {
             return { result: recordingSnapshotsJson }
         } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
             return { result: recordingMetaJson }
+        } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+            return { results: recordingEventsJson }
         } else if (url.pathname === 'api/sessions_filter') {
             return { results: [] }
         }
@@ -138,6 +142,144 @@ describe('sessionsPlayLogicV2', () => {
         })
     })
 
+    describe('loading session events', () => {
+        it('load events after metadata with 1min buffer', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents'])
+                .toMatchValues({
+                    eventsApiParams: {
+                        after: '2021-10-12T05:12:42+00:00',
+                        before: '2021-10-12T18:48:47+00:00',
+                        person_id: 1,
+                        orderBy: ['timestamp'],
+                    },
+                })
+        })
+        it('no next url', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
+                .toNotHaveDispatchedActions(['loadEvents'])
+        })
+        it('fetch all events', async () => {
+            const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
+            const secondNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:50:05Z`
+            const thirdNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T17:00:05Z`
+            const events = recordingEventsJson
+
+            api.get.mockClear()
+            api.get
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
+                        return { result: recordingMetaJson }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { results: recordingEventsJson, next: firstNext }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { results: recordingEventsJson, next: secondNext }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { results: recordingEventsJson, next: thirdNext }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { results: recordingEventsJson }
+                    }
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
+                .toMatchValues({
+                    sessionEvents: {
+                        next: firstNext,
+                        events,
+                    },
+                })
+                .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsSuccess'])
+                .toMatchValues({
+                    sessionEvents: {
+                        next: secondNext,
+                        events: [...events, ...events],
+                    },
+                })
+                .toDispatchActions([logic.actionCreators.loadEvents(secondNext), 'loadEventsSuccess'])
+                .toMatchValues({
+                    sessionEvents: {
+                        next: thirdNext,
+                        events: [...events, ...events, ...events],
+                    },
+                })
+                .toDispatchActions([logic.actionCreators.loadEvents(thirdNext), 'loadEventsSuccess'])
+                .toMatchValues({
+                    sessionEvents: {
+                        next: undefined,
+                        events: [...events, ...events, ...events, ...events],
+                    },
+                })
+                .toNotHaveDispatchedActions(['loadEvents'])
+            expect(api.get).toBeCalledTimes(5)
+        })
+        it('server error mid-fetch', async () => {
+            const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
+            const secondNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:50:05Z`
+            const events = recordingEventsJson
+
+            api.get.mockClear()
+            api.get
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
+                        return { result: recordingMetaJson }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { results: recordingEventsJson, next: firstNext }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+                        return { results: recordingEventsJson, next: secondNext }
+                    }
+                })
+                .mockImplementationOnce(async () => {
+                    throw new Error('Error in third request')
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
+                .toMatchValues({
+                    sessionEvents: {
+                        next: firstNext,
+                        events,
+                    },
+                })
+                .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsSuccess'])
+                .toMatchValues({
+                    sessionEvents: {
+                        next: secondNext,
+                        events: [...events, ...events],
+                    },
+                })
+                .toDispatchActions([logic.actionCreators.loadEvents(secondNext), 'loadEventsFailure'])
+            expect(api.get).toBeCalledTimes(4)
+        })
+    })
+
     describe('loading session snapshots', () => {
         it('no next url', async () => {
             await expectLogic(logic, () => {
@@ -225,7 +367,7 @@ describe('sessionsPlayLogicV2', () => {
 
             expect(api.get).toBeCalledTimes(4)
         })
-        it('internal server error mid-way through recording', async () => {
+        it('server error mid-way through recording', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic])
             api.get.mockClear()

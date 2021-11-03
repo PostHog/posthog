@@ -908,7 +908,10 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         parseDisplayNameForCorrelation: [
             () => [],
-            (): ((record: FunnelCorrelation) => { first_value: string; second_value?: string }) => {
+            (): ((record: FunnelCorrelation) => {
+                first_value: string
+                second_value?: string
+            }) => {
                 return (record) => {
                     let first_value = undefined
                     let second_value = undefined
