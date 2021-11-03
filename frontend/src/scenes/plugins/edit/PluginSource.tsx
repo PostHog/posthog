@@ -5,12 +5,6 @@ import { Button, Form, Input } from 'antd'
 import MonacoEditor from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
-// @ts-ignore
-import SCAFFOLD_index from '!raw-loader!@posthog/plugin-scaffold/dist/index.d.ts'
-// @ts-ignore
-import SCAFFOLD_errors from '!raw-loader!@posthog/plugin-scaffold/dist/errors.d.ts'
-// @ts-ignore
-import SCAFFOLD_types from '!raw-loader!@posthog/plugin-scaffold/dist/types.d.ts'
 import { validateJsonFormItem } from 'lib/utils'
 
 const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
@@ -140,20 +134,6 @@ export function PluginSource(): JSX.Element {
                                 height={400}
                                 options={{
                                     minimap: { enabled: false },
-                                }}
-                                beforeMount={(monaco) => {
-                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
-                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_index} }`,
-                                        'file:///node_modules/@types/@posthog/plugin-scaffold/index.d.ts'
-                                    )
-                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
-                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_types} }`,
-                                        'file:///node_modules/@types/@posthog/plugin-scaffold/types.d.ts'
-                                    )
-                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
-                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_errors} }`,
-                                        'file:///node_modules/@types/@posthog/plugin-scaffold/errors.d.ts'
-                                    )
                                 }}
                             />
                         </Form.Item>
