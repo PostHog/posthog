@@ -24,32 +24,31 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
     }
 
     return (
-        <div className="mb">
-            {selectedProperties.length > 0 &&
-                selectedProperties.map((name) => {
-                    return (
-                        <span
-                            key={name}
-                            className="property-filter-row mt-05 mb-05"
-                            style={{
-                                width: '100%',
-                                margin: '0.25rem',
-                                padding: '0.25rem',
-                                verticalAlign: 'middle',
-                            }}
-                        >
-                            <Button type="primary" shape="round">
-                                {name}
-                            </Button>{' '}
-                            <CloseButton
-                                className="ml-1"
-                                onClick={() => handleRemove(name)}
-                                style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                            />
-                        </span>
-                    )
-                })}
-            <Row>
+        <div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                {selectedProperties.length > 0 &&
+                    selectedProperties.map((name) => {
+                        return (
+                            <div
+                                key={name}
+                                style={{
+                                    margin: '0.25rem',
+                                    padding: '0.25rem',
+                                    verticalAlign: 'middle',
+                                }}
+                            >
+                                <Button type="primary" shape="round">
+                                    {name}
+                                </Button>{' '}
+                                <CloseButton
+                                    onClick={() => handleRemove(name)}
+                                    style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
+                                />
+                            </div>
+                        )
+                    })}
+            </div>
+            <div style={{ marginTop: '0.5em' }}>
                 <Popup
                     visible={open}
                     overlay={
@@ -74,7 +73,7 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
                         </Button>
                     )}
                 </Popup>
-            </Row>
+            </div>
         </div>
     )
 }
