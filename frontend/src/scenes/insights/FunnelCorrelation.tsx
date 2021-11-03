@@ -42,7 +42,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
             <PayCard
                 identifier={AvailableFeature.CORRELATION_ANALYSIS}
                 title="Get a deeper understanding of what your users are doing"
-                caption="Correlation Analysis allows you to find signals for conversions and dropoffs that help you gain deeper insights."
+                caption="Correlation Analysis automates analysis over your events to find signals for why users are converting or dropping off."
             />
         )
     }
