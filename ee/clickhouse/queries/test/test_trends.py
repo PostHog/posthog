@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.trends.person import TrendsPersonQuery
@@ -14,6 +15,7 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
 from posthog.test.base import test_with_materialized_columns
@@ -827,3 +829,48 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             ClickhouseTrends().run(
                 Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team,
             )
+
+    def test_filtering_with_group_props(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(
+            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
+        )
+
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:6", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            },
+            team=self.team,
+        )
+
+        response = ClickhouseTrends().run(filter, self.team)
+        self.assertEqual(response[0]["count"], 1)

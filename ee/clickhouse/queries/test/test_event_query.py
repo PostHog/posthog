@@ -1,7 +1,5 @@
 from uuid import uuid4
 
-import sqlparse
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
@@ -53,10 +51,10 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         sync_execute(query, params)
 
-        return query
+        return query, params
 
     def test_basic_event_filter(self):
-        query = self._run_query(
+        query, params = self._run_query(
             Filter(
                 data={
                     "date_from": "2021-05-01 00:00:00",
@@ -66,16 +64,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        correct = """
-        SELECT e.timestamp as timestamp
-        FROM events e
-        WHERE team_id = %(team_id)s
-            AND event = %(event)s
-            AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime(%(date_from)s))
-            AND timestamp <= %(date_to)s
-        """
-
-        self.assertEqual(sqlparse.format(query, reindent=True), sqlparse.format(correct, reindent=True))
+        self.assertQueryMatchesSnapshot(query, params)
 
     def test_person_properties_filter(self):
         filter = Filter(
@@ -273,8 +262,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(data=filters)
-        query = self._run_query(filter)
+        query, params = self._run_query(filter)
         self.assertIn("mat_test_prop", query)
+        self.assertQueryMatchesSnapshot(query, params)
 
     def test_element(self):
         _create_event(
@@ -332,3 +322,22 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
                 {"properties": [{"key": "tag_name", "value": [], "operator": "exact", "type": "element"}],}
             )
         )
+
+    def test_groups_filters(self):
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "properties": [
+                    {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
+                    {"key": "key", "value": "value", "type": "group", "group_type_index": 0},
+                    {"key": "another", "value": "value", "type": "group", "group_type_index": 1},
+                ],
+            },
+            team=self.team,
+        )
+
+        query, params = self._run_query(filter)
+
+        self.assertQueryMatchesSnapshot(query, params)
