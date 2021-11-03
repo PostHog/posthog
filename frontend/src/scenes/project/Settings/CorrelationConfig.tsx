@@ -10,13 +10,15 @@ export function CorrelationConfig(): JSX.Element {
 
     const handleChange = (excludedProperties?: string[], excludedEventProperties?: string[]): void => {
         const updatedConfig = { ...funnelCorrelationConfig }
-        if (excludedProperties) {
+        if (excludedProperties?.length) {
             updatedConfig.excluded_person_property_names = excludedProperties
         }
-        if (excludedEventProperties) {
+        if (excludedEventProperties?.length) {
             updatedConfig.excluded_event_property_names = excludedEventProperties
         }
-        updateCurrentTeam({ correlation_config: updatedConfig })
+        if (updatedConfig) {
+            updateCurrentTeam({ correlation_config: updatedConfig })
+        }
     }
 
     function tagRender(props: any): JSX.Element {

@@ -104,7 +104,7 @@ export const teamLogic = kea<teamLogicType>({
         ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
-            (currentTeam): TeamType['correlation_config'] => {
+            (currentTeam): Partial<TeamType['correlation_config']> => {
                 return currentTeam?.correlation_config || {}
             },
         ],
