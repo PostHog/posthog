@@ -672,7 +672,7 @@ export const eventUsageLogic = kea<
             if (delay === 0) {
                 posthog.capture('correlation viewed', { filters })
             } else {
-                posthog.capture('correlation analysed', { filters })
+                posthog.capture('correlation analyzed', { filters })
             }
         },
     },

@@ -3,7 +3,7 @@ import React, { useEffect, useRef } from 'react'
 import { visibilitySensorLogic } from './visibilitySensorLogic'
 
 interface VisibilityProps {
-    id: string
+    id: string // Must be unique for each component
     offset: number
     children: React.ReactNode | null
 }
@@ -17,7 +17,7 @@ export function VisibilitySensor({ id, offset, children }: VisibilityProps): JSX
         const element = ref.current
         document.addEventListener('scroll', () => scrolling(element))
         return () => document.removeEventListener('scroll', () => scrolling(element))
-    })
+    }, [ref.current])
 
     return <div ref={ref}>{children}</div>
 }

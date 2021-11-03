@@ -179,8 +179,12 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     pagination={{
                         pageSize: 5,
                         hideOnSinglePage: true,
-                        onChange: () =>
-                            reportCorrelationInteraction(FunnelCorrelationResultsType.EventWithProperties, 'load more'),
+                        onChange: (page, page_size) =>
+                            reportCorrelationInteraction(
+                                FunnelCorrelationResultsType.EventWithProperties,
+                                'pagination change',
+                                { page, page_size }
+                            ),
                     }}
                 >
                     <Column

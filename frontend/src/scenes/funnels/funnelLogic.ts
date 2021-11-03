@@ -1129,19 +1129,19 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setFilters(values.conversionWindow)
         },
 
-        excludeEventProperty: async ({ eventName }) => {
+        excludeEventProperty: async ({ eventName, propertyName }) => {
             actions.loadEventWithPropertyCorrelations(eventName)
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.EventWithProperties,
                 'exclude event property',
-                { name: eventName }
+                { event_name: eventName, property_name: propertyName }
             )
         },
 
         excludeEvent: async ({ eventName }) => {
             actions.loadCorrelations()
             eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
-                name: eventName,
+                event_name: eventName,
             })
         },
 
@@ -1153,8 +1153,8 @@ export const funnelLogic = kea<funnelLogicType>({
 
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.Properties,
-                'exclude property',
-                { name: propertyName }
+                'exclude property from project',
+                { property_name: propertyName }
             )
             // If we haven't actually retrieved the current team, we can't
             // update the config.
@@ -1195,7 +1195,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setPropertyCorrelationTypes: ({ types }) => {
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.Properties,
-                'set correlation types',
+                'set property correlation types',
                 { types }
             )
         },
@@ -1205,7 +1205,7 @@ export const funnelLogic = kea<funnelLogicType>({
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.Properties,
                 'set property names',
-                { propertyNames: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
+                { property_names: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
             )
         },
 
