@@ -429,7 +429,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Trends',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight(ViewType.TRENDS))
+                            push(urls.newInsightType(ViewType.TRENDS))
                         },
                     },
                     {
@@ -437,7 +437,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Sessions',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight(ViewType.SESSIONS))
+                            push(urls.newInsightType(ViewType.SESSIONS))
                         },
                     },
                     {
@@ -445,7 +445,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Funnels',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight(ViewType.FUNNELS))
+                            push(urls.newInsightType(ViewType.FUNNELS))
                         },
                     },
                     {
@@ -453,7 +453,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Retention',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight(ViewType.RETENTION))
+                            push(urls.newInsightType(ViewType.RETENTION))
                         },
                     },
                     {
@@ -461,7 +461,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to User Paths',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight(ViewType.PATHS))
+                            push(urls.newInsightType(ViewType.PATHS))
                         },
                     },
                     {

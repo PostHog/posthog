@@ -103,10 +103,10 @@ function Pages(): JSX.Element {
                 title="Insights"
                 icon={<IconBarChart />}
                 identifier="savedInsights"
-                onClick={urls.savedInsights()}
+                onClick={urls.insights()}
                 sideAction={{
                     icon: <IconPlus />,
-                    onClick: urls.newInsight(ViewType.TRENDS),
+                    onClick: urls.newInsightType(ViewType.TRENDS),
                     tooltip: 'New insight',
                     identifier: 'insights',
                 }}

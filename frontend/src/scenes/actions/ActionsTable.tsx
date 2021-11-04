@@ -2,15 +2,15 @@ import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
-import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined, CheckOutlined } from '@ant-design/icons'
-import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'
+import { CheckOutlined, DeleteOutlined, EditOutlined, ExportOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import { DeleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { ActionType, ViewType } from '~/types'
+import { ActionType, ChartDisplayType, FilterType, InsightType, ViewType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
@@ -21,6 +21,7 @@ import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab, EventsTabs } from 'scenes/events'
 import api from '../../lib/api'
+import { urls } from 'scenes/urls'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -138,10 +139,10 @@ export function ActionsTable(): JSX.Element {
         {
             title: '',
             render: function RenderActions(action: ActionType): JSX.Element {
-                const params = {
-                    insight: ViewType.TRENDS,
+                const params: Partial<FilterType> = {
+                    insight: ViewType.TRENDS as InsightType,
                     interval: 'day',
-                    display: 'ActionsLineGraph',
+                    display: ChartDisplayType.ActionsLineGraphLinear,
                     actions: [
                         {
                             id: action.id,
@@ -151,9 +152,8 @@ export function ActionsTable(): JSX.Element {
                         },
                     ],
                 }
-                const encodedParams = toParams(params)
-
-                const actionsLink = `/insights?${encodedParams}#backTo=Actions&backToURL=${window.location.pathname}`
+                const actionsLink =
+                    urls.editInsight('new', params) + `#backTo=Actions&backToURL=${window.location.pathname}`
 
                 return (
                     <span>

@@ -221,7 +221,7 @@ function MenuItems(): JSX.Element {
                     title="New Insight"
                     icon={<IconExplore />}
                     identifier="insights"
-                    to={urls.newInsight(ViewType.TRENDS)}
+                    to={urls.newInsightType(ViewType.TRENDS)}
                     hotkey="x"
                     tooltip="Answers to all your analytics questions"
                 />
@@ -230,9 +230,7 @@ function MenuItems(): JSX.Element {
                 title="Insights"
                 icon={<IconInsights />}
                 identifier={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? 'savedInsights' : 'insights'}
-                to={
-                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? urls.savedInsights() : urls.newInsight(ViewType.TRENDS)
-                }
+                to={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? urls.insights() : urls.newInsightType(ViewType.TRENDS)}
                 hotkey="i"
                 tooltip={
                     featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]

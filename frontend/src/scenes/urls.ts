@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { ViewType } from '~/types'
+import { FilterType, ViewType } from '~/types'
+import { encodeParams } from 'kea-router'
 
 export const urls = {
     default: () => '/',
@@ -13,10 +14,15 @@ export const urls = {
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
     insights: () => '/insights',
-    // newInsight: (view: ViewType) => `/insights/new${view ? `/?insight=${encodeURIComponent(view)}` : ''}`,
-    newInsight: (view: ViewType = ViewType.TRENDS) => `/insights${view ? `?insight=${encodeURIComponent(view)}` : ''}`,
+    newInsight: () => '/insights/new',
+    newInsightType: (view?: ViewType) =>
+        `/insights/new${view ? `?insight=${encodeURIComponent(String(view).toUpperCase())}` : ''}`,
+    newInsightFilters: (filters?: Partial<FilterType>) => `/insights/new${filters ? encodeParams(filters, '?') : ''}`,
+    viewInsight: (id: string | number, filters?: Partial<FilterType>) =>
+        `/insights/${id}${filters ? encodeParams(filters, '?') : ''}`,
+    editInsight: (id: string | number, filters?: Partial<FilterType>) =>
+        `/insights/${id}/edit${filters ? encodeParams(filters, '?') : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
-    savedInsights: () => '/saved_insights',
     sessions: () => '/sessions',
     sessionRecordings: () => '/recordings',
     person: (id: string) => `/person/${id}`,

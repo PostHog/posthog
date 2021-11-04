@@ -601,41 +601,55 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
     }),
-    actionToUrl: ({ values, props }) => ({
-        setFilters: () => {
-            if (props.syncWithUrl) {
-                return ['/insights', values.filters, router.values.hashParams, { replace: true }]
-            }
-        },
-        setInsightMode: () => {
-            if (props.syncWithUrl) {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const { edit: _discard, ...otherHashParams } = router.values.hashParams
-                return [
-                    '/insights',
-                    router.values.searchParams,
-                    values.insightMode === ItemMode.View ? otherHashParams : { ...otherHashParams, edit: true },
-                    { replace: true },
-                ]
-            }
-        },
-    }),
+    actionToUrl: ({ values, props }) => {
+        const createUrl = (): [string, Record<string, any>, Record<string, any>, Record<string, any>] => {
+            return [
+                `/insights${
+                    values.insight.id === null
+                        ? '/new'
+                        : `/${values.insight.id}${values.insightMode === ItemMode.Edit ? '/edit' : ''}`
+                }`,
+                values.filters,
+                router.values.hashParams,
+                { replace: true },
+            ]
+        }
+        if (props.syncWithUrl) {
+            return { setFilters: createUrl, setInsightMode: createUrl }
+        } else {
+            return {}
+        }
+    },
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
+        '/insights(/:id)(/:mode)': (params, searchParams, hashParams) => {
             if (props.syncWithUrl) {
+                if (searchParams.insight === 'HISTORY') {
+                    // just bail
+                    return
+                }
+
+                // keeping legacy compatibility with hashParams.fromItem
+                const insightId = params.id === 'new' ? null : params.id ? parseInt(params.id) : hashParams.fromItem
+                const insightMode =
+                    params.id === 'new'
+                        ? ItemMode.Edit
+                        : insightId && params.mode === 'edit'
+                        ? ItemMode.Edit
+                        : ItemMode.View
+
+                if (values.insightMode !== insightMode) {
+                    actions.setInsightMode(insightMode, null)
+                }
+
                 let loadedFromAnotherLogic = false
-                if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
-                    if (values.insightMode !== ItemMode.Edit) {
-                        actions.setInsightMode(ItemMode.Edit, null)
-                    }
-                } else if (hashParams.fromItem) {
-                    const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
+                if (insightId) {
+                    const insightIdChanged = !values.insight.id || values.insight.id !== insightId
 
                     if (
                         featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
                         (!values.insight.result || insightIdChanged)
                     ) {
-                        const insight = findInsightFromMountedLogic(hashParams.fromItem, hashParams.fromDashboard)
+                        const insight = findInsightFromMountedLogic(insightId, hashParams.fromDashboard)
                         if (insight) {
                             actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                             if (insight?.result) {
@@ -646,12 +660,7 @@ export const insightLogic = kea<insightLogicType>({
 
                     if (!loadedFromAnotherLogic && insightIdChanged) {
                         // Do not load the result if missing, as setFilters below will do so anyway.
-                        actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
-                    }
-
-                    const insightModeFromUrl = hashParams.edit ? ItemMode.Edit : ItemMode.View
-                    if (insightModeFromUrl !== values.insightMode) {
-                        actions.setInsightMode(insightModeFromUrl, null)
+                        actions.loadInsight(insightId, { doNotLoadResults: true })
                     }
                 }
 

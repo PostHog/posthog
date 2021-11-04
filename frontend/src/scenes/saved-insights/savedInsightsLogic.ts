@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
-import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
+import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
@@ -155,9 +155,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     listeners: ({ actions, values, selectors }) => ({
         addGraph: ({ type }) => {
             router.actions.push(
-                `/insights?insight=${encodeURIComponent(String(type).toUpperCase())}&backToURL=${encodeURIComponent(
-                    urls.savedInsights()
-                )}`
+                urls.newInsightType(type as ViewType) + `&backToURL=${encodeURIComponent(urls.insights())}`
             )
         },
         setSavedInsightsFilters: async (_, breakpoint, __, previousState) => {

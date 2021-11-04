@@ -127,6 +127,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': urls.insights(),
+    '/saved_insights': urls.insights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
     '/actions': '/events/actions',
@@ -138,7 +139,10 @@ export const routes: Record<string, Scene> = {
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
-    [urls.insights()]: Scene.Insights,
+    [urls.newInsight()]: Scene.Insights,
+    [urls.editInsight(':id')]: Scene.Insights,
+    [urls.viewInsight(':id')]: Scene.Insights,
+    [urls.insights()]: Scene.SavedInsights,
     [urls.insightRouter(':id')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
     [urls.eventStats()]: Scene.EventStats,
@@ -163,7 +167,6 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.mySettings()]: Scene.MySettings,
-    [urls.savedInsights()]: Scene.SavedInsights,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.preflight()]: Scene.PreflightCheck,
