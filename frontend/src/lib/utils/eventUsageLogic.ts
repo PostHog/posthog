@@ -634,7 +634,7 @@ export const eventUsageLogic = kea<
             posthog.capture('insight short url visited', props)
         },
         reportSavedInsightFilterUsed: ({ filterKeys }) => {
-            posthog.capture('saved insights list page filter used', { filterKeys })
+            posthog.capture('saved insights list page filter used', { filter_keys: filterKeys })
         },
         reportSavedInsightTabChanged: ({ tab }) => {
             posthog.capture('saved insights list page tab changed', { tab })
@@ -643,7 +643,7 @@ export const eventUsageLogic = kea<
             posthog.capture('saved insights list page layout changed', { layout })
         },
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
-            posthog.capture('saved insights new insight clicked', { insightType })
+            posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
         reportRecording: ({ recordingData, source, loadTime, type }) => {
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
