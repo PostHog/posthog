@@ -170,11 +170,13 @@ class WebDataGenerator(DataGenerator):
         date = now()
         start_time = self.demo_recording["result"]["snapshots"][0]["timestamp"]
         session_id = str(UUIDT())
+        window_id = str(UUIDT())
 
         for snapshot in self.demo_recording["result"]["snapshots"]:
             self.snapshots.append(
                 {
                     "session_id": session_id,
+                    "window_id": window_id,
                     "distinct_id": distinct_id,
                     "timestamp": date + timedelta(milliseconds=snapshot["timestamp"] - start_time),
                     "snapshot_data": snapshot,
