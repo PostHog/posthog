@@ -59,7 +59,7 @@ describe('insightLogic', () => {
             }
         } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights`) {
             return {
-                id: url.data?.filters.funnel_window_interval,
+                id: 50,
                 filters: url.data?.filters,
                 result: ['result from api'],
             }
@@ -374,7 +374,7 @@ describe('insightLogic', () => {
                     insight: partial({ id: 43, result: ['result from api'] }),
                 })
 
-            router.actions.push(combineUrl('/insights', { insight: 'FUNNELS', funnel_window_interval: 45 }).url)
+            router.actions.push(combineUrl('/insights', { insight: 'FUNNELS' }).url)
             await expectLogic(logic)
                 .toDispatchActions(['setInsight', 'setInsightMode', 'loadResults', 'loadResultsSuccess'])
                 .toMatchValues({
@@ -383,7 +383,7 @@ describe('insightLogic', () => {
                 })
                 .toDispatchActions(['setInsight'])
                 .toMatchValues({
-                    insight: partial({ id: 45, result: ['result from api'] }),
+                    insight: partial({ id: 50, result: ['result from api'] }),
                 })
         })
 
