@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -224,7 +225,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         },
     }),
     listeners: ({ actions, values }) => ({
-        saveFeatureFlagSuccess: () => {
+        saveFeatureFlagSuccess: ({ featureFlag }) => {
             toast.success(
                 <div>
                     <h1>Your feature flag has been saved!</h1>
@@ -237,6 +238,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     closeOnClick: true,
                 }
             )
+
+            featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
