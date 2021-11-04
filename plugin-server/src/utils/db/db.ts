@@ -418,8 +418,6 @@ export class DB {
         }
     }
 
-    public async fetchPerson(teamId: number, distinctId: string): Promise<Person | undefined>
-    public async fetchPerson(teamId: number, distinctId: string, client: PoolClient): Promise<Person | undefined>
     public async fetchPerson(teamId: number, distinctId: string, client?: PoolClient): Promise<Person | undefined> {
         const queryString = `SELECT
                 posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
