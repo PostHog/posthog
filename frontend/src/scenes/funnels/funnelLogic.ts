@@ -86,7 +86,7 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
 ]
 
 export const funnelLogic = kea<funnelLogicType>({
-    path: ['scenes', 'funnels', 'funnelLogic'],
+    path: (key) => ['scenes', 'funnels', 'funnelLogic', key],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
 
