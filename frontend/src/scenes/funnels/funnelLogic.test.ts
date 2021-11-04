@@ -109,7 +109,7 @@ describe('funnelLogic', () => {
     initKeaTestLogic({
         logic: funnelLogic,
         props: {
-            dashboardItemId: undefined,
+            dashboardItemId: 12,
             filters: {
                 insight: ViewType.FUNNELS,
                 actions: [
@@ -125,7 +125,7 @@ describe('funnelLogic', () => {
         it('mounts all sorts of logics', async () => {
             await expectLogic(logic).toMount([
                 eventUsageLogic,
-                insightLogic({ dashboardItemId: undefined }),
+                insightLogic({ dashboardItemId: 12 }),
                 insightHistoryLogic,
                 preflightLogic,
                 funnelsModel,
@@ -151,7 +151,7 @@ describe('funnelLogic', () => {
                 .toDispatchActions(['loadResults'])
                 .toMatchValues({
                     insight: expect.objectContaining({
-                        id: undefined,
+                        id: 12,
                         filters: {},
                         result: null,
                     }),
