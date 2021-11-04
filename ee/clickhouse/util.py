@@ -1,6 +1,6 @@
 import re
-from functools import wraps
 from contextlib import contextmanager
+from functools import wraps
 from unittest.mock import patch
 
 import pytest
