@@ -28,6 +28,13 @@ from posthog.utils import dict_from_cursor_fetchall
 FUTURE_TIMESTAMP = datetime(2050, 1, 1, 1, 1, 1).isoformat()
 PAST_TIMESTAMP = datetime(2000, 1, 1, 1, 1, 1).isoformat()
 
+
+def parse_return_type(result):
+    updated_anything = result[0][0][1] == "t"
+    props_json = result[0][0][4:-2].replace('""', '"')
+    return updated_anything, json.loads(props_json)
+
+
 # Refers to migration 0176_update_person_props_function
 # This is a Postgres function we use in the plugin server
 class TestShouldUpdatePersonProp(BaseTest):
@@ -54,7 +61,9 @@ class TestShouldUpdatePersonProp(BaseTest):
             """
             )
             result = cursor.fetchall()
-            self.assertEqual(json.loads(result[0][0]), expected_props)
+            updated_anything, returned_props = parse_return_type(result)
+            self.assertTrue(updated_anything)
+            self.assertEqual(returned_props, expected_props)
 
         updated_person = Person.objects.get(id=person.id)
 
@@ -86,7 +95,9 @@ class TestShouldUpdatePersonProp(BaseTest):
             """
             )
             result = cursor.fetchall()
-            self.assertEqual(json.loads(result[0][0]), expected_props)
+            updated_anything, returned_props = parse_return_type(result)
+            self.assertTrue(updated_anything)
+            self.assertEqual(returned_props, expected_props)
 
         updated_person = Person.objects.get(id=person.id)
 
@@ -116,7 +127,9 @@ class TestShouldUpdatePersonProp(BaseTest):
                 """
             )
             result = cursor.fetchall()
-            self.assertEqual(json.loads(result[0][0]), expected_props)
+            updated_anything, returned_props = parse_return_type(result)
+            self.assertTrue(updated_anything)
+            self.assertEqual(returned_props, expected_props)
 
         updated_person = Person.objects.get(id=person.id)
 
@@ -149,7 +162,9 @@ class TestShouldUpdatePersonProp(BaseTest):
             """
             )
             result = cursor.fetchall()
-            self.assertEqual(json.loads(result[0][0]), expected_props)
+            updated_anything, returned_props = parse_return_type(result)
+            self.assertTrue(updated_anything)
+            self.assertEqual(returned_props, expected_props)
 
         updated_person = Person.objects.get(id=person.id)
 
@@ -160,7 +175,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         self.assertNotEqual(updated_person.properties_last_updated_at["b"], FUTURE_TIMESTAMP)
 
     # # tests cases 5 and 6 from the table
-    def test_set_operation_with_older_timestamp(self):
+    def test_set_operation_with_later_timestamp(self):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
@@ -183,7 +198,9 @@ class TestShouldUpdatePersonProp(BaseTest):
             """
             )
             result = cursor.fetchall()
-            self.assertEqual(json.loads(result[0][0]), expected_props)
+            updated_anything, returned_props = parse_return_type(result)
+            self.assertTrue(updated_anything)
+            self.assertEqual(returned_props, expected_props)
 
         updated_person = Person.objects.get(id=person.id)
 
@@ -217,7 +234,9 @@ class TestShouldUpdatePersonProp(BaseTest):
             """
             )
             result = cursor.fetchall()
-            self.assertEqual(json.loads(result[0][0]), expected_props)
+            updated_anything, returned_props = parse_return_type(result)
+            self.assertTrue(updated_anything)
+            self.assertEqual(returned_props, expected_props)
 
         updated_person = Person.objects.get(id=person.id)
 
@@ -228,7 +247,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         self.assertNotEqual(updated_person.properties_last_updated_at["b"], FUTURE_TIMESTAMP)
 
     # tests cases 9 and 10 from the table
-    def test_set_once_operation_with_older_timestamp(self):
+    def test_set_once_operation_with_later_timestamp(self):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
@@ -251,7 +270,9 @@ class TestShouldUpdatePersonProp(BaseTest):
             """
             )
             result = cursor.fetchall()
-            self.assertEqual(json.loads(result[0][0]), expected_props)
+            updated_anything, returned_props = parse_return_type(result)
+            self.assertFalse(updated_anything)
+            self.assertEqual(returned_props, expected_props)
 
         updated_person = Person.objects.get(id=person.id)
 
@@ -288,7 +309,9 @@ class TestShouldUpdatePersonProp(BaseTest):
             """
             )
             result = cursor.fetchall()
-            self.assertEqual(json.loads(result[0][0]), expected_props)
+            updated_anything, returned_props = parse_return_type(result)
+            self.assertTrue(updated_anything)
+            self.assertEqual(returned_props, expected_props)
 
         updated_person = Person.objects.get(id=person.id)
 

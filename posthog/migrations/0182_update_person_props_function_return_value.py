@@ -11,6 +11,16 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props;", ""),
+        migrations.RunSQL("DROP TYPE IF EXISTS update_person_props_return;", ""),
+        migrations.RunSQL(
+            """
+        CREATE TYPE update_person_props_return AS (
+            updated_anything boolean,
+            props jsonb
+        );
+        """,
+            "",
+        ),
         migrations.RunSQL(
             """
             -- not-null-ignore
@@ -18,13 +28,15 @@ class Migration(migrations.Migration):
                     person_id int,
                     event_timestamp text,
                     property_updates person_property_update []
-                ) RETURNS jsonb AS $$
+                ) RETURNS update_person_props_return AS $$
             DECLARE 
+                ret update_person_props_return;
                 props jsonb;
                 props_last_updated_at jsonb;
                 props_last_operation jsonb;
                 property_update person_property_update;
             BEGIN 
+                ret.updated_anything := FALSE;
                 SELECT properties, COALESCE(properties_last_updated_at, '{}'::jsonb), COALESCE(properties_last_operation, '{}'::jsonb) 
                 INTO props, props_last_updated_at, props_last_operation 
                 FROM posthog_person WHERE id=person_id
@@ -55,6 +67,7 @@ class Migration(migrations.Migration):
                         props := props || jsonb_build_object(property_update.key,  property_update.value);
                         props_last_updated_at := props_last_updated_at || jsonb_build_object(property_update.key,  event_timestamp);
                         props_last_operation := props_last_operation || jsonb_build_object(property_update.key,  property_update.update_op);
+                        ret.updated_anything = TRUE;
                     END IF;
                 END LOOP;
             UPDATE posthog_person
@@ -64,7 +77,8 @@ class Migration(migrations.Migration):
                 properties_last_operation=props_last_operation,
                 version = COALESCE(version, 0)::numeric + 1
             WHERE id=person_id;
-            RETURN props;
+            ret.props := props;
+            RETURN ret;
             END
             $$ LANGUAGE plpgsql;
         """,
