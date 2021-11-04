@@ -43,6 +43,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     },
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
+        setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         addMatchGroup: true,
         removeMatchGroup: (index: number) => ({ index }),
         updateMatchGroup: (
@@ -72,8 +73,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                // empty the form while loading the new flag to not have old values turn to new on list<->flag movements with back/forward
-                loadFeatureFlag: () => NEW_FLAG,
+                setFeatureFlag: (_, { featureFlag }) => featureFlag,
                 addMatchGroup: (state) => {
                     if (!state) {
                         return state
@@ -287,7 +287,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             if (id && id !== values.featureFlagId) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 actions.setFeatureFlagId(parsedId)
-                actions.loadFeatureFlag()
+
+                const foundFlag = featureFlagsLogic
+                    .findMounted()
+                    ?.values.featureFlags.find((flag) => flag.id === parsedId)
+                if (foundFlag) {
+                    actions.setFeatureFlag(foundFlag)
+                    actions.loadFeatureFlag() // reload cache
+                } else {
+                    actions.setFeatureFlag(NEW_FLAG)
+                }
             }
         },
     }),
