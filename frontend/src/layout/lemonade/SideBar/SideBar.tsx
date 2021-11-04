@@ -106,7 +106,7 @@ function Pages(): JSX.Element {
                 onClick={urls.savedInsights()}
                 sideAction={{
                     icon: <IconPlus />,
-                    onClick: urls.insightView(ViewType.TRENDS),
+                    onClick: urls.newInsight(ViewType.TRENDS),
                     tooltip: 'New insight',
                     identifier: 'insights',
                 }}
