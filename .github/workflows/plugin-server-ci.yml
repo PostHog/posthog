@@ -4,12 +4,11 @@ on:
     pull_request:
         paths:
             - 'plugin-server/**'
-            - 'ee/models/**'
-            - 'ee/clickhouse/**'
+            - 'ee/clickhouse/migrations/**'
             - 'ee/migrations/**'
-            - 'posthog/models/**'
             - 'posthog/migrations/**'
             - 'posthog/plugins/**'
+            - 'docker*.yml'
 
 jobs:
     code-quality:
