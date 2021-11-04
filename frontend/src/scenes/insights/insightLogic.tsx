@@ -48,6 +48,7 @@ export const defaultFilterTestAccounts = (): boolean => {
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
+    path: (key) => ['scenes', 'insights', 'insightLogic', key],
 
     connect: {
         values: [teamLogic, ['currentTeamId']],
