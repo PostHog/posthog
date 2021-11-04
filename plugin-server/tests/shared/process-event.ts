@@ -2198,6 +2198,10 @@ export const createProcessEventTests = (
         const ts1: DateTime = now.plus({ minutes: 1 })
         const ts2: DateTime = now.plus({ minutes: 2 })
         const ts3: DateTime = now.plus({ minutes: 3 })
+        // key encodes when the value is updated, e.g. s0 means only set call for the 0th event
+        // s03o23 means via a set in events number 0 and 3 plus via set_once on 2nd and 3rd event
+        // the value corresponds to which call updated it + random letter (same letter for the same key)
+        // the letter is for verifying we update the right key only
         const set0: Properties = { s0123o0123: 's0a', s02o13: 's0b', s013: 's0e' }
         const setOnce0: Properties = { s0123o0123: 'o0a', s13o02: 'o0g', o023: 'o0f' }
         const set1: Properties = { s0123o0123: 's1a', s13o02: 's1g', s1: 's1c', s013: 's1e' }
@@ -2211,7 +2215,7 @@ export const createProcessEventTests = (
             await createPerson(hub, team, ['distinct_id1'])
         })
 
-        async function verifyResult() {
+        async function verifyPersonPropertiesSetCorrectly() {
             expect((await hub.db.fetchEvents()).length).toBe(4)
 
             const [person] = await hub.db.fetchPersons()
@@ -2262,7 +2266,7 @@ export const createProcessEventTests = (
             await ingest1()
             await ingest2()
             await ingest3()
-            await verifyResult()
+            await verifyPersonPropertiesSetCorrectly()
         })
 
         if (includeNewPropertiesUpdatesTests) {
@@ -2271,7 +2275,7 @@ export const createProcessEventTests = (
                 await ingest2()
                 await ingest1()
                 await ingest0()
-                await verifyResult()
+                await verifyPersonPropertiesSetCorrectly()
             })
 
             test('ingestion mixed order', async () => {
@@ -2279,7 +2283,7 @@ export const createProcessEventTests = (
                 await ingest0()
                 await ingest1()
                 await ingest3()
-                await verifyResult()
+                await verifyPersonPropertiesSetCorrectly()
             })
         }
     })
