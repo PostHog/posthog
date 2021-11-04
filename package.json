@@ -170,7 +170,7 @@
         "history": "^5.0.1",
         "html-webpack-harddisk-plugin": "^1.0.2",
         "html-webpack-plugin": "^4.5.2",
-        "husky": "^4.3.0",
+        "husky": "^4.3.8",
         "jest": "^26.6.3",
         "kea-test-utils": "^0.2.1",
         "kea-typegen": "^1.2.2",
