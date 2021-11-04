@@ -204,6 +204,7 @@ describe('e2e', () => {
             )
             expect(Object.keys(exportedEventsAfterJob[0].properties)).toEqual(
                 expect.arrayContaining([
+                    '$elements',
                     '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
@@ -264,6 +265,7 @@ describe('e2e', () => {
             )
             expect(Object.keys(exportedEventsAfterSecondJob[0].properties)).toEqual(
                 expect.arrayContaining([
+                    '$elements',
                     '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
