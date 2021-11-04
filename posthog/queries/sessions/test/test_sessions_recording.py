@@ -280,7 +280,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 chunks = chunk_string(compressed_data, len(compressed_data) // 2)
 
                 # Send first chunk with first part of json
-                event_factory(
+                self.create_snapshot(
                     team_id=self.team.pk,
                     distinct_id="user",
                     timestamp=start_time,
@@ -295,7 +295,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 )
 
                 # Send second chunk with second and final part of json
-                event_factory(
+                self.create_snapshot(
                     team_id=self.team.pk,
                     distinct_id="user",
                     timestamp=start_time + relativedelta(seconds=duration),
@@ -320,23 +320,38 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 self.assertEqual(session["duration"], duration * 1000)
                 self.assertEqual(session["snapshots"], data)
 
-        def create_snapshot(self, distinct_id, session_id, timestamp, type=2):
+        def create_snapshot(
+            self, distinct_id, session_id, timestamp, type=2, window_id="3", team_id=None, snapshot_data=None
+        ):
+            if team_id is None:
+                team_id = self.team.pk
+            if snapshot_data is None:
+                snapshot_data = {"timestamp": timestamp.timestamp() * 1000, "type": type}
             event_factory(
-                team_id=self.team.pk,
+                team_id=team_id,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
-                snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type},
+                window_id=window_id,
+                snapshot_data=snapshot_data,
             )
 
         def create_chunked_snapshot(
-            self, distinct_id, session_id, timestamp, snapshot_index, chunk_size=5, has_full_snapshot=True
+            self,
+            distinct_id,
+            session_id,
+            timestamp,
+            snapshot_index,
+            chunk_size=5,
+            has_full_snapshot=True,
+            window_id="3",
         ):
             event_factory(
                 team_id=self.team.pk,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
+                window_id=window_id,
                 snapshot_data={
                     "chunk_id": f"chunky_{snapshot_index}",
                     "chunk_index": snapshot_index,

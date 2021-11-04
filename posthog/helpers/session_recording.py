@@ -29,7 +29,7 @@ def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
         if is_unchunked_snapshot(event):
             session_id = event["properties"]["$session_id"]
             window_id = event["properties"].get("$window_id")
-            snapshots_by_session_and_window_id[f"{session_id}-{window_id}"].append(event)
+            snapshots_by_session_and_window_id[(session_id, window_id)].append(event)
         else:
             result.append(event)
 
@@ -44,21 +44,18 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
     session_id = events[0]["properties"]["$session_id"]
     has_full_snapshot = any(snapshot_data["type"] == FULL_SNAPSHOT for snapshot_data in data_list)
     window_id = events[0]["properties"].get("$window_id")
-    if window_id:
-        # If we have a window id, we include it in the $snapshot_data, not in the properties
-        # Because the session_recording_events table does not have a properties column
-        del events[0]["properties"]["$window_id"]
 
     compressed_data = compress_to_string(json.dumps(data_list))
 
     id = str(utils.UUIDT())
     chunks = chunk_string(compressed_data, chunk_size)
     for index, chunk in enumerate(chunks):
-        chunk_data = {
+        yield {
             **events[0],
             "properties": {
                 **events[0]["properties"],
                 "$session_id": session_id,
+                "$window_id": window_id,
                 "$snapshot_data": {
                     "chunk_id": id,
                     "chunk_index": index,
@@ -69,9 +66,6 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                 },
             },
         }
-        if window_id:
-            chunk_data["properties"]["$snapshot_data"]["window_id"] = window_id
-        yield chunk_data
 
 
 def decompress_chunked_snapshot_data(

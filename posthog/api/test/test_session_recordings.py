@@ -16,7 +16,7 @@ from posthog.test.base import APIBaseTest
 
 def factory_test_session_recordings_api(session_recording_event_factory):
     class TestSessionRecordings(APIBaseTest):
-        def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None):
+        def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None, window_id="3"):
             if team_id == None:
                 team_id = self.team.pk
             session_recording_event_factory(
@@ -24,10 +24,13 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
+                window_id=window_id,
                 snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type},
             )
 
-        def create_chunked_snapshots(self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True):
+        def create_chunked_snapshots(
+            self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id="3"
+        ):
             snapshot = []
             for index in range(snapshot_count):
                 event: Event = {
@@ -56,6 +59,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                             },
                             "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
                         },
+                        "$window_id": window_id,
                         "$session_id": session_id,
                         "distinct_id": distinct_id,
                     },
@@ -70,6 +74,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                     distinct_id=distinct_id,
                     timestamp=timestamp,
                     session_id=session_id,
+                    window_id=window_id,
                     snapshot_data=snapshot_chunk["properties"].get("$snapshot_data"),
                 )
 

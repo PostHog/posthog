@@ -13,6 +13,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     team_id Int64,
     distinct_id VARCHAR,
     session_id VARCHAR,
+    window_id VARCHAR,
     snapshot_data VARCHAR,
     created_at DateTime64(6, 'UTC')
     {extra_fields}
@@ -22,7 +23,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
 SESSION_RECORDING_EVENTS_TABLE_SQL = (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
+ORDER BY (team_id, toHour(timestamp), session_id, window_id, timestamp, uuid)
 {ttl_period}
 SETTINGS index_granularity=512
 """
@@ -50,6 +51,7 @@ timestamp,
 team_id,
 distinct_id,
 session_id,
+window_id,
 snapshot_data,
 created_at,
 _timestamp,
@@ -61,7 +63,7 @@ FROM {database}.kafka_{table_name}
 
 
 INSERT_SESSION_RECORDING_EVENT_SQL = """
-INSERT INTO session_recording_events SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
+INSERT INTO session_recording_events SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(window_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
 """
 
 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = (

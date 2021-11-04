@@ -183,7 +183,7 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                     },
                 )
 
-        def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None):
+        def create_snapshot(self, distinct_id, session_id, timestamp, window_id=3, type=2, team_id=None):
             if team_id == None:
                 team_id = self.team.pk
             session_recording_event_factory(
@@ -191,10 +191,13 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
+                window_id=window_id,
                 snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type},
             )
 
-        def create_chunked_snapshots(self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True):
+        def create_chunked_snapshots(
+            self, snapshot_count, distinct_id, session_id, timestamp, window_id=3, has_full_snapshot=True
+        ):
             snapshot = []
             for index in range(snapshot_count):
                 snapshot.append(
@@ -224,6 +227,7 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                                 },
                                 "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
                             },
+                            "$window_id": window_id,
                             "$session_id": session_id,
                             "distinct_id": distinct_id,
                         },
@@ -238,6 +242,7 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                     distinct_id=distinct_id,
                     timestamp=timestamp,
                     session_id=session_id,
+                    window_id=window_id,
                     snapshot_data=snapshot_chunk["properties"].get("$snapshot_data"),
                 )
 

@@ -52,7 +52,7 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
     for index, result in enumerate(preprocessed):
         assert result["event"] == "$snapshot"
         assert result["properties"]["$session_id"] == expected_session_ids[index]
-        assert result["properties"]["$snapshot_data"].get("window_id") == expected_window_ids[index]
+        assert result["properties"].get("$window_id") == expected_window_ids[index]
         assert result["properties"]["distinct_id"] == "abc123"
         assert "chunk_id" in result["properties"]["$snapshot_data"]
         assert result["event"] == "$snapshot"
@@ -69,9 +69,9 @@ def test_compression_and_chunking(snapshot_events, mocker: MockerFixture):
         {
             "event": "$snapshot",
             "properties": {
+                "$window_id": "1",
                 "$session_id": "1234",
                 "$snapshot_data": {
-                    "window_id": "1",
                     "chunk_count": 1,
                     "chunk_id": "0178495e-8521-0000-8e1c-2652fa57099b",
                     "chunk_index": 0,
