@@ -162,9 +162,7 @@ class TestFilters(PGTestFilters):
         )
 
     def test_simplify_entities_with_group_math(self):
-        filter = Filter(
-            data={"events": [{"id": "$pageview", "math": "unique_group", "math_group_type_index": 2}]}
-        )
+        filter = Filter(data={"events": [{"id": "$pageview", "math": "unique_group", "math_group_type_index": 2}]})
 
         self.assertEqual(
             filter.simplify(self.team).entities_to_dict(),

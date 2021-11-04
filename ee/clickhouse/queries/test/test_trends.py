@@ -913,17 +913,18 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             {
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
-                "events": [{
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "unique_group",
-                    "math_group_type_index": 0
-                }],
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "math": "unique_group",
+                        "math_group_type_index": 0,
+                    }
+                ],
             },
             team=self.team,
         )
-
 
         response = ClickhouseTrends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 2)
@@ -932,13 +933,15 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             {
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
-                "events": [{
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "unique_group",
-                    "math_group_type_index": 1
-                }],
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "math": "unique_group",
+                        "math_group_type_index": 1,
+                    }
+                ],
             },
             team=self.team,
         )

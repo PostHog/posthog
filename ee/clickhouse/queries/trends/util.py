@@ -31,7 +31,9 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
         aggregate_operation = "count(DISTINCT person_id)"
     if entity.math == "unique_group":
         if entity.math_group_type_index is None:
-            raise ValidationError({"math_group_type_index": "This field is required when `math` is set to unique_group."}, code="required")
+            raise ValidationError(
+                {"math_group_type_index": "This field is required when `math` is set to unique_group."}, code="required"
+            )
 
         aggregate_operation = f"count(DISTINCT JSONExtractString(properties, %(e_group_{entity.index}_math)s))"
         params[f"e_group_{entity.index}_math"] = f"$group_{entity.math_group_type_index}"
@@ -39,7 +41,9 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
         if entity.math_property is None:
             raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")
 
-        value, _ = get_property_string_expr("events", entity.math_property, f"%(e_{entity.index}_math_prop)s", "properties")
+        value, _ = get_property_string_expr(
+            "events", entity.math_property, f"%(e_{entity.index}_math_prop)s", "properties"
+        )
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
         params["join_property_key"] = entity.math_property
         params[f"e_{entity.index}_math_prop"] = entity.math_property

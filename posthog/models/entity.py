@@ -10,7 +10,20 @@ from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.utils import sane_repr
 
-MATH_TYPE = Literal["total", "dau", "weekly_active", "monthly_active", "unique_group", "sum", "min", "max", "median", "p90", "p95", "p99"]
+MATH_TYPE = Literal[
+    "total",
+    "dau",
+    "weekly_active",
+    "monthly_active",
+    "unique_group",
+    "sum",
+    "min",
+    "max",
+    "median",
+    "p90",
+    "p95",
+    "p99",
+]
 
 
 class Entity(PropertyMixin):

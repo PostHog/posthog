@@ -83,6 +83,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL)
 
+
 def snapshot_clickhouse_queries(fn):
     """
     Captures and snapshots select queries from test using `syrupy` library.

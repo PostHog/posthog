@@ -45,8 +45,8 @@ class SimplifyFilterMixin:
     def _simplify_entity(
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
     ) -> Dict:
-        from posthog.models.property import Property
         from posthog.models.entity import Entity, ExclusionEntity
+        from posthog.models.property import Property
 
         EntityClass = ExclusionEntity if entity_type == "exclusions" else Entity
 
