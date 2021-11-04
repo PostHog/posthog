@@ -102,13 +102,22 @@ class ClickhousePaths:
         self.params.update(target_params)
 
         session_threshold_clause = self.get_session_threshold_clause()
+        limit_clause = self.get_limit_clause()
 
         return PATH_ARRAY_QUERY.format(
             path_event_query=path_event_query,
             boundary_event_filter=boundary_event_filter,
             target_clause=target_clause,
             session_threshold_clause=session_threshold_clause,
+            limit_clause=limit_clause,
         )
+
+    def get_limit_clause(self) -> str:
+        if self._filter.edge_limit:
+            self.params["edge_limit"] = self._filter.edge_limit
+            return "LIMIT %(edge_limit)s"
+        else:
+            return ""
 
     def should_query_funnel(self) -> bool:
         if self._filter.funnel_paths and self._funnel_filter:
@@ -130,14 +139,12 @@ class ClickhousePaths:
                 COUNT(*) AS event_count,
                 avg(conversion_time) AS average_conversion_time
             FROM ({paths_per_person_query})
-            WHERE source_event IS NOT NULL
             GROUP BY source_event,
                     target_event
             {edge_weight_filter}
             ORDER BY event_count DESC,
                     source_event,
                     target_event
-            {'LIMIT %(edge_limit)s' if self._filter.edge_limit else ''}
         """
 
     def get_path_query_funnel_cte(self, funnel_filter: Filter):
@@ -179,11 +186,11 @@ class ClickhousePaths:
 
     def get_target_point_filter(self) -> str:
         if self._filter.end_point and self._filter.start_point:
-            return "WHERE start_target_index > 0 AND end_target_index > 0"
+            return "WHERE start_target_index > 0 AND end_target_index > 0 AND NOT event_in_session_index = 1"
         elif self._filter.end_point or self._filter.start_point:
-            return f"WHERE target_index > 0"
+            return f"WHERE target_index > 0 AND NOT event_in_session_index = 1"
         else:
-            return ""
+            return "WHERE NOT event_in_session_index = 1"
 
     def get_session_threshold_clause(self) -> str:
 

@@ -41,5 +41,6 @@ PATH_ARRAY_QUERY = """
             )
             ARRAY JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
             {boundary_event_filter}
+            {limit_clause}
             )
 """
