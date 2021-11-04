@@ -73,6 +73,59 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         # don't return none option when empty
         self.assertEqual(response[0]["breakdown_value"], "val")
 
+    @snapshot_clickhouse_queries
+    def test_breakdown_with_filter_groups(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
+        )
+
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "key",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                    "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["breakdown_value"], "oh")
+        self.assertEqual(response[0]["count"], 1)
+        self.assertEqual(response[1]["breakdown_value"], "uh")
+        self.assertEqual(response[1]["count"], 1)
+
     @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_limit(self):
         self._create_breakdown_events()

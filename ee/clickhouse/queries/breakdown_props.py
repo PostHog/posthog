@@ -6,6 +6,7 @@ from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
@@ -56,6 +57,8 @@ def get_breakdown_prop_values(
             INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
         """
 
+    groups_join_condition, groups_join_params = GroupsJoinQuery(filter, team_id, column_optimizer).get_join_query()
+
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
         value_expression=value_expression,
         parsed_date_from=parsed_date_from,
@@ -63,6 +66,7 @@ def get_breakdown_prop_values(
         prop_filters=prop_filters,
         aggregate_operation=aggregate_operation,
         person_join_clauses=person_join_clauses,
+        groups_join_clauses=groups_join_condition,
         **entity_format_params,
     )
 
@@ -76,6 +80,7 @@ def get_breakdown_prop_values(
             **prop_filter_params,
             **entity_params,
             **person_join_params,
+            **groups_join_params,
             **extra_params,
             **date_params,
         },
