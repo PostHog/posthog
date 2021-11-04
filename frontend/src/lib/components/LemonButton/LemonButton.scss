@@ -1,0 +1,50 @@
+@import '~/vars';
+
+.LemonButton {
+    color: var(--primary);
+    font-weight: 600;
+    cursor: pointer;
+    &:hover {
+        background: rgba($primary, 0.1);
+    }
+    &:active {
+        background: rgba($primary, 0.2);
+    }
+    .LemonRow__icon {
+        color: var(--primary);
+    }
+}
+
+.LemonButton--primary {
+    background: var(--primary);
+    color: #fff;
+    .LemonRow__icon {
+        color: #fff;
+    }
+}
+
+.LemonButton--stealth {
+    color: var(--text-default);
+    font-weight: 400;
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
+.LemonButton--highlighted {
+    background: rgba($primary, 0.1);
+    color: var(--text-default);
+    font-weight: 600;
+    .LemonRow__icon {
+        color: var(--primary);
+    }
+}
+
+.LemonButtonWithSideAction {
+    position: relative;
+    .side-button {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+    }
+}

@@ -76,17 +76,16 @@ jobs:
               with:
                   python-version: 3.8
 
-            - name: Install SAML (python3-saml) dependencies
-              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - uses: syphar/restore-virtualenv@v1.2
-              id: cache-backend-tests-saml
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
 
             - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
-              if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
@@ -111,28 +110,66 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
-        name: Django tests – Py ${{ matrix.python-version }}
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.8.5', '3.9.0']
+                python-version: ['3.8.5']
+                ee: [true]
+                foss: [false]
+                saml: [false]
+                name: ['']
+                # :NOTE: Keep concurrency and group's in sync
+                concurrency: [5]
+                group: [1, 2, 3, 4, 5]
+                include:
+                    # :TRICKY: Run FOSS tests in a separate container
+                    - python-version: '3.8.5'
+                      ee: false
+                      saml: false
+                      foss: true
+                      name: 'FOSS'
+                      concurrency: 1
+                      group: 1
+                    # :TRICKY: Run FOSS tests in a separate container
+                    - python-version: '3.9.0'
+                      ee: false
+                      saml: false
+                      foss: true
+                      name: 'FOSS'
+                      concurrency: 1
+                      group: 1
+                    # :TRICKY: Run SAML tests in a separate container
+                    - python-version: '3.8.5'
+                      ee: false
+                      saml: true
+                      foss: false
+                      name: 'SAML'
+                      concurrency: 1
+                      group: 1
         steps:
             - uses: actions/checkout@v1
               with:
                   fetch-depth: 1
 
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
+              run: docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }}
 
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
                   python-version: ${{ matrix.python-version }}
 
+            - name: Install SAML (python3-saml) dependencies (not required for Cloud or FOSS)
+              if: ${{ matrix.saml }}
+              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-${{ matrix.name }}
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -142,6 +179,11 @@ jobs:
               run: |
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
+
+            - name: Install SAML python dependencies
+              if: ${{ matrix.saml }}
+              run: |
+                  python -m pip install python3-saml==1.12.0
 
             - name: Check migrations
               run: |
@@ -155,84 +197,58 @@ jobs:
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-            - name: Run posthog tests
+            - name: Set up needed files
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/ --cov --cov-report=xml:coverage-postgres.xml
-            - name: Run EE tests
+
+            - name: Run FOSS tests
+              if: ${{ matrix.foss }}
+              run: |
+                  rm -rf ee/
+                  pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
+
+            - name: Run SAML tests
+              if: ${{ matrix.saml }}
               env:
                   PRIMARY_DB: 'clickhouse'
               run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml
+                  pytest ee -m "saml_only"
+
+            - name: Run ee/ tests
+              if: ${{ matrix.ee }}
+              env:
+                  PRIMARY_DB: 'clickhouse'
+              run: |
+                  pytest ee -m "not saml_only" \
+                      --splits ${{ matrix.concurrency }} \
+                      --group ${{ matrix.group }} \
+                      --store-durations \
+                      --cov \
+                      --cov-report=xml:coverage-clickhouse.xml
+
+            - name: Run pytest.mark.ee tests
+              if: ${{ matrix.ee && matrix.group == '1' }}
+              env:
+                  PRIMARY_DB: 'clickhouse'
+              run: |
                   pytest posthog -m "ee"
+
             - uses: codecov/codecov-action@v2
+              if: ${{ !matrix.saml && !matrix.cloud }}
               with:
                   files: ./coverage-postgres.xml,./coverage-clickhouse.xml
                   fail_ci_if_error: false
                   verbose: true
 
-    saml:
-        needs: changes
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
-
-        name: Django tests – with SAML
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v1
+            - name: Upload updated timing data as artifacts
+              uses: actions/upload-artifact@v2
+              if: ${{ matrix.ee }}
               with:
-                  fetch-depth: 1
-
-            - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
-
-            - name: Set up Python
-              uses: actions/setup-python@v2
-              with:
-                  python-version: 3.9
-
-            - name: Install SAML (python3-saml) dependencies (not required for Cloud or FOSS)
-              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - uses: syphar/restore-virtualenv@v1.2
-              id: cache-backend-tests-saml
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
-
-            - name: Install python dependencies
-              if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
-              run: |
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
-                  python -m pip install python3-saml==1.12.0
-
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
-            - name: Run posthog tests
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/
-            - name: Run EE tests
-              env:
-                  PRIMARY_DB: 'clickhouse'
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest ee/
-                  pytest posthog -m "ee"
+                  name: timing_data-${{ matrix.group }}
+                  path: .test_durations
 
     cloud:
         needs: changes
@@ -312,14 +328,13 @@ jobs:
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-            - name: Run posthog tests
+            - name: Set up needed files
               run: |
                   cd deploy
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not (skip_on_multitenancy or ee)"
 
             - name: Run cloud tests (posthog-cloud)
               env:
@@ -328,69 +343,3 @@ jobs:
                   source .env.template
                   cd deploy
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
-            - name: Run EE tests
-              env:
-                  PRIMARY_DB: 'clickhouse'
-              run: |
-                  cd deploy/
-                  pytest ee -m "not skip_on_multitenancy"
-                  pytest posthog -m "ee and not skip_on_multitenancy"
-
-    foss:
-        needs: changes
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
-
-        name: Django tests – FOSS
-        runs-on: ubuntu-latest
-
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: posthog
-                    POSTGRES_PASSWORD: posthog
-                    POSTGRES_DB: posthog
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
-        steps:
-            - uses: actions/checkout@v1
-              with:
-                  fetch-depth: 1
-
-            - name: Set up Python 3.8
-              uses: actions/setup-python@v2
-              with:
-                  python-version: 3.8
-
-            - uses: syphar/restore-virtualenv@v1.2
-              id: cache-backend-tests
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-
-            - name: Install python dependencies
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-              run: |
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
-
-            - name: Remove ee
-              run: |
-                  rm -rf ee/
-
-            - name: Check migrations
-              run: python manage.py makemigrations --check --dry-run
-
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
-            - name: Run tests
-              env:
-                  SAML_DISABLED: '1'
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee"

@@ -2,7 +2,7 @@ import React, { CSSProperties } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
-import 'scenes/actions/Actions.scss'
+import '../../../scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -19,7 +19,7 @@ interface PropertyFiltersProps {
     popoverPlacement?: TooltipPlacement | null
     taxonomicPopoverPlacement?: Placement
     style?: CSSProperties
-    groupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
 }
 
@@ -31,7 +31,7 @@ export function PropertyFilters({
     disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement = null,
     taxonomicPopoverPlacement = undefined,
-    groupTypes,
+    taxonomicGroupTypes,
     style = {},
     showNestedArrow = false,
 }: PropertyFiltersProps): JSX.Element {
@@ -66,7 +66,7 @@ export function PropertyFilters({
                                         index,
                                         onComplete,
                                         selectProps: {},
-                                        groupTypes,
+                                        taxonomicGroupTypes,
                                     }
                                     return (
                                         <PropertyFilter

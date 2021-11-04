@@ -7,15 +7,13 @@ import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis, pluralize } from 'lib/utils'
 import './PersonModal.scss'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
-import { teamLogic } from '../teamLogic'
 import api from '../../lib/api'
-import { getCurrentTeamId } from '../../lib/utils/logics'
 
 export interface PersonModalProps {
     visible: boolean
@@ -36,8 +34,8 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
-    const { currentTeamId } = useValues(teamLogic)
     const { preflight } = useValues(preflightLogic)
+
     const title = useMemo(
         () =>
             isInitialLoad ? (
@@ -87,7 +85,6 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                             <Button
                                 icon={<DownloadOutlined />}
                                 href={api.actions.determinePeopleCsvUrl(
-                                    getCurrentTeamId(currentTeamId),
                                     {
                                         label: people.label,
                                         action: people.action,

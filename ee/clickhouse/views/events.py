@@ -47,6 +47,8 @@ class ClickhouseEventsViewSet(EventViewSet):
     ) -> List:
         limit += 1
         limit_sql = "LIMIT %(limit)s"
+        order = "DESC" if self._parse_order_by(self.request)[0] == "-timestamp" else "ASC"
+
         conditions, condition_params = determine_event_conditions(
             team,
             {
@@ -72,13 +74,13 @@ class ClickhouseEventsViewSet(EventViewSet):
         if prop_filters != "":
             return sync_execute(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                    conditions=conditions, limit=limit_sql, filters=prop_filters
+                    conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
-                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql),
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
                 {"team_id": team.pk, "limit": limit, **condition_params},
             )
 

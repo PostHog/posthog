@@ -144,14 +144,10 @@ export const cohortLogic = kea<cohortLogicType>({
 
             try {
                 if (cohort.id !== 'new') {
-                    cohort = await api.update(
-                        'api/cohort/' + cohort.id + (filterParams ? '?' + filterParams : ''),
-                        cohortFormData
-                    )
-
+                    cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>, filterParams)
                     cohortsModel.actions.updateCohort(cohort)
                 } else {
-                    cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
+                    cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>, filterParams)
                     cohortsModel.actions.createCohort(cohort)
                 }
             } catch (error) {
@@ -183,7 +179,7 @@ export const cohortLogic = kea<cohortLogicType>({
             actions.checkIfFinishedCalculating(cohort)
         },
         fetchCohort: async ({ cohort }, breakpoint) => {
-            cohort = await api.get('api/cohort/' + cohort.id)
+            cohort = await api.cohorts.get(cohort.id)
             breakpoint()
             actions.checkIfFinishedCalculating(cohort)
         },

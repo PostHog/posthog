@@ -8,13 +8,69 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         values: [featureFlagLogic, ['featureFlags']],
     },
     actions: {
+        toggleSideBar: true,
+        hideSideBar: true,
         hideAnnouncement: true,
+        openSitePopover: true,
+        closeSitePopover: true,
+        toggleSitePopover: true,
+        showInviteModal: true,
+        hideInviteModal: true,
+        showCreateOrganizationModal: true,
+        hideCreateOrganizationModal: true,
+        showChangelogModal: true,
+        hideChangelogModal: true,
+        showToolbarModal: true,
+        hideToolbarModal: true,
     },
     reducers: {
-        isAnnouncementHidden: [
+        isSideBarShown: [
+            window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
+            {
+                toggleSideBar: (state) => !state,
+                hideSideBar: () => false,
+            },
+        ],
+        isAnnouncementShown: [
+            true,
+            {
+                hideAnnouncement: () => false,
+            },
+        ],
+        isSitePopoverOpen: [
             false,
             {
-                hideAnnouncement: () => true,
+                openSitePopover: () => true,
+                closeSitePopover: () => false,
+                toggleSitePopover: (state) => !state,
+            },
+        ],
+        isInviteModalShown: [
+            false,
+            {
+                showInviteModal: () => true,
+                hideInviteModal: () => false,
+            },
+        ],
+        isCreateOrganizationModalShown: [
+            false,
+            {
+                showCreateOrganizationModal: () => true,
+                hideCreateOrganizationModal: () => false,
+            },
+        ],
+        isChangelogModalShown: [
+            false,
+            {
+                showChangelogModal: () => true,
+                hideChangelogModal: () => false,
+            },
+        ],
+        isToolbarModalShown: [
+            false,
+            {
+                showToolbarModal: () => true,
+                hideToolbarModal: () => false,
             },
         ],
     },

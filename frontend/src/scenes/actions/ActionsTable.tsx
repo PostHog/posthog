@@ -21,7 +21,6 @@ import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab, EventsTabs } from 'scenes/events'
 import api from '../../lib/api'
-import { getCurrentTeamId } from '../../lib/utils/logics'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -39,7 +38,7 @@ export const scene: SceneExport = {
 }
 
 export function ActionsTable(): JSX.Element {
-    const { currentTeam, currentTeamId } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
     const [searchTerm, setSearchTerm] = useState('')
@@ -162,7 +161,7 @@ export function ActionsTable(): JSX.Element {
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo
-                            endpoint={api.actions.determineDeleteEndpoint(getCurrentTeamId(currentTeamId))}
+                            endpoint={api.actions.determineDeleteEndpoint()}
                             object={action}
                             className="text-danger"
                             style={{ marginLeft: 8, marginRight: 8 }}

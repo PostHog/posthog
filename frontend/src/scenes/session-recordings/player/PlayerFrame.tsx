@@ -11,20 +11,16 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
     const frameRef = ref as MutableRefObject<HTMLDivElement>
 
-    useEffect(
-        () => {
-            if (!replayer) {
-                return
-            }
+    useEffect(() => {
+        if (!replayer) {
+            return
+        }
 
-            replayer.on('resize', updatePlayerDimensions as Handler)
-            window.addEventListener('resize', windowResize)
+        replayer.on('resize', updatePlayerDimensions as Handler)
+        window.addEventListener('resize', windowResize)
 
-            return () => window.removeEventListener('resize', windowResize)
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [replayer]
-    )
+        return () => window.removeEventListener('resize', windowResize)
+    }, [replayer])
 
     const windowResize = (): void => {
         updatePlayerDimensions(replayDimensionRef.current)

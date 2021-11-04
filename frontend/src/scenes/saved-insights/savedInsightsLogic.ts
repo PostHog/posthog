@@ -16,6 +16,8 @@ export interface InsightsResult {
     count: number
     previous?: string
     next?: string
+    /** not in the API response */
+    filters?: SavedInsightFilters | null
 }
 
 export interface SavedInsightFilters {
@@ -34,9 +36,9 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-updated_at',
         tab: values.tab || SavedInsightsTabs.All,
-        search: values.search || '',
+        search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: values.createdBy || 'All users',
+        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
     }
@@ -52,35 +54,54 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
         renameInsight: (id: number) => ({ id }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
-        addToDashboard: (item: DashboardItemType, dashboardId: number) => ({ item, dashboardId }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
         insights: {
-            __default: { results: [], count: 0 } as InsightsResult,
+            __default: { results: [], count: 0, filters: null } as InsightsResult,
             loadInsights: async (_, breakpoint) => {
-                await breakpoint(1)
+                if (values.insights.filters !== null) {
+                    await breakpoint(300)
+                }
                 const { filters } = values
-                const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
-                        order: filters.order,
-                        limit: 15,
-                        saved: true,
-                        ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                        ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
-                        ...(filters.search && { search: filters.search }),
-                        ...(filters.insightType?.toLowerCase() !== 'all types' && {
-                            insight: filters.insightType?.toUpperCase(),
+                const params = {
+                    order: filters.order,
+                    limit: 15,
+                    saved: true,
+                    ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                    ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                    ...(filters.search && { search: filters.search }),
+                    ...(filters.insightType?.toLowerCase() !== 'all types' && {
+                        insight: filters.insightType?.toUpperCase(),
+                    }),
+                    ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                    ...(filters.dateFrom &&
+                        filters.dateFrom !== 'all' && {
+                            date_from: filters.dateFrom,
+                            date_to: filters.dateTo,
                         }),
-                        ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
-                        ...(filters.dateFrom &&
-                            filters.dateFrom !== 'all' && {
-                                date_from: filters.dateFrom,
-                                date_to: filters.dateTo,
-                            }),
-                    })}`
+                }
+                const response = await api.get(
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
-                return response
+
+                if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
+                    try {
+                        const insight = await api.get(
+                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}`
+                        )
+                        return {
+                            ...response,
+                            count: response.count + 1,
+                            results: [insight, ...response.results],
+                            filters,
+                        }
+                    } catch (e) {
+                        // no insight with this ID found, discard
+                    }
+                }
+
+                return { ...response, filters }
             },
             loadPaginatedInsights: async (url: string) => await api.get(url),
             updateFavoritedInsight: async ({ id, favorited }) => {
@@ -125,6 +146,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 const offset = new URLSearchParams(insights.next).get('offset') || '0'
                 return parseInt(offset)
             },
+        ],
+        usingFilters: [
+            (s) => [s.filters],
+            (filters) => !objectsEqual(cleanFilters({ ...filters, tab: SavedInsightsTabs.All }), cleanFilters({})),
         ],
     },
     listeners: ({ actions, values, selectors }) => ({

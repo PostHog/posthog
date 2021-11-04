@@ -96,6 +96,8 @@ export function ObjectTags({
                             style={{ width: 160 }}
                             onChange={(value) => {
                                 onTagSave(value, tags, id)
+                                setNewTag('')
+                                setAddingNewTag(false)
                             }}
                             disabled={saving}
                             loading={saving}

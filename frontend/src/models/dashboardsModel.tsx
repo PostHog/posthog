@@ -1,17 +1,17 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey } from 'lib/utils'
+import { delay, idToKey, setPageTitle } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
 import { DashboardItemType, DashboardType } from '~/types'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../scenes/teamLogic'
 
 export const dashboardsModel = kea<dashboardsModelType>({
+    path: ['models', 'dashboardsModel'],
     actions: () => ({
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: number | null) => ({ id }),
@@ -51,7 +51,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             {
                 loadDashboards: async (_, breakpoint) => {
                     await breakpoint(50)
-                    const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards`)
+                    const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`)
                     return idToKey(results)
                 },
             },
@@ -69,7 +69,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
         dashboard: {
             __default: null as null | DashboardType,
             addDashboard: async ({ name, show, useTemplate }) => {
-                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards`, {
+                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
                     name,
                     use_template: useTemplate,
                 })) as DashboardType
@@ -95,7 +95,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         payload[updatedAttribute].length
                     )
                     if (updatedAttribute === 'name') {
-                        sceneLogic.actions.setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
+                        setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
                     }
                 }
                 return response
@@ -127,7 +127,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 return response
             },
             duplicateDashboard: async ({ id, name, show }) => {
-                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards`, {
+                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
                     use_dashboard: id,
                     name: `${name} (Copy)`,
                 })) as DashboardType

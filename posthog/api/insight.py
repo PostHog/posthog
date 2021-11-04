@@ -69,6 +69,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
 
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
+    last_refresh = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -124,6 +125,9 @@ class InsightSerializer(InsightBasicSerializer):
     def get_result(self, insight: Insight):
         if not insight.filters:
             return None
+        if self.context["request"].GET.get("refresh"):
+            return update_dashboard_item_cache(insight, None)
+
         result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
@@ -131,6 +135,9 @@ class InsightSerializer(InsightBasicSerializer):
         return result.get("result")
 
     def get_last_refresh(self, insight: Insight):
+        if self.context["request"].GET.get("refresh"):
+            return now()
+
         result = self.get_result(insight)
         if result is not None:
             return insight.last_refresh
@@ -139,10 +146,6 @@ class InsightSerializer(InsightBasicSerializer):
         return None
 
     def to_representation(self, instance: Insight):
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_item_cache(instance, None)
-            instance.refresh_from_db()
-
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
         return representation

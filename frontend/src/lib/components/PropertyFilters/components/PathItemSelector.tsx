@@ -8,7 +8,7 @@ interface PathItemSelectorProps {
     onChange: (item: string) => void
     children: JSX.Element
     index: number
-    groupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     disabled?: boolean
     wildcardOptions?: SimpleOption[]
 }
@@ -17,7 +17,7 @@ export function PathItemSelector({
     pathItem,
     onChange,
     children,
-    groupTypes,
+    taxonomicGroupTypes,
     disabled,
     wildcardOptions,
 }: PathItemSelectorProps): JSX.Element {
@@ -36,7 +36,7 @@ export function PathItemSelector({
                         onChange(value as string)
                         setVisible(false)
                     }}
-                    groupTypes={groupTypes}
+                    taxonomicGroupTypes={taxonomicGroupTypes}
                     optionsFromProp={{ wildcard: wildcardOptions }}
                 />
             }

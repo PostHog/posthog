@@ -1,5 +1,5 @@
 import React, { CSSProperties } from 'react'
-import 'scenes/actions/Actions.scss'
+import '../../../scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
@@ -17,7 +17,7 @@ interface PropertyFiltersProps {
     popoverPlacement?: TooltipPlacement | null
     taxonomicPopoverPlacement?: Placement
     style?: CSSProperties
-    groupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
 }
 

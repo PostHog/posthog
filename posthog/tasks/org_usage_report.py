@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, TypedDict, Union, cast
 
+from django.conf import settings
 from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
 
@@ -135,7 +136,7 @@ def send_all_reports(
             org_reports.append(report)  # type: ignore
         except Exception as err:
             report_org_usage_failure(distinct_id, str(err))
-        if not dry_run:
+        if not (dry_run or settings.TEST or settings.DEBUG):
             report_org_usage(distinct_id, report)
             time.sleep(0.25)
 

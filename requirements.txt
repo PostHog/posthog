@@ -65,7 +65,9 @@ django-extensions==3.1.2
 django-filter==2.4.0
     # via -r requirements.in
 django-ipware==3.0.2
-    # via django-axes
+    # via
+    #   django-axes
+    #   django-structlog
 django-loginas==0.3.9
     # via -r requirements.in
 django-redis==4.12.1
@@ -73,6 +75,8 @@ django-redis==4.12.1
 git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
     # via -r requirements.in
 django-statsd==2.5.2
+    # via -r requirements.in
+django-structlog==2.1.3
     # via -r requirements.in
 django==3.2.5
     # via
@@ -84,6 +88,7 @@ django==3.2.5
     #   django-filter
     #   django-redis
     #   django-rest-hooks
+    #   django-structlog
     #   djangorestframework
 djangorestframework-csv==2.1.0
     # via -r requirements.in
@@ -109,7 +114,7 @@ idna==2.8
     #   requests
 importlib-metadata==1.6.0
     # via -r requirements.in
-git+git://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a164af9be632
+git+https://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a164af9be632
     # via -r requirements.in
 iso8601==0.1.12
     # via infi-clickhouse-orm
@@ -137,7 +142,7 @@ pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-posthoganalytics==1.4.2
+posthoganalytics==1.4.3
     # via -r requirements.in
 protobuf==3.13.0
     # via -r requirements.in
@@ -205,6 +210,8 @@ sqlparse==0.3.0
     # via django
 statshog==1.0.6
     # via -r requirements.in
+structlog==21.2.0
+    # via django-structlog
 tenacity==6.1.0
     # via celery-redbeat
 toronado==0.0.11

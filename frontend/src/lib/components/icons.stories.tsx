@@ -6,10 +6,10 @@ import { Table } from 'antd'
 const allIcons = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
 
 export default {
-    title: 'PostHog/Components/Icons',
+    title: 'PostHog/Icons',
 } as Meta
 
-export function AllIcons(): JSX.Element {
+export function Icons(): JSX.Element {
     return (
         <Table
             pagination={false}
@@ -20,7 +20,7 @@ export function AllIcons(): JSX.Element {
                     key: 'name',
                     dataIndex: 'name',
                     render: function RenderName(name: string) {
-                        return `<${name}>`
+                        return <code>{`<${name}/>`}</code>
                     },
                 },
                 {
@@ -28,7 +28,18 @@ export function AllIcons(): JSX.Element {
                     key: 'icon',
                     dataIndex: 'icon',
                     render: function RenderIcon(Icon: () => JSX.Element) {
-                        return <Icon />
+                        return (
+                            <span
+                                style={{
+                                    display: 'inline-flex',
+                                    fontSize: '1.5rem',
+                                    border: '1px solid var(--primary)',
+                                    boxSizing: 'content-box',
+                                }}
+                            >
+                                <Icon />
+                            </span>
+                        )
                     },
                 },
             ]}

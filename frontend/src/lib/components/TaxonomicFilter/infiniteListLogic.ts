@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
-import { RenderedRows } from 'react-virtualized/dist/es/List'
+import { RenderedRows } from 'react-virtualized/dist/commonjs/List'
 import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
@@ -38,7 +38,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
     connect: (props: InfiniteListLogicProps) => ({
-        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'groups']],
+        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'taxonomicGroups']],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem']],
     }),
 
@@ -163,16 +163,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [
-            (s) => [s.listGroupType, s.groups],
-            (listGroupType, groups) => groups.find((g) => g.type === listGroupType),
+            (s) => [s.listGroupType, s.taxonomicGroups],
+            (listGroupType, taxonomicGroups) => taxonomicGroups.find((g) => g.type === listGroupType),
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             (selectors) => [
                 (state, props) => {
-                    const groups = selectors.groups(state)
-                    const group = groups.find((g) => g.type === props.listGroupType)
+                    const taxonomicGroups = selectors.taxonomicGroups(state)
+                    const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
                     if (group?.logic && group?.value) {
                         return group.logic.selectors[group.value]?.(state) || null
                     }

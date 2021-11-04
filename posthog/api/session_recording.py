@@ -11,7 +11,7 @@ from posthog.models import PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
@@ -36,7 +36,7 @@ class SessionRecordingSerializer(serializers.Serializer):
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()
@@ -115,7 +115,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         distinct_id = session_recording_meta_data["distinct_id"]
 
         try:
-            person: Union[Person, None] = Person.objects.get(persondistinctid__distinct_id=distinct_id, team=self.team)
+            person: Union[Person, None] = Person.objects.get(
+                persondistinctid__distinct_id=distinct_id, persondistinctid__team_id=self.team, team=self.team
+            )
         except Person.DoesNotExist:
             person = None
 

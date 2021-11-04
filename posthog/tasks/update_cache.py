@@ -74,7 +74,7 @@ else:
     }
 
 
-def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
+def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
@@ -90,6 +90,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
     cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
 
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
+    return result
 
 
 def update_dashboard_items_cache(dashboard: Dashboard) -> None:
@@ -97,10 +98,11 @@ def update_dashboard_items_cache(dashboard: Dashboard) -> None:
         update_dashboard_item_cache(item, dashboard)
 
 
-def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Dashboard]) -> None:
+def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
     cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
-    update_cache_item(cache_key, cache_type, payload)
+    result = update_cache_item(cache_key, cache_type, payload)
     dashboard_item.refresh_from_db()
+    return result
 
 
 def get_cache_type(filter: FilterType) -> CacheType:

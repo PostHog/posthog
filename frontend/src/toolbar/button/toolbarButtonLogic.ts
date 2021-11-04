@@ -7,6 +7,7 @@ import { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { posthog } from '~/toolbar/posthog'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
+    path: ['toolbar', 'button', 'toolbarButtonLogic'],
     actions: () => ({
         showHeatmapInfo: true,
         hideHeatmapInfo: true,

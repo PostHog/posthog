@@ -1,37 +1,39 @@
 import { kea } from 'kea'
 import { toolbarLogicType } from './toolbarLogicType'
-import { EditorProps } from '~/types'
+import { ToolbarProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { PostHog } from 'posthog-js'
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 // input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({
-    props: {} as EditorProps,
+    props: {} as ToolbarProps,
+    connect: () => [
+        featureFlagsLogic, // makes an API call that invalidates the token on error
+    ],
 
     actions: () => ({
         authenticate: true,
         logout: true,
+        tokenExpired: true,
         processUserIntent: true,
         clearUserIntent: true,
         showButton: true,
         hideButton: true,
-        updateFeatureFlags: (flags: Record<string, string | boolean>) => ({ flags }),
     }),
 
-    reducers: ({ props }: { props: EditorProps }) => ({
+    reducers: ({ props }) => ({
         rawApiURL: [props.apiURL as string],
         rawJsURL: [(props.jsURL || props.apiURL) as string],
-        temporaryToken: [props.temporaryToken || null, { logout: () => null }],
+        temporaryToken: [props.temporaryToken || null, { logout: () => null, tokenExpired: () => null }],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         dataAttributes: [(props.dataAttributes || []) as string[]],
-        featureFlags: [
-            (props.featureFlags || {}) as Record<string, string | boolean>,
-            { updateFeatureFlags: (_, { flags }) => flags },
-        ],
+        posthog: [(props.posthog ?? null) as PostHog | null],
     }),
 
     selectors: ({ selectors }) => ({
@@ -52,6 +54,11 @@ export const toolbarLogic = kea<toolbarLogicType>({
         },
         logout: () => {
             posthog.capture('toolbar logout')
+            clearSessionToolbarToken()
+        },
+        tokenExpired: () => {
+            posthog.capture('toolbar token expired')
+            console.log('PostHog Toolbar API token expired. Clearing session.')
             clearSessionToolbarToken()
         },
         processUserIntent: async () => {

@@ -1,7 +1,7 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
-import 'scenes/actions/Actions.scss'
+import '../../../scenes/actions/Actions.scss'
 import { AnyPropertyFilter } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { Button, Row } from 'antd'
@@ -17,7 +17,7 @@ interface PropertyFiltersProps {
     onChange?: null | ((filters: AnyPropertyFilter[]) => void)
     pageKey: string
     style?: CSSProperties
-    groupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     wildcardOptions?: SimpleOption[]
 }
 
@@ -26,22 +26,18 @@ export function PathItemFilters({
     onChange = null,
     pageKey,
     style = {},
-    groupTypes,
+    taxonomicGroupTypes,
     wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, urlOverride: 'exclude_events' }
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
-    useEffect(
-        () => {
-            if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
-                setFilters([...propertyFilters, {}])
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [propertyFilters]
-    )
+    useEffect(() => {
+        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
+            setFilters([...propertyFilters, {}])
+        }
+    }, [propertyFilters])
 
     return (
         <div className="mb" style={style}>
@@ -54,7 +50,7 @@ export function PathItemFilters({
                                     pathItem={filter.value as string | undefined}
                                     onChange={(pathItem) => setFilter(index, pathItem, pathItem, null, 'event')}
                                     index={index}
-                                    groupTypes={groupTypes}
+                                    taxonomicGroupTypes={taxonomicGroupTypes}
                                     wildcardOptions={wildcardOptions}
                                 >
                                     {!filter.value ? (

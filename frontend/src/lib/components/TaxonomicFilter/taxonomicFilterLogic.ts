@@ -45,7 +45,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
         activeTab: [
             (state: any): TaxonomicFilterGroupType => {
-                return selectors.groupType(state) || selectors.groupTypes(state)[0]
+                return selectors.groupType(state) || selectors.taxonomicGroupTypes(state)[0]
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
@@ -69,7 +69,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
-        groups: [
+        taxonomicGroups: [
             (selectors) => [selectors.currentTeamId],
             (teamId): TaxonomicFilterGroup[] => [
                 {
@@ -160,14 +160,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
             ],
         ],
-        groupTypes: [
-            (selectors) => [(_, props) => props.groupTypes, selectors.groups],
-            (groupTypes, groups): TaxonomicFilterGroupType[] => groupTypes || groups.map((g) => g.type),
+        taxonomicGroupTypes: [
+            (selectors) => [(_, props) => props.taxonomicGroupTypes, selectors.taxonomicGroups],
+            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
+                groupTypes || taxonomicGroups.map((g) => g.type),
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
         currentTabIndex: [
-            (s) => [s.groupTypes, s.activeTab],
+            (s) => [s.taxonomicGroupTypes, s.activeTab],
             (groupTypes, activeTab) => Math.max(groupTypes.indexOf(activeTab || ''), 0),
         ],
     },
@@ -213,15 +214,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         },
 
         tabLeft: () => {
-            const { currentTabIndex, groupTypes } = values
-            const newIndex = (currentTabIndex - 1 + groupTypes.length) % groupTypes.length
-            actions.setActiveTab(groupTypes[newIndex])
+            const { currentTabIndex, taxonomicGroupTypes } = values
+            const newIndex = (currentTabIndex - 1 + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
+            actions.setActiveTab(taxonomicGroupTypes[newIndex])
         },
 
         tabRight: () => {
-            const { currentTabIndex, groupTypes } = values
-            const newIndex = (currentTabIndex + 1) % groupTypes.length
-            actions.setActiveTab(groupTypes[newIndex])
+            const { currentTabIndex, taxonomicGroupTypes } = values
+            const newIndex = (currentTabIndex + 1) % taxonomicGroupTypes.length
+            actions.setActiveTab(taxonomicGroupTypes[newIndex])
         },
     }),
 })

@@ -22,9 +22,9 @@ xdescribe('<Insights /> trends', () => {
         cy.intercept('/api/projects/2/dashboards/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
         cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
-        cy.intercept('/api/annotation/', { fixture: 'api/annotations' })
-        cy.intercept('/api/action/', { fixture: 'api/action/actions' })
-        cy.intercept('/api/cohort/', { fixture: 'api/cohort/cohorts' })
+        cy.intercept('/api/projects/2/annotations/', { fixture: 'api/annotations' })
+        cy.intercept('/api/projects/2/actions/', { fixture: 'api/action/actions' })
+        cy.intercept('/api/projects/2/cohorts/', { fixture: 'api/cohort/cohorts' })
         cy.intercept('/api/person/properties/', { fixture: 'api/person/properties' })
         cy.interceptLazy('/api/projects/2/insights/', () => ({ fixture: 'api/insight/trends' })).as('api_insight')
 

@@ -18,7 +18,6 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const HELP_URL =
     'https://posthog.com/docs/tutorials/toolbar?utm_medium=in-product&utm_source=in-product&utm_campaign=toolbar-help-button'
@@ -58,43 +57,32 @@ export function ToolbarButton(): JSX.Element {
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
-    const { isAuthenticated, featureFlags } = useValues(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarLogic)
     const { authenticate, logout } = useActions(toolbarLogic)
 
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
     })
 
-    // Tricky: the feature flag's used here are not PostHog's normal feature flags, rather they're
-    // the feature flags of the user. The toolbar does not have access to posthog's feature flags because
-    // it uses Posthog-js-lite. As a result, this feature flag can only be turned on for posthog internal
-    // (or any other posthog customer that has a flag with the name `posthog-toolbar-feature-flags` set).
-    // (Should be removed when we want to roll this out broadly)
-    const showFeatureFlags = featureFlags[FEATURE_FLAGS.TOOLBAR_FEATURE_FLAGS]
+    useEffect(() => {
+        globalMouseMove.current = function (e: MouseEvent): void {
+            const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
+            if (buttonDiv) {
+                const rect = buttonDiv.getBoundingClientRect()
+                const x = rect.left + rect.width / 2
+                const y = rect.top + rect.height / 2
+                const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
 
-    useEffect(
-        () => {
-            globalMouseMove.current = function (e: MouseEvent): void {
-                const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
-                if (buttonDiv) {
-                    const rect = buttonDiv.getBoundingClientRect()
-                    const x = rect.left + rect.width / 2
-                    const y = rect.top + rect.height / 2
-                    const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
+                const maxDistance = isAuthenticated ? 300 : 100
 
-                    const maxDistance = isAuthenticated ? 300 : 100
-
-                    if (distance >= maxDistance && toolbarButtonLogic.values.extensionPercentage !== 0) {
-                        setExtensionPercentage(0)
-                    }
+                if (distance >= maxDistance && toolbarButtonLogic.values.extensionPercentage !== 0) {
+                    setExtensionPercentage(0)
                 }
             }
-            window.addEventListener('mousemove', globalMouseMove.current)
-            return () => window.removeEventListener('mousemove', globalMouseMove.current)
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [isAuthenticated]
-    )
+        }
+        window.addEventListener('mousemove', globalMouseMove.current)
+        return () => window.removeEventListener('mousemove', globalMouseMove.current)
+    }, [isAuthenticated])
 
     // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
     const clickEvents = useLongPress(
@@ -328,32 +316,30 @@ export function ToolbarButton(): JSX.Element {
                             />
                         ) : null}
                     </Circle>
-                    {showFeatureFlags ? (
-                        <Circle
-                            width={buttonWidth}
-                            x={side === 'left' ? 80 : -80}
-                            y={toolbarListVerticalPadding + n++ * 60}
-                            extensionPercentage={featureFlagsExtensionPercentage}
-                            rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
-                            label="Feature Flags"
-                            labelPosition={side === 'left' ? 'right' : 'left'}
-                            labelStyle={{
-                                opacity:
-                                    featureFlagsExtensionPercentage > 0.8
-                                        ? (featureFlagsExtensionPercentage - 0.8) / 0.2
-                                        : 0,
-                            }}
-                            content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
-                            zIndex={1}
-                            onClick={flagsVisible ? hideFlags : showFlags}
-                            style={{
-                                cursor: 'pointer',
-                                transform: `scale(${0.2 + 0.8 * featureFlagsExtensionPercentage})`,
-                                background: flagsVisible ? '#94D674' : '#D6EBCC',
-                                borderRadius,
-                            }}
-                        />
-                    ) : null}
+                    <Circle
+                        width={buttonWidth}
+                        x={side === 'left' ? 80 : -80}
+                        y={toolbarListVerticalPadding + n++ * 60}
+                        extensionPercentage={featureFlagsExtensionPercentage}
+                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
+                        label="Feature Flags"
+                        labelPosition={side === 'left' ? 'right' : 'left'}
+                        labelStyle={{
+                            opacity:
+                                featureFlagsExtensionPercentage > 0.8
+                                    ? (featureFlagsExtensionPercentage - 0.8) / 0.2
+                                    : 0,
+                        }}
+                        content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
+                        zIndex={1}
+                        onClick={flagsVisible ? hideFlags : showFlags}
+                        style={{
+                            cursor: 'pointer',
+                            transform: `scale(${0.2 + 0.8 * featureFlagsExtensionPercentage})`,
+                            background: flagsVisible ? '#94D674' : '#D6EBCC',
+                            borderRadius,
+                        }}
+                    />
                 </>
             ) : null}
         </Circle>

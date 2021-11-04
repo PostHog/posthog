@@ -116,6 +116,13 @@ class Team(UUIDClassicModel):
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
 
+    # This correlation_config is intended to be used initially for
+    # `excluded_person_property_names` but will be used as a general config
+    # repository for correlation related settings.
+    # NOTE: we're not doing any schema checking here, just storing whatever is
+    # thrown at us. Correlation code can handle schema related issues.
+    correlation_config = models.JSONField(default=dict, null=True, blank=True)
+
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data

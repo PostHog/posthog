@@ -854,6 +854,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result = correlation._run()[0]
 
+        # $autocapture results only return elements chain
         self.assertEqual(
             result,
             [
@@ -865,35 +866,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     "correlation_type": "success",
                 },
                 {
-                    "event": "$autocapture::signup_source::email",
-                    "success_count": 6,
-                    "failure_count": 0,
-                    "odds_ratio": 14.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$autocapture::$event_type::click",
-                    "success_count": 6,
-                    "failure_count": 0,
-                    "odds_ratio": 14.0,
-                    "correlation_type": "success",
-                },
-                {
                     "event": '$autocapture::elements_chain::submit__~~__button:nth-child="0"nth-of-type="1"text="Pay $10"',
-                    "success_count": 3,
-                    "failure_count": 0,
-                    "odds_ratio": 2.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$autocapture::$event_type::submit",
-                    "success_count": 3,
-                    "failure_count": 0,
-                    "odds_ratio": 2.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$autocapture::signup_source::facebook",
                     "success_count": 3,
                     "failure_count": 0,
                     "odds_ratio": 2.0,

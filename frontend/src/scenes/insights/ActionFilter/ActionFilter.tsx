@@ -51,7 +51,7 @@ export interface ActionFilterProps {
     horizontalUI?: boolean
     fullWidth?: boolean
     showNestedArrow?: boolean // show nested arrows to the left of property filter buttons
-    groupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     hideDeleteBtn?: boolean
     renderRow?: ({
         seriesIndicator,
@@ -91,7 +91,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             stripeActionRow = true,
             customActions,
             showNestedArrow = false,
-            groupTypes,
+            taxonomicGroupTypes,
             hideDeleteBtn,
             renderRow,
         },
@@ -112,13 +112,9 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
 
         // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
         // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
-        useEffect(
-            () => {
-                setLocalFilters(filters)
-            },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-            [filters]
-        )
+        useEffect(() => {
+            setLocalFilters(filters)
+        }, [filters])
 
         function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
             function move(arr: LocalFilter[], from: number, to: number): LocalFilter[] {
@@ -145,7 +141,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             stripeActionRow,
             hasBreakdown: !!filters.breakdown,
             fullWidth,
-            groupTypes,
+            taxonomicGroupTypes,
             hideDeleteBtn,
             disabled,
             renderRow,

@@ -25,6 +25,7 @@ $bg_navy: #35416b;
 $bg_charcoal: #2d2d2d;
 $bg_mid: #f2f2f2;
 $bg_light: #ffffff;
+$bg_side: #fafaf9;
 $bg_depth: #0f0f0f;
 $bg_menu: #2c3035;
 $bg_bridge: #ebece8;
@@ -33,7 +34,7 @@ $bg_shaded: rgba(0, 0, 0, 0.05);
 
 // Border colors
 $border_light: #f0f0f0;
-$border: #d9d9d9;
+$border: rgba(0, 0, 0, 0.15);
 $border_dark: #bdbdbd;
 $border_active: #969696;
 
@@ -129,7 +130,7 @@ $top_nav_height: 50px;
     max-width: calc(100% - 8px);
 }
 
-// Z-indexes
+// Z-indexes, sync with vars.ts
 $z_nps_overlay: 5200;
 $z_bottom_notice: 5100;
 $z_command_palette: 1875;
@@ -143,6 +144,7 @@ $z_pinned_dashboards_popup: 962;
 $z_graph_tooltip: 951;
 $z_drawer: 950;
 $z_main_nav: 948;
+$z_lemon_sidebar: 940;
 $z_mobile_nav_overlay: 931;
 $z_top_navigation: 800;
 $z_content_overlay: 488;
@@ -151,16 +153,12 @@ $z_raised: 5;
 $z_city_background_content: 1;
 $z_city_background_image: 0;
 
+// Shadows
+$shadow_popup: 0 3px 6px -4px rgb(0 0 0 / 12%), 0 6px 16px 0 rgb(0 0 0 / 8%), 0 9px 28px 8px rgb(0 0 0 / 5%);
+
 // Breakpoints (from AntD)
 $sm: 576px;
 $md: 768px;
 $lg: 992px;
 $xl: 1200px;
 $xxl: 1600px;
-
-// Export variables for TS access
-:export {
-    zDrawer: $z_drawer;
-    zPopup: $z_popup;
-    zGraphAnnotationPrompt: $z_graph_annotation_prompt;
-}

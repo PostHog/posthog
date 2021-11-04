@@ -5,7 +5,6 @@ import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { Radio, Switch, Row, Typography, List, Button, Input } from 'antd'
 import { AnimatedCollapsible } from './AnimatedCollapsible'
-import { PostHog } from 'posthog-js'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/urls'
 import { IconExternalLinkBold } from 'lib/components/icons'
@@ -14,7 +13,7 @@ export function FeatureFlags(): JSX.Element {
     const { showLocalFeatureFlagWarning, searchTerm, filteredFlags } = useValues(featureFlagsLogic)
     const { setOverriddenUserFlag, deleteOverriddenUserFlag, setShowLocalFeatureFlagWarning, setSearchTerm } =
         useActions(featureFlagsLogic)
-    const { apiURL } = useValues(toolbarLogic)
+    const { apiURL, posthog } = useValues(toolbarLogic)
 
     return (
         <div className="toolbar-block">
@@ -31,7 +30,7 @@ export function FeatureFlags(): JSX.Element {
                         <Button
                             type="primary"
                             onClick={() => {
-                                ;(window['posthog'] as PostHog).feature_flags.override(false)
+                                posthog?.feature_flags.override(false)
                                 setShowLocalFeatureFlagWarning(false)
                             }}
                         >

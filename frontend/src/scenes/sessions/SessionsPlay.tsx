@@ -14,7 +14,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { colorForString } from 'lib/utils'
 import { Loading } from 'lib/utils'
-import { sessionsPlayLogic } from './sessionsPlayLogic'
+import { LEGACY_sessionsPlayLogic } from './LEGACY_sessionsPlayLogic'
 import { IconExternalLink } from 'lib/components/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
@@ -60,9 +60,9 @@ export function SessionsPlay(): JSX.Element {
         showPrev,
         shownPlayerEvents,
         shouldLoadSessionEvents,
-    } = useValues(sessionsPlayLogic)
+    } = useValues(LEGACY_sessionsPlayLogic)
     const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious, loadSessionEvents } =
-        useActions(sessionsPlayLogic)
+        useActions(LEGACY_sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
     const [playerTime, setCurrentPlayerTime] = useState(0)
@@ -79,15 +79,11 @@ export function SessionsPlay(): JSX.Element {
         }
     }, [addingTagShown])
 
-    useEffect(
-        () => {
-            if (shouldLoadSessionEvents && session) {
-                loadSessionEvents(session)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [session]
-    )
+    useEffect(() => {
+        if (shouldLoadSessionEvents && session) {
+            loadSessionEvents(session)
+        }
+    }, [session])
 
     const seekEvent = (time: number): void => {
         setCurrentPlayerTime(time)
@@ -129,7 +125,7 @@ export function SessionsPlay(): JSX.Element {
                                 <Player
                                     events={sessionPlayerData?.snapshots || []}
                                     ref={playerRef}
-                                    key="session-player"
+                                    key={`session-player-${sessionPlayerData?.duration ?? 0}`}
                                     onPlayerTimeChange={setCurrentPlayerTime}
                                     onNext={showNext ? goToNext : undefined}
                                     onPrevious={showPrev ? goToPrevious : undefined}
