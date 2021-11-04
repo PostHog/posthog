@@ -23,7 +23,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
 SESSION_RECORDING_EVENTS_TABLE_SQL = (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, toHour(timestamp), session_id, window_id, timestamp, uuid)
+ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
 {ttl_period}
 SETTINGS index_granularity=512
 """
