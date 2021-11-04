@@ -31,6 +31,7 @@ import {
     BreakdownType,
     FunnelCorrelationResultsType,
     AvailableFeature,
+    TeamType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -969,10 +970,7 @@ export const funnelLogic = kea<funnelLogicType>({
         excludedPropertyNames: [
             () => [selectors.currentTeam],
             (currentTeam) =>
-                currentTeam
-                    ? currentTeam.correlation_config?.excluded_person_property_names ||
-                      DEFAULT_EXCLUDED_PERSON_PROPERTIES
-                    : null,
+                currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
         ],
         excludedEventNames: [
             () => [selectors.currentTeam],
@@ -1144,30 +1142,7 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         excludeEvent: async ({ eventName }) => {
-            // When we exclude a property, we want to update the config stored
-            // on the current Team/Project.
-            const oldExcludedEventNames = values.excludedEventNames
-            const oldCurrentTeam = teamLogic.values.currentTeam
-
-            // If we haven't actually retrieved the current team, we can't
-            // update the config.
-            if (oldCurrentTeam === null || oldExcludedEventNames === null) {
-                console.warn('Attempt to update correlation config without first retrieving existing config')
-                return
-            }
-
-            const oldCorrelationConfig = oldCurrentTeam.correlation_config
-
-            const excludedPropertyNames = [...Array.from(new Set(oldExcludedEventNames.concat([eventName])))]
-
-            const correlationConfig = {
-                ...oldCorrelationConfig,
-                excluded_events: excludedPropertyNames,
-            }
-
-            teamLogic.actions.updateCurrentTeam({
-                correlation_config: correlationConfig,
-            })
+            appendToCorrelationConfig('excluded_events', values.excludedEventNames, eventName)
 
             eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
                 event_name: eventName,
@@ -1175,35 +1150,15 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         excludePropertyFromProject: ({ propertyName }) => {
-            // When we exclude a property, we want to update the config stored
-            // on the current Team/Project.
-            const oldExcludedPropertyNames = values.excludedPropertyNames
-            const oldCurrentTeam = teamLogic.values.currentTeam
+            appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)
 
             eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Properties,
-                'exclude property from project',
-                { property_name: propertyName }
+                FunnelCorrelationResultsType.Events,
+                'exclude person property',
+                {
+                    person_property: propertyName,
+                }
             )
-            // If we haven't actually retrieved the current team, we can't
-            // update the config.
-            if (oldCurrentTeam === null || oldExcludedPropertyNames === null) {
-                console.warn('Attempt to update correlation config without first retrieving existing config')
-                return
-            }
-
-            const oldCorrelationConfig = oldCurrentTeam.correlation_config
-
-            const excludedPropertyNames = [...Array.from(new Set(oldExcludedPropertyNames.concat([propertyName])))]
-
-            const correlationConfig = {
-                ...oldCorrelationConfig,
-                excluded_person_property_names: excludedPropertyNames,
-            }
-
-            teamLogic.actions.updateCurrentTeam({
-                correlation_config: correlationConfig,
-            })
         },
 
         hideSkewWarning: () => {
@@ -1281,3 +1236,36 @@ export const funnelLogic = kea<funnelLogicType>({
         },
     }),
 })
+
+const appendToCorrelationConfig = (
+    configKey: keyof TeamType['correlation_config'],
+    currentValue: string[],
+    configValue: string
+): void => {
+    // Helper to handle updating correlationConfig within the Team model. Only
+    // handles further appending to current values.
+
+    // When we exclude a property, we want to update the config stored
+    // on the current Team/Project.
+    const oldCurrentTeam = teamLogic.values.currentTeam
+
+    // If we haven't actually retrieved the current team, we can't
+    // update the config.
+    if (oldCurrentTeam === null || !currentValue) {
+        console.warn('Attempt to update correlation config without first retrieving existing config')
+        return
+    }
+
+    const oldCorrelationConfig = oldCurrentTeam.correlation_config
+
+    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
+
+    const correlationConfig = {
+        ...oldCorrelationConfig,
+        [configKey]: configList,
+    }
+
+    teamLogic.actions.updateCurrentTeam({
+        correlation_config: correlationConfig,
+    })
+}
