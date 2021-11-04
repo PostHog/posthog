@@ -19,7 +19,6 @@ import {
 import {
     LemonButton,
     LemonButtonProps,
-    LemonButtonWithPopup,
     LemonButtonWithSideAction,
     SideAction,
 } from '../../../lib/components/LemonButton'
@@ -98,43 +97,45 @@ export function ProjectSwitcher(): JSX.Element {
     return (
         <div className="ProjectSwitcher">
             <div className="SideBar__heading">Project</div>
-            <LemonButtonWithPopup
+            <LemonButton
                 icon={<Lettermark name={currentOrganization?.name} />}
                 fullWidth
                 type="stealth"
-                visible={isProjectSwitcherShown}
-                onClickReference={toggleProjectSwitcher}
-                onClickOutside={hideProjectSwitcher}
-                overlay={
-                    <>
-                        <CurrentProjectButton />
-                        {currentOrganization?.teams &&
-                            currentOrganization.teams
-                                .filter((team) => team.id !== currentTeam?.id)
-                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                                .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+                onClick={{
+                    visible: isProjectSwitcherShown,
+                    onClickReference: toggleProjectSwitcher,
+                    onClickOutside: hideProjectSwitcher,
+                    overlay: (
+                        <>
+                            <CurrentProjectButton />
+                            {currentOrganization?.teams &&
+                                currentOrganization.teams
+                                    .filter((team) => team.id !== currentTeam?.id)
+                                    .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                    .map((team) => <OtherProjectButton key={team.id} team={team} />)}
 
-                        <LemonButton
-                            icon={<IconPlus />}
-                            fullWidth
-                            disabled={isProjectCreationForbidden}
-                            onClick={() => {
-                                hideProjectSwitcher()
-                                guardAvailableFeature(
-                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                    'multiple projects',
-                                    'Projects allow you to separate data and configuration for different products or environments.',
-                                    showCreateProjectModal
-                                )
-                            }}
-                        >
-                            New project
-                        </LemonButton>
-                    </>
-                }
+                            <LemonButton
+                                icon={<IconPlus />}
+                                fullWidth
+                                disabled={isProjectCreationForbidden}
+                                onClick={() => {
+                                    hideProjectSwitcher()
+                                    guardAvailableFeature(
+                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                        'multiple projects',
+                                        'Projects allow you to separate data and configuration for different products or environments.',
+                                        showCreateProjectModal
+                                    )
+                                }}
+                            >
+                                New project
+                            </LemonButton>
+                        </>
+                    ),
+                }}
             >
                 <strong>{currentTeam?.name}</strong>
-            </LemonButtonWithPopup>
+            </LemonButton>
         </div>
     )
 }
