@@ -20,6 +20,7 @@ frontend/dist/
 frontend/types/
 *Type.ts
 frontend/yarn-error.log
+frontend/tmp
 .idea
 celerybeat-schedule
 celerybeat.pid

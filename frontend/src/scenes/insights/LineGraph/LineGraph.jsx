@@ -10,12 +10,17 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-import dayjs from 'dayjs'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import dayjs from 'dayjs'
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
+
+dayjs.extend(isSameOrAfter)
+dayjs.extend(isSameOrBefore)
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -75,13 +80,9 @@ export function LineGraph({
 
     useEscapeKey(() => setFocused(false), [focused])
 
-    useEffect(
-        () => {
-            buildChart()
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [datasets, color, visibilityMap]
-    )
+    useEffect(() => {
+        buildChart()
+    }, [datasets, color, visibilityMap])
 
     // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border.
     // Let's manually remove tooltips when the chart is being hovered over. #5061
@@ -100,17 +101,13 @@ export function LineGraph({
     // annotation related effects
 
     // update boundaries and axis padding when user hovers with mouse or annotations load
-    useEffect(
-        () => {
-            if (annotationsCondition && myLineChart.current) {
-                myLineChart.current.options.scales.xAxes[0].ticks.padding = annotationInRange || focused ? 35 : 0
-                myLineChart.current.update()
-                calculateBoundaries()
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [annotationsLoading, annotationsCondition, annotationsList, annotationInRange]
-    )
+    useEffect(() => {
+        if (annotationsCondition && myLineChart.current) {
+            myLineChart.current.options.scales.xAxes[0].ticks.padding = annotationInRange || focused ? 35 : 0
+            myLineChart.current.update()
+            calculateBoundaries()
+        }
+    }, [annotationsLoading, annotationsCondition, annotationsList, annotationInRange])
 
     useEffect(() => {
         if (annotationsCondition && datasets?.[0]?.days?.length > 0) {
@@ -123,26 +120,18 @@ export function LineGraph({
     }, [datasets, annotationsList, annotationsCondition])
 
     // recalculate diff if interval type selection changes
-    useEffect(
-        () => {
-            if (annotationsCondition && datasets?.[0]?.days) {
-                updateDiffType(datasets[0].days)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [datasets, type, annotationsCondition]
-    )
+    useEffect(() => {
+        if (annotationsCondition && datasets?.[0]?.days) {
+            updateDiffType(datasets[0].days)
+        }
+    }, [datasets, type, annotationsCondition])
 
     // update only boundaries when window size changes or chart type changes
-    useEffect(
-        () => {
-            if (annotationsCondition) {
-                calculateBoundaries()
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [myLineChart.current, size, type, annotationsCondition]
-    )
+    useEffect(() => {
+        if (annotationsCondition) {
+            calculateBoundaries()
+        }
+    }, [myLineChart.current, size, type, annotationsCondition])
 
     function calculateBoundaries() {
         const boundaryLeftExtent = myLineChart.current.scales['x-axis-0'].left

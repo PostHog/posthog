@@ -1,0 +1,37 @@
+@import '~/vars';
+
+.editable-field {
+    transition: none !important;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    min-height: 40px;
+
+    &.edit-mode {
+        max-width: 640px;
+    }
+
+    .btn-cancel {
+        color: $primary;
+    }
+
+    .edit-container {
+        transition: none !important;
+        padding: 8px;
+        margin-bottom: 8px;
+        textarea {
+            padding: 0 !important;
+            border: none;
+            outline: none;
+            transition: none !important;
+            font-size: 16px;
+
+            &:focus {
+                border: none;
+                outline: none;
+                box-shadow: none;
+            }
+        }
+    }
+}

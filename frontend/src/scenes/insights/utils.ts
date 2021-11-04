@@ -1,5 +1,7 @@
-import { EntityFilter, ActionFilter, FilterType } from '~/types'
+import { EntityFilter, ActionFilter, FilterType, DashboardItemType } from '~/types'
 import { ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -60,4 +62,25 @@ export function extractObjectDiffKeys(
     }
 
     return changedKeys
+}
+
+export function findInsightFromMountedLogic(
+    insightId: number,
+    dashboardId: number | undefined
+): Partial<DashboardItemType> | null {
+    if (dashboardId) {
+        const insight = dashboardLogic
+            .findMounted({ id: dashboardId })
+            ?.values.allItems?.items?.find((item) => item.id === insightId)
+        if (insight) {
+            return insight
+        }
+    }
+
+    const insight2 = savedInsightsLogic.findMounted()?.values.insights?.results?.find((item) => item.id === insightId)
+    if (insight2) {
+        return insight2
+    }
+
+    return null
 }

@@ -32,6 +32,14 @@
     }
 }
 
+.TopBar__hamburger {
+    display: flex;
+    height: 1.5rem;
+    font-size: 1.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
 .TopBar__logo {
     display: flex;
     align-items: center;
@@ -39,6 +47,7 @@
 
 .Announcement {
     transition: margin 200ms ease;
+    flex-shrink: 0;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -128,7 +137,7 @@
 .SitePopover__crumb {
     display: flex;
     align-items: center;
-    padding: 0.5rem 0;
+    height: 2.5rem;
     cursor: pointer;
 }
 
@@ -180,19 +189,6 @@
     width: 100%;
     margin-left: 0.5rem;
     overflow: hidden;
-}
-
-.Lettermark {
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: var(--radius);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    line-height: 1.5rem;
-    text-align: center;
-    color: #5f3366;
-    background: rgba(#6b355f, 0.25);
-    user-select: none;
 }
 
 .SitePopover__organization {

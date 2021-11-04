@@ -2,15 +2,22 @@ import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { insightLogic } from './insightLogic'
-import { AvailableFeature, ItemMode, PropertyOperator, ViewType } from '~/types'
+import { AvailableFeature, InsightType, ItemMode, PropertyOperator, ViewType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
 jest.mock('lib/api')
+
+const API_FILTERS = {
+    insight: ViewType.TRENDS as InsightType,
+    events: [{ id: 3 }],
+    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+}
 
 describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
@@ -31,11 +38,7 @@ describe('insightLogic', () => {
             return {
                 result: pathname.endsWith('42') ? ['result from api'] : null,
                 id: pathname.endsWith('42') ? 42 : 43,
-                filters: {
-                    insight: ViewType.TRENDS,
-                    events: [{ id: 3 }],
-                    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
-                },
+                filters: API_FILTERS,
             }
         } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
             return {
@@ -47,12 +50,22 @@ describe('insightLogic', () => {
             }
         } else if ([`api/projects/${MOCK_TEAM_ID}/insights/500`].includes(pathname)) {
             throwAPIError()
+        } else if (pathname === 'api/projects/997/insights/' && url.searchParams.saved) {
+            return {
+                results: [
+                    { id: 42, result: ['result 42'], filters: API_FILTERS },
+                    { id: 43, result: ['result 43'], filters: API_FILTERS },
+                ],
+            }
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
                 `api/projects/${MOCK_TEAM_ID}/insights/session/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/path/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/path`,
                 `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/retention/`,
             ].includes(pathname)
         ) {
             if (searchParams?.events?.[0]?.throw) {
@@ -397,8 +410,8 @@ describe('insightLogic', () => {
         })
     })
 
-    describe('takes data from dashboardLogic if available', () => {
-        it('works if all conditions match', async () => {
+    describe('takes data from other logics if available', () => {
+        it('dashboardLogic', async () => {
             // 0. the feature flag must be set
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
@@ -422,6 +435,104 @@ describe('insightLogic', () => {
                 .toMatchValues({
                     insight: partial({ id: 42, result: 'result!', filters: { insight: 'TRENDS', interval: 'month' } }),
                 })
+        })
+
+        it('savedInsightLogic', async () => {
+            // 0. the feature flag must be set
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
+
+            // 1. open saved insights
+            router.actions.push('/saved_insights', {}, {})
+            savedInsightsLogic.mount()
+
+            // 2. the insights are loaded
+            await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+            // 3. mount the insight
+            logic = insightLogic({ dashboardItemId: 42 })
+            logic.mount()
+
+            // 4. verify it didn't make any API calls
+            await expectLogic(logic)
+                .toDispatchActions(['setInsight'])
+                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
+                .toMatchValues({
+                    insight: partial({
+                        id: 42,
+                        result: ['result 42'],
+                        filters: API_FILTERS,
+                    }),
+                })
+        })
+    })
+
+    test('keeps saved filters', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SAVED_INSIGHTS], {
+            [FEATURE_FLAGS.SAVED_INSIGHTS]: true,
+        })
+
+        logic = insightLogic({
+            dashboardItemId: 42,
+            filters: { insight: 'FUNNELS' },
+        })
+        logic.mount()
+
+        // `setFilters` only changes `filters`, does not change `savedFilters`
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ insight: 'TRENDS' })
+        }).toMatchValues({
+            filters: partial({ insight: 'TRENDS' }),
+            savedFilters: partial({ insight: 'FUNNELS' }),
+            filtersChanged: true,
+        })
+
+        // results from search don't change anything
+        await expectLogic(logic, () => {
+            logic.actions.loadResultsSuccess({ id: 42, filters: { insight: 'PATHS' } })
+        }).toMatchValues({
+            filters: partial({ insight: 'TRENDS' }),
+            savedFilters: partial({ insight: 'FUNNELS' }),
+            filtersChanged: true,
+        })
+
+        // results from API GET and POST calls change saved filters
+        await expectLogic(logic, () => {
+            logic.actions.loadInsightSuccess({ id: 42, filters: { insight: 'PATHS' } })
+        }).toMatchValues({
+            filters: partial({ insight: 'TRENDS' }),
+            savedFilters: partial({ insight: 'PATHS' }),
+            filtersChanged: true,
+        })
+        await expectLogic(logic, () => {
+            logic.actions.updateInsightSuccess({ id: 42, filters: { insight: 'RETENTION' } })
+        }).toMatchValues({
+            filters: partial({ insight: 'TRENDS' }),
+            savedFilters: partial({ insight: 'RETENTION' }),
+            filtersChanged: true,
+        })
+
+        // saving persists the in-flight filters
+        await expectLogic(logic, () => {
+            logic.actions.setFilters(API_FILTERS)
+        }).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({
+            filters: partial({ insight: 'TRENDS' }),
+            loadedFilters: partial({ insight: 'TRENDS' }),
+            savedFilters: partial({ insight: 'RETENTION' }),
+            filtersChanged: true,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({
+            filters: partial({ insight: 'TRENDS' }),
+            loadedFilters: partial({ insight: 'TRENDS' }),
+            savedFilters: partial({ insight: 'TRENDS' }),
+            filtersChanged: false,
         })
     })
 })

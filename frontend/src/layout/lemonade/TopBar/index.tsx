@@ -11,36 +11,38 @@ import { CommandPalette } from '../../../lib/components/CommandPalette'
 import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrganizationModal'
 import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInviteModal'
 import { ChangelogModal } from '../../ChangelogModal'
+import { Link } from '../../../lib/components/Link'
+import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
 
 export function TopBar(): JSX.Element {
     const {
+        isSideBarShown,
         announcementMessage,
-        isAnnouncementHidden,
+        isAnnouncementShown,
         isInviteModalShown,
         isCreateOrganizationModalShown,
         isChangelogModalShown,
     } = useValues(lemonadeLogic)
-    const { hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideChangelogModal } =
+    const { toggleSideBar, hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideChangelogModal } =
         useActions(lemonadeLogic)
 
     return (
         <>
             {announcementMessage && (
-                <Announcement
-                    message={announcementMessage}
-                    visible={!isAnnouncementHidden}
-                    onClose={hideAnnouncement}
-                />
+                <Announcement message={announcementMessage} visible={isAnnouncementShown} onClose={hideAnnouncement} />
             )}
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
-                    <a href="https://posthog.com" className="TopBar__logo">
+                    <div className="TopBar__hamburger" onClick={toggleSideBar}>
+                        {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
+                    </div>
+                    <Link to="/" className="TopBar__logo">
                         <FriendlyLogo />
-                    </a>
+                    </Link>
                     <SearchBox />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    <HelpButton withCaret placement="bottomRight" />
+                    <HelpButton />
                     <SitePopover />
                 </div>
             </header>

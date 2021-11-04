@@ -136,6 +136,29 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         else:
             return "", {}
 
+    def _get_groups_query(self) -> Tuple[str, Dict]:
+        query, params = [], {}
+
+        for group_type_index in self._column_optimizer.group_types_to_query:
+            var = f"group_index_{group_type_index}"
+            query.append(
+                f"""
+                INNER JOIN (
+                    SELECT
+                        group_key,
+                        argMax(group_properties, _timestamp) AS group_properties_{group_type_index}
+                    FROM groups
+                    WHERE team_id = %(team_id)s AND group_type_index = %({var})s
+                    GROUP BY group_key
+                ) groups_{group_type_index}
+                ON JSONExtractString(properties, '$group_{group_type_index}') == groups_{group_type_index}.group_key
+            """
+            )
+
+            params[var] = group_type_index
+
+        return "\n".join(query), params
+
     def _get_date_filter(self) -> Tuple[str, Dict]:
 
         parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
