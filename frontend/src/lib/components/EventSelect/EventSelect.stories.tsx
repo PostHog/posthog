@@ -73,7 +73,11 @@ export const Default = (): JSX.Element => {
 
     return (
         <Provider>
-            <EventSelect selectedEvents={selectedEvents} onChange={setSelectedEvents} />
+            <EventSelect
+                selectedEvents={selectedEvents}
+                onChange={setSelectedEvents}
+                addElement={<span>add events</span>}
+            />
         </Provider>
     )
 }
