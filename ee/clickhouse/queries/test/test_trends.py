@@ -9,7 +9,7 @@ from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.trends.person import TrendsPersonQuery
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import TRENDS_BAR_VALUE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -830,6 +830,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team,
             )
 
+    @snapshot_clickhouse_queries
     def test_filtering_with_group_props(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
@@ -875,6 +876,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         response = ClickhouseTrends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
 
+    @snapshot_clickhouse_queries
     def test_aggregating_by_group(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
