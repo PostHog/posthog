@@ -34,6 +34,7 @@ import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
 import { TeamManager } from './team-manager'
+import { parseDate } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
@@ -195,26 +196,18 @@ export class EventsProcessor {
                 try {
                     // timestamp and sent_at must both be in the same format: either both with or both without timezones
                     // otherwise we can't get a diff to add to now
-                    return now.plus(this.parseDate(data['timestamp']).diff(sentAt))
+                    return now.plus(parseDate(data['timestamp']).diff(sentAt))
                 } catch (error) {
                     status.error('⚠️', 'Error when handling timestamp:', error)
                     Sentry.captureException(error, { extra: { data, now, sentAt } })
                 }
             }
-            return this.parseDate(data['timestamp'])
+            return parseDate(data['timestamp'])
         }
         if (data['offset']) {
             return now.minus(Duration.fromMillis(data['offset']))
         }
         return now
-    }
-
-    private parseDate(supposedIsoString: string): DateTime {
-        const jsDate = new Date(supposedIsoString)
-        if (Number.isNaN(jsDate.getTime())) {
-            return DateTime.fromISO(supposedIsoString)
-        }
-        return DateTime.fromJSDate(jsDate)
     }
 
     private async updatePersonProperties(
