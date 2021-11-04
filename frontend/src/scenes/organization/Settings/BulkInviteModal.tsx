@@ -73,15 +73,11 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
     const { invites, canSubmit, invitedTeamMembersLoading, invitedTeamMembers } = useValues(bulkInviteLogic)
     const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(bulkInviteLogic)
 
-    useEffect(
-        () => {
-            if (invitedTeamMembers.length) {
-                onClose()
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [invitedTeamMembers]
-    )
+    useEffect(() => {
+        if (invitedTeamMembers.length) {
+            onClose()
+        }
+    }, [invitedTeamMembers])
 
     const areInvitesCreatable = invites.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invites.length > 1

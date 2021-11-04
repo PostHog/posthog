@@ -163,6 +163,7 @@ class Cohort(models.Model):
     def insert_users_by_list(self, items: List[str]) -> None:
         """
         Items can be distinct_id or email
+        Important! Does not insert into clickhouse
         """
         batchsize = 1000
         use_clickhouse = is_clickhouse_enabled()
