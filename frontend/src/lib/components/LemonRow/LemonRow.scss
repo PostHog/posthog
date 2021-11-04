@@ -5,7 +5,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 2.5rem;
+    min-height: 2.5rem;
     padding: 0 1rem;
     background: none;
     border-radius: var(--radius);
@@ -51,7 +51,7 @@
 
 .LemonRow--compact {
     display: block;
-    height: 1.5rem;
+    min-height: 1.5rem;
     padding: 0;
 }
 

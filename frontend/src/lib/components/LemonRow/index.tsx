@@ -13,7 +13,7 @@ declare module 'react' {
 
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref'> {
-    icon?: React.ReactElement
+    icon?: React.ReactElement | null
     tag?: T
     status?: 'success' | 'warning' | 'danger' | 'highlighted'
     tooltip?: string
@@ -27,7 +27,7 @@ export type LemonRowProps<T extends keyof JSX.IntrinsicElements> =
           compact?: boolean
       })
     | (LemonRowPropsBase<T> & {
-          sideIcon?: React.ReactElement
+          sideIcon?: React.ReactElement | null
           compact?: false
       })
 
