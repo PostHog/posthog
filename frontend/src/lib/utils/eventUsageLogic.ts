@@ -1,6 +1,6 @@
 /* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
-import { isPostHogProp, keyMapping } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
@@ -21,13 +21,12 @@ import {
     SessionPlayerData,
     AvailableFeature,
     SessionRecordingUsageType,
+    FunnelCorrelation,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { PersonModalParams } from 'scenes/trends/personsModalLogic'
+import type { PersonModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
-
-const keyMappingKeys = Object.keys(keyMapping.event)
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -147,7 +146,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 export const eventUsageLogic = kea<
     eventUsageLogicType<DashboardEventSource, GraphSeriesAddedSource, RecordingWatchedSource>
 >({
-    connect: [preflightLogic],
+    connect: () => [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
@@ -277,6 +276,17 @@ export const eventUsageLogic = kea<
         ) => ({ recordingData, source, loadTime, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
+        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
+            filters,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            propertiesTable,
+        }),
+        reportCorrelationInteraction: (
+            correlationType: FunnelCorrelation['result_type'],
+            action: string,
+            props?: Record<string, any>
+        ) => ({ correlationType, action, props }),
+        reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
     },
@@ -633,6 +643,9 @@ export const eventUsageLogic = kea<
             }
             posthog.capture(`recording ${type}`, payload)
         },
+        reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
+            posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
+        },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)
         },
@@ -656,6 +669,20 @@ export const eventUsageLogic = kea<
         },
         reportCorrelationAnalysisDetailedFeedback: (props) => {
             posthog.capture('correlation analysis detailed feedback', props)
+        },
+        reportCorrelationInteraction: ({ correlationType, action, props }) => {
+            posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
+        },
+        reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
+            // TODO: This event is still buggy (see relevant PR #6788 for details)
+            if (delay === 0) {
+                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+            } else {
+                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} analyzed`, {
+                    filters,
+                    delay,
+                })
+            }
         },
     },
 })

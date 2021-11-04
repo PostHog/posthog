@@ -38,7 +38,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: values.createdBy || 'All users',
+        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
     }
@@ -54,7 +54,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
         renameInsight: (id: number) => ({ id }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
-        addToDashboard: (item: DashboardItemType, dashboardId: number) => ({ item, dashboardId }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({

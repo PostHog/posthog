@@ -9,6 +9,8 @@ This service takes care of processing events with plugins and more.
 
 Let's get you developing the plugin server in no time:
 
+1. Have virtual environment from the main PostHog repo active.
+
 1. Install dependencies and prepare for takeoff by running command `yarn`.
 
 1. Start a development instance of [PostHog](/PostHog/posthog) - [instructions here](https://posthog.com/docs/developing-locally). After all, this is the _PostHog_ Plugin Server, and it works in conjuction with the main server. To avoid interference, disable the plugin server there with setting the PLUGIN_SERVER_IDLE env variable before running. `PLUGIN_SERVER_IDLE=true ./bin/start`

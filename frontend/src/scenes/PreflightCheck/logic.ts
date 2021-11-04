@@ -84,6 +84,10 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
                     ee_available: values.preflight.ee_available,
                     email_service_available: values.preflight.email_service_available,
                 })
+
+                if (values.preflight.site_url) {
+                    posthog.group('instance', values.preflight.site_url)
+                }
             }
         },
         setPreflightMode: async ({ mode, noReload }) => {

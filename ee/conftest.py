@@ -25,6 +25,7 @@ def reset_clickhouse_tables():
     from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL, DROP_COHORTPEOPLE_TABLE_SQL
     from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_SQL, DROP_DEAD_LETTER_QUEUE_TABLE_SQL
     from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
+    from ee.clickhouse.sql.groups import DROP_GROUPS_TABLE_SQL, GROUPS_TABLE_SQL
     from ee.clickhouse.sql.person import (
         DROP_PERSON_DISTINCT_ID_TABLE_SQL,
         DROP_PERSON_STATIC_COHORT_TABLE_SQL,
@@ -51,6 +52,7 @@ def reset_clickhouse_tables():
         (DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL, KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL),
         (DROP_DEAD_LETTER_QUEUE_TABLE_SQL, DEAD_LETTER_QUEUE_TABLE_SQL),
         (DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL, DEAD_LETTER_QUEUE_TABLE_MV_SQL),
+        (DROP_GROUPS_TABLE_SQL, GROUPS_TABLE_SQL),
     ]
     for item in TABLES_TO_CREATE_DROP:
         sync_execute(item[0])
@@ -101,3 +103,9 @@ def base_test_mixin_fixture():
 @pytest.fixture
 def team(base_test_mixin_fixture):
     return base_test_mixin_fixture.team
+
+
+# :TRICKY: Integrate syrupy with unittest test cases
+@pytest.fixture
+def unittest_snapshot(request, snapshot):
+    request.cls.snapshot = snapshot

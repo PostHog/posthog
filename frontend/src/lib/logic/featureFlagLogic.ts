@@ -65,6 +65,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
+    path: ['lib', 'logic', 'featureFlagLogic'],
     actions: {
         setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),
     },

@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { appScenes } from 'scenes/appScenes'
 
 jest.mock('lib/api')
 
@@ -37,7 +38,7 @@ describe('sceneLogic', () => {
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.annotations())
-        logic = sceneLogic()
+        logic = sceneLogic({ scenes: appScenes })
         logic.mount()
     })
 

@@ -113,155 +113,150 @@ export function EventsTable({
         },
     }
 
-    const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(
-        () => {
-            const _localColumns = [
-                {
-                    title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
-                    key: 'event',
-                    span: 4,
-                    render: function render(item: EventsTableRowItem) {
-                        if (!item.event) {
-                            return newEventsRender(item, tableWidth)
-                        }
-                        const { event } = item
-                        return <PropertyKeyInfo value={eventToName(event)} />
-                    },
-                    ellipsis: true,
+    const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(() => {
+        const _localColumns = [
+            {
+                title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
+                key: 'event',
+                span: 4,
+                render: function render(item: EventsTableRowItem) {
+                    if (!item.event) {
+                        return newEventsRender(item, tableWidth)
+                    }
+                    const { event } = item
+                    return <PropertyKeyInfo value={eventToName(event)} />
                 },
-                {
-                    title: 'URL / Screen',
-                    key: 'url',
-                    eventProperties: ['$current_url', '$screen_name'],
-                    span: 4,
-                    render: function renderURL({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                        if (filtersEnabled) {
-                            return (
-                                <FilterPropertyLink
-                                    className="ph-no-capture"
-                                    property={param}
-                                    value={event.properties[param] as string}
-                                    filters={{ properties }}
-                                />
-                            )
-                        }
-                        return <Property value={event.properties[param]} />
-                    },
-                    ellipsis: true,
-                },
-                {
-                    title: 'Source',
-                    key: 'source',
-                    eventProperties: ['$lib'],
-                    span: 2,
-                    render: function renderSource({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        if (filtersEnabled) {
-                            return (
-                                <FilterPropertyLink
-                                    property="$lib"
-                                    value={event.properties['$lib'] as string}
-                                    filters={{ properties }}
-                                />
-                            )
-                        }
-                        return <Property value={event.properties['$lib']} />
-                    },
-                },
-                {
-                    title: 'When',
-                    key: 'when',
-                    span: 3,
-                    render: function renderWhen({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        return <TZLabel time={event.timestamp} showSeconds />
-                    },
-                    ellipsis: true,
-                },
-                {
-                    title: 'Usage',
-                    key: 'usage',
-                    span: 2,
-                    render: function renderWhen({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-
-                        if (event.event === '$autocapture') {
-                            return <></>
-                        }
-
-                        let params
-                        if (event.event === '$pageview') {
-                            params = {
-                                insight: ViewType.TRENDS,
-                                interval: 'day',
-                                display: 'ActionsLineGraph',
-                                actions: [],
-                                events: [
-                                    {
-                                        id: '$pageview',
-                                        name: '$pageview',
-                                        type: 'events',
-                                        order: 0,
-                                        properties: [
-                                            {
-                                                key: '$current_url',
-                                                value: event.properties.$current_url,
-                                                type: 'event',
-                                            },
-                                        ],
-                                    },
-                                ],
-                            }
-                        } else {
-                            params = {
-                                insight: ViewType.TRENDS,
-                                interval: 'day',
-                                display: 'ActionsLineGraph',
-                                actions: [],
-                                events: [
-                                    {
-                                        id: event.event,
-                                        name: event.event,
-                                        type: 'events',
-                                        order: 0,
-                                        properties: [],
-                                    },
-                                ],
-                            }
-                        }
-                        const encodedParams = toParams(params)
-                        const eventLink = `/insights?${encodedParams}`
-
+                ellipsis: true,
+            },
+            {
+                title: 'URL / Screen',
+                key: 'url',
+                eventProperties: ['$current_url', '$screen_name'],
+                span: 4,
+                render: function renderURL({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
+                    if (filtersEnabled) {
                         return (
-                            <Link
-                                to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
-                                data-attr="events-table-usage"
-                            >
-                                Insights <ExportOutlined />
-                            </Link>
+                            <FilterPropertyLink
+                                className="ph-no-capture"
+                                property={param}
+                                value={event.properties[param] as string}
+                                filters={{ properties }}
+                            />
                         )
-                    },
+                    }
+                    return <Property value={event.properties[param]} />
                 },
-            ] as ResizableColumnType<EventsTableRowItem>[]
-            if (!hidePersonColumn) {
-                _localColumns.splice(1, 0, personColumn)
-            }
-            return _localColumns
-        },
+                ellipsis: true,
+            },
+            {
+                title: 'Source',
+                key: 'source',
+                eventProperties: ['$lib'],
+                span: 2,
+                render: function renderSource({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    if (filtersEnabled) {
+                        return (
+                            <FilterPropertyLink
+                                property="$lib"
+                                value={event.properties['$lib'] as string}
+                                filters={{ properties }}
+                            />
+                        )
+                    }
+                    return <Property value={event.properties['$lib']} />
+                },
+            },
+            {
+                title: 'When',
+                key: 'when',
+                span: 3,
+                render: function renderWhen({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    return <TZLabel time={event.timestamp} showSeconds />
+                },
+                ellipsis: true,
+            },
+            {
+                title: 'Usage',
+                key: 'usage',
+                span: 2,
+                render: function renderWhen({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
 
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [eventFilter, tableWidth]
-    )
+                    if (event.event === '$autocapture') {
+                        return <></>
+                    }
+
+                    let params
+                    if (event.event === '$pageview') {
+                        params = {
+                            insight: ViewType.TRENDS,
+                            interval: 'day',
+                            display: 'ActionsLineGraph',
+                            actions: [],
+                            events: [
+                                {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [
+                                        {
+                                            key: '$current_url',
+                                            value: event.properties.$current_url,
+                                            type: 'event',
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    } else {
+                        params = {
+                            insight: ViewType.TRENDS,
+                            interval: 'day',
+                            display: 'ActionsLineGraph',
+                            actions: [],
+                            events: [
+                                {
+                                    id: event.event,
+                                    name: event.event,
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [],
+                                },
+                            ],
+                        }
+                    }
+                    const encodedParams = toParams(params)
+                    const eventLink = `/insights?${encodedParams}`
+
+                    return (
+                        <Link
+                            to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
+                            data-attr="events-table-usage"
+                        >
+                            Insights <ExportOutlined />
+                        </Link>
+                    )
+                },
+            },
+        ] as ResizableColumnType<EventsTableRowItem>[]
+        if (!hidePersonColumn) {
+            _localColumns.splice(1, 0, personColumn)
+        }
+        return _localColumns
+    }, [eventFilter, tableWidth])
 
     const columns = useMemo(
         () =>
@@ -298,7 +293,6 @@ export function EventsTable({
                           }
                   ),
 
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [selectedColumns]
     )
 

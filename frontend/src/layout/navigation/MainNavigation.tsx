@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Layout, Menu, Modal, Popover } from 'antd'
+import { Layout, Menu, Popover } from 'antd'
 import {
     ApiFilled,
     ClockCircleFilled,
@@ -27,7 +27,7 @@ import {
     IconExplore,
     IconFeatureFlags,
     IconInsights,
-    IconPerson,
+    IconPersons,
     IconToolbar,
 } from 'lib/components/icons'
 import { navigationLogic } from './navigationLogic'
@@ -44,17 +44,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
-import { Scene } from 'scenes/sceneTypes'
-
-// to show the right page in the sidebar
-const sceneOverride: Partial<Record<Scene, Scene>> = {
-    [Scene.Action]: Scene.Events,
-    [Scene.Actions]: Scene.Events,
-    [Scene.EventStats]: Scene.Events,
-    [Scene.EventPropertyStats]: Scene.Events,
-    [Scene.Person]: Scene.Persons,
-    [Scene.Dashboard]: Scene.Dashboards,
-}
 
 interface MenuItemProps {
     title: string
@@ -77,13 +66,13 @@ const MenuItem = ({
     onClick,
     hideTooltip = false,
 }: MenuItemProps): JSX.Element => {
-    const { activeScene } = useValues(sceneLogic)
+    const { aliasedActiveScene } = useValues(sceneLogic)
     const { hotkeyNavigationEngaged } = useValues(navigationLogic)
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
     const { push } = useActions(router)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
-    const isActive = activeScene && identifier === (sceneOverride[activeScene] || activeScene)
+    const isActive = identifier === aliasedActiveScene
 
     function handleClick(): void {
         onClick?.()
@@ -307,7 +296,7 @@ function MenuItems(): JSX.Element {
             <div className="divider" />
             <MenuItem
                 title="Persons"
-                icon={<IconPerson />}
+                icon={<IconPersons />}
                 identifier="persons"
                 to={urls.persons()}
                 hotkey="p"
@@ -428,14 +417,7 @@ export function MainNavigation(): JSX.Element {
                 </div>
             </Layout.Sider>
 
-            <Modal
-                bodyStyle={{ padding: 0 }}
-                visible={toolbarModalOpen}
-                footer={null}
-                onCancel={() => setToolbarModalOpen(false)}
-            >
-                <ToolbarModal />
-            </Modal>
+            <ToolbarModal visible={toolbarModalOpen} onCancel={() => setToolbarModalOpen(false)} />
         </>
     )
 }
