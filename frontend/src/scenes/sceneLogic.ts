@@ -267,6 +267,8 @@ export const sceneLogic = kea<sceneLogicType>({
             const wasNotLoaded = !loadedScene
 
             if (!loadedScene) {
+                // if we can't load the scene in a second, show a spinner
+                const timeout = window.setTimeout(() => actions.setScene(scene, params, true), 500)
                 let importedScene
                 try {
                     importedScene = await props.scenes[scene]()
@@ -290,6 +292,8 @@ export const sceneLogic = kea<sceneLogicType>({
                     } else {
                         throw error
                     }
+                } finally {
+                    window.clearTimeout(timeout)
                 }
                 breakpoint()
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
