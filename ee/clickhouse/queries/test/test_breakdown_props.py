@@ -126,7 +126,9 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:8", properties={"industry": "another", "out": 1})
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:8", properties={"industry": "another", "out": 1}
+        )
         create_group(
             team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "foobar"}
         )
@@ -140,7 +142,6 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 timestamp="2020-01-02T12:00:00Z",
             )
 
-
         filter = Filter(
             data={
                 "date_from": "2020-01-01T00:00:00Z",
@@ -149,9 +150,11 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "events": [{"id": "$pageview", "type": "events", "order": 0,}],
-                "properties": [{"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}],
+                "properties": [
+                    {"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}
+                ],
             },
-            team=self.team
+            team=self.team,
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk, 5)
-        self.assertEqual(result, ['finance', 'technology'])
+        self.assertEqual(result, ["finance", "technology"])

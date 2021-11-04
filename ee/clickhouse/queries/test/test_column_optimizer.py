@@ -48,7 +48,9 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         filter = BASE_FILTER.with_data({"breakdown": [11], "breakdown_type": "cohort"})
         self.assertEqual(properties_used_in_filter(filter), {})
 
-        filter = BASE_FILTER.with_data({"breakdown": "some_prop", "breakdown_type": "group", "breakdown_group_type_index": 1})
+        filter = BASE_FILTER.with_data(
+            {"breakdown": "some_prop", "breakdown_type": "group", "breakdown_group_type_index": 1}
+        )
         self.assertEqual(properties_used_in_filter(filter), {("some_prop", "group", 1): 1})
 
         # Funnel Correlation cases
