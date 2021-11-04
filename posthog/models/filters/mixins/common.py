@@ -141,8 +141,6 @@ class BreakdownMixin(BaseParamMixin):
 
         return result
 
-
-class BreakdownTypeMixin(BaseParamMixin):
     @cached_property
     def breakdown_type(self) -> Optional[BreakdownType]:
         return self._data.get(BREAKDOWN_TYPE, None)
