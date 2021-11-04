@@ -87,6 +87,7 @@ export const insightLogic = kea<insightLogicType>({
         }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         saveInsight: true,
+        createInsight: (insight: Partial<DashboardItemType>) => ({ insight }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
@@ -539,25 +540,12 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         // called when search query was successful
-        loadResultsSuccess: async ({ insight }, breakpoint) => {
+        loadResultsSuccess: async ({ insight }) => {
             if (props.doNotPersist) {
                 return
             }
             if (!insight.id) {
-                const createdInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, {
-                    filters: insight.filters,
-                })
-                breakpoint()
-                actions.setInsight(
-                    { ...insight, ...createdInsight, result: createdInsight.result || insight.result },
-                    {}
-                )
-                if (props.syncWithUrl) {
-                    router.actions.replace('/insights', router.values.searchParams, {
-                        ...router.values.hashParams,
-                        fromItem: createdInsight.id,
-                    })
-                }
+                actions.createInsight({ filters: values.filters })
             } else if (insight.filters) {
                 // This auto-saves new filters into the insight.
                 // Exceptions:
@@ -600,6 +588,29 @@ export const insightLogic = kea<insightLogicType>({
                 actions.updateInsight(metadata)
             }
         },
+        createInsight: async ({ insight }, breakpoint) => {
+            actions.setInsight(
+                { id: undefined, name: '', description: '', tags: [], filters: {}, result: null, ...insight },
+                { overrideFilter: true }
+            )
+            const createdInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
+            breakpoint()
+            actions.setInsight(
+                {
+                    ...insight,
+                    ...createdInsight,
+                    filters: cleanFilters(createdInsight.filters || insight.filters),
+                    result: createdInsight.result || insight.result,
+                },
+                {}
+            )
+            if (props.syncWithUrl) {
+                router.actions.replace('/insights', router.values.searchParams, {
+                    ...router.values.hashParams,
+                    fromItem: createdInsight.id,
+                })
+            }
+        },
     }),
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
@@ -623,10 +634,11 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
-                let loadedFromAnotherLogic = false
                 if (searchParams.insight === 'HISTORY') {
                     return
                 }
+                const cleanSearchParams = cleanFilters(searchParams, values.filters)
+                let loadedFromAnotherLogic = false
                 if (hashParams.fromItem) {
                     const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
 
@@ -652,27 +664,23 @@ export const insightLogic = kea<insightLogicType>({
                     if (insightModeFromUrl !== values.insightMode) {
                         actions.setInsightMode(insightModeFromUrl, null)
                     }
-                } else {
-                    if (values.insight?.id) {
-                        actions.setInsight(
-                            {
-                                id: undefined,
-                                name: '',
-                                description: '',
-                                tags: [],
-                                filters: cleanFilters(searchParams, values.filters),
-                                result: null,
-                            },
-                            { overrideFilter: true, shouldMergeWithExisting: false }
-                        )
-                        actions.setInsightMode(ItemMode.Edit, null)
-                        return
-                    }
-                }
 
-                const cleanSearchParams = cleanFilters(searchParams, values.filters)
-                if (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) {
-                    actions.setFilters(cleanSearchParams)
+                    if (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) {
+                        actions.setFilters(cleanSearchParams)
+                    }
+                } else {
+                    // No "id" in the URL, but "id" in the reducer
+                    if (values.insight?.id) {
+                        actions.createInsight({
+                            id: undefined,
+                            name: '',
+                            description: '',
+                            tags: [],
+                            filters: cleanFilters(searchParams, values.filters),
+                            result: null,
+                        })
+                        actions.setInsightMode(ItemMode.Edit, null)
+                    }
                 }
             }
         },

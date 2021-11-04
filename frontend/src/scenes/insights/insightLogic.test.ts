@@ -33,11 +33,13 @@ describe('insightLogic', () => {
                 `api/projects/${MOCK_TEAM_ID}/insights/42`,
                 `api/projects/${MOCK_TEAM_ID}/insights/43`,
                 `api/projects/${MOCK_TEAM_ID}/insights/44`,
+                `api/projects/${MOCK_TEAM_ID}/insights/50`,
             ].includes(pathname)
         ) {
+            const id = parseInt(pathname.split('/').pop() || '')
             return {
-                result: pathname.endsWith('42') ? ['result from api'] : null,
-                id: parseInt(pathname.split('/').pop() || ''),
+                result: id === 42 ? ['result from api'] : null,
+                id: id,
                 filters: API_FILTERS,
             }
         } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
@@ -374,14 +376,10 @@ describe('insightLogic', () => {
                     insight: partial({ id: 43, result: ['result from api'] }),
                 })
 
+            // remove ID from URL, creates a new insight with id=50
             router.actions.push(combineUrl('/insights', { insight: 'FUNNELS' }).url)
             await expectLogic(logic)
-                .toDispatchActions(['setInsight', 'setInsightMode', 'loadResults', 'loadResultsSuccess'])
-                .toMatchValues({
-                    filters: partial({ insight: 'FUNNELS' }),
-                    insight: partial({ id: undefined, result: ['result from api'] }),
-                })
-                .toDispatchActions(['setInsight'])
+                .toDispatchActions(['createInsight', 'setInsight', 'setInsightMode', 'setInsight'])
                 .toMatchValues({
                     insight: partial({ id: 50, result: ['result from api'] }),
                 })
@@ -402,7 +400,8 @@ describe('insightLogic', () => {
                 .toMatchValues(router, { searchParams: partial({ interval: 'minute' }) })
 
             logic.actions.setFilters({ insight: 'TRENDS', interval: 'month' })
-            await expectLogic()
+            await expectLogic(router)
+                .toDispatchActions(logic, [logic.actionCreators.setFilters({ insight: 'TRENDS', interval: 'month' })])
                 .toDispatchActions(router, ['replace', 'locationChanged'])
                 .toMatchValues(router, {
                     searchParams: partial({ insight: 'TRENDS', interval: 'month' }),
@@ -438,6 +437,37 @@ describe('insightLogic', () => {
             expectLogic(router).toMatchValues({
                 location: partial({ pathname: url2.pathname, search: url2.search, hash: url2.hash }),
             })
+        })
+
+        describe('creates new insight if no ID in url', () => {
+            const types: ViewType[] = [
+                ViewType.FUNNELS,
+                ViewType.SESSIONS,
+                ViewType.RETENTION,
+                ViewType.LIFECYCLE,
+                ViewType.PATHS,
+                ViewType.STICKINESS,
+                ViewType.TRENDS,
+            ]
+
+            for (const insight of types) {
+                it(`works with ${insight}`, async () => {
+                    router.actions.push(combineUrl('/insights', { insight }).url)
+                    await expectLogic(logic)
+                        .toDispatchActions(['createInsight', 'setInsight', 'setInsightMode'])
+                        .toMatchValues({
+                            filters: partial({ insight }),
+                            insight: partial({ id: undefined, result: null }),
+                            insightMode: ItemMode.Edit,
+                        })
+                        .toDispatchActions(['setInsight'])
+                        .toMatchValues({
+                            filters: partial({ insight }),
+                            insight: partial({ id: 50, result: ['result from api'] }),
+                            insightMode: ItemMode.Edit,
+                        })
+                })
+            }
         })
     })
 
