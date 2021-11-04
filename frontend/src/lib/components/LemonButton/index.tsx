@@ -6,7 +6,7 @@ import { Link } from '../Link'
 import { Popup, PopupProps } from '../Popup/Popup'
 import './LemonButton.scss'
 
-export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'onClick'> {
+export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'onClick' | 'type' | 'ref'> {
     type?: 'default' | 'primary' | 'stealth' | 'highlighted'
     /** `onClick` of type `string` means a link. */
     onClick?: LemonRowPropsBase<'button'>['onClick'] | string
@@ -24,14 +24,10 @@ export type LemonButtonProps =
       })
 
 /** Styled button. */
-export function LemonButton({
-    children,
-    icon,
-    type = 'default',
-    className,
-    onClick,
-    ...buttonProps
-}: LemonButtonProps): JSX.Element {
+function LemonButtonInternal(
+    { children, icon, type = 'default', className, onClick, ...buttonProps }: LemonButtonProps,
+    ref: React.Ref<JSX.IntrinsicElements['button']>
+): JSX.Element {
     const link = typeof onClick !== 'string' ? null : onClick
     const row = (
         <LemonRow
@@ -41,12 +37,14 @@ export function LemonButton({
             type="button"
             {...buttonProps}
             onClick={typeof onClick !== 'string' ? onClick : undefined}
+            ref={ref}
         >
             {children}
         </LemonRow>
     )
     return link ? <Link to={link}>{row}</Link> : row
 }
+export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<LemonButtonProps, 'onClick' | 'icon' | 'type' | 'tooltip'>
 
@@ -79,7 +77,7 @@ export function LemonButtonWithPopup({ overlay, ...buttonProps }: LemonButtonWit
     const [isPopupVisible, setIsPopupVisible] = useState(false)
 
     return (
-        <Popup visible={isPopupVisible} onClickOutside={() => setIsPopupVisible(false)} overlay={overlay}>
+        <Popup visible={isPopupVisible} onClickOutside={() => setIsPopupVisible(false)} overlay={overlay} sameWidth>
             <LemonButton
                 onClick={() => setIsPopupVisible((state) => !state)}
                 sideIcon={<IconArrowDropDown />}

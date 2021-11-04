@@ -3,8 +3,16 @@ import clsx from 'clsx'
 import './LemonRow.scss'
 import { Tooltip } from '../Tooltip'
 
+// Achieve higher-order function type inference for forwardRef,
+// so that function components wrapped with forwardRef (i.e. LemonRow) can be generic.
+declare module 'react' {
+    function forwardRef<T, P>(
+        render: (props: P, ref: React.Ref<T>) => React.ReactElement | null
+    ): (props: P & React.RefAttributes<T>) => React.ReactElement | null
+}
+
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
-    extends React.HTMLProps<JSX.IntrinsicElements[T]> {
+    extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref'> {
     icon?: React.ReactElement
     tag?: T
     status?: 'success' | 'warning' | 'danger' // CSS variable colors
@@ -24,18 +32,21 @@ export type LemonRowProps<T extends keyof JSX.IntrinsicElements> =
       })
 
 /** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a presentation element. */
-export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
-    children,
-    icon,
-    className,
-    tag,
-    status,
-    tooltip,
-    sideIcon,
-    compact = false,
-    fullWidth = false,
-    ...props
-}: LemonRowProps<T>): JSX.Element {
+function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
+    {
+        children,
+        icon,
+        className,
+        tag,
+        status,
+        tooltip,
+        sideIcon,
+        compact = false,
+        fullWidth = false,
+        ...props
+    }: LemonRowProps<T>,
+    ref: React.Ref<JSX.IntrinsicElements[T]>
+): JSX.Element {
     const element = React.createElement(
         tag || 'div',
         {
@@ -47,6 +58,7 @@ export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
                 fullWidth && 'LemonRow--full-width'
             ),
             ...props,
+            ref,
         },
         <>
             {icon && <span className="LemonRow__icon">{icon}</span>}
@@ -56,3 +68,4 @@ export function LemonRow<T extends keyof JSX.IntrinsicElements = 'div'>({
     )
     return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
 }
+export const LemonRow = React.forwardRef(LemonRowInternal)
