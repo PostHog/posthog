@@ -1,3 +1,5 @@
+import React from 'react'
+import { Link } from 'lib/components/Link'
 import dayjs from 'dayjs'
 import { kea } from 'kea'
 import { router } from 'kea-router'
@@ -15,11 +17,13 @@ import {
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { cohortLogic } from 'scenes/cohorts/cohortLogic'
+
 import { TrendPeople } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { toast } from 'react-toastify'
+import { cohortsModel } from '~/models/cohortsModel'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -291,7 +295,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         },
     }),
     listeners: ({ actions, values }) => ({
-        saveCohortWithFilters: ({ cohortName, filters }) => {
+        saveCohortWithFilters: async ({ cohortName, filters }) => {
             if (values.people) {
                 const { label, action, day, breakdown_value } = values.people
                 const filterParams = parsePeopleParams(
@@ -302,12 +306,19 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     is_static: true,
                     name: cohortName,
                 }
-                cohortLogic({
-                    cohort: {
-                        id: 'personsModalNew',
-                        groups: [],
-                    },
-                }).actions.saveCohort(cohortParams, filterParams)
+                const cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortParams)
+                cohortsModel.actions.cohortCreated(cohort)
+                toast.success(
+                    <div data-attr="success-toast">
+                        <h1>Cohort saved successfully!</h1>
+                        <p>
+                            <Link to={'/cohorts/' + cohort.id}>Click here to see the cohort.</Link>
+                        </p>
+                    </div>,
+                    {
+                        toastId: `cohort-saved-${cohort.id}`,
+                    }
+                )
             } else {
                 errorToast(undefined, "We couldn't create your cohort:")
             }
