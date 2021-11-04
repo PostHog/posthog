@@ -503,5 +503,11 @@ def _create_all_events(events: List[MockEvent]):
         )
 
 
-class DjangoPathsTest(paths_test_factory(Paths, Event.objects.create, Person.objects.create, _create_all_events)):  # type: ignore
+def _create_event(**kwargs):
+    data = {"timestamp": now()}
+    data.update(kwargs)
+    return MockEvent(**data)
+
+
+class DjangoPathsTest(paths_test_factory(Paths, _create_event, Person.objects.create, _create_all_events)):  # type: ignore
     pass
