@@ -9,16 +9,18 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, GroupType, PersonProperty, PropertyDefinition } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from '../../../scenes/teamLogic'
+import { groupsModel } from '~/models/groupsModel'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
-    connect: { values: [teamLogic, ['currentTeamId']] },
+    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']] },
     actions: () => ({
         moveUp: true,
         moveDown: true,
@@ -70,8 +72,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         taxonomicGroups: [
-            (selectors) => [selectors.currentTeamId],
-            (teamId): TaxonomicFilterGroup[] => [
+            (selectors) => [selectors.currentTeamId, selectors.groupTypes],
+            (teamId, groupTypes): TaxonomicFilterGroup[] => [
+                ...(groupTypes.length > 0
+                    ? groupTypes.map((gt) => ({
+                          name: capitalizeFirstLetter(gt.group_type),
+                          type: gt.group_type,
+                          endpoint: `api/projects/${teamId}/groups`,
+                          getName: (group: GroupType) => group.group_type,
+                          getValue: (group: GroupType) => group.group_type_index,
+                      }))
+                    : []),
                 {
                     name: 'Events',
                     type: TaxonomicFilterGroupType.Events,
