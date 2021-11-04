@@ -12,6 +12,8 @@ from posthog.queries.paths import Paths
 from posthog.test.base import APIBaseTest
 
 
+# This test file uses a batched method of event creation
+# We collect all events per test into an array and batch create the events to reduce creation time
 @dataclasses.dataclass
 class MockEvent:
     event: str
