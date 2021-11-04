@@ -8,11 +8,13 @@ import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
-const NEW_FLAG = {
+
+const NEW_FLAG: FeatureFlagType = {
     id: null,
+    created_at: null,
     key: '',
     name: '',
-    filters: { groups: [{ properties: [], rollout_percentage: null }] },
+    filters: { groups: [{ properties: [], rollout_percentage: null }], multivariate: null },
     deleted: false,
     active: true,
     created_by: null,
@@ -69,6 +71,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         featureFlag: [
             null as FeatureFlagType | null,
             {
+                // empty the form while loading the new flag to not have old values turn to new on list<->flag movements with back/forward
+                loadFeatureFlag: () => NEW_FLAG,
                 addMatchGroup: (state) => {
                     if (!state) {
                         return state
@@ -206,16 +210,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 return NEW_FLAG
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { created_at, id, ...flag } = updatedFlag
                 if (!updatedFlag.id) {
-                    return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, {
-                        ...updatedFlag,
-                        id: undefined,
-                    })
+                    return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
                 } else {
-                    return await api.update(`api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`, {
-                        ...updatedFlag,
-                        id: undefined,
-                    })
+                    return await api.update(
+                        `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
+                        flag
+                    )
                 }
             },
         },
@@ -253,7 +256,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         },
     }),
     selectors: {
-        multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters?.multivariate],
         variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters?.multivariate?.variants || []],
         nonEmptyVariants: [(s) => [s.variants], (variants) => variants.filter(({ key }) => !!key)],
         variantRolloutSum: [
@@ -267,13 +270,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 variantRolloutSum === 100,
         ],
     },
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/feature_flags/*': ({ _: id }) => {
-            if (id) {
+            if (id && id !== values.featureFlagId) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 actions.setFeatureFlagId(parsedId)
+                actions.loadFeatureFlag()
             }
-            actions.loadFeatureFlag()
         },
     }),
 })
