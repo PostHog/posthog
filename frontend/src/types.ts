@@ -722,6 +722,7 @@ export enum ChartDisplayType {
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type SmoothingType = number
 
 // NB! Keep InsightType and ViewType in sync!
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'

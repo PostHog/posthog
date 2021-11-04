@@ -1,9 +1,9 @@
-import { IntervalType } from '~/types'
+import { IntervalType, SmoothingType } from '~/types'
 
 // Lists the valid smoothing intervals value for each interval type. Note that
-// the typing should catch if we update IntervalType but do not add an explicit
+// the typing should catch if we update SmoothingType but do not add an explicit
 // option to this lookup
-export const smoothingOptions: Record<IntervalType, { label: string; value: number }[]> = {
+export const smoothingOptions: Record<IntervalType, { label: string; value: SmoothingType }[]> = {
     minute: [
         {
             label: 'No smoothing',
@@ -45,3 +45,5 @@ export const smoothingOptions: Record<IntervalType, { label: string; value: numb
     week: [],
     month: [],
 }
+
+export type SmoothingKeyType = keyof typeof smoothingOptions

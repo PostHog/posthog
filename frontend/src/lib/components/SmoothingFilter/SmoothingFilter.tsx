@@ -2,14 +2,12 @@ import React from 'react'
 import { Select } from 'antd'
 import { FundOutlined } from '@ant-design/icons'
 import { smoothingOptions } from './smoothings'
-import { IntervalType } from '~/types'
-import { intervalFilterLogic } from '../IntervalFilter/intervalFilterLogic'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { smoothingFilterLogic } from './smoothingFilterLogic'
 
 export function SmoothingFilter(): JSX.Element | null {
-    const interval = useInterval()
-    const [smoothing, setSmoothing] = useSmoothing()
+    const { interval, smoothing } = useValues(smoothingFilterLogic)
+    const { setSmoothingFilter } = useActions(smoothingFilterLogic)
 
     if (interval === null) {
         return null
@@ -35,7 +33,7 @@ export function SmoothingFilter(): JSX.Element | null {
             value={smoothing || undefined}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
-                setSmoothing(key)
+                setSmoothingFilter(key)
             }}
             data-attr="smoothing-filter"
             options={options}
@@ -43,40 +41,4 @@ export function SmoothingFilter(): JSX.Element | null {
     ) : (
         <></>
     )
-}
-
-const useSmoothing = (): [number, (value: number) => void] => {
-    // Gets smoothing_interals from the url, along with a setter that can be
-    // used to update it
-    const {
-        searchParams,
-        location: { pathname },
-        hashParams,
-    } = useValues(router)
-    const { replace } = useActions(router)
-    const interval = useInterval()
-
-    const setSmoothing = (smoothing: number): void => {
-        replace(pathname, { ...searchParams, smoothing_intervals: smoothing }, hashParams)
-    }
-
-    const { smoothing_intervals = 1 } = searchParams
-
-    // Check that the option is valid for the specified interval, and if not, set it to 1
-    const intervalOptions = interval ? smoothingOptions[interval] : []
-
-    React.useEffect(() => {
-        if (!intervalOptions.find((option) => option.value === smoothing_intervals)) {
-            setSmoothing(1)
-        }
-    }, [interval, smoothing_intervals])
-
-    return [Number.parseInt(smoothing_intervals), setSmoothing]
-}
-
-const useInterval = (): IntervalType | null => {
-    // Just proxies through to the interval filter logic to retrieve the
-    // interval value
-    const { interval } = useValues(intervalFilterLogic)
-    return interval
 }
