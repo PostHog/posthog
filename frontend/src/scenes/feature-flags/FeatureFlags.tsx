@@ -185,7 +185,7 @@ export function FeatureFlags(): JSX.Element {
             <Table
                 dataSource={featureFlags}
                 columns={columns}
-                loading={!featureFlags && featureFlagsLoading}
+                loading={featureFlagsLoading && featureFlags.length === 0}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
                     onClick: () => featureFlag.id && push(urls.featureFlag(featureFlag.id)),
