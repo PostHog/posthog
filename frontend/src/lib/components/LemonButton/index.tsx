@@ -6,14 +6,13 @@ import { Link } from '../Link'
 import { Popup, PopupProps } from '../Popup/Popup'
 import './LemonButton.scss'
 
-export interface LemonButtonPopup extends Pick<PopupProps, 'overlay' | 'visible' | 'onClickOutside'> {
-    onClickReference: () => void
-}
+export type LemonButtonPopup = Pick<PopupProps, 'overlay' | 'visible' | 'onClickOutside' | 'sameWidth'>
 
-export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'onClick' | 'type' | 'ref'> {
+export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
     type?: 'default' | 'primary' | 'stealth' | 'highlighted'
-    /** `onClick` of type `string` means a link, while a LemonButtonPopup enables a Popup. */
-    onClick?: LemonRowPropsBase<'button'>['onClick'] | LemonButtonPopup | string
+    /** URL to link to. */
+    to?: string
+    popup?: LemonButtonPopup
 }
 
 /** Note that a LemonButton can be compact OR have a sideIcon, but not both at once. */
@@ -23,58 +22,49 @@ export type LemonButtonProps =
           compact?: boolean
       })
     | (LemonButtonPropsBase & {
-          sideIcon?: React.ReactElement
+          sideIcon?: React.ReactElement | null
           compact?: false
       })
 
 /** Styled button. */
 function LemonButtonInternal(
-    { children, icon, type = 'default', className, onClick, ...buttonProps }: LemonButtonProps,
+    { children, type = 'default', className, popup, to, ...buttonProps }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
         tag: 'button',
         className: clsx('LemonButton', type !== 'default' && `LemonButton--${type}`, className),
-        icon,
         type: 'button',
         ...buttonProps,
     }
-    switch (typeof onClick) {
-        case 'string':
-            return (
-                <Link to={onClick}>
-                    <LemonRow {...rowProps} ref={ref}>
-                        {children}
-                    </LemonRow>
-                </Link>
-            )
-        case 'object':
-            if (!rowProps.sideIcon) {
-                rowProps.sideIcon = <IconArrowDropDown />
-            }
-            return (
-                <Popup
-                    visible={onClick.visible}
-                    onClickOutside={onClick.onClickOutside}
-                    overlay={onClick.overlay}
-                    sameWidth
-                >
-                    <LemonRow onClick={onClick.onClickReference} {...rowProps} ref={ref}>
-                        {children}
-                    </LemonRow>
-                </Popup>
-            )
-        default:
-            return (
-                <LemonRow onClick={onClick} {...rowProps} ref={ref}>
-                    {children}
-                </LemonRow>
-            )
+    if (popup && !rowProps.compact && !rowProps.sideIcon) {
+        rowProps.sideIcon = <IconArrowDropDown />
     }
+    let workingButton = (
+        <LemonRow {...rowProps} ref={ref}>
+            {children}
+        </LemonRow>
+    )
+    if (to) {
+        workingButton = <Link to={to}>{workingButton}</Link>
+    }
+    if (popup) {
+        workingButton = (
+            <Popup
+                visible={popup.visible}
+                onClickOutside={popup.onClickOutside}
+                overlay={popup.overlay}
+                sameWidth={popup.sameWidth}
+            >
+                {workingButton}
+            </Popup>
+        )
+    }
+    return workingButton
 }
 export const LemonButton = React.forwardRef(LemonButtonInternal)
 
-export type SideAction = Pick<LemonButtonProps, 'onClick' | 'icon' | 'type' | 'tooltip'>
+export type SideAction = Pick<LemonButtonProps, 'onClick' | 'popup' | 'to' | 'icon' | 'type' | 'tooltip'>
 
 /** A LemonButtonWithSideAction can neither be compact nor have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
