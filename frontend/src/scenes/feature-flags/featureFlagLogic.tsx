@@ -256,8 +256,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         },
     }),
     selectors: {
-        multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters?.multivariate],
-        variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters?.multivariate?.variants || []],
+        multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters.multivariate?.variants || []],
         nonEmptyVariants: [(s) => [s.variants], (variants) => variants.filter(({ key }) => !!key)],
         variantRolloutSum: [
             (s) => [s.variants],
@@ -270,6 +270,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 variantRolloutSum === 100,
         ],
     },
+    actionToUrl: () => ({
+        // change URL from '/feature_flags/new' to '/feature_flags/123' after saving
+        saveFeatureFlagSuccess: ({ featureFlag }) => [
+            `/feature_flags/${featureFlag.id || 'new'}`,
+            {},
+            {},
+            { replace: true },
+        ],
+    }),
     urlToAction: ({ actions, values }) => ({
         '/feature_flags/*': ({ _: id }) => {
             if (id && id !== values.featureFlagId) {
