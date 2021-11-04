@@ -100,6 +100,8 @@ export const funnelLogic = kea<funnelLogicType>({
             ['personProperties'],
             userLogic,
             ['hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -985,9 +987,9 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         correlationAnalysisAvailable: [
-            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
-            (hasAvailableFeature, clickhouseFeaturesEnabled) =>
-                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled, s.featureFlags],
+            (hasAvailableFeature, clickhouseFeaturesEnabled, featureFlags) =>
+                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
                 clickhouseFeaturesEnabled &&
                 hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],

@@ -8,7 +8,14 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, TeamType, ViewType } from '~/types'
+import {
+    AvailableFeature,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    TeamType,
+    ViewType,
+} from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -126,7 +133,7 @@ describe('funnelLogic', () => {
                 { name: 'third property', count: 5 },
             ]
         }
-        return defaultAPIMocks(url)
+        return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS] })
     })
 
     initKeaTestLogic({
@@ -621,6 +628,7 @@ describe('funnelLogic', () => {
                 })
 
             await expectLogic(logic, () => {
+                logic.actions.setPropertyNames(logic.values.allProperties)
                 logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
             })
                 .toFinishAllListeners()
