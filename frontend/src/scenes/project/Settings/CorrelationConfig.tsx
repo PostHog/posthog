@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
+import { Button } from 'antd'
 
 export function CorrelationConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -45,6 +47,11 @@ export function CorrelationConfig(): JSX.Element {
                         <EventSelect
                             onChange={handleEventsChange}
                             selectedEvents={currentTeam.correlation_config.excluded_events || []}
+                            addElement={
+                                <Button type="link" className="new-prop-filter" icon={<PlusCircleOutlined />}>
+                                    Add exclusion
+                                </Button>
+                            }
                         />
                     </>
                 )}

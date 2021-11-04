@@ -2,16 +2,16 @@ import React from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Button, Tag } from 'antd'
+import { Tag } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
-import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 
 interface EventSelectProps {
     onChange: (names: string[]) => void
     selectedEvents: string[]
+    addElement: JSX.Element
 }
 
-export const EventSelect = ({ onChange, selectedEvents }: EventSelectProps): JSX.Element => {
+export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelectProps): JSX.Element => {
     const { open, toggle, hide } = usePopup()
 
     const handleChange = (name: string): void => {
@@ -22,28 +22,15 @@ export const EventSelect = ({ onChange, selectedEvents }: EventSelectProps): JSX
         onChange(selectedEvents.filter((p) => p !== name))
     }
 
+    // Add in the toggle popup logic for the passed in element
+    const addElementWithToggle = React.cloneElement(addElement, { onClick: toggle })
+
     return (
         <div>
             <div>
-                {selectedEvents.length > 0 &&
-                    selectedEvents.map((name) => {
-                        return (
-                            <Tag
-                                key={name}
-                                closable
-                                onClose={(): void => handleRemove(name)}
-                                style={{
-                                    margin: '0.25rem',
-                                    padding: '0.25rem 0.5em',
-                                    background: '#D9D9D9',
-                                    border: '1px solid #D9D9D9',
-                                    borderRadius: '40px',
-                                }}
-                            >
-                                {name}
-                            </Tag>
-                        )
-                    })}
+                {selectedEvents.map((name) => (
+                    <PropertyTag handleRemove={handleRemove} name={name} key={name} />
+                ))}
 
                 <Popup
                     visible={open}
@@ -57,17 +44,7 @@ export const EventSelect = ({ onChange, selectedEvents }: EventSelectProps): JSX
                         />
                     }
                 >
-                    {({ setRef }) => (
-                        <Button
-                            ref={setRef}
-                            onClick={() => toggle()}
-                            type="link"
-                            className="new-prop-filter"
-                            icon={<PlusCircleOutlined />}
-                        >
-                            Exclude events
-                        </Button>
-                    )}
+                    {addElementWithToggle}
                 </Popup>
             </div>
         </div>
@@ -92,3 +69,25 @@ const usePopup = () => {
         hide: () => setOpen(popupLogic.hide()),
     }
 }
+
+type PropertyTagProps = {
+    name: string
+    handleRemove: (name: string) => void
+}
+
+const PropertyTag = ({ name, handleRemove }: PropertyTagProps): JSX.Element => (
+    <Tag
+        key={name}
+        closable
+        onClose={(): void => handleRemove(name)}
+        style={{
+            margin: '0.25rem',
+            padding: '0.25rem 0.5em',
+            background: '#D9D9D9',
+            border: '1px solid #D9D9D9',
+            borderRadius: '40px',
+        }}
+    >
+        {name}
+    </Tag>
+)
