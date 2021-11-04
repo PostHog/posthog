@@ -30,17 +30,17 @@ PATH_ARRAY_QUERY = """
                     , arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple
                     , {session_threshold_clause} as session_paths
                 FROM (
-                        SELECT person_id,
-                                groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
-                                groupArray(path_item) as paths
-                        FROM ({path_event_query})
-                        GROUP BY person_id
+                            SELECT * {target_index_clause} FROM (
+                                SELECT person_id,
+                                    groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                                    groupArray(path_item) as paths
+                                FROM ({path_event_query})
+                                GROUP BY person_id
+                            ) {boundary_event_filter} {limit_clause}
                         )
                 /* this array join splits paths for a single personID per session */
                 ARRAY JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index
             )
             ARRAY JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
-            {boundary_event_filter}
-            {limit_clause}
             )
 """

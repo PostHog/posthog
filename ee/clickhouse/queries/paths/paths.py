@@ -98,7 +98,7 @@ class ClickhousePaths:
         self.params.update(params)
 
         boundary_event_filter = self.get_target_point_filter()
-        target_clause, target_params = self.get_target_clause()
+        target_index_clause, target_clause, target_params = self.get_target_clause()
         self.params.update(target_params)
 
         session_threshold_clause = self.get_session_threshold_clause()
@@ -107,6 +107,7 @@ class ClickhousePaths:
         return PATH_ARRAY_QUERY.format(
             path_event_query=path_event_query,
             boundary_event_filter=boundary_event_filter,
+            target_index_clause=target_index_clause,
             target_clause=target_clause,
             session_threshold_clause=session_threshold_clause,
             limit_clause=limit_clause,
@@ -139,6 +140,7 @@ class ClickhousePaths:
                 COUNT(*) AS event_count,
                 avg(conversion_time) AS average_conversion_time
             FROM ({paths_per_person_query})
+            WHERE source_event IS NOT NULL 
             GROUP BY source_event,
                     target_event
             {edge_weight_filter}
@@ -186,11 +188,11 @@ class ClickhousePaths:
 
     def get_target_point_filter(self) -> str:
         if self._filter.end_point and self._filter.start_point:
-            return "WHERE start_target_index > 0 AND end_target_index > 0 AND NOT event_in_session_index = 1"
+            return "WHERE start_target_index > 0 AND end_target_index > 0"
         elif self._filter.end_point or self._filter.start_point:
-            return f"WHERE target_index > 0 AND NOT event_in_session_index = 1"
+            return f"WHERE target_index > 0"
         else:
-            return "WHERE NOT event_in_session_index = 1"
+            return ""
 
     def get_session_threshold_clause(self) -> str:
 
@@ -212,12 +214,16 @@ class ClickhousePaths:
 
         return "arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple)"
 
-    def get_target_clause(self) -> Tuple[str, Dict]:
+    def get_target_clause(self) -> Tuple[str, str, Dict]:
         params: Dict[str, Union[str, None]] = {"target_point": None, "secondary_target_point": None}
 
         if self._filter.end_point and self._filter.start_point:
             params.update({"target_point": self._filter.end_point, "secondary_target_point": self._filter.start_point})
             return (
+                """
+            , indexOf(paths, %(secondary_target_point)s) as start_target_index
+            , indexOf(paths, %(target_point)s) as end_target_index
+            """,
                 """
             , indexOf(compact_path, %(secondary_target_point)s) as start_target_index
             , if(start_target_index > 0, arraySlice(compact_path, start_target_index), compact_path) as start_filtered_path
@@ -235,6 +241,9 @@ class ClickhousePaths:
             compacting_function = self.get_array_compacting_function()
             params.update({"target_point": self._filter.end_point or self._filter.start_point})
             return (
+                """
+            , indexOf(paths, %(target_point)s) as target_index
+            """,
                 f"""
             , indexOf(compact_path, %(target_point)s) as target_index
             , if(target_index > 0, {compacting_function}(compact_path, target_index), compact_path) as filtered_path

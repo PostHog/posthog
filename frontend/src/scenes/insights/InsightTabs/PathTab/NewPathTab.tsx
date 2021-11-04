@@ -426,52 +426,6 @@ export function NewPathTab(): JSX.Element {
                                                             />
                                                         </Col>
                                                     </Row>
-                                                    <Row gutter={8} align="middle" className="mt-05">
-                                                        <Col>Number of people on each Path between</Col>
-                                                        <Col>
-                                                            <InputNumber
-                                                                style={{
-                                                                    paddingTop: 2,
-                                                                    width: '80px',
-                                                                    marginLeft: 5,
-                                                                    marginRight: 5,
-                                                                }}
-                                                                size="small"
-                                                                min={0}
-                                                                max={100000}
-                                                                onChange={(value): void =>
-                                                                    setLocalEdgeParameters((state) => ({
-                                                                        ...state,
-                                                                        min_edge_weight: Number(value),
-                                                                    }))
-                                                                }
-                                                                onBlur={updateEdgeParameters}
-                                                                onPressEnter={updateEdgeParameters}
-                                                            />
-                                                        </Col>
-                                                        <Col>and</Col>
-                                                        <Col>
-                                                            <InputNumber
-                                                                style={{
-                                                                    paddingTop: 2,
-                                                                    width: '80px',
-                                                                    marginLeft: 5,
-                                                                    marginRight: 5,
-                                                                }}
-                                                                size="small"
-                                                                onChange={(value): void =>
-                                                                    setLocalEdgeParameters((state) => ({
-                                                                        ...state,
-                                                                        max_edge_weight: Number(value),
-                                                                    }))
-                                                                }
-                                                                min={0}
-                                                                max={100000}
-                                                                onBlur={updateEdgeParameters}
-                                                                onPressEnter={updateEdgeParameters}
-                                                            />
-                                                        </Col>
-                                                    </Row>
                                                     <hr />
                                                     <Row align="middle" justify="space-between">
                                                         <Col>
