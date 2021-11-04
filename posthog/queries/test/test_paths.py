@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -504,7 +504,7 @@ def _create_all_events(events: List[MockEvent]):
 
 
 def _create_event(**kwargs):
-    data = {"timestamp": now()}
+    data: Dict[str, Any] = {"timestamp": now()}  # default
     data.update(kwargs)
     return MockEvent(**data)
 

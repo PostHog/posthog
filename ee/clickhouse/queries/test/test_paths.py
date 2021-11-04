@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -39,7 +39,7 @@ ONE_MINUTE = 60_000  # 1 minute in milliseconds
 def _create_all_events(all_events: List[Dict]):
     parsed = ""
     for event in all_events:
-        data = {"properties": {}, "timestamp": timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}
+        data: Dict[str, Any] = {"properties": {}, "timestamp": timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}
         data.update(event)
         mocked_event = MockEvent(**data)
         parsed += f"""
