@@ -231,14 +231,13 @@ export const FEATURE_FLAGS = {
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
     TRAILING_WAU_MAU: '3638-trailing-wau-mau', // owner: @EDsCODE
-    EVENT_COLUMN_CONFIG: '4141-event-columns', // owner: @paolodamico
+    EVENT_COLUMN_CONFIG: '4141-event-columns', // owner: @pauldambra
     SAVED_INSIGHTS: '3408-saved-insights', // owner: @alexkim
     MULTIVARIATE_SUPPORT: '5440-multivariate-support', // owner: @mariusandra
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI: 'new-paths-ui', // owner: @EDsCODE
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
-    TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags', // owner: @mariusandra
     REMOVE_SESSIONS: '6050-remove-sessions', // owner: @rcmarron
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown', // owner: @alexkim
     RENAME_FILTERS: '6063-rename-filters', // owner: @alexkim

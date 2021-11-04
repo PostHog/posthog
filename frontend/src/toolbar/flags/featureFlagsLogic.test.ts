@@ -1,5 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { CombinedFeatureFlagAndOverrideType } from '~/types'
@@ -14,19 +14,20 @@ const featureFlagsWithExtraInfo = [
     { currentValue: undefined, hasVariants: false, feature_flag: { name: 'flag 2' } },
 ]
 
-global.fetch = jest.fn(() =>
-    Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(featureFlags),
-    } as any as Response)
-)
-
-describe('feature flags logic', () => {
+describe('toolbar featureFlagsLogic', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
-
-    initKeaTestLogic()
+    beforeEach(() => {
+        global.fetch = jest.fn(() =>
+            Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve(featureFlags),
+            } as any as Response)
+        )
+    })
 
     beforeEach(() => {
+        initKeaTests()
         toolbarLogic({ apiURL: 'http://localhost' }).mount()
         logic = featureFlagsLogic()
         logic.mount()
@@ -46,5 +47,18 @@ describe('feature flags logic', () => {
         }).toMatchValues({
             filteredFlags: [{ currentValue: undefined, hasVariants: false, feature_flag: { name: 'flag 2' } }],
         })
+    })
+
+    it('expires the token if request failed', async () => {
+        global.fetch = jest.fn(() =>
+            Promise.resolve({
+                ok: false,
+                status: 401,
+                json: () => Promise.resolve(featureFlags),
+            } as any as Response)
+        )
+        await expectLogic(logic, () => {
+            logic.actions.getUserFlags()
+        }).toDispatchActions([toolbarLogic.actionTypes.tokenExpired])
     })
 })

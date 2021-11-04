@@ -10,18 +10,26 @@ import {
     IconGauge,
     IconGroupedEvents,
     IconPerson,
+    IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
 } from '../../../lib/components/icons'
-import { LemonButton } from '../../../lib/components/LemonButton'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonButtonWithSideAction,
+    LemonButtonWithSideActionProps,
+    SideAction,
+} from '../../../lib/components/LemonButton'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
-import { Link } from '../../../lib/components/Link'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { canViewPlugins } from '../../../scenes/plugins/access'
 import { sceneLogic } from '../../../scenes/sceneLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
+import { ViewType } from '../../../types'
+import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './SideBar.scss'
 
@@ -43,34 +51,39 @@ function Spacer(): JSX.Element {
     return <div className="SideBar__spacer" />
 }
 
-function PageButton({
-    title,
-    icon,
-    identifier,
-    to,
-    onClick,
-}: {
-    title: string
-    icon: React.ReactElement
+interface PageButtonProps extends Pick<LemonButtonProps, 'title' | 'icon'> {
     identifier: string
-    to?: string
-    onClick?: () => void
-}): JSX.Element {
+    onClick: (() => void) | string
+    sideAction?: Omit<SideAction, 'type'> & { identifier: string }
+}
+
+function PageButton({ title, icon, sideAction, identifier, onClick }: PageButtonProps): JSX.Element {
     const { aliasedActiveScene } = useValues(sceneLogic)
 
-    const isActive = identifier === aliasedActiveScene
+    const isActiveSide: boolean = sideAction?.identifier === aliasedActiveScene
+    const isActive: boolean = isActiveSide || identifier === aliasedActiveScene
+
+    let sideActionInternal: LemonButtonWithSideActionProps['sideAction']
+    if (sideAction) {
+        sideActionInternal = { ...sideAction, type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth' }
+    }
 
     return (
-        <Link to={to} onClick={onClick}>
-            <LemonButton icon={icon} fullWidth type={isActive ? 'highlighted' : 'stealth'}>
-                {title}
-            </LemonButton>
-        </Link>
+        <LemonButtonWithSideAction
+            icon={icon}
+            fullWidth
+            type={isActive ? 'highlighted' : 'stealth'}
+            onClick={onClick}
+            sideAction={sideActionInternal}
+        >
+            {title}
+        </LemonButtonWithSideAction>
     )
 }
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
+    const { showToolbarModal } = useActions(lemonadeLogic)
 
     return (
         <div className="Pages">
@@ -80,48 +93,69 @@ function Pages(): JSX.Element {
                         title="Setup"
                         icon={<IconSettings />}
                         identifier="onboardingSetup"
-                        to={urls.onboardingSetup()}
+                        onClick={urls.onboardingSetup()}
                     />
                     <Spacer />
                 </>
             )}
-            <PageButton title="Dashboards" icon={<IconGauge />} identifier="dashboards" to={urls.dashboards()} />
-            <PageButton title="Insights" icon={<IconBarChart />} identifier="savedInsights" to={urls.savedInsights()} />
+            <PageButton title="Dashboards" icon={<IconGauge />} identifier="dashboards" onClick={urls.dashboards()} />
+            <PageButton
+                title="Insights"
+                icon={<IconBarChart />}
+                identifier="savedInsights"
+                onClick={urls.savedInsights()}
+                sideAction={{
+                    icon: <IconPlus />,
+                    onClick: urls.insightView(ViewType.TRENDS),
+                    tooltip: 'New insight',
+                    identifier: 'insights',
+                }}
+            />
             <PageButton
                 title="Recordings"
                 icon={<IconRecording />}
                 identifier="sessionRecordings"
-                to={urls.sessionRecordings()}
+                onClick={urls.sessionRecordings()}
             />
-            <PageButton title="Feature flags" icon={<IconFlag />} identifier="featureFlags" to={urls.featureFlags()} />
+            <PageButton
+                title="Feature flags"
+                icon={<IconFlag />}
+                identifier="featureFlags"
+                onClick={urls.featureFlags()}
+            />
             <Spacer />
-            <PageButton title="Events & actions" icon={<IconGroupedEvents />} identifier="events" to={urls.events()} />
-            <PageButton title="Persons" icon={<IconPerson />} identifier="persons" to={urls.persons()} />
-            <PageButton title="Cohorts" icon={<IconCohort />} identifier="cohorts" to={urls.cohorts()} />
-            <PageButton title="Annotations" icon={<IconComment />} identifier="annotations" to={urls.annotations()} />
+            <PageButton
+                title="Events & actions"
+                icon={<IconGroupedEvents />}
+                identifier="events"
+                onClick={urls.events()}
+            />
+            <PageButton title="Persons" icon={<IconPerson />} identifier="persons" onClick={urls.persons()} />
+            <PageButton title="Cohorts" icon={<IconCohort />} identifier="cohorts" onClick={urls.cohorts()} />
+            <PageButton
+                title="Annotations"
+                icon={<IconComment />}
+                identifier="annotations"
+                onClick={urls.annotations()}
+            />
             <Spacer />
             {canViewPlugins(currentOrganization) && (
-                <PageButton title="Plugins" icon={<IconExtension />} identifier="plugins" to={urls.plugins()} />
+                <PageButton title="Plugins" icon={<IconExtension />} identifier="plugins" onClick={urls.plugins()} />
             )}
-            <PageButton
-                title="Toolbar"
-                icon={<IconTools />}
-                identifier="toolbar"
-                onClick={() => console.error('TODO')}
-            />
+            <PageButton title="Toolbar" icon={<IconTools />} identifier="toolbar" onClick={showToolbarModal} />
             <PageButton
                 title="Project settings"
                 icon={<IconSettings />}
                 identifier="projectSettings"
-                to={urls.projectSettings()}
+                onClick={urls.projectSettings()}
             />
         </div>
     )
 }
 
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
-    const { isSideBarShown } = useValues(lemonadeLogic)
-    const { hideSideBar } = useActions(lemonadeLogic)
+    const { isSideBarShown, isToolbarModalShown } = useValues(lemonadeLogic)
+    const { hideSideBar, hideToolbarModal } = useActions(lemonadeLogic)
 
     return (
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
@@ -134,6 +168,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             </div>
             <div className="SideBar__overlay" onClick={hideSideBar} />
             {children}
+            <ToolbarModal visible={isToolbarModalShown} onCancel={hideToolbarModal} />
         </div>
     )
 }

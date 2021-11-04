@@ -13,6 +13,7 @@ class AvailableFeature(str, Enum):
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
+    CORRELATION_ANALYSIS = "correlation_analysis"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

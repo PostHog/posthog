@@ -46,16 +46,12 @@ export function DateFilterRange(props: {
         }
     }
 
-    useEffect(
-        () => {
-            window.addEventListener('mousedown', onClickOutside)
-            return () => {
-                window.removeEventListener('mousedown', onClickOutside)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [calendarOpen]
-    )
+    useEffect(() => {
+        window.addEventListener('mousedown', onClickOutside)
+        return () => {
+            window.removeEventListener('mousedown', onClickOutside)
+        }
+    }, [calendarOpen])
 
     return (
         <div ref={dropdownRef}>

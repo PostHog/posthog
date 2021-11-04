@@ -39,3 +39,12 @@
         color: var(--primary);
     }
 }
+
+.LemonButtonWithSideAction {
+    position: relative;
+    .side-button {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+    }
+}

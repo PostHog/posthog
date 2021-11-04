@@ -59,7 +59,7 @@ export function SessionRecordingsButton({ sessionRecordings, source }: SessionRe
                     </div>
                 )
             },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+
             [sessionRecordings, setAreRecordingsShown]
         )
 
