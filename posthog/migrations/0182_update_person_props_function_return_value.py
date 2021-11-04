@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0179_add_group_type_mapping"),
+        ("posthog", "0181_team_correlation_config"),
     ]
 
     operations = [
