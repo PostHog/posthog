@@ -24,6 +24,8 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideChangelogModal: true,
         showToolbarModal: true,
         hideToolbarModal: true,
+        toggleProjectSwitcher: true,
+        hideProjectSwitcher: true,
     },
     reducers: {
         isSideBarShown: [
@@ -80,6 +82,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
             {
                 showToolbarModal: () => true,
                 hideToolbarModal: () => false,
+            },
+        ],
+        isProjectSwitcherShown: [
+            false,
+            {
+                toggleProjectSwitcher: (state) => !state,
+                hideProjectSwitcher: () => false,
             },
         ],
     },

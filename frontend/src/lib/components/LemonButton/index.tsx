@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import React from 'react'
 import { IconArrowDropDown } from '../icons'
 import { LemonRow, LemonRowPropsBase } from '../LemonRow'
 import { Link } from '../Link'
@@ -65,23 +65,24 @@ export function LemonButtonWithSideAction({ sideAction, ...buttonProps }: LemonB
         </div>
     )
 }
-export interface LemonButtonWithPopupProps extends Omit<LemonButtonPropsBase, 'onClick'> {
-    overlay: PopupProps['overlay']
-}
+export type LemonButtonWithPopupProps = Omit<LemonButtonPropsBase, 'onClick'> &
+    Pick<PopupProps, 'overlay' | 'visible' | 'onClickOutside'> & {
+        onClickReference: () => void
+    }
 
 /**
  * Styled button with a Popup on click.
  */
-export function LemonButtonWithPopup({ overlay, ...buttonProps }: LemonButtonWithPopupProps): JSX.Element {
-    const [isPopupVisible, setIsPopupVisible] = useState(false)
-
+export function LemonButtonWithPopup({
+    overlay,
+    visible,
+    onClickReference,
+    onClickOutside,
+    ...buttonProps
+}: LemonButtonWithPopupProps): JSX.Element {
     return (
-        <Popup visible={isPopupVisible} onClickOutside={() => setIsPopupVisible(false)} overlay={overlay} sameWidth>
-            <LemonButton
-                onClick={() => setIsPopupVisible((state) => !state)}
-                sideIcon={<IconArrowDropDown />}
-                {...buttonProps}
-            />
+        <Popup visible={visible} onClickOutside={onClickOutside} overlay={overlay} sameWidth>
+            <LemonButton onClick={onClickReference} sideIcon={<IconArrowDropDown />} {...buttonProps} />
         </Popup>
     )
 }

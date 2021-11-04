@@ -39,11 +39,21 @@ import './SideBar.scss'
 function CurrentProjectButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { push } = useActions(router)
+    const { hideProjectSwitcher } = useActions(lemonadeLogic)
 
     return (
         <LemonRow
             status="highlighted"
-            sideIcon={<LemonButton compact onClick={() => push(urls.projectSettings())} icon={<IconSettings />} />}
+            sideIcon={
+                <LemonButton
+                    compact
+                    onClick={() => {
+                        hideProjectSwitcher()
+                        push(urls.projectSettings())
+                    }}
+                    icon={<IconSettings />}
+                />
+            }
             fullWidth
         >
             <strong>{currentTeam?.name}</strong>
@@ -53,15 +63,23 @@ function CurrentProjectButton(): JSX.Element {
 
 function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
     const { updateCurrentTeam } = useActions(userLogic)
+    const { hideProjectSwitcher } = useActions(lemonadeLogic)
 
     return (
         <LemonButtonWithSideAction
-            onClick={() => updateCurrentTeam(team.id, '/')}
+            onClick={() => {
+                hideProjectSwitcher()
+                updateCurrentTeam(team.id, '/')
+            }}
             sideAction={{
                 icon: <IconSettings />,
                 tooltip: `Go to ${team.name} settings`,
-                onClick: () => updateCurrentTeam(team.id, '/project/settings'),
+                onClick: () => {
+                    hideProjectSwitcher()
+                    updateCurrentTeam(team.id, '/project/settings')
+                },
             }}
+            title={`Switch to project ${team.name}`}
             type="stealth"
             fullWidth
         >
@@ -73,7 +91,8 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
 export function ProjectSwitcher(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
-    const { showCreateProjectModal } = useActions(lemonadeLogic)
+    const { isProjectSwitcherShown } = useValues(lemonadeLogic)
+    const { showCreateProjectModal, toggleProjectSwitcher, hideProjectSwitcher } = useActions(lemonadeLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (
@@ -83,6 +102,9 @@ export function ProjectSwitcher(): JSX.Element {
                 icon={<Lettermark name={currentOrganization?.name} />}
                 fullWidth
                 type="stealth"
+                visible={isProjectSwitcherShown}
+                onClickReference={toggleProjectSwitcher}
+                onClickOutside={hideProjectSwitcher}
                 overlay={
                     <>
                         <CurrentProjectButton />
@@ -96,14 +118,15 @@ export function ProjectSwitcher(): JSX.Element {
                             icon={<IconPlus />}
                             fullWidth
                             disabled={isProjectCreationForbidden}
-                            onClick={() =>
+                            onClick={() => {
+                                hideProjectSwitcher()
                                 guardAvailableFeature(
                                     AvailableFeature.ORGANIZATIONS_PROJECTS,
                                     'multiple projects',
                                     'Projects allow you to separate data and configuration for different products or environments.',
                                     showCreateProjectModal
                                 )
-                            }
+                            }}
                         >
                             New project
                         </LemonButton>
