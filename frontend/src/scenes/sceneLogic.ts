@@ -268,7 +268,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
             if (!loadedScene) {
                 // if we can't load the scene in a second, show a spinner
-                const timeout = window.setTimeout(() => actions.setScene(scene, params, true), 1000)
+                const timeout = window.setTimeout(() => actions.setScene(scene, params, true), 500)
                 let importedScene
                 try {
                     importedScene = await props.scenes[scene]()
