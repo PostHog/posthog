@@ -194,7 +194,7 @@ describe('e2e', () => {
             )
             expect(Object.keys(exportedEventsAfterJob[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$elements_chain',
+                    '$elements',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',
@@ -256,7 +256,7 @@ describe('e2e', () => {
 
             expect(Object.keys(exportedEventsAfterSecondJob[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$elements_chain',
+                    '$elements',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',

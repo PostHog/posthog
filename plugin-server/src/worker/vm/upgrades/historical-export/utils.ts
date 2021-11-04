@@ -2,6 +2,7 @@ import { CacheExtension, PluginEvent, Properties } from '@posthog/plugin-scaffol
 import { Plugin, PluginMeta } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
+import { chainToElements } from 'utils/db/utils'
 
 import { ClickHouseEvent, Event, PluginConfig, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
@@ -133,7 +134,7 @@ export const fetchEventsForInterval = async (
 
 export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
     const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
-    properties['$elements_chain'] = elements_chain
+    properties['$elements'] = chainToElements(elements_chain)
     properties['$$historical_export_source_db'] = 'clickhouse'
     const parsedEvent = {
         uuid,
@@ -153,6 +154,7 @@ export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): His
 export const convertPostgresEventToPluginEvent = (event: Event): HistoricalExportEvent => {
     const { event: eventName, timestamp, team_id, distinct_id, created_at, properties, elements, id } = event
     properties['$$postgres_event_id'] = id
+    properties['$elements'] = elements
     properties['$$historical_export_source_db'] = 'postgres'
     const parsedEvent = {
         uuid: new UUIDT().toString(), // postgres events don't store a uuid

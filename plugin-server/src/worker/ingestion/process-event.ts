@@ -459,16 +459,11 @@ export class EventsProcessor {
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
-        const elementsChain: string | undefined = properties['$elements_chain']
         let elementsList: Element[] = []
 
         if (elements && elements.length) {
             delete properties['$elements']
             elementsList = extractElements(elements)
-        }
-
-        if (elementsChain) {
-            delete properties['$elements_chain']
         }
 
         const team = await this.teamManager.fetchTeam(teamId)
@@ -511,16 +506,14 @@ export class EventsProcessor {
         distinctId: string,
         properties?: Properties,
         timestamp?: DateTime | string,
-        elements?: Element[],
-        eventPayloadElementsChain?: string
+        elements?: Element[]
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
 
-        const elementsChain =
-            eventPayloadElementsChain ?? (elements && elements.length ? elementsToString(elements) : '')
+        const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const eventPayload: IEvent = {
             uuid,
