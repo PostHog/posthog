@@ -151,7 +151,7 @@ class BreakdownMixin(BaseParamMixin):
     @cached_property
     def breakdown_group_type_index(self) -> int:
         value = self._data.get(BREAKDOWN_GROUP_TYPE_INDEX, None)
-        if not isinstance(value, int) or 0 <= value < GROUP_TYPES_LIMIT:
+        if not (isinstance(value, int) and 0 <= value < GROUP_TYPES_LIMIT):
             raise ValidationError(
                 {
                     "breakdown_group_type_index": f"This field is required if breakdown_type is group and must be greater than 0 and less than {GROUP_TYPES_LIMIT}"

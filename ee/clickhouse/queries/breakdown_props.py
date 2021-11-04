@@ -44,6 +44,8 @@ def get_breakdown_prop_values(
 
     if filter.breakdown_type == "person":
         value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
+    elif filter.breakdown_type == "group":
+        value_expression, _ = get_property_string_expr("groups", cast(str, filter.breakdown), "%(key)s", f"group_properties_{filter.breakdown_group_type_index}")
     else:
         value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
 

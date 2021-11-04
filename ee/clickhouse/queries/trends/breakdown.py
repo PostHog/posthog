@@ -98,7 +98,9 @@ class ClickhouseTrendsBreakdown:
             )
 
         person_join_condition, person_join_params = self._person_join_condition()
-        groups_join_condition, groups_join_params = GroupsJoinQuery(self.filter, self.team_id, self.column_optimizer).get_join_query()
+        groups_join_condition, groups_join_params = GroupsJoinQuery(
+            self.filter, self.team_id, self.column_optimizer
+        ).get_join_query()
         self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
@@ -184,6 +186,9 @@ class ClickhouseTrendsBreakdown:
 
         if self.filter.breakdown_type == "person":
             breakdown_value, _ = get_property_string_expr("person", self.filter.breakdown, "%(key)s", "person_props")
+        elif self.filter.breakdown_type == "group":
+            properties_field = f"group_properties_{self.filter.breakdown_group_type_index}"
+            breakdown_value, _ = get_property_string_expr("groups", self.filter.breakdown, "%(key)s", properties_field)
         else:
             breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", "properties")
 
