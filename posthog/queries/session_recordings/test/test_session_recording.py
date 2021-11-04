@@ -183,7 +183,7 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                     },
                 )
 
-        def create_snapshot(self, distinct_id, session_id, timestamp, window_id=3, type=2, team_id=None):
+        def create_snapshot(self, distinct_id, session_id, timestamp, window_id="", type=2, team_id=None):
             if team_id == None:
                 team_id = self.team.pk
             session_recording_event_factory(
@@ -196,7 +196,7 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
             )
 
         def create_chunked_snapshots(
-            self, snapshot_count, distinct_id, session_id, timestamp, window_id=3, has_full_snapshot=True
+            self, snapshot_count, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True
         ):
             snapshot = []
             for index in range(snapshot_count):

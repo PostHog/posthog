@@ -321,7 +321,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 self.assertEqual(session["snapshots"], data)
 
         def create_snapshot(
-            self, distinct_id, session_id, timestamp, type=2, window_id="3", team_id=None, snapshot_data=None
+            self, distinct_id, session_id, timestamp, type=2, window_id="", team_id=None, snapshot_data=None
         ):
             if team_id is None:
                 team_id = self.team.pk

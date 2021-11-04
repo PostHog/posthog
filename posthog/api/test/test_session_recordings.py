@@ -16,7 +16,7 @@ from posthog.test.base import APIBaseTest
 
 def factory_test_session_recordings_api(session_recording_event_factory):
     class TestSessionRecordings(APIBaseTest):
-        def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None, window_id="3"):
+        def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None, window_id=""):
             if team_id == None:
                 team_id = self.team.pk
             session_recording_event_factory(
@@ -29,7 +29,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             )
 
         def create_chunked_snapshots(
-            self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id="3"
+            self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id=""
         ):
             snapshot = []
             for index in range(snapshot_count):
