@@ -4,6 +4,12 @@ on:
     pull_request:
         paths:
             - 'plugin-server/**'
+            - 'ee/models/**'
+            - 'ee/clickhouse/**'
+            - 'ee/migrations/**'
+            - 'posthog/models/**'
+            - 'posthog/migrations/**'
+            - 'posthog/plugins/**'
 
 jobs:
     code-quality:
