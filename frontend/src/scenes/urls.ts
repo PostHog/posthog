@@ -14,7 +14,7 @@ export const urls = {
     events: () => '/events',
     insights: () => '/insights',
     // newInsight: (view: ViewType) => `/insights/new${view ? `/?insight=${encodeURIComponent(view)}` : ''}`,
-    newInsight: (view: ViewType) => `/insights${view ? `?insight=${encodeURIComponent(view)}` : ''}`,
+    newInsight: (view: ViewType = ViewType.TRENDS) => `/insights${view ? `?insight=${encodeURIComponent(view)}` : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
     savedInsights: () => '/saved_insights',
     sessions: () => '/sessions',
