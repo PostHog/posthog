@@ -34,7 +34,7 @@ describe('DB', () => {
                     id: ACTION_ID,
                     name: 'Test Action',
                     deleted: false,
-                    post_to_slack: false,
+                    post_to_slack: true,
                     slack_message_format: '',
                     is_calculating: false,
                     steps: [

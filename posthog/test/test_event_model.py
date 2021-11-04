@@ -1,5 +1,3 @@
-from unittest.mock import call, patch
-
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Organization, Person

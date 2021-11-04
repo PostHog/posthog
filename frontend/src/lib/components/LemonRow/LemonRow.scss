@@ -1,6 +1,7 @@
 @import '~/vars';
 
 .LemonRow {
+    transition: background-color 200ms ease, color 200ms ease;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -11,6 +12,12 @@
     border: none;
     font-size: 0.875rem;
     text-align: left;
+}
+
+.LemonRow--compact {
+    display: block;
+    height: 1.5rem;
+    padding: 0;
 }
 
 .LemonRow--status-danger {
@@ -33,18 +40,22 @@
     }
 }
 
-.LemonRow--align-start {
-    justify-content: start;
-}
-
 .LemonRow--full-width {
+    justify-content: start;
     width: 100%;
-    padding: 0 0.5rem;
+    padding-left: 0.5rem;
 }
 
 .LemonRow__icon {
+    transition: background-color 200ms ease, color 200ms ease;
     display: flex;
-    margin-right: 0.5rem;
     font-size: 1.5rem;
     color: var(--muted-alt);
+}
+
+.LemonRow__content {
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    margin-left: 0.5rem;
 }

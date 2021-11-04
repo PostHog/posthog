@@ -11,7 +11,7 @@ import { dashboardColors } from 'lib/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { AnnotationScope, AnnotationType } from '~/types'
-import styles from '~/vars.scss'
+import { styles } from '../../../vars'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 
@@ -83,18 +83,14 @@ export function AnnotationMarker({
 
     const visible = focused || (!dynamic && hovered)
 
-    useEffect(
-        () => {
-            if (visible) {
-                reportAnnotationViewed(annotations)
-            } else {
-                reportAnnotationViewed(null)
-                /* We report a null value to cancel (if applicable) the report because the annotation was closed */
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [visible]
-    )
+    useEffect(() => {
+        if (visible) {
+            reportAnnotationViewed(annotations)
+        } else {
+            reportAnnotationViewed(null)
+            /* We report a null value to cancel (if applicable) the report because the annotation was closed */
+        }
+    }, [visible])
 
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -123,16 +119,12 @@ export function AnnotationMarker({
         closePopup()
     }
 
-    useEffect(
-        () => {
-            document.addEventListener('mousedown', deselect)
-            return () => {
-                document.removeEventListener('mousedown', deselect)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        []
-    )
+    useEffect(() => {
+        document.addEventListener('mousedown', deselect)
+        return () => {
+            document.removeEventListener('mousedown', deselect)
+        }
+    }, [])
 
     if (
         dynamic &&

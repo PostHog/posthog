@@ -5,8 +5,11 @@ on: pull_request
 jobs:
     storybook-chromatic:
         runs-on: ubuntu-latest
+        if: github.event.pull_request.head.repo.full_name == github.repository
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
+              with:
+                  fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install dependencies and chromatic
               run: yarn add --dev chromatic

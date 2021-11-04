@@ -4,9 +4,27 @@ on:
     - pull_request
 
 jobs:
+    cypress_prep:
+        name: Cypress E2E preparation
+        runs-on: ubuntu-latest
+        outputs:
+            matrix: ${{ steps.set-matrix.outputs.matrix }}
+        steps:
+            - name: Check out
+              uses: actions/checkout@v2
+            - id: set-matrix
+              run: |
+                  if ${{github.event.pull_request.head.repo.full_name == github.repository}}; then
+                  matrix=$(jq 'map(.)' .github/workflows/e2e_matrix.json)  
+                  else              
+                  matrix='[{"containers": [1]}]'
+                  fi
+                  echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
+
     cypress:
         name: Cypress E2E tests
         runs-on: ubuntu-18.04
+        needs: cypress_prep
 
         strategy:
             # when one test fails, DO NOT cancel the other
@@ -14,9 +32,8 @@ jobs:
             # leaving the Dashboard hanging ...
             # https://github.com/cypress-io/github-action/issues/48
             fail-fast: false
-            matrix:
-                # run 7 copies of the current job in parallel
-                containers: [1, 2, 3, 4, 5, 6, 7]
+            matrix: ${{fromJson(needs.cypress_prep.outputs.matrix)}}
+
         services:
             postgres:
                 image: postgres:12
@@ -42,7 +59,7 @@ jobs:
                     --health-retries 5
         steps:
             - name: Checkout
-              uses: actions/checkout@v1
+              uses: actions/checkout@v2
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -106,7 +123,7 @@ jobs:
               with:
                   config-file: cypress.e2e.json
                   record: true
-                  parallel: true
+                  parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
                   group: 'PostHog Frontend'
                   # We're already installing cypress above
                   # We have to install it separately otherwise the tests fail.

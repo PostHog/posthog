@@ -7,7 +7,7 @@ export function useEscapeKey(callback, deps = []) {
                 callback()
             }
         },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+
         deps
     )
 
@@ -16,7 +16,7 @@ export function useEscapeKey(callback, deps = []) {
             document.addEventListener('keydown', escFunction, false)
             return () => document.removeEventListener('keydown', escFunction, false)
         },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+
         deps
     )
 }

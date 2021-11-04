@@ -18,7 +18,7 @@ global.fetch = jest.fn(() =>
     } as any as Response)
 )
 
-describe('actions logic', () => {
+describe('toolbar actionsLogic', () => {
     let logic: ReturnType<typeof actionsLogic.build>
 
     initKeaTestLogic()

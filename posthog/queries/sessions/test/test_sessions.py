@@ -1,5 +1,3 @@
-import unittest
-
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS

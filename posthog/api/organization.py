@@ -10,7 +10,6 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_onboarding_completed
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership

@@ -22,11 +22,10 @@ import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
-    logic: sceneLogic,
+    logic: dashboardsLogic,
 }
 
 export function Dashboards(): JSX.Element {
@@ -141,21 +140,15 @@ export function Dashboards(): JSX.Element {
         },
     ]
 
-    useEffect(
-        () => {
-            if (!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)) {
-                setDisplayedColumns(
-                    columns.filter(
-                        (col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString())
-                    )
-                )
-            } else {
-                setDisplayedColumns(columns)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [user?.organization?.available_features, dashboardTags]
-    )
+    useEffect(() => {
+        if (!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)) {
+            setDisplayedColumns(
+                columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
+            )
+        } else {
+            setDisplayedColumns(columns)
+        }
+    }, [user?.organization?.available_features, dashboardTags])
 
     return (
         <div>

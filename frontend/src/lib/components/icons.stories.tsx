@@ -6,10 +6,10 @@ import { Table } from 'antd'
 const allIcons = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
 
 export default {
-    title: 'PostHog/Components/Icons',
+    title: 'PostHog/Icons',
 } as Meta
 
-export function AllIcons(): JSX.Element {
+export function Icons(): JSX.Element {
     return (
         <Table
             pagination={false}
