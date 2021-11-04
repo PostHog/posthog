@@ -192,6 +192,16 @@ describe('e2e', () => {
             expect(exportedEventsAfterJob.map((log) => log[1])).toEqual(
                 expect.arrayContaining(['historicalEvent1', 'historicalEvent2', 'historicalEvent3', 'historicalEvent4'])
             )
+            expect(Object.keys(exportedEventsAfterJob[0].properties)).toEqual(
+                expect.arrayContaining([
+                    '$elements_chain',
+                    '$$historical_export_source_db',
+                    '$$is_historical_export_event',
+                    '$$historical_export_timestamp',
+                ])
+            )
+
+            expect(exportedEventsAfterJob[0].properties['$$historical_export_source_db']).toEqual('clickhouse')
         })
 
         test('export historical events with specified timestamp boundaries', async () => {
@@ -243,6 +253,17 @@ describe('e2e', () => {
             expect(exportedEventsAfterSecondJob.map((log) => log[1])).toEqual(
                 expect.arrayContaining(['historicalEvent1', 'historicalEvent2', 'historicalEvent3', 'historicalEvent4'])
             )
+
+            expect(Object.keys(exportedEventsAfterSecondJob[0].properties)).toEqual(
+                expect.arrayContaining([
+                    '$elements_chain',
+                    '$$historical_export_source_db',
+                    '$$is_historical_export_event',
+                    '$$historical_export_timestamp',
+                ])
+            )
+
+            expect(exportedEventsAfterSecondJob[0].properties['$$historical_export_source_db']).toEqual('clickhouse')
         })
     })
 })

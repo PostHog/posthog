@@ -11,8 +11,8 @@ import {
 } from '../../../../types'
 import { addPublicJobIfNotExists } from '../../utils'
 import {
-    ExportEventsFromTheBeginningUpgrade,
     ExportEventsJobPayload,
+    ExportHistoricalEventsUpgrade,
     fetchEventsForInterval,
     fetchTimestampBoundariesForTeam,
 } from './utils'
@@ -29,7 +29,7 @@ const INTERFACE_JOB_NAME = 'Export historical events'
 export function addHistoricalEventsExportCapability(
     hub: Hub,
     pluginConfig: PluginConfig,
-    response: PluginConfigVMInternalResponse<PluginMeta<ExportEventsFromTheBeginningUpgrade>>
+    response: PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgrade>>
 ): void {
     const { methods, tasks, meta } = response
 
@@ -50,10 +50,10 @@ export function addHistoricalEventsExportCapability(
         await oldSetupPlugin?.()
     }
 
-    tasks.job['exportEventsFromTheBeginning'] = {
-        name: 'exportEventsFromTheBeginning',
+    tasks.job['exportHistoricalEvents'] = {
+        name: 'exportHistoricalEvents',
         type: PluginTaskType.Job,
-        exec: (payload) => meta.global.exportEventsFromTheBeginning(payload as ExportEventsJobPayload),
+        exec: (payload) => meta.global.exportHistoricalEvents(payload as ExportEventsJobPayload),
     }
 
     tasks.job[INTERFACE_JOB_NAME] = {
@@ -78,12 +78,12 @@ export function addHistoricalEventsExportCapability(
             await meta.global.initTimestampsAndCursor(payload)
 
             await meta.jobs
-                .exportEventsFromTheBeginning({ retriesPerformedSoFar: 0, incrementTimestampCursor: true })
+                .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true })
                 .runNow()
         },
     }
 
-    meta.global.exportEventsFromTheBeginning = async (payload): Promise<void> => {
+    meta.global.exportHistoricalEvents = async (payload): Promise<void> => {
         if (payload.retriesPerformedSoFar >= 15) {
             // create some log error here
             return
@@ -129,6 +129,7 @@ export function addHistoricalEventsExportCapability(
                 EVENTS_TIME_INTERVAL,
                 EVENTS_PER_RUN
             )
+            console.log(events)
         } catch (error) {
             fetchEventsError = error
         }
@@ -136,7 +137,7 @@ export function addHistoricalEventsExportCapability(
         const incrementTimestampCursor = events.length === 0
 
         await meta.jobs
-            .exportEventsFromTheBeginning({
+            .exportHistoricalEvents({
                 timestampCursor,
                 incrementTimestampCursor,
                 retriesPerformedSoFar: 0,
@@ -168,7 +169,7 @@ export function addHistoricalEventsExportCapability(
             )
 
             await meta.jobs
-                .exportEventsFromTheBeginning({
+                .exportHistoricalEvents({
                     intraIntervalOffset,
                     timestampCursor,
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
