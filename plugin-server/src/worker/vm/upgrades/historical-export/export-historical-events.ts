@@ -129,7 +129,7 @@ export function addHistoricalEventsExportCapability(
                 EVENTS_TIME_INTERVAL,
                 EVENTS_PER_RUN
             )
-            console.log(events)
+            
         } catch (error) {
             fetchEventsError = error
         }
