@@ -85,7 +85,6 @@ export const insightLogic = kea<insightLogicType>({
             options,
         }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
-        setInsightDescription: (description: string) => ({ description }),
         saveInsight: true,
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
@@ -624,11 +623,10 @@ export const insightLogic = kea<insightLogicType>({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
                 let loadedFromAnotherLogic = false
-                if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
-                    if (values.insightMode !== ItemMode.Edit) {
-                        actions.setInsightMode(ItemMode.Edit, null)
-                    }
-                } else if (hashParams.fromItem) {
+                if (searchParams.insight === 'HISTORY') {
+                    return
+                }
+                if (hashParams.fromItem) {
                     const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
 
                     if (
@@ -652,6 +650,22 @@ export const insightLogic = kea<insightLogicType>({
                     const insightModeFromUrl = hashParams.edit ? ItemMode.Edit : ItemMode.View
                     if (insightModeFromUrl !== values.insightMode) {
                         actions.setInsightMode(insightModeFromUrl, null)
+                    }
+                } else {
+                    if (values.insight?.id) {
+                        actions.setInsight(
+                            {
+                                id: undefined,
+                                name: '',
+                                description: '',
+                                tags: [],
+                                filters: cleanFilters(searchParams, values.filters),
+                                result: null,
+                            },
+                            { overrideFilter: true, shouldMergeWithExisting: false }
+                        )
+                        actions.setInsightMode(ItemMode.Edit, null)
+                        return
                     }
                 }
 

@@ -37,7 +37,7 @@ describe('insightLogic', () => {
         ) {
             return {
                 result: pathname.endsWith('42') ? ['result from api'] : null,
-                id: pathname.endsWith('42') ? 42 : 43,
+                id: parseInt(pathname.split('/').pop() || ''),
                 filters: API_FILTERS,
             }
         } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
@@ -50,12 +50,18 @@ describe('insightLogic', () => {
             }
         } else if ([`api/projects/${MOCK_TEAM_ID}/insights/500`].includes(pathname)) {
             throwAPIError()
-        } else if (pathname === 'api/projects/997/insights/' && url.searchParams.saved) {
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/` && url.searchParams.saved) {
             return {
                 results: [
                     { id: 42, result: ['result 42'], filters: API_FILTERS },
                     { id: 43, result: ['result 43'], filters: API_FILTERS },
                 ],
+            }
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights`) {
+            return {
+                id: url.data?.filters.funnel_window_interval,
+                filters: url.data?.filters,
+                result: ['result from api'],
             }
         } else if (
             [
@@ -306,22 +312,35 @@ describe('insightLogic', () => {
             const url = combineUrl('/insights', { insight: 'TRENDS', interval: 'minute' }).url
             router.actions.push(url)
             await expectLogic(logic)
-                .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
+                .delay(1)
+                .printActions({ compact: true })
+                .toDispatchActions([router.actionCreators.push(url), 'setInsight', 'setInsightMode'])
                 .toMatchValues({
+                    insightMode: ItemMode.Edit,
                     filters: partial({ insight: 'TRENDS', interval: 'minute' }),
                 })
 
             // setting the same URL twice doesn't call `setFilters`
-            router.actions.push(url)
+            router.actions.push(router.values.location.pathname, router.values.searchParams, router.values.hashParams)
             await expectLogic(logic)
-                .toDispatchActions([router.actionCreators.push(url)])
+                .toDispatchActions([
+                    router.actionCreators.push(
+                        router.values.location.pathname,
+                        router.values.searchParams,
+                        router.values.hashParams
+                    ),
+                ])
                 .toNotHaveDispatchedActions(['setFilters'])
                 .toMatchValues({
                     filters: partial({ insight: 'TRENDS', interval: 'minute' }),
                 })
 
             // calls when the values changed
-            const url2 = combineUrl('/insights', { insight: 'TRENDS', interval: 'week' }).url
+            const url2 = combineUrl(
+                '/insights',
+                { ...router.values.searchParams, interval: 'week' },
+                router.values.location.hash
+            ).url
             router.actions.push(url2)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url2), 'setFilters'])
@@ -353,6 +372,18 @@ describe('insightLogic', () => {
                 .toDispatchActions(['loadResultsSuccess'])
                 .toMatchValues({
                     insight: partial({ id: 43, result: ['result from api'] }),
+                })
+
+            router.actions.push(combineUrl('/insights', { insight: 'FUNNELS', funnel_window_interval: 45 }).url)
+            await expectLogic(logic)
+                .toDispatchActions(['setInsight', 'setInsightMode', 'loadResults', 'loadResultsSuccess'])
+                .toMatchValues({
+                    filters: partial({ insight: 'FUNNELS' }),
+                    insight: partial({ id: undefined, result: ['result from api'] }),
+                })
+                .toDispatchActions(['setInsight'])
+                .toMatchValues({
+                    insight: partial({ id: 45, result: ['result from api'] }),
                 })
         })
 
