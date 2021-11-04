@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import './LemonRow.scss'
 import { Tooltip } from '../Tooltip'
 
-// Achieve higher-order function type inference for forwardRef,
+// Implement function type inference for forwardRef,
 // so that function components wrapped with forwardRef (i.e. LemonRow) can be generic.
 declare module 'react' {
     function forwardRef<T, P>(
@@ -15,7 +15,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref'> {
     icon?: React.ReactElement
     tag?: T
-    status?: 'success' | 'warning' | 'danger' // CSS variable colors
+    status?: 'success' | 'warning' | 'danger' | 'highlighted'
     tooltip?: string
     fullWidth?: boolean
 }

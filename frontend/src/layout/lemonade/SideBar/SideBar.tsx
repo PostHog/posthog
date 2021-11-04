@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React from 'react'
 import {
     IconBarChart,
@@ -22,20 +23,58 @@ import {
     LemonButtonWithSideAction,
     SideAction,
 } from '../../../lib/components/LemonButton'
+import { LemonRow } from '../../../lib/components/LemonRow'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { canViewPlugins } from '../../../scenes/plugins/access'
 import { sceneLogic } from '../../../scenes/sceneLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
-import { ViewType } from '../../../types'
+import { userLogic } from '../../../scenes/userLogic'
+import { AvailableFeature, TeamBasicType, ViewType } from '../../../types'
 import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './SideBar.scss'
 
+function CurrentProjectButton(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { push } = useActions(router)
+
+    return (
+        <LemonRow
+            status="highlighted"
+            sideIcon={<LemonButton compact onClick={() => push(urls.projectSettings())} icon={<IconSettings />} />}
+            fullWidth
+        >
+            <strong>{currentTeam?.name}</strong>
+        </LemonRow>
+    )
+}
+
+function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
+    const { updateCurrentTeam } = useActions(userLogic)
+
+    return (
+        <LemonButtonWithSideAction
+            onClick={() => updateCurrentTeam(team.id, '/')}
+            sideAction={{
+                icon: <IconSettings />,
+                tooltip: `Go to ${team.name} settings`,
+                onClick: () => updateCurrentTeam(team.id, '/project/settings'),
+            }}
+            type="stealth"
+            fullWidth
+        >
+            {team.name}
+        </LemonButtonWithSideAction>
+    )
+}
+
 export function ProjectSwitcher(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
+    const { showCreateProjectModal } = useActions(lemonadeLogic)
+    const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (
         <div className="ProjectSwitcher">
@@ -44,7 +83,32 @@ export function ProjectSwitcher(): JSX.Element {
                 icon={<Lettermark name={currentOrganization?.name} />}
                 fullWidth
                 type="stealth"
-                overlay={<b>X!</b>}
+                overlay={
+                    <>
+                        <CurrentProjectButton />
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+
+                        <LemonButton
+                            icon={<IconPlus />}
+                            fullWidth
+                            disabled={isProjectCreationForbidden}
+                            onClick={() =>
+                                guardAvailableFeature(
+                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                    'multiple projects',
+                                    'Projects allow you to separate data and configuration for different products or environments.',
+                                    showCreateProjectModal
+                                )
+                            }
+                        >
+                            New project
+                        </LemonButton>
+                    </>
+                }
             >
                 <strong>{currentTeam?.name}</strong>
             </LemonButtonWithPopup>

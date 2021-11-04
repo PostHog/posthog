@@ -65,7 +65,6 @@ export function LemonButtonWithSideAction({ sideAction, ...buttonProps }: LemonB
         </div>
     )
 }
-
 export interface LemonButtonWithPopupProps extends Omit<LemonButtonPropsBase, 'onClick'> {
     overlay: PopupProps['overlay']
 }

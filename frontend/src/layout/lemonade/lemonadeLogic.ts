@@ -18,6 +18,8 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideInviteModal: true,
         showCreateOrganizationModal: true,
         hideCreateOrganizationModal: true,
+        showCreateProjectModal: true,
+        hideCreateProjectModal: true,
         showChangelogModal: true,
         hideChangelogModal: true,
         showToolbarModal: true,
@@ -57,6 +59,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
             {
                 showCreateOrganizationModal: () => true,
                 hideCreateOrganizationModal: () => false,
+            },
+        ],
+        isCreateProjectModalShown: [
+            false,
+            {
+                showCreateProjectModal: () => true,
+                hideCreateProjectModal: () => false,
             },
         ],
         isChangelogModalShown: [
