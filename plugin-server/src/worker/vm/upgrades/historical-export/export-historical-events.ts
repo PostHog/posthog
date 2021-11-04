@@ -129,7 +129,6 @@ export function addHistoricalEventsExportCapability(
                 EVENTS_TIME_INTERVAL,
                 EVENTS_PER_RUN
             )
-            
         } catch (error) {
             fetchEventsError = error
         }
