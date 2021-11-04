@@ -1,4 +1,4 @@
-import { Button, Row, Space } from 'antd'
+import { Button, Checkbox, Row, Space } from 'antd'
 import Search from 'antd/lib/input/Search'
 import { LoadingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -65,18 +65,29 @@ const columns: ResizableColumnType<PluginLogEntry>[] = [
 export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
     const logic = pluginLogsLogic({ pluginConfigId })
 
-    const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad } = useValues(logic)
-    const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch } = useActions(logic)
+    const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad, pluginLogsTypes } = useValues(logic)
+    const { revealBackground, loadPluginLogsMore, setPluginLogsTypes, setSearchTerm } = useActions(logic)
 
     return (
         <Space direction="vertical" style={{ flexGrow: 1 }} className="ph-no-capture plugin-logs">
             <Row>
                 <Search
                     loading={pluginLogsLoading}
-                    onSearch={(term) => loadPluginLogsSearch(term)}
+                    onSearch={setSearchTerm}
                     placeholder="Search for messages containing…"
                     allowClear
                 />
+            </Row>
+            <Row>
+                <Space>
+                    <span>Show logs of type:&nbsp;</span>
+                    <Checkbox.Group
+                        options={Object.values(PluginLogEntryType)}
+                        value={pluginLogsTypes}
+                        onChange={setPluginLogsTypes}
+                        style={{ marginLeft: '8px' }}
+                    />
+                </Space>
             </Row>
             <Row>
                 <Button
