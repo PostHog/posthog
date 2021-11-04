@@ -263,6 +263,7 @@ export const eventUsageLogic = kea<
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
+        reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
@@ -628,6 +629,9 @@ export const eventUsageLogic = kea<
         },
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
+        },
+        reportSavedInsightFilterUsed: ({ filterKeys }) => {
+            posthog.capture('saved insights list page filter used', { filterKeys })
         },
         reportRecording: ({ recordingData, source, loadTime, type }) => {
             const eventIndex = new EventIndex(recordingData?.snapshots || [])

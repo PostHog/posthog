@@ -10,6 +10,7 @@ import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface InsightsResult {
     results: DashboardItemType[]
@@ -160,7 +161,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 )}`
             )
         },
-        setSavedInsightsFilters: async (_, breakpoint, __, previousState) => {
+        setSavedInsightsFilters: async ({ merge }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
             const { filters } = values // not taking from props because sometimes we merge them
@@ -170,6 +171,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             }
             if (firstLoad || !objectsEqual(oldFilters, filters)) {
                 actions.loadInsights()
+            }
+
+            // Filters from clicks come with "merge: true",
+            // Filters from the URL come with "merge: false" and override everything
+            if (merge) {
+                eventUsageLogic.actions.reportSavedInsightFilterUsed(
+                    Object.keys(objectDiffShallow(oldFilters, filters))
+                )
             }
         },
         renameInsight: async ({ id }) => {
