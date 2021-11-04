@@ -65,7 +65,6 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(res, ["test"])
 
-    @snapshot_clickhouse_queries
     def test_breakdown_person_props_with_entity_filter(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
         _create_event(
