@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React from 'react'
+import React, { useState } from 'react'
 import {
+    IconArrowDropDown,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -183,6 +184,9 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { showToolbarModal } = useActions(lemonadeLogic)
+    const { pinnedDashboards } = useValues(dashboardsModel)
+
+    const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
     return (
         <div className="Pages">
@@ -197,7 +201,36 @@ function Pages(): JSX.Element {
                     <Spacer />
                 </>
             )}
-            <PageButton title="Dashboards" icon={<IconGauge />} identifier="dashboards" to={urls.dashboards()} />
+            <PageButton
+                title="Dashboards"
+                icon={<IconGauge />}
+                identifier="dashboards"
+                to={urls.dashboards()}
+                sideAction={{
+                    icon: <IconArrowDropDown />,
+                    tooltip: 'Pinned dashboards',
+                    onClick: () => setArePinnedDashboardsShown((state) => !state),
+                    popup: {
+                        visible: arePinnedDashboardsShown,
+                        onClickOutside: () => setArePinnedDashboardsShown(false),
+                        overlay: (
+                            <>
+                                <h5>Pinned dashboards</h5>
+                                <Spacer />
+                                {pinnedDashboards.map((dashboard) => (
+                                    <PageButton
+                                        key={dashboard.id}
+                                        title={dashboard.name}
+                                        identifier={dashboard.id}
+                                        onClick={() => setArePinnedDashboardsShown(false)}
+                                        to={urls.dashboard(dashboard.id)}
+                                    />
+                                ))}
+                            </>
+                        ),
+                    },
+                }}
+            />
             <PageButton
                 title="Insights"
                 icon={<IconBarChart />}
