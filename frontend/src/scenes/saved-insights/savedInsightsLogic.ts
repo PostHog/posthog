@@ -176,9 +176,18 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             // Filters from clicks come with "merge: true",
             // Filters from the URL come with "merge: false" and override everything
             if (merge) {
-                eventUsageLogic.actions.reportSavedInsightFilterUsed(
-                    Object.keys(objectDiffShallow(oldFilters, filters))
-                )
+                let keys = Object.keys(objectDiffShallow(oldFilters, filters))
+                if (keys.includes('tab')) {
+                    keys = keys.filter((k) => k !== 'tab')
+                    eventUsageLogic.actions.reportSavedInsightTabChanged(filters.tab)
+                }
+                if (keys.includes('layoutView')) {
+                    keys = keys.filter((k) => k !== 'layoutView')
+                    eventUsageLogic.actions.reportSavedInsightLayoutChanged(filters.layoutView)
+                }
+                if (keys.length > 0) {
+                    eventUsageLogic.actions.reportSavedInsightFilterUsed(keys)
+                }
             }
         },
         renameInsight: async ({ id }) => {
