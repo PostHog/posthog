@@ -14,12 +14,6 @@
     text-align: left;
 }
 
-.LemonRow--compact {
-    display: block;
-    height: 1.5rem;
-    padding: 0;
-}
-
 .LemonRow--status-danger {
     font-weight: 600;
     color: var(--danger);
@@ -43,7 +37,13 @@
 .LemonRow--full-width {
     justify-content: start;
     width: 100%;
-    padding-left: 0.5rem;
+    padding: 0 0.5rem;
+}
+
+.LemonRow--compact {
+    display: block;
+    height: 1.5rem;
+    padding: 0;
 }
 
 .LemonRow__icon {
@@ -57,5 +57,5 @@
     flex-grow: 1;
     display: flex;
     align-items: center;
-    margin-left: 0.5rem;
+    padding: 0 0.5rem;
 }

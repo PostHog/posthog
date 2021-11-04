@@ -18,8 +18,8 @@ import {
 import {
     LemonButton,
     LemonButtonProps,
+    LemonButtonWithPopup,
     LemonButtonWithSideAction,
-    LemonButtonWithSideActionProps,
     SideAction,
 } from '../../../lib/components/LemonButton'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
@@ -40,9 +40,14 @@ export function ProjectSwitcher(): JSX.Element {
     return (
         <div className="ProjectSwitcher">
             <div className="SideBar__heading">Project</div>
-            <LemonButton icon={<Lettermark name={currentOrganization?.name} />} fullWidth type="stealth">
+            <LemonButtonWithPopup
+                icon={<Lettermark name={currentOrganization?.name} />}
+                fullWidth
+                type="stealth"
+                overlay={<b>X!</b>}
+            >
                 <strong>{currentTeam?.name}</strong>
-            </LemonButton>
+            </LemonButtonWithPopup>
         </div>
     )
 }
@@ -63,21 +68,20 @@ function PageButton({ title, icon, sideAction, identifier, onClick }: PageButton
     const isActiveSide: boolean = sideAction?.identifier === aliasedActiveScene
     const isActive: boolean = isActiveSide || identifier === aliasedActiveScene
 
-    let sideActionInternal: LemonButtonWithSideActionProps['sideAction']
-    if (sideAction) {
-        sideActionInternal = { ...sideAction, type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth' }
-    }
-
-    return (
+    return sideAction ? (
         <LemonButtonWithSideAction
             icon={icon}
             fullWidth
             type={isActive ? 'highlighted' : 'stealth'}
             onClick={onClick}
-            sideAction={sideActionInternal}
+            sideAction={{ ...sideAction, type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth' }}
         >
             {title}
         </LemonButtonWithSideAction>
+    ) : (
+        <LemonButton icon={icon} fullWidth type={isActive ? 'highlighted' : 'stealth'} onClick={onClick}>
+            {title}
+        </LemonButton>
     )
 }
 

@@ -6,7 +6,7 @@ import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Placement } from '@popperjs/core'
 import clsx from 'clsx'
 
-interface PopupProps {
+export interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
     /** Popover trigger element. */
