@@ -125,14 +125,5 @@
         "ts-node": "^10.0.0",
         "ts-node-dev": "^1.1.6",
         "typescript": "^4.4.0"
-    },
-    "husky": {
-        "hooks": {
-            "pre-commit": "lint-staged"
-        }
-    },
-    "lint-staged": {
-        "*.{js,ts}": "eslint --fix",
-        "*.{js,ts,css,scss,json,yml,yaml,md}": "prettier --write"
     }
 }

@@ -20,7 +20,7 @@ import { PostHog } from 'posthog-js'
     if (!posthog) {
         console.warn(
             '⚠️⚠️⚠️ Loaded toolbar via old version of posthog-js that does not support feature flags. Please upgrade! ⚠️⚠️⚠️'
-        )
+        );
     }
 
     ReactDOM.render(
