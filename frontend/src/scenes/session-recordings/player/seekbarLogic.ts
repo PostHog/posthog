@@ -137,7 +137,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
             )
 
             // If it shouldn't seek, the least we can do is set the time
-            console.log('Should seek', shouldSeek)
             if (!shouldSeek) {
                 actions.debouncedSetTime(time)
             } else {
@@ -191,7 +190,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
         },
         handleTickClick: ({ time }) => {
             if (!values.isSeeking) {
-                console.log('TICK CLICK', time)
                 actions.handleSeek(
                     convertValueToX(
                         getZeroOffsetTime(time, values.meta),

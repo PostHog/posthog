@@ -271,7 +271,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                values.replayer?.pause()
+                values.replayer?.pause(nextTime)
                 actions.clearLoadingState()
             }
             // Otherwise play
@@ -318,7 +318,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.timer = requestAnimationFrame(actions.updateAnimation)
         },
         stopAnimation: () => {
-            console.log('STOP', cache.timer)
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
             }
