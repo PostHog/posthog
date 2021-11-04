@@ -1,11 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, PersonPropertyUpdateOperation, PropertyOperator, Team } from '../../src/types'
+import { Hub, Person, PropertyOperator, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
-import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -114,14 +113,24 @@ describe('DB', () => {
         let team: Team
         let person: Person
         const uuid = new UUIDT().toString()
-        const distinct_id = 'distinct_id_update_person_properties'
+        const distinctId = 'distinct_id_update_person_properties'
 
         const FUTURE_TIMESTAMP = DateTime.fromISO('2050-10-14T11:42:06.502Z')
         const PAST_TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
+        async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
+            const selectResult = await db.postgresQuery(
+                `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
+                [teamId, personId],
+                'fetchPersonByPersonId'
+            )
+
+            return selectResult.rows[0]
+        }
+
         beforeEach(async () => {
             team = await getFirstTeam(hub)
-            person = await db.createPerson(PAST_TIMESTAMP, {}, team.id, null, false, uuid, [distinct_id])
+            person = await db.createPerson(PAST_TIMESTAMP, {}, team.id, null, false, uuid, [distinctId])
         })
 
         // util to get the new props after an update
@@ -130,8 +139,8 @@ describe('DB', () => {
             propertiesOnce: Properties,
             timestamp: DateTime
         ): Promise<Person['properties'] | undefined> {
-            await db.updatePersonProperties(team.id, distinct_id, properties, propertiesOnce, timestamp)
-            return (await db.fetchPersonByPersonId(team.id, person.id))?.properties
+            await db.updatePersonProperties(team.id, distinctId, properties, propertiesOnce, timestamp)
+            return (await fetchPersonByPersonId(team.id, person.id))?.properties
         }
 
         test('update non-existent single property', async () => {
@@ -145,28 +154,28 @@ describe('DB', () => {
         })
 
         test('update with newer timestamp - rows [2-5]', async () => {
-            // setup
+            // setup initially lower case letters
             let props = await updatePersonProperties({ r2: 'a', r3: 'b' }, { r4: 'c', r5: 'd' }, PAST_TIMESTAMP)
             expect(props).toEqual({ r2: 'a', r3: 'b', r4: 'c', r5: 'd' })
-            // update
+            // update to upper case letters
             props = await updatePersonProperties({ r2: 'A', r4: 'C' }, { r3: 'B', r5: 'D' }, FUTURE_TIMESTAMP)
             expect(props).toEqual({ r2: 'A', r3: 'b', r4: 'C', r5: 'd' })
         })
 
         test('update with equal timestamp - rows [6-9] ', async () => {
-            // setup
+            // setup initially lower case letters
             let props = await updatePersonProperties({ r6: 'a', r7: 'b' }, { r8: 'c', r9: 'd' }, PAST_TIMESTAMP)
             expect(props).toEqual({ r6: 'a', r7: 'b', r8: 'c', r9: 'd' })
-            // update
+            // update to upper case letters
             props = await updatePersonProperties({ r6: 'A', r8: 'C' }, { r7: 'B', r9: 'D' }, PAST_TIMESTAMP)
             expect(props).toEqual({ r6: 'a', r7: 'b', r8: 'C', r9: 'd' })
         })
 
         test('update with older timestamp - rows [10-13] ', async () => {
-            // setup
+            // setup initially lower case letters
             let props = await updatePersonProperties({ r10: 'a', r11: 'b' }, { r12: 'c', r13: 'd' }, FUTURE_TIMESTAMP)
             expect(props).toEqual({ r10: 'a', r11: 'b', r12: 'c', r13: 'd' })
-            // update
+            // update to upper case letters
             props = await updatePersonProperties({ r10: 'A', r12: 'C' }, { r11: 'B', r13: 'D' }, PAST_TIMESTAMP)
             expect(props).toEqual({ r10: 'a', r11: 'b', r12: 'C', r13: 'D' })
         })

@@ -550,7 +550,7 @@ export class DB {
         propertiesOnce: Properties,
         timestamp: DateTime
     ): Promise<void> {
-        if (properties.length == 0 && propertiesOnce.length == 0) {
+        if (properties.length === 0 && propertiesOnce.length === 0) {
             return
         }
         propertiesOnce = this.sanitizePropertiesOnce(properties, propertiesOnce)
