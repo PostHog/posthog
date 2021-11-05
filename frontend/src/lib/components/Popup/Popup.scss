@@ -7,7 +7,7 @@
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    max-width: min(calc(100vw - 1rem), 20rem);
+    max-width: calc(100vw - 1rem);
     max-height: calc(100vh - 6rem);
     overflow: auto;
     &--actionable {
