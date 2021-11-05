@@ -1,7 +1,7 @@
 @import '~/vars';
 @import './bridgePagesShared';
 
-.signup {
+.bridge-page.signup {
     // bridgePagesShared overrides
     .auth-main-content {
         min-height: calc(100vh - 54px); // To account for the footer

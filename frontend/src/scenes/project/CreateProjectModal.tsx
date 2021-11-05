@@ -7,12 +7,12 @@ import { userLogic } from 'scenes/userLogic'
 
 export function CreateProjectModal({
     isVisible,
-    setIsVisible,
+    onClose,
     title,
     caption,
 }: {
     isVisible: boolean
-    setIsVisible?: (newValue: boolean) => void
+    onClose?: () => void
     title?: string
     caption?: JSX.Element
 }): JSX.Element {
@@ -23,14 +23,14 @@ export function CreateProjectModal({
     const inputRef = useRef<Input | null>(null)
 
     const closeModal: () => void = useCallback(() => {
-        if (setIsVisible) {
+        if (onClose) {
             setErrorMessage(null)
-            setIsVisible(false)
+            onClose()
             if (inputRef.current) {
                 inputRef.current.setValue('')
             }
         }
-    }, [inputRef, setIsVisible])
+    }, [inputRef, onClose])
 
     const handleSubmit = (): void => {
         const name = inputRef.current?.state.value?.trim()
@@ -58,8 +58,8 @@ export function CreateProjectModal({
                 title || (user?.organization ? `Creating a Project in ${user.organization.name}` : 'Creating a Project')
             }
             okText="Create Project"
-            cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
-            closable={!!setIsVisible}
+            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
+            closable={!!onClose}
             onOk={handleSubmit}
             onCancel={closeModal}
             visible={isVisible}

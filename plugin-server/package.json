@@ -116,23 +116,12 @@
         "eslint-plugin-promise": "^5.1.0",
         "eslint-plugin-react": "^7.24.0",
         "eslint-plugin-simple-import-sort": "^7.0.0",
-        "husky": "~4.3.5",
         "jest": "^27.0.4",
-        "lint-staged": "~10.5.4",
         "prettier": "^2.3.1",
         "rimraf": "^3.0.2",
         "ts-jest": "^27.0.3",
         "ts-node": "^10.0.0",
         "ts-node-dev": "^1.1.6",
         "typescript": "^4.4.0"
-    },
-    "husky": {
-        "hooks": {
-            "pre-commit": "lint-staged"
-        }
-    },
-    "lint-staged": {
-        "*.{js,ts}": "eslint --fix",
-        "*.{js,ts,css,scss,json,yml,yaml,md}": "prettier --write"
     }
 }

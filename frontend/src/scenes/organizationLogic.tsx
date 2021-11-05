@@ -5,6 +5,7 @@ import { AvailableFeature, OrganizationType } from '~/types'
 import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
+import { OrganizationMembershipLevel } from '../lib/constants'
 
 export type OrganizationUpdatePayload = Partial<
     Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
@@ -31,6 +32,12 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             (s) => [s.currentOrganization],
             (currentOrganization) =>
                 currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
+        ],
+        isProjectCreationForbidden: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) =>
+                !currentOrganization?.membership_level ||
+                currentOrganization.membership_level < OrganizationMembershipLevel.Admin,
         ],
     },
     loaders: ({ values }) => ({

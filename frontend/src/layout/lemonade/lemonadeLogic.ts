@@ -18,10 +18,14 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideInviteModal: true,
         showCreateOrganizationModal: true,
         hideCreateOrganizationModal: true,
+        showCreateProjectModal: true,
+        hideCreateProjectModal: true,
         showChangelogModal: true,
         hideChangelogModal: true,
         showToolbarModal: true,
         hideToolbarModal: true,
+        toggleProjectSwitcher: true,
+        hideProjectSwitcher: true,
     },
     reducers: {
         isSideBarShown: [
@@ -59,6 +63,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
                 hideCreateOrganizationModal: () => false,
             },
         ],
+        isCreateProjectModalShown: [
+            false,
+            {
+                showCreateProjectModal: () => true,
+                hideCreateProjectModal: () => false,
+            },
+        ],
         isChangelogModalShown: [
             false,
             {
@@ -71,6 +82,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
             {
                 showToolbarModal: () => true,
                 hideToolbarModal: () => false,
+            },
+        ],
+        isProjectSwitcherShown: [
+            false,
+            {
+                toggleProjectSwitcher: (state) => !state,
+                hideProjectSwitcher: () => false,
             },
         ],
     },

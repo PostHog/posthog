@@ -96,6 +96,12 @@ class ColumnOptimizer:
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
 
+            # If groups are involved, they're also used
+            #
+            # See ee/clickhouse/queries/trends/util.py#process_math
+            if entity.math == "unique_group":
+                counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
+
             # :TRICKY: If action contains property filters, these need to be included
             #
             # See ee/clickhouse/models/action.py#format_action_filter for an example
