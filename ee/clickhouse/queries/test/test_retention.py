@@ -35,8 +35,7 @@ def _create_person(**kwargs):
 
 
 class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, _create_person, _create_action)):  # type: ignore
-    @snapshot_clickhouse_queries
-    def test_groups_filtering(self):
+    def _create_groups_and_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
@@ -64,6 +63,10 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
                 ("person2", self._date(month=1, day=15), {"$group_0": "org:6"}),
             ]
         )
+
+    @snapshot_clickhouse_queries
+    def test_groups_filtering(self):
+        self._create_groups_and_events()
 
         result = ClickhouseRetention().run(
             RetentionFilter(
@@ -100,3 +103,21 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
             self.pluck(result, "values", "count"),
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
         )
+
+    @snapshot_clickhouse_queries
+    def test_groups_aggregating(self):
+        self._create_groups_and_events()
+
+        result = ClickhouseRetention().run(
+            RetentionFilter(
+                data={
+                    "date_to": self._date(10, month=1, hour=0),
+                    "period": "Week",
+                    "total_intervals": 7,
+                    "aggregation_group_type_index": 0
+                }
+            ),
+            self.team,
+        )
+
+        import pprint; pprint.pprint(result)
