@@ -54,8 +54,6 @@ class SQL:
 
             if format_expression is None:
                 continue
-            # elif format_expression not in locals:
-            #     raise NameError(f"name {repr(format_expression)} is not defined")
 
             interpolated_value = eval(format_expression, globals, locals)
 
