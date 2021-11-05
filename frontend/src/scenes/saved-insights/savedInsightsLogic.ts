@@ -51,6 +51,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         logic: [eventUsageLogic],
     },
     actions: {
+        sceneActivated: true,
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         addGraph: (type: string) => ({ type }),
 
@@ -215,6 +216,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         },
         [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: ({ item }) => {
             actions.setInsight(item)
+        },
+        sceneActivated: () => {
+            if (!values.insights.previous) {
+                actions.loadInsights()
+            }
         },
     }),
     actionToUrl: ({ values }) => {

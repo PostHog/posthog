@@ -336,6 +336,13 @@ export const sceneLogic = kea<sceneLogicType>({
                         throw e
                     }
                 }
+            } else {
+                if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] && loadedScene.logic) {
+                    const logic = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false)
+                    if ('sceneActivated' in logic.actions) {
+                        logic.actions.sceneActivated()
+                    }
+                }
             }
             actions.setScene(scene, params, clickedLink || wasNotLoaded)
         },
