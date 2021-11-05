@@ -85,3 +85,8 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
+
+.SideBar__pinned-dashboards {
+    max-height: calc(100vh - 20rem);
+    max-width: calc(100vw - 14rem);
+}
