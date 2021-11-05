@@ -20,21 +20,28 @@ class SQL:
     - Automatically pulls in values from parent scope
 
     Example usage:
-        subquery = SQL("SELECT * FROM events WHERE timestamp > %(ts)s", params={"ts": "2021-11-02"})
+        TABLE_NAME = "events"
+        subquery = SQL("SELECT * FROM {TABLE_NAME!s} WHERE timestamp > %(ts)s", params={"ts": "2021-11-02"})
         main_query = SQL("SELECT max(timestamp) FROM ({subquery})")
 
     To execute the query:
         sync_execute(main_query)
     """
 
-    def __init__(self, query: str, params: Dict[str, Any] = {}, **kwargs):
-        if len(kwargs) == 0:
-            # :TRICKY: Automatically access values from parent scope.
-            #   This avoids needing to write `subquery` 3 times in the above example
-            locals = inspect.currentframe().f_back.f_locals  # type: ignore
-        self.query, self.params = self.format(query, params, locals)
+    SAFE_CONVERSION = "s"
 
-    def format(self, query: str, params: Dict[str, Any], locals: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    def __init__(self, query: str, params: Dict[str, Any] = {}):
+        # :TRICKY: Automatically access values from parent scope.
+        #   This avoids needing to write `subquery` 3 times in the above example
+        parent_frame = inspect.currentframe().f_back
+        globals = parent_frame.f_globals  # type: ignore
+        locals = parent_frame.f_locals  # type: ignore
+
+        self.query, self.params = self.format(query, params, globals, locals)
+
+    def format(
+        self, query: str, params: Dict[str, Any], globals: Dict[str, Any] = {}, locals: Dict[str, Any] = {}
+    ) -> Tuple[str, Dict[str, Any]]:
         """
         Parse a string formatting expression for SQL building and return the "built" query, accounting for query params.
 
@@ -42,23 +49,26 @@ class SQL:
         """
 
         result_query, result_params = [], {}
-        for static_string, format_expression, _format_spec, _conversion in Formatter().parse(query):
+        for static_string, format_expression, _format_spec, conversion in Formatter().parse(query):
             result_query.append(static_string)
 
             if format_expression is None:
                 continue
-            elif format_expression not in locals:
-                raise NameError(f"name {repr(format_expression)} is not defined")
+            # elif format_expression not in locals:
+            #     raise NameError(f"name {repr(format_expression)} is not defined")
 
-            interpolated_value = locals[format_expression]
-            if not isinstance(interpolated_value, SQL):
+            interpolated_value = eval(format_expression, globals, locals)
+
+            if isinstance(interpolated_value, SQL):
+                result_query.append(interpolated_value.query)
+                result_params.update(interpolated_value.params)
+            elif conversion == self.SAFE_CONVERSION:
+                result_query.append(interpolated_value)
+            else:
                 raise UnsafeSQLInterpolationError(
                     f"Cannot safely interpolate {repr(format_expression)}, expecting type SQL, got {type(interpolated_value)}."
-                    "\n\nIf the value is safe to interpolate, wrap it using SQL()"
+                    "\n\nIf the value is safe to interpolate, wrap it using SQL() or using {expression!s}"
                 )
-
-            result_query.append(interpolated_value.query)
-            result_params.update(interpolated_value.params)
 
         result_params.update(params)
 
@@ -66,6 +76,9 @@ class SQL:
 
     def __repr__(self):
         return f"SQL{pprint.pformat((self.query, self.params))}"
+
+    def query_and_params(self) -> Tuple[str, Dict[str, Any]]:
+        return self.query, self.params
 
 
 # Convenience type for some functions
