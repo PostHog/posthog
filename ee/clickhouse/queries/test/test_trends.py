@@ -9,7 +9,7 @@ from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.trends.person import TrendsPersonQuery
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import TRENDS_BAR_VALUE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -52,6 +52,17 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         result = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_people()
         return result
 
+    def _create_groups(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
+        )
+
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
@@ -72,6 +83,97 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(len(response), 1)
         # don't return none option when empty
         self.assertEqual(response[0]["breakdown_value"], "val")
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_with_filter_groups(self):
+        self._create_groups()
+
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "key",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                    "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["breakdown_value"], "oh")
+        self.assertEqual(response[0]["count"], 1)
+        self.assertEqual(response[1]["breakdown_value"], "uh")
+        self.assertEqual(response[1]["count"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_group_props(self):
+        self._create_groups()
+
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:7", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "industry",
+                    "breakdown_type": "group",
+                    "breakdown_group_type_index": 0,
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["breakdown_value"], "finance")
+        self.assertEqual(response[0]["count"], 2)
+        self.assertEqual(response[1]["breakdown_value"], "technology")
+        self.assertEqual(response[1]["count"], 1)
 
     @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_limit(self):
@@ -830,15 +932,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team,
             )
 
+    @snapshot_clickhouse_queries
     def test_filtering_with_group_props(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(
-            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
-        )
+        self._create_groups()
 
         _create_event(
             event="$pageview",
@@ -872,5 +968,70 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
         )
 
+        response = ClickhouseTrends().run(filter, self.team)
+        self.assertEqual(response[0]["count"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_aggregating_by_group(self):
+        self._create_groups()
+
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$group_0": "org:6", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "math": "unique_group",
+                        "math_group_type_index": 0,
+                    }
+                ],
+            },
+            team=self.team,
+        )
+
+        response = ClickhouseTrends().run(filter, self.team)
+        self.assertEqual(response[0]["count"], 2)
+
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "math": "unique_group",
+                        "math_group_type_index": 1,
+                    }
+                ],
+            },
+            team=self.team,
+        )
         response = ClickhouseTrends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)

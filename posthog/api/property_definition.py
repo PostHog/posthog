@@ -1,4 +1,4 @@
-from typing import Type, TypeVar
+from typing import Type
 
 from django.db import models
 from rest_framework import mixins, permissions, serializers, viewsets

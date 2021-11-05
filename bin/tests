@@ -26,4 +26,4 @@ export REDIS_URL='redis:///'
 export TEST=1
 export DEBUG=1
 psql posthog -c "drop database if exists test_posthog"
-nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db -s $*; mypy posthog ee"
+nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db -s $* --snapshot-update; mypy posthog ee"

@@ -53,6 +53,10 @@ $funnel_axis: $border_dark;
 $funnel_axis_label: $text_muted;
 $antd_table_background_dark: #fafafa;
 
+// Session Recording
+$recording_player_container_bg: #797973;
+$recording_buffer_bg: #faaf8c;
+
 .bg-mid {
     background-color: $bg_mid !important;
 }
@@ -138,7 +142,7 @@ $z_ant_select_dropdown: 1065;
 $z_ant_message: 1070;
 $z_ant_modal_wrap: 1060;
 $z_ant_modal_mask: 1050;
-$z_popup: 1060;
+$z_popup: 1049;
 $z_plugins-popconfirm: 1001;
 $z_pinned_dashboards_popup: 962;
 $z_graph_tooltip: 951;

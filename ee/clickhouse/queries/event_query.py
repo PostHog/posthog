@@ -6,6 +6,7 @@ from ee.clickhouse.models.cohort import format_person_query, format_precalculate
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
@@ -137,27 +138,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return "", {}
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
-        query, params = [], {}
-
-        for group_type_index in self._column_optimizer.group_types_to_query:
-            var = f"group_index_{group_type_index}"
-            query.append(
-                f"""
-                INNER JOIN (
-                    SELECT
-                        group_key,
-                        argMax(group_properties, _timestamp) AS group_properties_{group_type_index}
-                    FROM groups
-                    WHERE team_id = %(team_id)s AND group_type_index = %({var})s
-                    GROUP BY group_key
-                ) groups_{group_type_index}
-                ON JSONExtractString(properties, '$group_{group_type_index}') == groups_{group_type_index}.group_key
-            """
-            )
-
-            params[var] = group_type_index
-
-        return "\n".join(query), params
+        return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 

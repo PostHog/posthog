@@ -1,60 +1,126 @@
 @import '~/vars';
 
-$buffer_bg: #faaf8c;
-$thumb_size: 14px;
+$slider-height: 16px;
+$thumb_size: 15px;
+$tick_size: 13px;
+$tick_hover_size: 5px;
 
 .rrweb-controller-slider {
     width: 100%;
-    height: 12px;
+    height: $slider-height;
     position: relative;
 
-    .thumb {
-        z-index: 4;
-        backface-visibility: hidden;
-        top: 0;
-        left: -$thumb_size / 2;
-        position: absolute;
-        border-radius: 50%;
-        width: $thumb_size;
-        height: $thumb_size;
-        border: 2px solid $bg_light;
-        background-color: $brand_red;
-        transform-origin: center;
-    }
-
-    .slider,
-    .current-bar,
-    .buffer-bar {
-        width: 100%;
-        border-radius: 4px;
-        position: absolute;
-    }
-
     .slider {
-        z-index: 1;
-        background-color: $border;
-        height: 4px;
-        top: 5px;
-    }
-
-    .current-bar {
-        z-index: 3;
-        background-color: $brand_red;
-        position: absolute;
-        height: 2px;
-        top: 6px;
-        left: 1px;
-        width: 0; // starting point
-    }
-
-    .buffer-bar {
         z-index: 2;
-        transition: width 200ms;
-        background-color: $buffer_bg;
-        position: absolute;
-        height: 2px;
-        top: 6px;
-        left: 1px;
-        width: 0; // starting point
+        position: relative;
+
+        .thumb {
+            z-index: 5;
+            backface-visibility: hidden;
+            top: 0;
+            position: absolute;
+            border-radius: 50%;
+            width: $thumb_size;
+            height: $thumb_size;
+            border: 2px solid $bg_light;
+            background-color: $brand_red;
+            transform-origin: center;
+            transform: translateX(-$thumb_size / 2);
+        }
+
+        .slider-bar,
+        .current-bar,
+        .buffer-bar {
+            width: 100%;
+            border-radius: 4px;
+            position: absolute;
+        }
+
+        .slider-bar {
+            z-index: 1;
+            background-color: $border;
+            height: 4px;
+            top: ($slider-height - 4px) / 2;
+        }
+
+        .buffer-bar {
+            z-index: 2;
+            transition: width 200ms;
+            background-color: $recording_buffer_bg;
+            position: absolute;
+            height: 2px;
+            top: ($slider-height - 2px) / 2;
+            left: 1px;
+            width: 0; // starting point
+        }
+
+        .current-bar {
+            z-index: 3;
+            background-color: $brand_red;
+            position: absolute;
+            height: 2px;
+            top: ($slider-height - 2px) / 2;
+            left: 1px;
+            width: 0; // starting point
+        }
+    }
+
+    .ticks {
+        z-index: 1;
+        position: relative;
+        width: 100%;
+
+        .tick-hover-box {
+            cursor: pointer;
+            position: absolute;
+            height: 100%;
+            top: -12px;
+            width: $tick_hover_size;
+            background-color: green;
+            right: -1 * ceil($tick_hover_size / 2);
+
+            .tick-marker {
+                position: absolute;
+                width: 1px;
+                height: 21px;
+                background-color: $recording_player_container_bg;
+                right: floor($tick_hover_size / 2);
+            }
+
+            .tick-info {
+                border-radius: $radius;
+                padding: $default_spacing/4 $default_spacing/2;
+                position: absolute;
+                top: -4 * $tick_size;
+                border: 2px solid $recording_player_container_bg;
+                background-color: $bg_charcoal;
+                display: none;
+                color: $text_light;
+                white-space: nowrap;
+                // Next 2 lines centers the absolute positioned tick info
+                left: 50%;
+                transform: translate(-50%, 0);
+                &.show {
+                    display: flex;
+                }
+            }
+
+            .tick-thumb {
+                position: absolute;
+                width: $tick_size;
+                height: $tick_size;
+                border-radius: 50%;
+                right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
+                top: -1 * floor($tick_size / 2);
+                border: 0.5px solid $recording_player_container_bg;
+                background-color: $bg_light;
+                transform-origin: center;
+                transition: transform 200ms;
+
+                &.big {
+                    transform: scale(1.3);
+                }
+            }
+        }
     }
 }

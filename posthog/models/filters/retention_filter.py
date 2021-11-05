@@ -6,7 +6,6 @@ from posthog.constants import INSIGHT_RETENTION
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
-    BreakdownTypeMixin,
     DisplayDerivedMixin,
     FilterTestAccountsMixin,
     InsightMixin,
@@ -28,7 +27,6 @@ class RetentionFilter(
     DisplayDerivedMixin,
     FilterTestAccountsMixin,
     BreakdownMixin,
-    BreakdownTypeMixin,
     InsightMixin,
     OffsetMixin,
     FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter

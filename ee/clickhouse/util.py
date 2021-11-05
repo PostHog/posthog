@@ -1,5 +1,7 @@
+import re
 from contextlib import contextmanager
-from typing import List
+from functools import wraps
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +21,8 @@ class ClickhouseTestMixin:
     #  this way the team id will increment so we don't have to destroy all clickhouse tables on each test
     CLASS_DATA_LEVEL_SETUP = False
 
+    snapshot: Any
+
     @contextmanager
     def _assertNumQueries(self, func):
         yield
@@ -29,10 +33,13 @@ class ClickhouseTestMixin:
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None):
-        assert sqlparse.format(query, reindent=True) == self.snapshot  # type: ignore
+        # :TRICKY: team_id changes every test, avoid it messing with snapshots.
+        query = re.sub(r"team_id = \d+", "team_id = 2", query)
+
+        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
-            assert params == self.snapshot  # type: ignore
+            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
 
     @contextmanager
     def capture_select_queries(self):
@@ -78,3 +85,25 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(EVENTS_TABLE_SQL)
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL)
+
+
+def snapshot_clickhouse_queries(fn):
+    """
+    Captures and snapshots select queries from test using `syrupy` library.
+
+    Requires queries to be stable to avoid flakiness.
+
+    Snapshots are automatically saved in a __snapshot__/*.ambr file.
+    Update snapshots via --update-snapshots.
+    """
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.capture_select_queries() as queries:
+            fn(self, *args, **kwargs)
+
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query)
+
+    return wrapped

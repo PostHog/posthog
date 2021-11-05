@@ -6,7 +6,6 @@ from posthog.constants import INSIGHT_PATHS
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
-    BreakdownTypeMixin,
     DateMixin,
     EntitiesMixin,
     FilterTestAccountsMixin,
@@ -47,7 +46,6 @@ class PathFilter(
     FilterTestAccountsMixin,
     DateMixin,
     BreakdownMixin,
-    BreakdownTypeMixin,
     EntitiesMixin,
     PathStepLimitMixin,
     FunnelPathsMixin,

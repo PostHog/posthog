@@ -44,6 +44,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { ColumnsType } from 'antd/lib/table'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { TabPane } = Tabs
 
@@ -126,7 +128,6 @@ export function SavedInsights(): JSX.Element {
         loadPaginatedInsights,
         renameInsight,
         duplicateInsight,
-        addGraph,
         setSavedInsightsFilters,
     } = useActions(savedInsightsLogic)
     const { insights, count, offset, nextResult, previousResult, insightsLoading, filters } =
@@ -317,23 +318,40 @@ export function SavedInsights(): JSX.Element {
                             {insightTypes
                                 .filter((i) => i.inMenu)
                                 .map((menuItem) => (
-                                    <Menu.Item onClick={() => addGraph(menuItem.type)} key={menuItem.type}>
-                                        <Row className="icon-menu">
-                                            <Col>
-                                                {menuItem.icon ? <menuItem.icon color="#747EA2" noBackground /> : null}
-                                            </Col>
-                                            <Col>
-                                                <strong>{menuItem.name}</strong>
-                                                <p>{menuItem.description}</p>
-                                            </Col>
-                                        </Row>
+                                    <Menu.Item key={menuItem.type}>
+                                        <Link
+                                            to={urls.insightView(menuItem.type)}
+                                            data-attr="saved-insights-create-new-insight"
+                                            data-attr-insight-type={menuItem.type}
+                                            onClick={() =>
+                                                eventUsageLogic.actions.reportSavedInsightNewInsightClicked(
+                                                    menuItem.type
+                                                )
+                                            }
+                                        >
+                                            <Row className="icon-menu">
+                                                <Col>
+                                                    {menuItem.icon ? (
+                                                        <menuItem.icon color="#747EA2" noBackground />
+                                                    ) : null}
+                                                </Col>
+                                                <Col>
+                                                    <strong>{menuItem.name}</strong>
+                                                    <p>{menuItem.description}</p>
+                                                </Col>
+                                            </Row>
+                                        </Link>
                                     </Menu.Item>
                                 ))}
                         </Menu>
                     }
                     trigger={['click']}
                 >
-                    <button className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
+                    <button
+                        className="new-insight-dropdown-btn"
+                        onClick={(e) => e.preventDefault()}
+                        data-attr="saved-insights-new-insight-button"
+                    >
                         New Insight <CaretDownFilled style={{ paddingLeft: 12 }} />
                     </button>
                 </Dropdown>

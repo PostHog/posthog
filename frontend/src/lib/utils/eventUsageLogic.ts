@@ -263,6 +263,10 @@ export const eventUsageLogic = kea<
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
+        reportSavedInsightTabChanged: (tab: string) => ({ tab }),
+        reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
+        reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
+        reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
@@ -628,6 +632,18 @@ export const eventUsageLogic = kea<
         },
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
+        },
+        reportSavedInsightFilterUsed: ({ filterKeys }) => {
+            posthog.capture('saved insights list page filter used', { filter_keys: filterKeys })
+        },
+        reportSavedInsightTabChanged: ({ tab }) => {
+            posthog.capture('saved insights list page tab changed', { tab })
+        },
+        reportSavedInsightLayoutChanged: ({ layout }) => {
+            posthog.capture('saved insights list page layout changed', { layout })
+        },
+        reportSavedInsightNewInsightClicked: ({ insightType }) => {
+            posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
         reportRecording: ({ recordingData, source, loadTime, type }) => {
             const eventIndex = new EventIndex(recordingData?.snapshots || [])

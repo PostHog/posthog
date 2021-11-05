@@ -6,10 +6,12 @@ from typing import Dict, List, Literal, Optional, Union, cast
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
     ACTIONS,
     BREAKDOWN,
+    BREAKDOWN_GROUP_TYPE_INDEX,
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
@@ -21,6 +23,7 @@ from posthog.constants import (
     EXCLUSIONS,
     FILTER_TEST_ACCOUNTS,
     FORMULA,
+    GROUP_TYPES_LIMIT,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
@@ -141,15 +144,30 @@ class BreakdownMixin(BaseParamMixin):
 
         return result
 
-
-class BreakdownTypeMixin(BaseParamMixin):
     @cached_property
     def breakdown_type(self) -> Optional[BreakdownType]:
         return self._data.get(BREAKDOWN_TYPE, None)
 
+    @cached_property
+    def breakdown_group_type_index(self) -> Optional[int]:
+        value = self._data.get(BREAKDOWN_GROUP_TYPE_INDEX, None)
+        if value is not None and not (isinstance(value, int) and 0 <= value < GROUP_TYPES_LIMIT):
+            raise ValidationError(
+                {
+                    "breakdown_group_type_index": f"This field is required if breakdown_type is group and must be greater than 0 and less than {GROUP_TYPES_LIMIT}"
+                }
+            )
+
+        return value
+
     @include_dict
-    def breakdown_type_to_dict(self):
-        return {BREAKDOWN_TYPE: self.breakdown_type} if self.breakdown_type else {}
+    def breakdown_type_and_group_to_dict(self):
+        if self.breakdown_type == "group":
+            return {BREAKDOWN_TYPE: self.breakdown_type, BREAKDOWN_GROUP_TYPE_INDEX: self.breakdown_group_type_index}
+        elif self.breakdown_type:
+            return {BREAKDOWN_TYPE: self.breakdown_type}
+        else:
+            return {}
 
 
 class BreakdownValueMixin(BaseParamMixin):
