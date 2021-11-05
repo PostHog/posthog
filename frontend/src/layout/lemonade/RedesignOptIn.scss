@@ -9,6 +9,7 @@
         margin-right: 0.5rem;
     }
     @media screen and (min-width: $sm) {
-        display: block;
+        display: flex;
+        align-items: center;
     }
 }
