@@ -1,54 +1,48 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
-import { objectsEqual } from 'lib/utils'
 import { smoothingFilterLogicType } from './smoothingFilterLogicType'
 import { intervalFilterLogic } from '../IntervalFilter/intervalFilterLogic'
-import { SmoothingType } from '~/types'
+import { FilterType, InsightLogicProps, SmoothingType } from '~/types'
 import { smoothingOptions } from './smoothings'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 
 export const smoothingFilterLogic = kea<smoothingFilterLogicType>({
-    connect: {
-        values: [intervalFilterLogic, ['interval']],
+    props: {} as InsightLogicProps,
+    connect: (props: InsightLogicProps) => ({
+        values: [insightLogic(props), ['filters', 'insight']],
         actions: [intervalFilterLogic, ['setIntervalFilter']],
-    },
+    }),
+    // Have your own setSmoothing action that calls setFilters with the right params
     actions: () => ({
-        setSmoothingFilter: (filter: SmoothingType) => ({ filter }),
+        setFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setSmoothing: (filter: SmoothingType) => ({ filter }),
     }),
     reducers: {
         smoothing: [
             1 as SmoothingType,
             {
-                setSmoothingFilter: (_, { filter }) => filter,
+                setSmoothing: (_, { filter }) => filter,
             },
         ],
     },
-    listeners: ({ values, actions }) => ({
-        setSmoothingFilter: () => {
-            const { smoothing, ...searchParams } = router.values.searchParams
-            const { pathname } = router.values.location
-
-            searchParams.smoothing = values.smoothing
-
-            if (!objectsEqual(smoothing, values.smoothing)) {
-                router.actions.replace(pathname, searchParams, router.values.hashParams)
-            }
+    listeners: ({ actions, values, props }) => ({
+        setSmoothing: async ({ filter }) => {
+            insightLogic(props).actions.setFilters({ smoothing_intervals: filter })
         },
-        setIntervalFilter: () => {
-            if (values.interval === null) {
+        setIntervalFilter: ({ filter }) => {
+            if (filter === null) {
                 return
             }
-            if (!smoothingOptions[values.interval].find((option) => option.value === values.smoothing)) {
-                if (values.smoothing !== 1) {
-                    actions.setSmoothingFilter(1)
-                }
+            if (!smoothingOptions[filter].find((option) => option.value === values.smoothing)) {
+                actions.setSmoothing(1)
             }
         },
     }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (_, { smoothing }) => {
-            if (smoothing) {
-                actions.setSmoothingFilter(smoothing)
-            }
-        },
-    }),
+    // Use selectors to get the current value of the filter
+    selectors: {
+        loadedFilters: [
+            (s) => [s.insight],
+            ({ filters }): Partial<FilterType> => (isTrendsInsight(filters?.insight) ? filters ?? {} : {}),
+        ],
+    },
 })
