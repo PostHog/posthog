@@ -98,10 +98,8 @@ class ClickhouseTrendsBreakdown:
             )
 
         person_join_condition, person_join_params = self._person_join_condition()
-        groups_join_condition, groups_join_params = GroupsJoinQuery(
-            self.filter, self.team_id, self.column_optimizer
-        ).get_join_query()
-        self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
+        groups_join_query = GroupsJoinQuery(self.filter, self.team_id, self.column_optimizer).get_join_query()
+        self.params = {**self.params, **_params, **person_join_params, **groups_join_query.params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in TRENDS_DISPLAY_BY_VALUE:
@@ -109,7 +107,7 @@ class ClickhouseTrendsBreakdown:
             content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter,
                 person_join=person_join_condition,
-                groups_join=groups_join_condition,
+                groups_join=groups_join_query.query,
                 aggregate_operation=aggregate_operation,
                 breakdown_value=breakdown_value,
             )
@@ -133,7 +131,7 @@ class ClickhouseTrendsBreakdown:
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
-                    groups_join=groups_join_condition,
+                    groups_join=groups_join_query.query,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -146,7 +144,7 @@ class ClickhouseTrendsBreakdown:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
-                    groups_join=groups_join_condition,
+                    groups_join=groups_join_query.query,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,

@@ -32,7 +32,7 @@ class ClickhouseTrendsTotalVolume:
             if join_condition != "" or entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]
             else False,
         )
-        event_query, event_query_params = trend_event_query.get_query()
+        event_query, event_query_params = trend_event_query.get_query().query_and_params()
 
         content_sql_params = {
             "aggregate_operation": aggregate_operation,

@@ -61,15 +61,19 @@ class TrendsPersonQuery:
             )
             self.filter = self.filter.with_data({"properties": self.filter.properties + [breakdown_prop]})
 
-        events_query, params = TrendsEventQuery(
-            filter=self.filter,
-            team_id=self.team.pk,
-            entity=self.entity,
-            should_join_distinct_ids=True,
-            should_join_persons=True,
-            extra_fields=["distinct_id", "team_id"],
-            extra_person_fields=["created_at", "person_props", "is_identified"],
-        ).get_query()
+        events_query, params = (
+            TrendsEventQuery(
+                filter=self.filter,
+                team_id=self.team.pk,
+                entity=self.entity,
+                should_join_distinct_ids=True,
+                should_join_persons=True,
+                extra_fields=["distinct_id", "team_id"],
+                extra_person_fields=["created_at", "person_props", "is_identified"],
+            )
+            .get_query()
+            .query_and_params()
+        )
 
         return (
             GET_PERSONS_FROM_EVENT_QUERY.format(events_query=events_query),

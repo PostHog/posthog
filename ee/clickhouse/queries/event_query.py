@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
@@ -9,6 +9,7 @@ from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.query_builder import SQL, SQLFragment
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.path_filter import PathFilter
@@ -48,9 +49,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._person_query = ClickhousePersonQuery(
             self._filter, self._team_id, self._column_optimizer, extra_fields=extra_person_fields
         )
-        self.params: Dict[str, Any] = {
-            "team_id": self._team_id,
-        }
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
@@ -66,21 +64,23 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._should_round_interval = round_interval
 
     @abstractmethod
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> SQLFragment:
         pass
 
     @abstractmethod
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
-    def _get_disintct_id_query(self) -> str:
+    def _get_disintct_id_query(self) -> SQLFragment:
         if self._should_join_distinct_ids:
-            return f"""
+            return SQL(
+                f"""
             INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON events.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
             """
+            )
         else:
-            return ""
+            return SQL("")
 
     def _determine_should_join_persons(self) -> None:
         if self._person_query.is_used:
@@ -124,10 +124,10 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 return True
         return False
 
-    def _get_person_query(self) -> Tuple[str, Dict]:
+    def _get_person_query(self) -> SQLFragment:
         if self._should_join_persons:
             person_query, params = self._person_query.get_query()
-            return (
+            return SQL(
                 f"""
             INNER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
@@ -135,31 +135,28 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 params,
             )
         else:
-            return "", {}
+            return SQL("")
 
-    def _get_groups_query(self) -> Tuple[str, Dict]:
+    def _get_groups_query(self) -> SQLFragment:
         return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()
 
-    def _get_date_filter(self) -> Tuple[str, Dict]:
-
+    def _get_date_filter(self) -> SQLFragment:
         parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
 
-        query = f"""
+        return SQL(
+            f"""
         {parsed_date_from}
         {parsed_date_to}
-        """
+        """,
+            date_params,
+        )
 
-        return query, date_params
-
-    def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
-        final = []
-        params: Dict[str, Any] = {}
+    def _get_props(self, filters: List[Property]) -> SQLFragment:
+        prop_query = SQL("")
 
         for idx, prop in enumerate(filters):
             if prop.type == "cohort":
-                person_id_query, cohort_filter_params = self._get_cohort_subquery(prop)
-                params = {**params, **cohort_filter_params}
-                final.append(f"AND {person_id_query}")
+                prop_query += SQL(" AND {self._get_cohort_subquery(prop)}")
             else:
                 filter_query, filter_params = parse_prop_clauses(
                     [prop],
@@ -168,15 +165,14 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     allow_denormalized_props=True,
                     person_properties_mode=PersonPropertiesMode.EXCLUDE,
                 )
-                final.append(filter_query)
-                params.update(filter_params)
-        return " ".join(final), params
+                prop_query += SQL(" " + filter_query, filter_params)
+        return prop_query
 
-    def _get_cohort_subquery(self, prop) -> Tuple[str, Dict[str, Any]]:
+    def _get_cohort_subquery(self, prop) -> SQLFragment:
         try:
             cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
-            return "0 = 11", {}  # If cohort doesn't exist, nothing can match
+            return SQL("0 = 11")  # If cohort doesn't exist, nothing can match
 
         is_precalculated = is_precalculated_query(cohort)
 
@@ -188,4 +184,4 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             else format_person_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
         )
 
-        return person_id_query, cohort_filter_params
+        return SQL(person_id_query, cohort_filter_params)

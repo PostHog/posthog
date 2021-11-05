@@ -33,7 +33,7 @@ class SQL:
     def __init__(self, query: str, params: Dict[str, Any] = {}):
         # :TRICKY: Automatically access values from parent scope.
         #   This avoids needing to write `subquery` 3 times in the above example
-        parent_frame = inspect.currentframe().f_back
+        parent_frame = inspect.currentframe().f_back  # type: ignore
         globals = parent_frame.f_globals  # type: ignore
         locals = parent_frame.f_locals  # type: ignore
 
@@ -76,6 +76,12 @@ class SQL:
 
     def __repr__(self):
         return f"SQL{pprint.pformat((self.query, self.params))}"
+
+    def __add__(self, other: "SQL") -> "SQL":
+        if isinstance(other, SQL):
+            return SQL(self.query + other.query, {**self.params, **other.params})
+        else:
+            raise ValueError(f"Cannot add {repr(other)} to a SQL fragment")
 
     def query_and_params(self) -> Tuple[str, Dict[str, Any]]:
         return self.query, self.params

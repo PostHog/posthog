@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.property import extract_tables_and_properties, prop_filter_json_extract
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.query_builder import SQLFragment
 from posthog.models import Filter
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
@@ -29,7 +30,7 @@ class GroupsJoinQuery:
         self._team_id = team_id
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
 
-    def get_join_query(self) -> Tuple[str, Dict]:
+    def get_join_query(self) -> SQLFragment:
         join_queries, params = [], {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:
@@ -51,4 +52,4 @@ class GroupsJoinQuery:
             params["team_id"] = self._team_id
             params[var] = group_type_index
 
-        return "\n".join(join_queries), params
+        return SQLFragment("\n".join(join_queries), params)
