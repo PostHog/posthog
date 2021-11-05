@@ -22,6 +22,7 @@ export function RedesignOptIn(): JSX.Element {
                     posthog.people.set('opted_into_lemonade', checked, () =>
                         setTimeout(() => posthog.featureFlags.reloadFeatureFlags(), 200)
                     )
+                    posthog.capture(checked ? `opted into navigation redesign` : 'opted out of navigation redesign')
                 }}
                 checked={featureFlags[FEATURE_FLAGS.LEMONADE] as boolean}
             />
