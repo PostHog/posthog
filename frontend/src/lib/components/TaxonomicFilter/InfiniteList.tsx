@@ -95,7 +95,7 @@ const renderItemPopup = (
             // NB: also update "selectedItemHasPopup" below
             listGroupType === TaxonomicFilterGroupType.Events ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
-            listGroupType === TaxonomicFilterGroupType.Groups || 
+            listGroupType === TaxonomicFilterGroupType.Groups ||
             listGroupType === TaxonomicFilterGroupType.PersonProperties
         ) {
             data = getKeyMapping(value.toString(), 'event')
@@ -141,7 +141,7 @@ const selectedItemHasPopup = (
             ((listGroupType === TaxonomicFilterGroupType.Elements ||
                 listGroupType === TaxonomicFilterGroupType.Events ||
                 listGroupType === TaxonomicFilterGroupType.EventProperties ||
-                listGroupType?.includes(TaxonomicFilterGroupType.Groups) || 
+                listGroupType?.includes(TaxonomicFilterGroupType.Groups) ||
                 listGroupType === TaxonomicFilterGroupType.PersonProperties) &&
                 !!getKeyMapping(
                     group?.getValue(item),
@@ -187,7 +187,13 @@ export function InfiniteList(): JSX.Element {
             <div
                 key={`item_${rowIndex}`}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => selectItem(listGroupType?.includes('groups') ? TaxonomicFilterGroupType.Groups : listGroupType, itemValue ?? null, item)}
+                onClick={() =>
+                    selectItem(
+                        listGroupType?.includes('groups') ? TaxonomicFilterGroupType.Groups : listGroupType,
+                        itemValue ?? null,
+                        item
+                    )
+                }
                 onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
                 style={style}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}

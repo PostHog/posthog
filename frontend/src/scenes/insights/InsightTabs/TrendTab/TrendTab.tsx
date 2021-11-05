@@ -95,10 +95,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     {filters.insight !== ViewType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle />
-                            <PropertyFilters 
-                                taxonomicGroupTypes={taxonomicTypesWithGroups}
-                                pageKey="trends-filters" 
-                            />
+                            <PropertyFilters taxonomicGroupTypes={taxonomicTypesWithGroups} pageKey="trends-filters" />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             {formulaAvailable && (
                                 <>

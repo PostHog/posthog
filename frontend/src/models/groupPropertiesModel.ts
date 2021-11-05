@@ -29,21 +29,11 @@ export const groupPropertiesModel = kea<groupPropertiesModelType>({
                 (groupTypeIndex: number): Array<PersonProperty> =>
                     groupProperties[groupTypeIndex],
         ],
-        groupProperties_0: [
-            (s) => [s.allGroupProperties], (groupProperties) => groupProperties['0']
-        ],
-        groupProperties_1: [
-            (s) => [s.allGroupProperties], (groupProperties) => groupProperties['1']
-        ],
-        groupProperties_2: [
-            (s) => [s.allGroupProperties], (groupProperties) => groupProperties['2']
-        ],
-        groupProperties_3: [
-            (s) => [s.allGroupProperties], (groupProperties) => groupProperties['3']
-        ],
-        groupProperties_4: [
-            (s) => [s.allGroupProperties], (groupProperties) => groupProperties['4']
-        ],
+        groupProperties_0: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['0']],
+        groupProperties_1: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['1']],
+        groupProperties_2: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['2']],
+        groupProperties_3: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['3']],
+        groupProperties_4: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['4']],
     },
     events: ({ actions }) => ({
         afterMount: actions.loadAllGroupProperties,

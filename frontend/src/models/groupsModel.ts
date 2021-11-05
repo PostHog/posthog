@@ -10,7 +10,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export const groupsModel = kea<groupsModelType>({
     connect: {
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], preflightLogic, ['clickhouseEnabled']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['clickhouseEnabled'],
+        ],
     },
     loaders: ({ values }) => ({
         groupTypes: [
@@ -28,22 +35,24 @@ export const groupsModel = kea<groupsModelType>({
     selectors: {
         groupsEnabled: [
             (s) => [s.featureFlags, s.clickhouseEnabled],
-            (featureFlags, clickhouseEnabled) => featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] && clickhouseEnabled
+            (featureFlags, clickhouseEnabled) => featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] && clickhouseEnabled,
         ],
         taxonomicTypesWithGroups: [
             (s) => [s.groupsEnabled, s.groupTypes],
             (groupsEnabled, groupTypes) => {
                 if (groupsEnabled) {
                     return [
-                        TaxonomicFilterGroupType.EventProperties, 
+                        TaxonomicFilterGroupType.EventProperties,
                         TaxonomicFilterGroupType.PersonProperties,
-                        ...groupTypes.map((groupType: GroupType) => `${TaxonomicFilterGroupType.Groups}_${groupType.group_type_index}`),
+                        ...groupTypes.map(
+                            (groupType: GroupType) => `${TaxonomicFilterGroupType.Groups}_${groupType.group_type_index}`
+                        ),
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                     ] as TaxonomicFilterGroupType[]
                 }
-            }
-        ]
+            },
+        ],
     },
     events: ({ actions }) => ({
         afterMount: actions.loadAllGroupTypes,
