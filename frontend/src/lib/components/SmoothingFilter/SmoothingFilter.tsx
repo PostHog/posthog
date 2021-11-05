@@ -6,18 +6,20 @@ import { useActions, useValues } from 'kea'
 import { smoothingFilterLogic } from './smoothingFilterLogic'
 
 export function SmoothingFilter(): JSX.Element | null {
-    const { filters, smoothing } = useValues(smoothingFilterLogic)
+    const {
+        filters: { interval, smoothing_intervals },
+    } = useValues(smoothingFilterLogic)
     const { setSmoothing } = useActions(smoothingFilterLogic)
 
-    if (filters.interval === null || filters.interval === undefined) {
+    if (interval === null || interval === undefined) {
         return null
     }
 
     // Put a little icon next to the selected item
-    const options = smoothingOptions[filters.interval].map(({ value, label }) => ({
+    const options = smoothingOptions[interval].map(({ value, label }) => ({
         value,
         label:
-            value === smoothing ? (
+            value === smoothing_intervals ? (
                 <>
                     <FundOutlined /> {label}
                 </>
@@ -28,9 +30,9 @@ export function SmoothingFilter(): JSX.Element | null {
 
     return options.length ? (
         <Select
-            key={filters.interval}
+            key={interval}
             bordered={false}
-            value={smoothing || undefined}
+            value={smoothing_intervals || undefined}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
                 setSmoothing(key)
