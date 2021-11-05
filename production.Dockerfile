@@ -51,7 +51,8 @@ RUN yarn --frozen-lockfile
 # load entire codebase & build frontend
 COPY . /code/
 RUN yarn build \
-    && yarn --cwd plugins --frozen-lockfile --ignore-optional \
+    && yarn --cwd plugin-server --frozen-lockfile --ignore-optional \
+    && yarn build --cwd plugin-server \
     && yarn cache clean \
     && rm -rf node_modules
 

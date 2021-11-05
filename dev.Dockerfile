@@ -62,15 +62,15 @@ RUN apk --update --no-cache --virtual .build-deps add \
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
 COPY package.json yarn.lock ./
-COPY plugins/package.json plugins/yarn.lock ./plugins/
+COPY plugin-server/package.json plugin-server/yarn.lock ./plugin-server/
 RUN apk --update --no-cache --virtual .build-deps add \
     "gcc~=10.3" \
     && \
     yarn config set network-timeout 300000 && \
     yarn install --frozen-lockfile && \
-    yarn install --frozen-lockfile --cwd plugins && \
-    yarn cache clean \
-    && \
+    yarn install --frozen-lockfile --cwd plugin-server && \
+    yarn cache clean && \
+    yarn build --cwd plugin-server && \
     apk del .build-deps
 
 # Copy everything else
