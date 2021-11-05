@@ -610,6 +610,7 @@ export const insightLogic = kea<insightLogicType>({
             if (props.syncWithUrl) {
                 router.actions.replace('/insights', values.filters, {
                     ...router.values.hashParams,
+                    edit: true,
                     fromItem: createdInsight.id,
                 })
             }
