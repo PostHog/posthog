@@ -1,4 +1,3 @@
-import re
 from typing import List
 
 from django.core.management.base import BaseCommand

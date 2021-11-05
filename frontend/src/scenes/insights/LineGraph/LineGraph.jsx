@@ -393,13 +393,11 @@ export function LineGraph({
                 axis: 'xy',
                 intersect: false,
                 onHover(evt) {
-                    if (onClick) {
-                        const point = this.getElementAtEvent(evt)
-                        if (point.length) {
-                            evt.target.style.cursor = 'pointer'
-                        } else {
-                            evt.target.style.cursor = 'default'
-                        }
+                    const point = this.getElementAtEvent(evt)
+                    if (onClick && point.length) {
+                        evt.target.style.cursor = 'pointer'
+                    } else {
+                        evt.target.style.cursor = 'default'
                     }
                     if (evt.type === 'mouseout') {
                         setTooltipVisible(false)

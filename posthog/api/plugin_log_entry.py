@@ -50,6 +50,7 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
 
         parents_query_dict = self.get_parents_query_dict()
 
+        type_filter = [PluginLogEntry.Type[t] for t in (self.request.GET.getlist("type_filter", []))]
         return fetch_plugin_log_entries(
             team_id=parents_query_dict["team_id"],
             plugin_config_id=parents_query_dict["plugin_config_id"],
@@ -57,4 +58,5 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
             before=before,
             search=self.request.GET.get("search"),
             limit=limit,
+            type_filter=type_filter,
         )

@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime, tzinfo
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from dateutil import parser

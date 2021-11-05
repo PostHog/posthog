@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import datetime
 from typing import Any, Dict, List, Literal, Tuple, Union
 
 from django.db import connection
