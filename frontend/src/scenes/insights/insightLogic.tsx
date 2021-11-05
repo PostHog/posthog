@@ -604,6 +604,9 @@ export const insightLogic = kea<insightLogicType>({
                 },
                 { overrideFilter: true, fromPersistentApi: true }
             )
+            if (!values.insight.result) {
+                actions.loadResults()
+            }
             if (props.syncWithUrl) {
                 router.actions.replace('/insights', values.filters, {
                     ...router.values.hashParams,
