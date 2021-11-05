@@ -118,7 +118,7 @@ describe('insightLogic', () => {
                     0,
                     {}
                 ),
-                eventUsageLogic.actionCreators.reportInsightViewed({ insight: 'FUNNELS' }, true, false, 0, {
+                eventUsageLogic.actionCreators.reportInsightViewed({ insight: 'FUNNELS' }, false, false, 0, {
                     changed_insight: 'TRENDS',
                 }),
             ])
