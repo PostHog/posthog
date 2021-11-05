@@ -13,7 +13,6 @@ import { CloseOutlined } from '@ant-design/icons'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { AvailableFeature } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
@@ -24,7 +23,6 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         correlationDetailedFeedbackVisible,
         correlationFeedbackRating,
         correlationAnalysisAvailable,
-        correlationPropKey,
     } = useValues(funnelLogic(insightProps))
     const {
         sendCorrelationAnalysisFeedback,
