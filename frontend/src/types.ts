@@ -544,6 +544,11 @@ export interface EventType {
     event: string
 }
 
+export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+    percentage: number
+    timestamp: number
+}
+
 export interface EventsTableRowItem {
     event?: EventType
     date_break?: string
