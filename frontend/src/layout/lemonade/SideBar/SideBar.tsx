@@ -155,7 +155,7 @@ interface PageButtonProps extends Pick<LemonButtonProps, 'title' | 'icon' | 'onC
 }
 
 function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButtonProps): JSX.Element {
-    const { aliasedActiveScene } = useValues(sceneLogic)
+    const { aliasedActiveScene, activeScene } = useValues(sceneLogic)
     const { lastDashboardId } = useValues(dashboardsModel)
 
     const isActiveSide: boolean = sideAction?.identifier === aliasedActiveScene
@@ -163,7 +163,7 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
         isActiveSide ||
         (typeof identifier === 'string'
             ? identifier === aliasedActiveScene
-            : aliasedActiveScene === Scene.Dashboards && identifier === lastDashboardId)
+            : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
     return sideAction ? (
         <LemonButtonWithSideAction
@@ -214,7 +214,7 @@ function Pages(): JSX.Element {
                         visible: arePinnedDashboardsShown,
                         onClickOutside: () => setArePinnedDashboardsShown(false),
                         overlay: (
-                            <>
+                            <div className="SideBar__pinned-dashboards">
                                 <h5>Pinned dashboards</h5>
                                 <Spacer />
                                 {pinnedDashboards.map((dashboard) => (
@@ -226,7 +226,7 @@ function Pages(): JSX.Element {
                                         to={urls.dashboard(dashboard.id)}
                                     />
                                 ))}
-                            </>
+                            </div>
                         ),
                     },
                 }}
