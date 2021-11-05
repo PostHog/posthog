@@ -13,6 +13,7 @@ import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInvit
 import { ChangelogModal } from '../../ChangelogModal'
 import { Link } from '../../../lib/components/Link'
 import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
+import { RedesignOptIn } from '../RedesignOptIn'
 import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 
 export function TopBar(): JSX.Element {
@@ -50,6 +51,7 @@ export function TopBar(): JSX.Element {
                     <SearchBox />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
+                    <RedesignOptIn />
                     <HelpButton />
                     <SitePopover />
                 </div>

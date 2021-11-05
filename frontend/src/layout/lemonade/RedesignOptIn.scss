@@ -1,0 +1,15 @@
+@import '~/vars.scss';
+
+.RedesignOptIn {
+    display: none;
+    user-select: none;
+    .info {
+        font-weight: 600;
+        color: var(--primary-alt);
+        margin-right: 0.5rem;
+    }
+    @media screen and (min-width: $sm) {
+        display: flex;
+        align-items: center;
+    }
+}
