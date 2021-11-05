@@ -49,7 +49,7 @@ export function extractObjectDiffKeys(
                         }
                     })
                 }
-            } else if (!objectsEqual(value, oldValue)) {
+            } else {
                 changedKeys[`changed_${prefix}${key}`] = oldValue
             }
         }
