@@ -1,8 +1,9 @@
 import { kea } from 'kea'
 import api from '~/lib/api'
-import { PluginLogEntry } from '~/types'
+import { PluginLogEntry, PluginLogEntryType } from '~/types'
 import { teamLogic } from '../../teamLogic'
 import { pluginLogsLogicType } from './pluginLogsLogicType'
+import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 
 export interface PluginLogsProps {
     pluginConfigId: number
@@ -20,36 +21,41 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
     actions: {
         clearPluginLogsBackground: true,
         markLogsEnd: true,
+        setPluginLogsTypes: (typeFilters: CheckboxValueType[]) => ({
+            typeFilters,
+        }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
 
     loaders: ({ props: { pluginConfigId }, values, actions, cache }) => ({
         pluginLogs: {
             __default: [] as PluginLogEntry[],
-            loadPluginLogsInitially: async () => {
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}`
+            loadPluginLogs: async () => {
+                const results = await api.pluginLogs.search(
+                    pluginConfigId,
+                    values.currentTeamId,
+                    values.searchTerm,
+                    values.typeFilters
                 )
-                cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
+                if (!cache.pollingInterval) {
+                    cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
+                }
                 actions.clearPluginLogsBackground()
-                return response.results
-            },
-            loadPluginLogsSearch: async (searchTerm: string) => {
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}&search=${searchTerm}`
-                )
-                actions.clearPluginLogsBackground()
-                return response.results
+                return results
             },
             loadPluginLogsMore: async () => {
-                const before = values.trailingEntry ? '&before=' + values.trailingEntry.timestamp : ''
-                const search = values.searchTerm ? `&search=${values.searchTerm}` : ''
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/plugin_configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}${before}${search}`
+                const results = await api.pluginLogs.search(
+                    pluginConfigId,
+                    values.currentTeamId,
+                    values.searchTerm,
+                    values.typeFilters,
+                    values.trailingEntry
                 )
-                if (response.count < LOGS_PORTION_LIMIT) {
+
+                if (results.length < LOGS_PORTION_LIMIT) {
                     actions.markLogsEnd()
                 }
-                return [...values.pluginLogs, ...response.results]
+                return [...values.pluginLogs, ...results]
             },
             revealBackground: () => {
                 const newArray = [...values.pluginLogsBackground, ...values.pluginLogs]
@@ -63,19 +69,35 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
                 if (values.pluginLogsLoading) {
                     return values.pluginLogsBackground
                 }
-                const after = values.leadingEntry ? 'after=' + values.leadingEntry.timestamp : ''
-                const search = values.searchTerm ? `search=${values.searchTerm}` : ''
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/plugin_configs/${pluginConfigId}/logs?${[after, search]
-                        .filter(Boolean)
-                        .join('&')}`
+
+                const results = await api.pluginLogs.search(
+                    pluginConfigId,
+                    values.currentTeamId,
+                    values.searchTerm,
+                    values.typeFilters,
+                    null,
+                    values.leadingEntry
                 )
-                return [...response.results, ...values.pluginLogsBackground]
+
+                return [...results, ...values.pluginLogsBackground]
             },
         },
     }),
-
+    listeners: ({ actions }) => ({
+        setPluginLogsTypes: () => {
+            actions.loadPluginLogs()
+        },
+        setSearchTerm: () => {
+            actions.loadPluginLogs()
+        },
+    }),
     reducers: {
+        pluginLogsTypes: [
+            Object.values(PluginLogEntryType),
+            {
+                setPluginLogsTypes: (_, { typeFilters }) => typeFilters.map((tf) => tf as PluginLogEntryType),
+            },
+        ],
         pluginLogsBackground: [
             [] as PluginLogEntry[],
             {
@@ -85,13 +107,19 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
         searchTerm: [
             '',
             {
-                loadPluginLogsSearch: (_, searchTerm) => searchTerm || '',
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        typeFilters: [
+            [] as CheckboxValueType[],
+            {
+                setPluginLogsTypes: (_, { typeFilters }) => typeFilters || [],
             },
         ],
         isThereMoreToLoad: [
             true,
             {
-                loadPluginLogsInitiallySuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
+                loadPluginLogsSuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
                 markLogsEnd: () => false,
             },
         ],
@@ -126,7 +154,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
 
     events: ({ actions, cache }) => ({
         afterMount: () => {
-            actions.loadPluginLogsInitially()
+            actions.loadPluginLogs()
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)

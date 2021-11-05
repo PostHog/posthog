@@ -2,10 +2,9 @@ import React from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Button, Row } from 'antd'
+import { Button, Tag } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
-import { CloseButton } from 'lib/components/CloseButton'
 
 interface PersonPropertySelectProps {
     onChange: (names: string[]) => void
@@ -24,32 +23,28 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
     }
 
     return (
-        <div className="mb">
-            {selectedProperties.length > 0 &&
-                selectedProperties.map((name) => {
-                    return (
-                        <Row
-                            key={name}
-                            align="middle"
-                            className="property-filter-row mt-05 mb-05"
-                            style={{
-                                width: '100%',
-                                margin: '0.25rem 0',
-                                padding: '0.25rem 0',
-                            }}
-                        >
-                            <Button type="primary" shape="round">
+        <div>
+            <div>
+                {selectedProperties.length > 0 &&
+                    selectedProperties.map((name) => {
+                        return (
+                            <Tag
+                                key={name}
+                                closable
+                                onClose={(): void => handleRemove(name)}
+                                style={{
+                                    margin: '0.25rem',
+                                    padding: '0.25rem 0.5em',
+                                    background: '#D9D9D9',
+                                    border: '1px solid #D9D9D9',
+                                    borderRadius: '40px',
+                                }}
+                            >
                                 {name}
-                            </Button>{' '}
-                            <CloseButton
-                                className="ml-1"
-                                onClick={() => handleRemove(name)}
-                                style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                            />
-                        </Row>
-                    )
-                })}
-            <Row>
+                            </Tag>
+                        )
+                    })}
+
                 <Popup
                     visible={open}
                     overlay={
@@ -74,7 +69,7 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
                         </Button>
                     )}
                 </Popup>
-            </Row>
+            </div>
         </div>
     )
 }

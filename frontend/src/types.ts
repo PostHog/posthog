@@ -22,6 +22,7 @@ import { PostHog } from 'posthog-js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
+// Keep this in sync with backend constants (constants.py)
 export enum AvailableFeature {
     ZAPIER = 'zapier',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
@@ -31,6 +32,7 @@ export enum AvailableFeature {
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
+    CORRELATION_ANALYSIS = 'correlation_analysis',
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -573,6 +575,11 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+}
+
+export interface SessionRecordingEvents {
+    next?: string
+    events: EventType[]
 }
 
 export interface BillingType {

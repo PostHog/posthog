@@ -9,6 +9,7 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
     },
     actions: {
         toggleSideBar: true,
+        hideSideBar: true,
         hideAnnouncement: true,
         openSitePopover: true,
         closeSitePopover: true,
@@ -19,12 +20,15 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideCreateOrganizationModal: true,
         showChangelogModal: true,
         hideChangelogModal: true,
+        showToolbarModal: true,
+        hideToolbarModal: true,
     },
     reducers: {
         isSideBarShown: [
-            true, // TODO: Hide sidebar on mobile by default
+            window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
             {
                 toggleSideBar: (state) => !state,
+                hideSideBar: () => false,
             },
         ],
         isAnnouncementShown: [
@@ -60,6 +64,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
             {
                 showChangelogModal: () => true,
                 hideChangelogModal: () => false,
+            },
+        ],
+        isToolbarModalShown: [
+            false,
+            {
+                showToolbarModal: () => true,
+                hideToolbarModal: () => false,
             },
         ],
     },

@@ -559,9 +559,9 @@ export function IconUnfoldLess({ style }: { style?: CSSProperties }): JSX.Elemen
 }
 
 /** Material Design Add icon. */
-export function IconPlus(): JSX.Element {
+export function IconPlus(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path d="m19 13h-6v6h-2v-6h-6v-2h6v-6h2v6h6z" fill="currentColor" />
         </svg>
     )

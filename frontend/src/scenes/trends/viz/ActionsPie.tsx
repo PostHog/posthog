@@ -48,15 +48,11 @@ export function ActionsPie({
         setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
-    useEffect(
-        () => {
-            if (results) {
-                updateData()
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [results, color]
-    )
+    useEffect(() => {
+        if (results) {
+            updateData()
+        }
+    }, [results, color])
 
     return data ? (
         data[0] && data[0].labels ? (
@@ -70,17 +66,28 @@ export function ActionsPie({
                         labels={data[0].labels}
                         inSharedMode={inSharedMode}
                         dashboardItemId={dashboardItemId}
-                        onClick={(point) => {
-                            const { dataset } = point
-                            const action = dataset.actions[point.index]
-                            const label = dataset.labels[point.index]
-                            const date_from = dataset.days[0]
-                            const date_to = dataset.days[dataset.days.length - 1]
-                            const breakdown_value = dataset.breakdownValues[point.index]
-                                ? dataset.breakdownValues[point.index]
-                                : null
-                            loadPeople({ action, label, date_from, date_to, filters: filtersParam, breakdown_value })
-                        }}
+                        onClick={
+                            dashboardItemId || filtersParam.formula
+                                ? null
+                                : (point) => {
+                                      const { dataset } = point
+                                      const action = dataset.actions[point.index]
+                                      const label = dataset.labels[point.index]
+                                      const date_from = filtersParam.date_from || ''
+                                      const date_to = filtersParam.date_to || ''
+                                      const breakdown_value = dataset.breakdownValues[point.index]
+                                          ? dataset.breakdownValues[point.index]
+                                          : null
+                                      loadPeople({
+                                          action,
+                                          label,
+                                          date_from,
+                                          date_to,
+                                          filters: filtersParam,
+                                          breakdown_value,
+                                      })
+                                  }
+                        }
                     />
                 </div>
                 <h1>

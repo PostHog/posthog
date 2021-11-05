@@ -1,4 +1,4 @@
-from typing import Counter, List, Set, Tuple, Union, cast
+from typing import Counter, List, Set, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
@@ -9,7 +9,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.property import PropertyName, PropertyType, TableWithProperties
+from posthog.models.property import GroupTypeIndex, PropertyIdentifier, PropertyType, TableWithProperties
 
 
 class ColumnOptimizer:
@@ -35,17 +35,20 @@ class ColumnOptimizer:
 
         return self.columns_to_query("person", set(self._used_properties_with_type("person")))
 
-    def columns_to_query(
-        self, table: TableWithProperties, used_properties: Set[Tuple[PropertyName, PropertyType]]
-    ) -> Set[ColumnName]:
+    def columns_to_query(self, table: TableWithProperties, used_properties: Set[PropertyIdentifier]) -> Set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
 
         materialized_columns = get_materialized_columns(table)
-        return set(materialized_columns.get(property_name, "properties") for property_name, _ in used_properties)
+        return set(materialized_columns.get(property_name, "properties") for property_name, _, _ in used_properties)
 
     @cached_property
     def is_using_person_properties(self) -> bool:
         return len(self._used_properties_with_type("person")) > 0
+
+    @cached_property
+    def group_types_to_query(self) -> Set[GroupTypeIndex]:
+        used_properties = self._used_properties_with_type("group")
+        return set(cast(int, group_type_index) for _, _, group_type_index in used_properties)
 
     @cached_property
     def should_query_elements_chain_column(self) -> bool:
@@ -70,9 +73,9 @@ class ColumnOptimizer:
         return False
 
     @cached_property
-    def properties_used_in_filter(self) -> Counter[Tuple[PropertyName, PropertyType]]:
+    def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: Counter[Tuple[PropertyName, PropertyType]] = extract_tables_and_properties(self.filter.properties)
+        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.properties)
 
         # Some breakdown types read properties
         #
@@ -81,7 +84,7 @@ class ColumnOptimizer:
         if self.filter.breakdown_type in ["event", "person"]:
             # :TRICKY: We only support string breakdown for event/person properties
             assert isinstance(self.filter.breakdown, str)
-            counter[(self.filter.breakdown, self.filter.breakdown_type)] += 1
+            counter[(self.filter.breakdown, self.filter.breakdown_type, None)] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
@@ -91,7 +94,7 @@ class ColumnOptimizer:
             #
             # See ee/clickhouse/queries/trends/util.py#process_math
             if entity.math_property:
-                counter[(entity.math_property, "event")] += 1
+                counter[(entity.math_property, "event", None)] += 1
 
             # :TRICKY: If action contains property filters, these need to be included
             #
@@ -101,15 +104,15 @@ class ColumnOptimizer:
 
         if self.filter.correlation_type == FunnelCorrelationType.PROPERTIES and self.filter.correlation_property_names:
             for prop_value in self.filter.correlation_property_names:
-                counter[(prop_value, "person")] += 1
+                counter[(prop_value, "person", None)] += 1
 
         return counter
 
-    def _used_properties_with_type(self, property_type: PropertyType) -> Counter[Tuple[PropertyName, PropertyType]]:
+    def _used_properties_with_type(self, property_type: PropertyType) -> Counter[PropertyIdentifier]:
         return Counter(
             {
-                (name, type): count
-                for (name, type), count in self.properties_used_in_filter.items()
+                (name, type, group_type_index): count
+                for (name, type, group_type_index), count in self.properties_used_in_filter.items()
                 if type == property_type
             }
         )

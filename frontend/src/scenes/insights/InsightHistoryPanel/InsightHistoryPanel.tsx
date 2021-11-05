@@ -46,15 +46,11 @@ function InsightPane({
     const { loadTeamInsights, loadSavedInsights, loadInsights, updateInsight } = useActions(insightHistoryLogic)
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
-    useEffect(
-        () => {
-            loadInsights()
-            loadSavedInsights()
-            loadTeamInsights()
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        []
-    )
+    useEffect(() => {
+        loadInsights()
+        loadSavedInsights()
+        loadTeamInsights()
+    }, [])
 
     return (
         <Row gutter={[16, 16]}>
