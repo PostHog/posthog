@@ -35,16 +35,11 @@ class SimplifyFilterMixin:
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
-        properties = self._simplify_properties(team, result.properties, **kwargs) # type: ignore
+        properties = self._simplify_properties(team, result.properties, **kwargs)  # type: ignore
         if getattr(result, "aggregation_group_type_index", None) is not None:
-            properties.append(self._group_set_property(cast(int, result.aggregation_group_type_index))) # type: ignore
+            properties.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))  # type: ignore
 
-        return result.with_data(
-            {
-                **updated_entities,
-                "properties": properties,
-            }
-        )
+        return result.with_data({**updated_entities, "properties": properties,})
 
     def _simplify_entity(
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs

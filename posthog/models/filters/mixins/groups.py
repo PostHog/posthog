@@ -26,4 +26,8 @@ class GroupsAggregationMixin(BaseParamMixin):
 
     @include_dict
     def aggregation_group_type_index_to_dict(self):
-        return {AGGREGATION_GROUP_TYPE_INDEX: self.aggregation_group_type_index} if self.aggregation_group_type_index is not None else {}
+        return (
+            {AGGREGATION_GROUP_TYPE_INDEX: self.aggregation_group_type_index}
+            if self.aggregation_group_type_index is not None
+            else {}
+        )

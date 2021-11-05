@@ -82,7 +82,9 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def get_target_field(self) -> str:
         if self._filter.aggregation_group_type_index is not None:
             prop_var = f"$group_{self._filter.aggregation_group_type_index}"
-            group_expression, _ = get_property_string_expr("events", prop_var, f"'{prop_var}'", f"{self.EVENT_TABLE_ALIAS}.properties")
+            group_expression, _ = get_property_string_expr(
+                "events", prop_var, f"'{prop_var}'", f"{self.EVENT_TABLE_ALIAS}.properties"
+            )
             return group_expression
         else:
             return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
