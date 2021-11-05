@@ -1,7 +1,7 @@
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelLogic } from './funnelLogic'
 import { api, defaultAPIMocks, mockAPI, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import posthog from 'posthog-js'
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -150,7 +150,7 @@ describe('funnelLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadResults'])
                 .toMatchValues({
-                    insight: expect.objectContaining({
+                    insight: partial({
                         id: 12,
                         filters: {},
                         result: null,
@@ -166,7 +166,7 @@ describe('funnelLogic', () => {
                 })
                 .toDispatchActions(['loadResultsSuccess'])
                 .toMatchValues({
-                    insight: expect.objectContaining({
+                    insight: partial({
                         filters: {
                             insight: ViewType.FUNNELS,
                             actions: [
@@ -231,7 +231,7 @@ describe('funnelLogic', () => {
         })
             .toDispatchActions(['setFilters', 'loadResults', 'loadResultsSuccess'])
             .toMatchValues({
-                apiParams: expect.objectContaining({
+                apiParams: partial({
                     actions: [],
                     events: [
                         { id: '$pageview', order: 0 },
@@ -245,7 +245,7 @@ describe('funnelLogic', () => {
 
         expect(api.create).toBeCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
-            expect.objectContaining({
+            partial({
                 actions: [],
                 events: [
                     { id: '$pageview', order: 0 },
@@ -278,12 +278,12 @@ describe('funnelLogic', () => {
                         action.payload.filters?.events?.[0]?.id === 42,
                 ])
                 .toMatchValues(logic, {
-                    filters: expect.objectContaining({
+                    filters: partial({
                         events: [{ id: 42 }],
                     }),
                 })
                 .toMatchValues(insightLogic(props), {
-                    filters: expect.objectContaining({
+                    filters: partial({
                         events: [{ id: 42 }],
                     }),
                 })
@@ -294,12 +294,12 @@ describe('funnelLogic', () => {
                 insightLogic(props).actions.setFilters({ events: [{ id: 42 }] })
             })
                 .toMatchValues(logic, {
-                    filters: expect.objectContaining({
+                    filters: partial({
                         events: [{ id: 42 }],
                     }),
                 })
                 .toMatchValues(insightLogic(props), {
-                    filters: expect.objectContaining({
+                    filters: partial({
                         events: [{ id: 42 }],
                     }),
                 })

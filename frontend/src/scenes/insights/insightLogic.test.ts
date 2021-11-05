@@ -100,9 +100,34 @@ describe('insightLogic', () => {
     })
 
     describe('analytics', () => {
-        it('reports insight changes on setFilter', async () => {
+        it('reports insight changes on setFilter, synced with URL', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
+                syncWithUrl: true,
+                filters: { insight: 'TRENDS' },
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ insight: 'FUNNELS' })
+            }).toDispatchActions([
+                eventUsageLogic.actionCreators.reportInsightViewed(
+                    cleanFilters({ insight: 'TRENDS' }),
+                    true,
+                    false,
+                    0,
+                    {}
+                ),
+                eventUsageLogic.actionCreators.reportInsightViewed({ insight: 'FUNNELS' }, true, false, 0, {
+                    changed_insight: 'TRENDS',
+                }),
+            ])
+        })
+
+        it('reports insight changes on setFilter, not synced with URL', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                syncWithUrl: false,
                 filters: { insight: 'TRENDS' },
             })
             logic.mount()

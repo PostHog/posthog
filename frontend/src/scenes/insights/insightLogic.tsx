@@ -132,7 +132,7 @@ export const insightLogic = kea<insightLogicType>({
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
                     // fetch this now, as it might be different when we report below
-                    const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
+                    const scene = sceneLogic.findMounted()?.values.scene || null
 
                     // If a query is in progress, debounce before making the second query
                     if (cache.abortController) {
@@ -232,7 +232,6 @@ export const insightLogic = kea<insightLogicType>({
                             true
                         )
                     }
-
                     return {
                         ...values.insight,
                         result: response.result,
@@ -592,14 +591,13 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         createInsight: async ({ insight, fromLoadResults }, breakpoint) => {
-            actions.setInsight(
-                { id: undefined, name: '', description: '', tags: [], filters: {}, result: null, ...insight },
-                { overrideFilter: true }
-            )
+            const blankInsight = { name: '', description: '', tags: [], filters: {}, result: null }
+            actions.setInsight({ id: undefined, ...blankInsight, ...insight }, { overrideFilter: true })
             const createdInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
             breakpoint()
             actions.setInsight(
                 {
+                    ...blankInsight,
                     ...insight,
                     ...createdInsight,
                     filters: cleanFilters(createdInsight.filters || insight.filters),
@@ -679,10 +677,6 @@ export const insightLogic = kea<insightLogicType>({
                     // No "id" in the URL, but "id" in the reducer
                     if (values.insight?.id) {
                         actions.createInsight({
-                            id: undefined,
-                            name: '',
-                            description: '',
-                            tags: [],
                             filters: cleanFilters(searchParams, {}),
                             result: null,
                         })
@@ -710,7 +704,11 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     actions.loadInsight(props.dashboardItemId)
                 } else if (!props.doNotLoad) {
-                    actions.loadResults()
+                    if (props.syncWithUrl) {
+                        actions.setFilters(cleanFilters(values.filters, {}))
+                    } else {
+                        actions.loadResults()
+                    }
                 }
             }
         },
