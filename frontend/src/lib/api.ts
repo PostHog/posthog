@@ -1,7 +1,10 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, CohortType, FilterType, PersonType, TeamType } from '../types'
+import { ActionType, CohortType, FilterType, PersonType, PluginLogEntry, TeamType } from '../types'
 import { getCurrentTeamId } from './utils/logics'
+import { CheckboxValueType } from 'antd/lib/checkbox/Group'
+import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
+import { toParams } from 'lib/utils'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -81,6 +84,12 @@ class ApiRequest {
 
     public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projects().addPathComponent(id.toString())
+    }
+
+    public pluginLogs(pluginConfigId: number): ApiRequest {
+        return this.addPathComponent('plugin_configs')
+            .addPathComponent(pluginConfigId.toString())
+            .addPathComponent('logs')
     }
 
     public actions(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
@@ -193,6 +202,36 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
+        },
+    },
+
+    pluginLogs: {
+        async search(
+            pluginConfigId: number,
+            currentTeamId: number | null,
+            searchTerm: string | null = null,
+            typeFilters: CheckboxValueType[] = [],
+            trailingEntry: PluginLogEntry | null = null,
+            leadingEntry: PluginLogEntry | null = null
+        ): Promise<PluginLogEntry[]> {
+            const params = toParams(
+                {
+                    limit: LOGS_PORTION_LIMIT,
+                    type_filter: typeFilters,
+                    search: searchTerm || undefined,
+                    before: trailingEntry?.timestamp,
+                    after: leadingEntry?.timestamp,
+                },
+                true
+            )
+
+            const response = await new ApiRequest()
+                .projectsDetail(currentTeamId || undefined)
+                .pluginLogs(pluginConfigId)
+                .withQueryString(params)
+                .get()
+
+            return response.results
         },
     },
 

@@ -170,7 +170,7 @@
         "history": "^5.0.1",
         "html-webpack-harddisk-plugin": "^1.0.2",
         "html-webpack-plugin": "^4.5.2",
-        "husky": "^4.3.0",
+        "husky": "^4.3.8",
         "jest": "^26.6.3",
         "kea-test-utils": "^0.2.1",
         "kea-typegen": "^1.2.2",
@@ -203,7 +203,8 @@
     },
     "lint-staged": {
         "*.{js,ts,mjs,tsx,json,yaml,yml,css,scss}": "prettier --write",
-        "*.{js,ts,mjs,tsx}": "eslint --fix",
+        "(posthog/**/*)*.{js,ts,mjs,tsx}": "eslint -c .eslintrc.js --fix",
+        "(plugin-server/**/*)*.{js,ts,mjs,tsx}": "eslint -c plugin-server/.eslintrc.js --fix",
         "*.{py,pyi}": [
             "flake8 --select=E9,F63,F7,F82,W605",
             "black",

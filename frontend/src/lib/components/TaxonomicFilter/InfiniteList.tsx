@@ -71,7 +71,7 @@ const renderItemPopup = (
     if (value) {
         if (listGroupType === TaxonomicFilterGroupType.Actions && 'id' in item) {
             return (
-                <div style={{ width }}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <AimOutlined /> Actions
                     <Link
                         to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
@@ -104,7 +104,7 @@ const renderItemPopup = (
 
         if (data) {
             return (
-                <div style={{ width }}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <PropertyKeyTitle data={data} />
                     {data.description ? <hr /> : null}
                     <PropertyKeyDescription data={data} value={value.toString()} />
@@ -164,7 +164,6 @@ export function InfiniteList(): JSX.Element {
 
     const { styles, attributes } = usePopper(referenceElement, popperElement, {
         placement: 'right',
-
         modifiers: [
             {
                 name: 'offset',
@@ -246,7 +245,7 @@ export function InfiniteList(): JSX.Element {
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip click-outside-block"
+                          className="popper-tooltip click-outside-block Popup"
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}

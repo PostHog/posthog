@@ -1,7 +1,9 @@
 name: Frontend CI
 
 on:
-    - pull_request
+    pull_request:
+        paths-ignore:
+            - 'plugin-server/**'
 
 jobs:
     frontend-code-quality:

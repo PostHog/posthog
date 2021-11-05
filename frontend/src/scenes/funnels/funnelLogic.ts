@@ -18,7 +18,6 @@ import {
     FlattenedFunnelStep,
     FunnelStepWithConversionMetrics,
     BinCountValue,
-    FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelStepRangeEntityFilter,
     InsightLogicProps,
@@ -31,6 +30,7 @@ import {
     BreakdownType,
     FunnelCorrelationResultsType,
     AvailableFeature,
+    TeamType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -86,7 +86,7 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
 ]
 
 export const funnelLogic = kea<funnelLogicType>({
-    path: ['scenes', 'funnels', 'funnelLogic'],
+    path: (key) => ['scenes', 'funnels', 'funnelLogic', key],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
 
@@ -100,6 +100,8 @@ export const funnelLogic = kea<funnelLogicType>({
             ['personProperties'],
             userLogic,
             ['hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -118,7 +120,6 @@ export const funnelLogic = kea<funnelLogicType>({
             index,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        setConversionWindow: (conversionWindow: FunnelConversionWindow) => ({ conversionWindow }),
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
@@ -266,24 +267,6 @@ export const funnelLogic = kea<funnelLogicType>({
         people: {
             clearFunnel: () => [],
         },
-        conversionWindow: [
-            {
-                funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
-                funnel_window_interval: 14,
-            } as FunnelConversionWindow,
-            {
-                setConversionWindow: (
-                    state,
-                    { conversionWindow: { funnel_window_interval_unit, funnel_window_interval } }
-                ) => {
-                    return {
-                        ...state,
-                        ...(funnel_window_interval_unit ? { funnel_window_interval_unit } : {}),
-                        ...(funnel_window_interval ? { funnel_window_interval } : {}),
-                    }
-                },
-            },
-        ],
         stepReference: [
             FunnelStepReference.total as FunnelStepReference,
             {
@@ -365,16 +348,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 setPropertyNames: (_, { propertyNames }) => propertyNames,
             },
         ],
-
-        excludedEventNames: [
-            [] as string[],
-            {
-                persist: true,
-            },
-            {
-                excludeEvent: (excludedEvents, { eventName }) => [...excludedEvents, eventName],
-            },
-        ],
         excludedEventPropertyNames: [
             [] as string[],
             {
@@ -408,6 +381,13 @@ export const funnelLogic = kea<funnelLogicType>({
             ({ filters, result }): FunnelAPIResponse => (filters?.insight === ViewType.FUNNELS ? result : []),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
+        conversionWindow: [
+            (s) => [s.filters],
+            ({ funnel_window_interval, funnel_window_interval_unit }) => ({
+                funnel_window_interval: funnel_window_interval || 14,
+                funnel_window_interval_unit: funnel_window_interval_unit || FunnelConversionWindowTimeUnit.Day,
+            }),
+        ],
         stepResults: [
             (s) => [s.results, s.filters],
             (results, filters) =>
@@ -847,10 +827,11 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         correlationValues: [
-            () => [selectors.correlations, selectors.correlationTypes],
-            (correlations, correlationTypes): FunnelCorrelation[] => {
+            () => [selectors.correlations, selectors.correlationTypes, selectors.excludedEventNames],
+            (correlations, correlationTypes, excludedEventNames): FunnelCorrelation[] => {
                 return correlations.events
                     ?.filter((correlation) => correlationTypes.includes(correlation.correlation_type))
+                    .filter((correlation) => !excludedEventNames.includes(correlation.event.event))
                     .map((value) => {
                         return {
                             ...value,
@@ -976,10 +957,11 @@ export const funnelLogic = kea<funnelLogicType>({
         excludedPropertyNames: [
             () => [selectors.currentTeam],
             (currentTeam) =>
-                currentTeam
-                    ? currentTeam.correlation_config?.excluded_person_property_names ||
-                      DEFAULT_EXCLUDED_PERSON_PROPERTIES
-                    : null,
+                currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
+        ],
+        excludedEventNames: [
+            () => [selectors.currentTeam],
+            (currentTeam) => currentTeam?.correlation_config?.excluded_events || [],
         ],
         inversePropertyNames: [
             (s) => [s.personProperties],
@@ -990,9 +972,9 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         correlationAnalysisAvailable: [
-            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
-            (hasAvailableFeature, clickhouseFeaturesEnabled) =>
-                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled, s.featureFlags],
+            (hasAvailableFeature, clickhouseFeaturesEnabled, featureFlags) =>
+                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
                 clickhouseFeaturesEnabled &&
                 hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
@@ -1133,10 +1115,6 @@ export const funnelLogic = kea<funnelLogicType>({
         setBinCount: async ({ binCount }) => {
             actions.setFilters(binCount && binCount !== BinCountAuto ? { bin_count: binCount } : {})
         },
-        setConversionWindow: async () => {
-            actions.setFilters(values.conversionWindow)
-        },
-
         excludeEventProperty: async ({ eventName, propertyName }) => {
             actions.loadEventWithPropertyCorrelations(eventName)
             eventUsageLogic.actions.reportCorrelationInteraction(
@@ -1147,42 +1125,23 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         excludeEvent: async ({ eventName }) => {
-            actions.loadCorrelations()
+            appendToCorrelationConfig('excluded_events', values.excludedEventNames, eventName)
+
             eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
                 event_name: eventName,
             })
         },
 
         excludePropertyFromProject: ({ propertyName }) => {
-            // When we exclude a property, we want to update the config stored
-            // on the current Team/Project.
-            const oldExcludedPropertyNames = values.excludedPropertyNames
-            const oldCurrentTeam = teamLogic.values.currentTeam
+            appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)
 
             eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Properties,
-                'exclude property from project',
-                { property_name: propertyName }
+                FunnelCorrelationResultsType.Events,
+                'exclude person property',
+                {
+                    person_property: propertyName,
+                }
             )
-            // If we haven't actually retrieved the current team, we can't
-            // update the config.
-            if (oldCurrentTeam === null || oldExcludedPropertyNames === null) {
-                console.warn('Attempt to update correlation config without first retrieving existing config')
-                return
-            }
-
-            const oldCorrelationConfig = oldCurrentTeam.correlation_config
-
-            const excludedPropertyNames = [...Array.from(new Set(oldExcludedPropertyNames.concat([propertyName])))]
-
-            const correlationConfig = {
-                ...oldCorrelationConfig,
-                excluded_person_property_names: excludedPropertyNames,
-            }
-
-            teamLogic.actions.updateCurrentTeam({
-                correlation_config: correlationConfig,
-            })
         },
 
         hideSkewWarning: () => {
@@ -1260,3 +1219,36 @@ export const funnelLogic = kea<funnelLogicType>({
         },
     }),
 })
+
+const appendToCorrelationConfig = (
+    configKey: keyof TeamType['correlation_config'],
+    currentValue: string[],
+    configValue: string
+): void => {
+    // Helper to handle updating correlationConfig within the Team model. Only
+    // handles further appending to current values.
+
+    // When we exclude a property, we want to update the config stored
+    // on the current Team/Project.
+    const oldCurrentTeam = teamLogic.values.currentTeam
+
+    // If we haven't actually retrieved the current team, we can't
+    // update the config.
+    if (oldCurrentTeam === null || !currentValue) {
+        console.warn('Attempt to update correlation config without first retrieving existing config')
+        return
+    }
+
+    const oldCorrelationConfig = oldCurrentTeam.correlation_config
+
+    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
+
+    const correlationConfig = {
+        ...oldCorrelationConfig,
+        [configKey]: configList,
+    }
+
+    teamLogic.actions.updateCurrentTeam({
+        correlation_config: correlationConfig,
+    })
+}
