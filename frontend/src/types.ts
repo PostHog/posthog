@@ -1123,7 +1123,7 @@ export interface FeatureFlagType {
     deleted: boolean
     active: boolean
     created_by: UserBasicType | null
-    created_at: string
+    created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
 }

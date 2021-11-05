@@ -31,8 +31,6 @@ export function FeatureFlags(): JSX.Element {
     const { push } = useActions(router)
     const { tableScrollX } = useIsTableScrolling('lg')
 
-    const BackTo = '#backTo=Feature Flags&backToURL=/feature_flags'
-
     const columns = [
         {
             title: normalizeColumnTitle('Key'),
@@ -132,7 +130,7 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Link
-                        to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}${BackTo}`}
+                        to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}`}
                         data-attr="usage"
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -148,7 +146,7 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        <Link to={`/feature_flags/${featureFlag.id}${BackTo}`}>
+                        <Link to={`/feature_flags/${featureFlag.id}`}>
                             <EditOutlined />
                         </Link>
                         {featureFlag.id && (
@@ -177,7 +175,7 @@ export function FeatureFlags(): JSX.Element {
             <div className="mb text-right">
                 <LinkButton
                     type="primary"
-                    to={[urls.featureFlag('new'), {}, BackTo]}
+                    to={urls.featureFlag('new')}
                     data-attr="new-feature-flag"
                     icon={<PlusOutlined />}
                 >
@@ -187,10 +185,10 @@ export function FeatureFlags(): JSX.Element {
             <Table
                 dataSource={featureFlags}
                 columns={columns}
-                loading={!featureFlags && featureFlagsLoading}
+                loading={featureFlagsLoading && featureFlags.length === 0}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
-                    onClick: () => featureFlag.id && push(urls.featureFlag(featureFlag.id), {}, BackTo),
+                    onClick: () => featureFlag.id && push(urls.featureFlag(featureFlag.id)),
                     style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}
                 size="small"
