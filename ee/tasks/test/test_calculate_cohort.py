@@ -156,6 +156,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         "custom_name": None,
                         "math": None,
                         "math_property": None,
+                        "math_group_type_index": None,
                         "properties": [],
                     }
                 ],
@@ -172,6 +173,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "custom_name": None,
                 "math": None,
                 "math_property": None,
+                "math_group_type_index": None,
                 "properties": [],
             },
         )
@@ -190,6 +192,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         "name": "$pageview",
                         "math": None,
                         "math_property": None,
+                        "math_group_type_index": None,
                         "properties": [],
                     }
                 ],
@@ -205,6 +208,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "name": "$pageview",
                 "math": None,
                 "math_property": None,
+                "math_group_type_index": None,
                 "properties": [],
             },
         )
