@@ -602,10 +602,10 @@ export const insightLogic = kea<insightLogicType>({
                     filters: cleanFilters(createdInsight.filters || insight.filters),
                     result: createdInsight.result || insight.result,
                 },
-                {}
+                { overrideFilter: true, fromPersistentApi: true }
             )
             if (props.syncWithUrl) {
-                router.actions.replace('/insights', router.values.searchParams, {
+                router.actions.replace('/insights', values.filters, {
                     ...router.values.hashParams,
                     fromItem: createdInsight.id,
                 })
@@ -676,7 +676,7 @@ export const insightLogic = kea<insightLogicType>({
                             name: '',
                             description: '',
                             tags: [],
-                            filters: cleanFilters(searchParams, values.filters),
+                            filters: cleanFilters(searchParams, {}),
                             result: null,
                         })
                         actions.setInsightMode(ItemMode.Edit, null)
