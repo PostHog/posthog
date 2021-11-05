@@ -8,7 +8,6 @@ from posthog.constants import PROPERTIES
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
-    BreakdownTypeMixin,
     BreakdownValueMixin,
     CompareMixin,
     DateMixin,
@@ -53,7 +52,6 @@ class Filter(
     SelectorMixin,
     ShownAsMixin,
     BreakdownMixin,
-    BreakdownTypeMixin,
     BreakdownValueMixin,
     FilterTestAccountsMixin,
     CompareMixin,
