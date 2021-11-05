@@ -61,10 +61,14 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         person_query, person_params = self._get_person_query()
         self.params.update(person_params)
 
+        groups_query, groups_params = self._get_groups_query()
+        self.params.update(groups_params)
+
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
             {person_query}
+            {groups_query}
             WHERE team_id = %(team_id)s
             {f"AND {entity_query}"}
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
