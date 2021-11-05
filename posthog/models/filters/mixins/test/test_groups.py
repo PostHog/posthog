@@ -17,3 +17,5 @@ def test_validate_group_type_index():
         validate_group_type_index("field", "another_type")
     with pytest.raises(ValidationError):
         validate_group_type_index("field", -1)
+    with pytest.raises(ValidationError):
+        validate_group_type_index("field", None, required=True)
