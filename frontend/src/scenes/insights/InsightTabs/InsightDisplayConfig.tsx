@@ -1,12 +1,12 @@
 import React from 'react'
-import { ChartFilter } from 'lib/components/ChartFilter'
+import { ChartFilter } from 'lib/components/ChartFilter/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
-import { IntervalFilter } from 'lib/components/IntervalFilter'
+import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
-import { InsightDateFilter } from '../InsightDateFilter'
+import { InsightDateFilter } from '../InsightDateFilter/InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
@@ -95,16 +95,15 @@ export function InsightDisplayConfig({
             <div style={{ width: '100%', textAlign: 'right' }}>
                 {showChartFilter(activeView) && (
                     <ChartFilter
-                        onChange={(display: ChartDisplayType | FunnelVizType) => {
+                        onChange={(display: ChartDisplayType) => {
                             if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
                                 clearAnnotationsToCreate()
                             }
                         }}
-                        filters={filters}
                         disabled={filters.insight === ViewType.LIFECYCLE}
                     />
                 )}
-                {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
+                {showIntervalFilter(activeView, filters) && <IntervalFilter />}
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 

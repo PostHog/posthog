@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { ClockCircleOutlined, LineChartOutlined, FunnelPlotOutlined } from '@ant-design/icons'
 import { FunnelVizType } from '~/types'
-import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -18,10 +17,9 @@ export function ToggleButtonChartFilter({
     onChange = noop,
     disabled = false,
 }: ToggleButtonChartFilterProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, filters } = useValues(insightLogic)
+    const { setFilters } = useActions(insightLogic)
     const { clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
-    const { chartFilter } = useValues(chartFilterLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
     const defaultDisplay = FunnelVizType.Steps
 
     const options = [
@@ -57,10 +55,10 @@ export function ToggleButtonChartFilter({
             <div className="funnel-chart-filter">
                 <DropdownSelector
                     options={options}
-                    value={chartFilter || defaultDisplay}
+                    value={filters.funnel_viz_type || defaultDisplay}
                     onValueChange={(val) => {
                         const valueTyped = val as FunnelVizType
-                        setChartFilter(valueTyped)
+                        setFilters({ ...filters, funnel_viz_type: valueTyped })
                         onChange(valueTyped)
                     }}
                     disabled={disabled}

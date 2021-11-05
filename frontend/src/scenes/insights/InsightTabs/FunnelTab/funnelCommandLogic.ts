@@ -4,23 +4,19 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelPlotOutlined } from '@ant-design/icons'
 
 import { funnelCommandLogicType } from './funnelCommandLogicType'
-import { router } from 'kea-router'
 
 const FUNNEL_COMMAND_SCOPE = 'funnels'
 
 export const funnelCommandLogic = kea<funnelCommandLogicType>({
     connect: [commandPaletteLogic],
-    events: {
+    events: () => ({
         afterMount: () => {
             const results: CommandResultTemplate[] = [
                 {
                     icon: FunnelPlotOutlined,
                     display: 'Clear Funnel',
                     executor: () => {
-                        funnelLogic({
-                            dashboardItemId: router.values.searchParams.fromItem,
-                            syncWithUrl: true,
-                        }).actions.clearFunnel()
+                        funnelLogic.findMounted({ syncWithUrl: true })?.actions.clearFunnel()
                     },
                 },
             ]
@@ -39,5 +35,5 @@ export const funnelCommandLogic = kea<funnelCommandLogicType>({
         beforeUnmount: () => {
             commandPaletteLogic.actions.deregisterScope(FUNNEL_COMMAND_SCOPE)
         },
-    },
+    }),
 })

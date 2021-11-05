@@ -356,7 +356,8 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_, {}, { personModal }) => {
+        // TODO: move this handling into the insightsLogic
+        '/insights/*': (_, {}, { personModal }) => {
             if (personModal && !values.showingPeople) {
                 actions.loadPeople(personModal)
             }

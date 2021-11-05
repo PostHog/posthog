@@ -179,3 +179,4 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.onboardingSetup()]: Scene.OnboardingSetup,
 }
+console.log(routes)

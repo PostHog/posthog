@@ -8,14 +8,14 @@ import funnelsJson from './funnels.json'
 import funnelsWithCorrelationJson from './funnelsWithCorrelation.json'
 import { rest } from 'msw'
 import { worker } from '../../../mocks/browser'
-import { FunnelResult, FunnelStep } from '~/types'
+import { ChartDisplayType, EventType, FunnelResult, FunnelStep } from '~/types'
 import posthog from 'posthog-js'
 import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
 import { createMemoryHistory } from 'history'
 import React from 'react'
 import { Provider } from 'kea'
 import { initKea } from '~/initKea'
-import { EventType } from '~/types'
+import { urls } from 'scenes/urls'
 
 // Needed to be able to interact with project level correlation settings
 let correlationConfig: any = null
@@ -110,25 +110,25 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
 
     const history = createMemoryHistory({
         initialEntries: [
-            `/insights?${new URLSearchParams({
+            urls.newInsightFilters({
                 insight: 'FUNNELS',
-                properties: JSON.stringify([]),
-                filter_test_accounts: 'false',
-                events: JSON.stringify([
+                properties: [],
+                filter_test_accounts: false,
+                events: [
                     { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
                     { id: '$pageview', name: '$pageview', type: 'events', order: 1 },
                     { id: '$pageview', name: '$pageview', type: 'events', order: 2 },
-                ]),
-                actions: JSON.stringify([]),
+                ],
+                actions: [],
                 funnel_viz_type: 'steps',
-                display: 'FunnelViz',
+                display: ChartDisplayType.FunnelViz,
                 interval: 'day',
-                new_entity: JSON.stringify([]),
+                new_entity: [],
                 date_from: '-14d',
-                exclusions: JSON.stringify([]),
-                funnel_from_step: '0',
-                funnel_to_step: '1',
-            })}#fromItem=`,
+                exclusions: [],
+                funnel_from_step: 0,
+                funnel_to_step: 1,
+            }),
         ],
     })
 

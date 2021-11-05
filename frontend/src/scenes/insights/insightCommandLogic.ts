@@ -3,13 +3,13 @@ import { kea } from 'kea'
 import { insightCommandLogicType } from './insightCommandLogicType'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'
-import { insightDateFilterLogic } from 'scenes/insights/InsightDateFilter/insightDateFilterLogic'
 import { dateMapping } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
 export const insightCommandLogic = kea<insightCommandLogicType>({
-    connect: [commandPaletteLogic, compareFilterLogic, insightDateFilterLogic],
+    connect: [commandPaletteLogic],
     events: () => ({
         afterMount: () => {
             const funnelCommands: Command[] = [
@@ -20,14 +20,19 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
                             icon: RiseOutlined,
                             display: 'Toggle "Compare Previous" on Graph',
                             executor: () => {
-                                compareFilterLogic.actions.toggleCompare()
+                                compareFilterLogic.findMounted({ syncWithUrl: true })?.actions.toggleCompare()
                             },
                         },
                         ...Object.entries(dateMapping).map(([key, { values }]) => ({
                             icon: RiseOutlined,
                             display: `Set Time Range to ${key}`,
                             executor: () => {
-                                insightDateFilterLogic.actions.setDates(values[0], values[1])
+                                const logic = insightLogic.findMounted({ syncWithUrl: true })
+                                logic?.actions.setFilters({
+                                    ...logic?.values.filters,
+                                    date_from: values[0],
+                                    date_to: values[1],
+                                })
                             },
                         })),
                     ],

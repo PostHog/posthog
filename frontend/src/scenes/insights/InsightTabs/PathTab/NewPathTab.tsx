@@ -26,6 +26,7 @@ import { PayCard } from 'lib/components/PayCard/PayCard'
 import { Link } from 'lib/components/Link'
 import { PathCleanFilterInput } from './PathCleanFilterInput'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { urls } from 'scenes/urls'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -289,17 +290,8 @@ export function NewPathTab(): JSX.Element {
                                         disabled={overrideEndInput && !overrideStartInput}
                                         onClick={
                                             filter.funnel_filter && overrideStartInput
-                                                ? () => {
-                                                      router.actions.push(
-                                                          combineUrl(
-                                                              '/insights',
-                                                              encodeParams(
-                                                                  filter.funnel_filter as Record<string, any>,
-                                                                  '?'
-                                                              )
-                                                          ).url
-                                                      )
-                                                  }
+                                                ? () =>
+                                                      router.actions.push(urls.newInsightFilters(filter.funnel_filter))
                                                 : () => {}
                                         }
                                     >
@@ -357,17 +349,10 @@ export function NewPathTab(): JSX.Element {
                                                 disabled={overrideStartInput && !overrideEndInput}
                                                 onClick={
                                                     filter.funnel_filter && overrideEndInput
-                                                        ? () => {
+                                                        ? () =>
                                                               router.actions.push(
-                                                                  combineUrl(
-                                                                      '/insights',
-                                                                      encodeParams(
-                                                                          filter.funnel_filter as Record<string, any>,
-                                                                          '?'
-                                                                      )
-                                                                  ).url
+                                                                  urls.newInsightFilters(filter.funnel_filter)
                                                               )
-                                                          }
                                                         : () => {}
                                                 }
                                             >

@@ -1,28 +1,24 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Select, Tag } from 'antd'
-import { chartFilterLogic } from './chartFilterLogic'
+import { Select } from 'antd'
 import {
     AreaChartOutlined,
     BarChartOutlined,
     LineChartOutlined,
-    OrderedListOutlined,
     PieChartOutlined,
     TableOutlined,
 } from '@ant-design/icons'
-import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { ChartDisplayType, FunnelVizType, ViewType } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface ChartFilterProps {
-    filters: FilterType
     onChange: (chartFilter: ChartDisplayType | FunnelVizType) => void
     disabled: boolean
 }
 
-export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
-    const { chartFilter } = useValues(chartFilterLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
-    const { preflight } = useValues(preflightLogic)
+export function ChartFilter({ onChange, disabled }: ChartFilterProps): JSX.Element {
+    const { filters } = useValues(insightLogic)
+    const { setFilters } = useActions(insightLogic)
 
     const linearDisabled = !!filters.session && filters.session === 'dist'
     const cumulativeDisabled =
@@ -33,6 +29,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const barDisabled = !!filters.session || filters.insight === ViewType.RETENTION
     const barValueDisabled =
         barDisabled || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
+
     const defaultDisplay: ChartDisplayType =
         filters.insight === ViewType.RETENTION
             ? ChartDisplayType.ActionsTable
@@ -47,88 +44,54 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             </>
         )
     }
+    const options = [
+        {
+            label: 'Line Chart',
+            options: [
+                {
+                    value: ChartDisplayType.ActionsLineGraphLinear,
+                    label: <Label icon={<LineChartOutlined />}>Linear</Label>,
+                    disabled: linearDisabled,
+                },
+                {
+                    value: ChartDisplayType.ActionsLineGraphCumulative,
+                    label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
+                    disabled: cumulativeDisabled,
+                },
+            ],
+        },
+        {
+            label: 'Bar Chart',
+            options: [
+                {
+                    value: ChartDisplayType.ActionsBarChart,
+                    label: <Label icon={<BarChartOutlined />}>Time</Label>,
+                    disabled: barDisabled,
+                },
+                {
+                    value: ChartDisplayType.ActionsBarChartValue,
+                    label: <Label icon={<BarChartOutlined />}>Value</Label>,
+                    disabled: barValueDisabled,
+                },
+            ],
+        },
+        {
+            value: ChartDisplayType.ActionsTable,
+            label: <Label icon={<TableOutlined />}>Table</Label>,
+            disabled: tableDisabled,
+        },
+        {
+            value: ChartDisplayType.ActionsPieChart,
+            label: <Label icon={<PieChartOutlined />}>Pie</Label>,
+            disabled: pieDisabled,
+        },
+    ]
 
-    function WarningTag({ children = null }: { children: React.ReactNode }): JSX.Element {
-        return (
-            <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
-                {children}
-            </Tag>
-        )
-    }
-
-    const options =
-        filters.insight === ViewType.FUNNELS
-            ? preflight?.is_clickhouse_enabled
-                ? [
-                      {
-                          value: FunnelVizType.Steps,
-                          label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                      },
-                      {
-                          value: FunnelVizType.Trends,
-                          label: (
-                              <Label icon={<LineChartOutlined />}>
-                                  Trends
-                                  <WarningTag>BETA</WarningTag>
-                              </Label>
-                          ),
-                      },
-                  ]
-                : [
-                      {
-                          value: FunnelVizType.Steps,
-                          label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                      },
-                  ]
-            : [
-                  {
-                      label: 'Line Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsLineGraphLinear,
-                              label: <Label icon={<LineChartOutlined />}>Linear</Label>,
-                              disabled: linearDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsLineGraphCumulative,
-                              label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
-                              disabled: cumulativeDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      label: 'Bar Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsBarChart,
-                              label: <Label icon={<BarChartOutlined />}>Time</Label>,
-                              disabled: barDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsBarChartValue,
-                              label: <Label icon={<BarChartOutlined />}>Value</Label>,
-                              disabled: barValueDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      value: ChartDisplayType.ActionsTable,
-                      label: <Label icon={<TableOutlined />}>Table</Label>,
-                      disabled: tableDisabled,
-                  },
-                  {
-                      value: ChartDisplayType.ActionsPieChart,
-                      label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                      disabled: pieDisabled,
-                  },
-              ]
     return (
         <Select
-            key="2"
-            defaultValue={filters.display || defaultDisplay}
-            value={chartFilter || defaultDisplay}
-            onChange={(value: ChartDisplayType | FunnelVizType) => {
-                setChartFilter(value)
+            value={filters.display || defaultDisplay}
+            onChange={(value: ChartDisplayType) => {
+                setFilters({ ...filters, display: value })
                 onChange(value)
             }}
             bordered={false}

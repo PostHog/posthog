@@ -32,6 +32,7 @@ import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -48,6 +49,7 @@ export const defaultFilterTestAccounts = (): boolean => {
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
+    path: (key) => ['scenes', 'insights', 'insightLogic', key],
 
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -382,17 +384,18 @@ export const insightLogic = kea<insightLogicType>({
         ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
-        setFilters: async ({ filters }, breakpoint, _, previousState) => {
+        setFilters: async (_, breakpoint, __, previousState) => {
             const { fromDashboard } = router.values.hashParams
             const previousFilters = selectors.filters(previousState)
-            if (objectsEqual(previousFilters, filters)) {
+
+            if (objectsEqual(previousFilters, values.filters)) {
                 return
             }
 
-            const changedKeysObj: Record<string, any> = extractObjectDiffKeys(previousFilters, filters)
+            const changedKeysObj: Record<string, any> = extractObjectDiffKeys(previousFilters, values.filters)
 
             eventUsageLogic.actions.reportInsightViewed(
-                filters,
+                values.filters,
                 values.isFirstLoad,
                 Boolean(fromDashboard),
                 0,
@@ -403,13 +406,13 @@ export const insightLogic = kea<insightLogicType>({
             const filterLength = (filter?: Partial<FilterType>): number =>
                 (filter?.events?.length || 0) + (filter?.actions?.length || 0)
 
-            const insightChanged = values.loadedFilters?.insight && filters.insight !== values.loadedFilters?.insight
+            const insightChanged =
+                values.loadedFilters?.insight && values.filters.insight !== values.loadedFilters?.insight
 
             const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
                 Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
             )
-
             // Auto-reload when setting filters
             if (
                 backendFilterChanged &&
@@ -427,7 +430,7 @@ export const insightLogic = kea<insightLogicType>({
             // tests will wait for all breakpoints to finish
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportInsightViewed(
-                filters,
+                values.filters,
                 values.isFirstLoad,
                 Boolean(fromDashboard),
                 10,
@@ -553,10 +556,11 @@ export const insightLogic = kea<insightLogicType>({
                     {}
                 )
                 if (props.syncWithUrl) {
-                    router.actions.replace('/insights', router.values.searchParams, {
-                        ...router.values.hashParams,
-                        fromItem: createdInsight.id,
-                    })
+                    router.actions.replace(
+                        urls.editInsight(createdInsight.id),
+                        router.values.searchParams,
+                        router.values.hashParams
+                    )
                 }
             } else if (insight.filters) {
                 // This auto-saves new filters into the insight.

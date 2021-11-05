@@ -303,7 +303,7 @@ describe('insightLogic', () => {
         })
 
         it('sets filters from the URL', async () => {
-            const url = combineUrl('/insights', { insight: 'TRENDS', interval: 'minute' }).url
+            const url = combineUrl('/insights/42', { insight: 'TRENDS', interval: 'minute' }).url
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
@@ -321,7 +321,7 @@ describe('insightLogic', () => {
                 })
 
             // calls when the values changed
-            const url2 = combineUrl('/insights', { insight: 'TRENDS', interval: 'week' }).url
+            const url2 = combineUrl('/insights/42', { insight: 'TRENDS', interval: 'week' }).url
             router.actions.push(url2)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url2), 'setFilters'])
@@ -331,7 +331,7 @@ describe('insightLogic', () => {
         })
 
         it('takes the dashboardItemId from the URL', async () => {
-            const url = combineUrl('/insights', { insight: 'TRENDS' }, { fromItem: 42 }).url
+            const url = combineUrl('/insights/42', { insight: 'TRENDS' }).url
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'loadInsight', 'loadInsightSuccess'])
@@ -342,7 +342,7 @@ describe('insightLogic', () => {
                 })
 
             // changing the ID, does not query twice
-            router.actions.push(combineUrl('/insights', { insight: 'FUNNELS' }, { fromItem: 43 }).url)
+            router.actions.push(combineUrl('/insights/43', { insight: 'FUNNELS' }).url)
             await expectLogic(logic)
                 .toDispatchActions(['loadInsight', 'setFilters', 'loadResults', 'loadInsightSuccess'])
                 .toMatchValues({
@@ -379,7 +379,7 @@ describe('insightLogic', () => {
         })
 
         it('persists edit mode in the url', async () => {
-            const url1 = combineUrl('/insights', cleanFilters({ insight: 'TRENDS' }), { fromItem: 42 })
+            const url1 = combineUrl('/insights/42', cleanFilters({ insight: 'TRENDS' }))
             router.actions.push(url1.url)
             await expectLogic(logic)
                 .toNotHaveDispatchedActions(['setInsightMode'])
@@ -390,7 +390,7 @@ describe('insightLogic', () => {
                     insightMode: ItemMode.View,
                 })
 
-            const url2 = combineUrl('/insights', router.values.searchParams, { fromItem: 42, edit: true })
+            const url2 = combineUrl('/insights/42', router.values.searchParams, { edit: true })
             router.actions.push(url2.url)
             await expectLogic(logic)
                 .toDispatchActions([logic.actionCreators.setInsightMode(ItemMode.Edit, null)])
@@ -417,7 +417,7 @@ describe('insightLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
 
             // 1. the URL must have the dashboard and insight IDs
-            router.actions.push('/insights', {}, { fromDashboard: 33, fromItem: 42 })
+            router.actions.push('/insights/42', {}, { fromDashboard: 33 })
 
             // 2. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })

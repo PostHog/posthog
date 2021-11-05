@@ -5,7 +5,6 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { Row, Col, Card, Button, Popconfirm } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
@@ -31,16 +30,13 @@ dayjs.extend(relativeTime)
 export const scene: SceneExport = {
     component: Insights,
     logic: insightLogic,
-    paramsToProps: ({ hashParams: { fromItem } }) => ({ dashboardItemId: fromItem, syncWithUrl: true }),
+    paramsToProps: ({ params: { id } }) => ({ dashboardItemId: id, syncWithUrl: true }),
 }
 
-export function Insights(): JSX.Element {
+export function Insights({ id }: { id?: string } = {}): JSX.Element {
     useMountedLogic(insightCommandLogic)
-    const {
-        hashParams: { fromItem },
-    } = useValues(router)
 
-    const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
+    const logic = insightLogic({ dashboardItemId: id ? parseInt(id) : null, syncWithUrl: true })
     const {
         insightProps,
         activeView,

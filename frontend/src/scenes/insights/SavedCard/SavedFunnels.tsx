@@ -6,6 +6,7 @@ import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
 import { Link } from 'lib/components/Link'
 import { toParams } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 export function SavedFunnels(): JSX.Element {
     const { funnels, funnelsLoading, next, loadingMore } = useValues(funnelsModel)
@@ -37,9 +38,7 @@ export function SavedFunnels(): JSX.Element {
                         <Col style={{ whiteSpace: 'pre-line', width: '100%', padding: 0 }}>
                             <Row justify="space-between" align="middle">
                                 <Link
-                                    to={`/insights?${toParams(funnel.filters)}#fromItem=${
-                                        funnel.id
-                                    }&fromSavedFunnels=true`}
+                                    to={`${urls.editInsight(funnel.id, funnel.filters)}#fromSavedFunnels=true`}
                                     style={{ flex: 1 }}
                                 >
                                     {funnel.name}

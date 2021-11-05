@@ -7,7 +7,6 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
-import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType, ViewType } from '~/types'
 import { formatDisplayPercentage } from './funnelUtils'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -15,8 +14,8 @@ import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelS
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, filters, activeView } = useValues(insightLogic)
+    const { setFilters } = useActions(funnelLogic(insightProps))
     const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
-    const { setChartFilter } = useActions(chartFilterLogic)
 
     if (activeView !== ViewType.FUNNELS) {
         return null
@@ -50,7 +49,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                       <span className="text-muted-alt mr-025">:</span>
                       <Button
                           type="link"
-                          onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
+                          onClick={() => setFilters({ funnel_viz_type: FunnelVizType.TimeToConvert })}
                           disabled={
                               !clickhouseFeaturesEnabled || filters.funnel_viz_type === FunnelVizType.TimeToConvert
                           }

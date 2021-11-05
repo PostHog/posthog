@@ -9,6 +9,7 @@ import { DashboardItemType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { insightRouterLogicType } from './InsightRouterType'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 const insightRouterLogic = kea<insightRouterLogicType>({
     actions: {
@@ -30,12 +31,14 @@ const insightRouterLogic = kea<insightRouterLogicType>({
                 const item = response.results[0] as DashboardItemType
                 eventUsageLogic.actions.reportInsightShortUrlVisited(true, item.filters.insight || null)
                 router.actions.replace(
-                    combineUrl('/insights', item.filters, {
-                        fromItem: item.id,
-                        fromItemName: item.name,
-                        fromDashboard: item.dashboard,
-                        id: item.short_id,
-                    }).url
+                    combineUrl(
+                        urls.editInsight(item.id, item.filters),
+                        {},
+                        {
+                            fromItemName: item.name,
+                            fromDashboard: item.dashboard,
+                        }
+                    ).url
                 )
             } else {
                 eventUsageLogic.actions.reportInsightShortUrlVisited(false, null)
