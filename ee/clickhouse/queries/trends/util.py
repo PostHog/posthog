@@ -29,7 +29,7 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
-    if entity.math == "unique_group":
+    elif entity.math == "unique_group":
         if entity.math_group_type_index is None:
             raise ValidationError(
                 {"math_group_type_index": "This field is required when `math` is set to unique_group."}, code="required"
