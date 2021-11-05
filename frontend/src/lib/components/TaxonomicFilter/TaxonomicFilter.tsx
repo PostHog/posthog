@@ -51,6 +51,7 @@ export function TaxonomicFilter({
     }, [])
 
     const placeholder = taxonomicGroupTypes
+        .filter((type) => !type.includes('groups'))
         .map(
             (type, index) =>
                 `${index !== 0 ? (index === taxonomicGroupTypes.length - 1 ? ' or ' : ', ') : ''}${type

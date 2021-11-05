@@ -11,7 +11,7 @@ export interface TaxonomicFilterProps {
     value?: TaxonomicFilterValue
     onChange?: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
-    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes?: (TaxonomicFilterGroupType | string)[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
 }
@@ -24,7 +24,7 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 
 export interface TaxonomicFilterGroup {
     name: string
-    type: TaxonomicFilterGroupType
+    type: TaxonomicFilterGroupType | string
     endpoint?: string
     options?: Record<string, any>[]
     logic?: LogicWrapper
@@ -46,6 +46,7 @@ export enum TaxonomicFilterGroupType {
     Screens = 'screens',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
+    Groups = 'groups',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

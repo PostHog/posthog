@@ -247,6 +247,7 @@ export const FEATURE_FLAGS = {
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     LEMONADE: '5346-lemonade', // owner: @Twixes
     TURBO_MODE: 'turbo-mode', // owner: @mariusandra
+    GROUP_ANALYTICS: 'group-analytics', // owner: @macobo
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

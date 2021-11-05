@@ -1279,6 +1279,13 @@ export interface PersonProperty {
     count: number
 }
 
+export interface GroupType {
+    group_type: string
+    group_type_index: number
+}
+
+export type GroupTypeProperties = Record<number, Array<PersonProperty>>
+
 export interface SelectOption {
     value: string
     label?: string

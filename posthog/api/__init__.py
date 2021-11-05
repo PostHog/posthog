@@ -105,6 +105,7 @@ if is_clickhouse_enabled():
     from ee.clickhouse.views.cohort import ClickhouseCohortViewSet, LegacyClickhouseCohortViewSet
     from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
     from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
+    from ee.clickhouse.views.groups import ClickhouseGroupsView
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet, LegacyClickhouseInsightsViewSet
     from ee.clickhouse.views.paths import ClickhousePathsViewSet, LegacyClickhousePathsViewSet
     from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhousePersonViewSet
@@ -121,6 +122,7 @@ if is_clickhouse_enabled():
     # Nested endpoints CH
     projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
     projects_router.register(r"events", ClickhouseEventsViewSet, "project_events", ["team_id"])
+    projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
     projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
     projects_router.register(r"persons", ClickhousePersonViewSet, "project_persons", ["team_id"])
     projects_router.register(r"paths", ClickhousePathsViewSet, "project_paths", ["team_id"])
