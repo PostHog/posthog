@@ -126,8 +126,6 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
-    pass
-
 
 class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     """
