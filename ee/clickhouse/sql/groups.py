@@ -8,7 +8,7 @@ GROUPS_TABLE = "groups"
 DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 GROUPS_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 (
     group_type_index UInt8,
     group_key VARCHAR,
@@ -55,7 +55,7 @@ FROM {CLICKHOUSE_DATABASE}.kafka_{GROUPS_TABLE}
 # { ..., "group_0": 1325 }
 # To join with events join using JSONExtractString(events.properties, "$group_{group_type_index}")
 
-DROP_GROUPS_TABLE_SQL = f"DROP TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 INSERT_GROUP_SQL = """
 INSERT INTO groups (group_type_index, group_key, team_id, group_properties, created_at, _timestamp, _offset) SELECT %(group_type_index)s, %(group_key)s, %(team_id)s, %(group_properties)s, %(created_at)s, %(_timestamp)s, 0

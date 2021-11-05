@@ -7,7 +7,7 @@ from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, kafka_engine, table
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
 
 PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 (
     id UUID,
     team_id Int64,
@@ -68,4 +68,6 @@ INSERT_PLUGIN_LOG_ENTRY_SQL = """
 INSERT INTO plugin_log_entries SELECT %(id)s, %(team_id)s, %(plugin_id)s, %(plugin_config_id)s, %(timestamp)s, %(source)s, %(type)s, %(message)s, %(instance_id)s, now(), 0
 """
 
-DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL = f"DROP TABLE IF EXISTS {PLUGIN_LOG_ENTRIES_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS {PLUGIN_LOG_ENTRIES_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+)
