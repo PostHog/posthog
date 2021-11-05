@@ -16,7 +16,6 @@ import {
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
-import { groupsModel } from '~/models/groupsModel'
 
 let uniqueMemoizedIndex = 0
 
@@ -33,7 +32,6 @@ export function TaxonomicPropertyFilter({
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
     const { filter, dropdownOpen, selectedCohortName } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
-    const { groupTypes } = useValues(groupsModel)
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
@@ -54,7 +52,6 @@ export function TaxonomicPropertyFilter({
             }}
             taxonomicGroupTypes={
                 taxonomicGroupTypes || [
-                    ...(groupTypes.length > 0 ? [...groupTypes.map((gt) => gt.group_type)] : []),
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.Cohorts,
