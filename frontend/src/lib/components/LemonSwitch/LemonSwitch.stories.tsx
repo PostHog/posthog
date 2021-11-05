@@ -7,10 +7,17 @@ export default {
     title: 'PostHog/Components/LemonSwitch',
     component: _LemonSwitch,
     parameters: { options: { showPanel: true } },
+    argTypes: {
+        loading: {
+            control: {
+                type: 'boolean',
+            },
+        },
+    },
 } as ComponentMeta<typeof _LemonSwitch>
 
-export function LemonSwitch(): JSX.Element {
+export function LemonSwitch({ loading }: { loading: boolean }): JSX.Element {
     const [isChecked, setIsChecked] = useState(false)
 
-    return <_LemonSwitch checked={isChecked} onChange={setIsChecked} />
+    return <_LemonSwitch loading={loading} checked={isChecked} onChange={setIsChecked} />
 }

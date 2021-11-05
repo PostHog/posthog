@@ -6,9 +6,10 @@ export interface LemonSwitchProps {
     id?: string
     onChange: (newChecked: boolean) => void
     checked: boolean
+    loading?: boolean
 }
 
-export function LemonSwitch({ id, onChange, checked }: LemonSwitchProps): JSX.Element {
+export function LemonSwitch({ id, onChange, checked, loading }: LemonSwitchProps): JSX.Element {
     const [isActive, setIsActive] = useState(false)
 
     return (
@@ -16,7 +17,12 @@ export function LemonSwitch({ id, onChange, checked }: LemonSwitchProps): JSX.El
             id={id}
             type="button"
             role="switch"
-            className={clsx('LemonSwitch', checked && 'LemonSwitch--checked', isActive && 'LemonSwitch--active')}
+            className={clsx(
+                'LemonSwitch',
+                checked && 'LemonSwitch--checked',
+                isActive && 'LemonSwitch--active',
+                loading && 'LemonSwitch--loading'
+            )}
             onClick={() => onChange(!checked)}
             onMouseDown={() => setIsActive(true)}
             onMouseUp={() => setIsActive(false)}
