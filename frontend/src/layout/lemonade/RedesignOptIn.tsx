@@ -13,12 +13,14 @@ export function RedesignOptIn(): JSX.Element | null {
 
     return preflight?.cloud || preflight?.is_debug ? (
         <span className="RedesignOptIn">
-            <span className="info">
+            <label htmlFor="redesign-opt-in" className="info">
                 {featureFlags[FEATURE_FLAGS.LEMONADE]
                     ? "You're using the new design"
                     : "Try PostHog's navigation redesign!"}
-            </span>
+            </label>
             <Switch
+                // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                id="redesign-opt-in"
                 size="small"
                 onChange={(checked) => {
                     posthog.people.set('opted_into_lemonade', checked, () =>
