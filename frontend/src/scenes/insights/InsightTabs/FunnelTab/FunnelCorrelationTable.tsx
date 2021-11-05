@@ -342,7 +342,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { excludeEventPropertyFromProject, excludeEvent } = useActions(logic)
+    const { excludeEventPropertyFromProject, excludeEventFromProject } = useActions(logic)
     const { isEventPropertyExcluded, isEventExcluded } = useValues(logic)
     const components = record.event.event.split('::')
 
@@ -356,7 +356,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
             onClick={() =>
                 record.result_type === FunnelCorrelationResultsType.EventWithProperties
                     ? excludeEventPropertyFromProject(components[0], components[1])
-                    : excludeEvent(components[0])
+                    : excludeEventFromProject(components[0])
             }
             type="link"
         >

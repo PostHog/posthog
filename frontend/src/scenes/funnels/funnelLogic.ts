@@ -167,7 +167,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
         excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
-        excludeEvent: (eventName: string) => ({ eventName }),
+        excludeEventFromProject: (eventName: string) => ({ eventName }),
         excludeEventPropertyFromProject: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
 
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
@@ -1144,7 +1144,7 @@ export const funnelLogic = kea<funnelLogicType>({
             )
         },
 
-        excludeEvent: async ({ eventName }) => {
+        excludeEventFromProject: async ({ eventName }) => {
             appendToCorrelationConfig('excluded_event_names', values.excludedEventNames, eventName)
 
             eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
