@@ -1,6 +1,6 @@
 import React from 'react'
 import { CaretDownOutlined } from '@ant-design/icons'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
@@ -236,6 +236,7 @@ export function SitePopover(): JSX.Element {
     const { isSitePopoverOpen } = useValues(lemonadeLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
     const { systemStatus } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    useMountedLogic(licenseLogic)
 
     return (
         <Popup
