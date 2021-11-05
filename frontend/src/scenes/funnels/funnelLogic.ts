@@ -346,6 +346,9 @@ export const funnelLogic = kea<funnelLogicType>({
             [] as string[],
             {
                 setPropertyNames: (_, { propertyNames }) => propertyNames,
+                excludePropertyFromProject: (selectedProperties, { propertyName }) => {
+                    return selectedProperties.filter((p) => p !== propertyName)
+                },
             },
         ],
 
@@ -1264,6 +1267,7 @@ const appendToCorrelationConfig = (
         [configKey]: configList,
     }
 
+    console.log('sending action', correlationConfig)
     teamLogic.actions.updateCurrentTeam({
         correlation_config: correlationConfig,
     })
