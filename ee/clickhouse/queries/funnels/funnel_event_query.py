@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.query_builder import SQL, SQLFragment
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 
@@ -29,42 +30,28 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._person_query.fields
             )
 
-        _fields = list(filter(None, _fields))
+        _fields = SQL(", ".join(filter(None, _fields)))
 
-        date_query, date_params = self._get_date_filter()
-        self.params.update(date_params)
-
-        prop_filters = self._filter.properties
-        prop_query, prop_params = self._get_props(prop_filters)
-        self.params.update(prop_params)
-
-        if skip_entity_filter:
-            entity_query = ""
-            entity_params: Dict[str, Any] = {}
-        else:
-            entity_query, entity_params = self._get_entity_query(entities, entity_name)
-
-        self.params.update(entity_params)
-
-        person_query, person_params = self._get_person_query()
-        self.params.update(person_params)
-
-        query = f"""
-            SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
+        return SQL(
+            """
+            SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS!s}
             {self._get_disintct_id_query()}
-            {person_query}
+            {self._get_person_query()}
             WHERE team_id = %(team_id)s
-            {entity_query}
-            {date_query}
-            {prop_query}
-        """
-
-        return query, self.params
+            {self._get_entity_query(entities, entity_name, skip=skip_entity_filter)}
+            {self._get_date_filter()}
+            {self._get_props(self._filter.properties)}
+            """,
+            {"team_id": self._team_id},
+        )
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
 
-    def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
+    def _get_entity_query(self, entities=None, entity_name="events", skip: bool = False) -> SQLFragment:
+        if skip:
+            return SQL("")
+
         events = set()
         entities_to_use = entities or self._filter.entities
 
@@ -76,4 +63,4 @@ class FunnelEventQuery(ClickhouseEventQuery):
             else:
                 events.add(entity.id)
 
-        return f"AND event IN %({entity_name})s", {entity_name: list(events)}
+        return SQL(f"AND event IN %({entity_name})s", {entity_name: list(events)})
