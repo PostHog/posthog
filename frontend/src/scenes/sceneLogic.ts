@@ -150,7 +150,9 @@ export const sceneLogic = kea<sceneLogicType>({
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
                 const redirect = redirects[path]
-                router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
+                router.actions.replace(
+                    typeof redirect === 'function' ? redirect(params, featureFlagLogic.values.featureFlags) : redirect
+                )
             }
         }
         for (const [path, scene] of Object.entries(routes)) {

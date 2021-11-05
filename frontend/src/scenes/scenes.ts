@@ -3,6 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -125,8 +126,8 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
 }
 
-export const redirects: Record<string, string | ((params: Params) => string)> = {
-    '/': urls.insights(),
+export const redirects: Record<string, string | ((params: Params, featureFlags: Record<string, any>) => string)> = {
+    '/': (_, featureFlags) => (featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? urls.savedInsights() : urls.insights()),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
     '/actions': '/events/actions',
