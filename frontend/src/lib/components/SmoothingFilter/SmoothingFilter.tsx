@@ -8,13 +8,11 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function SmoothingFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const smoothingFilterLogicWithProps = smoothingFilterLogic(insightProps)
-    const {
-        filters: { interval, smoothing_intervals },
-    } = useValues(smoothingFilterLogicWithProps)
-    const { setSmoothing } = useActions(smoothingFilterLogicWithProps)
+    const { filters } = useValues(smoothingFilterLogic(insightProps))
+    const { setSmoothing } = useActions(smoothingFilterLogic(insightProps))
+    const { interval, smoothing_intervals } = filters
 
-    if (interval === null || interval === undefined) {
+    if (!interval) {
         return null
     }
 
@@ -35,7 +33,7 @@ export function SmoothingFilter(): JSX.Element | null {
         <Select
             key={interval}
             bordered={false}
-            value={smoothing_intervals || undefined}
+            value={smoothing_intervals || 1}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
                 setSmoothing(key)
