@@ -1,6 +1,10 @@
 import { kea } from 'kea'
 import { FEATURE_FLAGS } from '../../lib/constants'
 import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
+import { dashboardLogic } from '../../scenes/dashboard/dashboardLogic'
+import { sceneLogic } from '../../scenes/sceneLogic'
+import { Scene } from '../../scenes/sceneTypes'
+import { DashboardMode } from '../../types'
 import { lemonadeLogicType } from './lemonadeLogicType'
 
 export const lemonadeLogic = kea<lemonadeLogicType>({
@@ -28,7 +32,7 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideProjectSwitcher: true,
     },
     reducers: {
-        isSideBarShown: [
+        isSideBarShownRaw: [
             window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
             {
                 toggleSideBar: (state) => !state,
@@ -93,6 +97,11 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         ],
     },
     selectors: {
+        isSideBarForciblyHidden: [() => [() => document.fullscreenElement], (fullscreenElement) => !!fullscreenElement],
+        isSideBarShown: [
+            (s) => [s.isSideBarShownRaw, s.isSideBarForciblyHidden],
+            (isSideBarShownRaw, isSideBarForciblyHidden) => isSideBarShownRaw && !isSideBarForciblyHidden,
+        ],
         announcementMessage: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {
