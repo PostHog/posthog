@@ -825,8 +825,11 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.correlations, selectors.correlationTypes, selectors.excludedEventNames],
             (correlations, correlationTypes, excludedEventNames): FunnelCorrelation[] => {
                 return correlations.events
-                    ?.filter((correlation) => correlationTypes.includes(correlation.correlation_type))
-                    .filter((correlation) => !excludedEventNames.includes(correlation.event.event))
+                    ?.filter(
+                        (correlation) =>
+                            correlationTypes.includes(correlation.correlation_type) &&
+                            !excludedEventNames.includes(correlation.event.event)
+                    )
                     .map((value) => {
                         return {
                             ...value,
@@ -845,10 +848,9 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.propertyCorrelations, selectors.propertyCorrelationTypes, selectors.excludedPropertyNames],
             (propertyCorrelations, propertyCorrelationTypes, excludedPropertyNames): FunnelCorrelation[] => {
                 return propertyCorrelations.events
-                    .filter((correlation) => propertyCorrelationTypes.includes(correlation.correlation_type))
                     .filter(
                         (correlation) =>
-                            excludedPropertyNames === null ||
+                            propertyCorrelationTypes.includes(correlation.correlation_type) &&
                             !excludedPropertyNames.includes(correlation.event.event.split('::')[0])
                     )
                     .map((value) => {
@@ -880,10 +882,9 @@ export const funnelLogic = kea<funnelLogicType>({
                 for (const key in eventWithPropertyCorrelations) {
                     if (eventWithPropertyCorrelations.hasOwnProperty(key)) {
                         eventWithPropertyCorrelationsValues[key] = eventWithPropertyCorrelations[key]
-                            ?.filter((correlation) => correlationTypes.includes(correlation.correlation_type))
-                            .filter(
+                            ?.filter(
                                 (correlation) =>
-                                    excludedEventPropertyNames === null ||
+                                    correlationTypes.includes(correlation.correlation_type) &&
                                     !excludedEventPropertyNames.includes(correlation.event.event.split('::')[1])
                             )
                             .map((value) => {
@@ -949,7 +950,7 @@ export const funnelLogic = kea<funnelLogicType>({
         isPropertyExcludedFromProject: [
             () => [selectors.excludedPropertyNames],
             (excludedPropertyNames) => (propertyName: string) =>
-                excludedPropertyNames?.find((name) => name === propertyName) !== undefined,
+                excludedPropertyNames.find((name) => name === propertyName) !== undefined,
         ],
         isEventExcluded: [
             () => [selectors.excludedEventNames],
@@ -960,7 +961,7 @@ export const funnelLogic = kea<funnelLogicType>({
         isEventPropertyExcluded: [
             () => [selectors.excludedEventPropertyNames],
             (excludedEventPropertyNames) => (propertyName: string) =>
-                excludedEventPropertyNames?.find((name) => name === propertyName) !== undefined,
+                excludedEventPropertyNames.find((name) => name === propertyName) !== undefined,
         ],
         excludedPropertyNames: [
             () => [selectors.currentTeam],
