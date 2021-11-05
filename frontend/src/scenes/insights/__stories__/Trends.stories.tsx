@@ -1,11 +1,12 @@
 import { Meta } from '@storybook/react'
+import { createMemoryHistory } from 'history'
+import { Provider } from 'kea'
 
-import { keaStory } from 'lib/storybook/kea-story'
 import { rest } from 'msw'
+import React from 'react'
+import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'
 import { Insights } from '../Insights'
-
-import trendsJson from './trends.json'
 
 export default {
     title: 'PostHog/Scenes/Insights/Trends',
@@ -60,5 +61,59 @@ export const TrendsSmoothing = (): JSX.Element => {
             )
         })
     )
-    return keaStory(Insights, trendsJson)()
+
+    const history = createMemoryHistory({
+        initialEntries: [
+            `/insights?${new URLSearchParams({
+                insight: 'TRENDS',
+                properties: JSON.stringify([]),
+                filter_test_accounts: 'false',
+                events: JSON.stringify([
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 1 },
+                    { id: '$pageview', name: '$pageview', type: 'events', order: 2 },
+                ]),
+                actions: JSON.stringify([]),
+                display: 'FunnelViz',
+                interval: 'day',
+                new_entity: JSON.stringify([]),
+                date_from: '-14d',
+                exclusions: JSON.stringify([]),
+            })}#fromItem=`,
+        ],
+    })
+
+    // @ts-ignore
+    history.pushState = history.push
+    // @ts-ignore
+    history.replaceState = history.replace
+
+    // This is data that is rendered into the html. I tried not to use this and just
+    // use the endoints, but it appears to be difficult to set this up to not have
+    // race conditions.
+    // @ts-ignore
+    window.POSTHOG_APP_CONTEXT = sampleContextData
+
+    initKea({ routerHistory: history, routerLocation: history.location })
+
+    return (
+        <Provider>
+            <Insights />
+        </Provider>
+    )
+}
+
+// This is data that is rendered into the html. I tried not to use this and just
+// use the endoints, but it appears to be difficult to set this up to not have
+// race conditions.
+// NOTE: these are not complete according to type, but the minimum I could get away with
+const sampleContextData = {
+    current_team: {
+        id: 2,
+    },
+    preflight: {
+        is_clickhouse_enabled: true,
+    },
+    default_event_name: '$pageview',
+    persisted_feature_flags: [],
 }
