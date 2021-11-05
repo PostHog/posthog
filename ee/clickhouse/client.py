@@ -17,6 +17,7 @@ from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.errors import wrap_query_error
+from ee.clickhouse.query_builder import SQL
 from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
 from posthog.constants import AnalyticsDBMS
@@ -136,6 +137,9 @@ else:
             return result
 
     def sync_execute(query, args=None, settings=None, with_column_types=False):
+        if isinstance(query, SQL):
+            query, args = query.query, query.params
+
         with ch_pool.get_client() as client:
             start_time = perf_counter()
 

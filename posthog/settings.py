@@ -512,6 +512,7 @@ SHELL_PLUS_POST_IMPORTS = [
 
 if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     SHELL_PLUS_POST_IMPORTS.append(("ee.clickhouse.client", ("sync_execute",)))
+    SHELL_PLUS_POST_IMPORTS.append(("ee.clickhouse.query_builder", ("SQL", "SQLFragment")))
 
 
 # Internationalization
