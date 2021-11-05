@@ -154,7 +154,6 @@ describe('funnelLogic', () => {
                     last_refresh: '2021-11-05T09:26:16.175923Z',
                     is_cached: false,
                 },
-                // type: 'Funnel',
             }
         } else if (url.pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
             return { results: [], next: null }

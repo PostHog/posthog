@@ -34,7 +34,6 @@ export function CorrelationConfig(): JSX.Element {
     }
 
     const tagRender: SelectProps<any>['tagRender'] = (props) => {
-        // TODO: find antd default type for props
         const { label, onClose } = props
         return (
             <Tag

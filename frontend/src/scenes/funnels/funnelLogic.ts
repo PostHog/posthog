@@ -1268,7 +1268,6 @@ const appendToCorrelationConfig = (
         [configKey]: configList,
     }
 
-    console.log('sending action', correlationConfig)
     teamLogic.actions.updateCurrentTeam({
         correlation_config: correlationConfig,
     })
