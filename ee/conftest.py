@@ -4,9 +4,8 @@ from infi.clickhouse_orm import Database
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-    DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-    DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
+    TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
 )
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
@@ -59,30 +58,30 @@ def create_clickhouse_tables(num_tables: int):
 def reset_clickhouse_tables():
     # Reset clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
-    from ee.clickhouse.sql.cohort import DROP_COHORTPEOPLE_TABLE_SQL
-    from ee.clickhouse.sql.dead_letter_queue import DROP_DEAD_LETTER_QUEUE_TABLE_SQL
-    from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL
-    from ee.clickhouse.sql.groups import DROP_GROUPS_TABLE_SQL
+    from ee.clickhouse.sql.cohort import TRUNCATE_COHORTPEOPLE_TABLE_SQL
+    from ee.clickhouse.sql.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
+    from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
+    from ee.clickhouse.sql.groups import TRUNCATE_GROUPS_TABLE_SQL
     from ee.clickhouse.sql.person import (
-        DROP_PERSON_DISTINCT_ID_TABLE_SQL,
-        DROP_PERSON_STATIC_COHORT_TABLE_SQL,
-        DROP_PERSON_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+        TRUNCATE_PERSON_TABLE_SQL,
     )
-    from ee.clickhouse.sql.plugin_log_entries import DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL
-    from ee.clickhouse.sql.session_recording_events import DROP_SESSION_RECORDING_EVENTS_TABLE_SQL
+    from ee.clickhouse.sql.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
+    from ee.clickhouse.sql.session_recording_events import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
-        DROP_EVENTS_TABLE_SQL,
-        DROP_PERSON_TABLE_SQL,
-        DROP_PERSON_DISTINCT_ID_TABLE_SQL,
-        DROP_PERSON_STATIC_COHORT_TABLE_SQL,
-        DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
-        DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-        DROP_COHORTPEOPLE_TABLE_SQL,
-        DROP_DEAD_LETTER_QUEUE_TABLE_SQL,
-        DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-        DROP_GROUPS_TABLE_SQL,
+        TRUNCATE_EVENTS_TABLE_SQL,
+        TRUNCATE_PERSON_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
+        TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+        TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
+        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
+        TRUNCATE_GROUPS_TABLE_SQL,
     ]
 
     for item in TABLES_TO_CREATE_DROP:

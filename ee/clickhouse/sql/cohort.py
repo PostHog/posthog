@@ -20,7 +20,7 @@ Order By (team_id, cohort_id, person_id)
     cluster=CLICKHOUSE_CLUSTER, engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
 )
 
-DROP_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
+TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
 INSERT INTO cohortpeople
