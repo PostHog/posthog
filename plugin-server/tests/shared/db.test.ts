@@ -153,6 +153,11 @@ describe('DB', () => {
             expect(props).toEqual({ a: 'a', b: 'b' })
         })
 
+        test('update set and set once same key', async () => {
+            const props = await updatePersonProperties({ a: 'a set' }, { a: 'a set_once' }, PAST_TIMESTAMP)
+            expect(props).toEqual({ a: 'a set' })
+        })
+
         test('update with newer timestamp - rows [2-5]', async () => {
             // setup initially lower case letters
             let props = await updatePersonProperties({ r2: 'a', r3: 'b' }, { r4: 'c', r5: 'd' }, PAST_TIMESTAMP)
@@ -179,5 +184,7 @@ describe('DB', () => {
             props = await updatePersonProperties({ r10: 'A', r12: 'C' }, { r11: 'B', r13: 'D' }, PAST_TIMESTAMP)
             expect(props).toEqual({ r10: 'a', r11: 'b', r12: 'C', r13: 'D' })
         })
+
+        // TODO test that we can't change the person in the middle of the update
     })
 })
