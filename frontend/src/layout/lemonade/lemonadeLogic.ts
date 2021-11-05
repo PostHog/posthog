@@ -1,10 +1,6 @@
 import { kea } from 'kea'
 import { FEATURE_FLAGS } from '../../lib/constants'
 import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
-import { dashboardLogic } from '../../scenes/dashboard/dashboardLogic'
-import { sceneLogic } from '../../scenes/sceneLogic'
-import { Scene } from '../../scenes/sceneTypes'
-import { DashboardMode } from '../../types'
 import { lemonadeLogicType } from './lemonadeLogicType'
 
 export const lemonadeLogic = kea<lemonadeLogicType>({
