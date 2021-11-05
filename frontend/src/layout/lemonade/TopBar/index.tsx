@@ -19,6 +19,7 @@ import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 export function TopBar(): JSX.Element {
     const {
         isSideBarShown,
+        isSideBarForciblyHidden,
         announcementMessage,
         isAnnouncementShown,
         isInviteModalShown,
@@ -42,9 +43,11 @@ export function TopBar(): JSX.Element {
             )}
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
-                    <div className="TopBar__hamburger" onClick={toggleSideBar}>
-                        {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
-                    </div>
+                    {!isSideBarForciblyHidden && (
+                        <div className="TopBar__hamburger" onClick={toggleSideBar}>
+                            {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
+                        </div>
+                    )}
                     <Link to="/" className="TopBar__logo">
                         <FriendlyLogo />
                     </Link>
