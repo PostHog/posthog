@@ -203,28 +203,28 @@ describe('sessionRecordingLogic', () => {
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
                 .toMatchValues({
-                    sessionEvents: {
+                    sessionEventsData: {
                         next: firstNext,
                         events,
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsSuccess'])
                 .toMatchValues({
-                    sessionEvents: {
+                    sessionEventsData: {
                         next: secondNext,
                         events: [...events, ...events],
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(secondNext), 'loadEventsSuccess'])
                 .toMatchValues({
-                    sessionEvents: {
+                    sessionEventsData: {
                         next: thirdNext,
                         events: [...events, ...events, ...events],
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(thirdNext), 'loadEventsSuccess'])
                 .toMatchValues({
-                    sessionEvents: {
+                    sessionEventsData: {
                         next: undefined,
                         events: [...events, ...events, ...events, ...events],
                     },
@@ -263,14 +263,14 @@ describe('sessionRecordingLogic', () => {
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
                 .toMatchValues({
-                    sessionEvents: {
+                    sessionEventsData: {
                         next: firstNext,
                         events,
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsSuccess'])
                 .toMatchValues({
-                    sessionEvents: {
+                    sessionEventsData: {
                         next: secondNext,
                         events: [...events, ...events],
                     },
