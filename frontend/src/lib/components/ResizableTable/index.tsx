@@ -186,34 +186,30 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         })
     }, [initialColumns])
 
-    useLayoutEffect(
-        () => {
-            // Calculate relative column widths (px) once the wrapper is mounted.
-            if (scrollWrapperRef.current) {
-                resizeObserver.observe(scrollWrapperRef.current)
-                const wrapperWidth = scrollWrapperRef.current.clientWidth
-                const gridBasis = columns.reduce((total, { span }) => total + span, 0)
-                const columnSpanWidth = getFullwidthColumnSize(wrapperWidth, gridBasis)
-                setColumns((cols) => {
-                    const lastIndex = cols.length
-                    const nextColumns = cols.map((column, index) =>
-                        index === lastIndex
-                            ? column
-                            : {
-                                  ...column,
-                                  width: Math.max(column.defaultWidth || columnSpanWidth * column.span, minColumnWidth),
-                              }
-                    )
-                    setHeaderColumns(nextColumns)
-                    return nextColumns
-                })
-                updateScrollGradient()
-                setHeaderShouldRender(true)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        []
-    )
+    useLayoutEffect(() => {
+        // Calculate relative column widths (px) once the wrapper is mounted.
+        if (scrollWrapperRef.current) {
+            resizeObserver.observe(scrollWrapperRef.current)
+            const wrapperWidth = scrollWrapperRef.current.clientWidth
+            const gridBasis = columns.reduce((total, { span }) => total + span, 0)
+            const columnSpanWidth = getFullwidthColumnSize(wrapperWidth, gridBasis)
+            setColumns((cols) => {
+                const lastIndex = cols.length
+                const nextColumns = cols.map((column, index) =>
+                    index === lastIndex
+                        ? column
+                        : {
+                              ...column,
+                              width: Math.max(column.defaultWidth || columnSpanWidth * column.span, minColumnWidth),
+                          }
+                )
+                setHeaderColumns(nextColumns)
+                return nextColumns
+            })
+            updateScrollGradient()
+            setHeaderShouldRender(true)
+        }
+    }, [])
 
     return (
         <div ref={scrollWrapperRef} className="resizable-table-scroll-container" onScroll={updateScrollGradient}>

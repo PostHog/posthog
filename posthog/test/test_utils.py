@@ -1,4 +1,3 @@
-from typing import Any, List, Optional, Sequence, Tuple
 from unittest.mock import call, patch
 
 from django.http import HttpRequest

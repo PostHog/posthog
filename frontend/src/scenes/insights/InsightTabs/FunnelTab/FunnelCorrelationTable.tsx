@@ -20,6 +20,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './FunnelCorrelationTable.scss'
 import { Tooltip } from 'lib/components/Tooltip'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -42,6 +43,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
     } = useActions(logic)
+
+    const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (correlationTypes) {
@@ -134,7 +137,11 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openCorrelationPersonsModal({ id: name, type: EntityTypes.EVENTS, properties }, true)
+                    openCorrelationPersonsModal(
+                        { id: name, type: EntityTypes.EVENTS, properties },
+                        true,
+                        record.result_type
+                    )
                 }}
             >
                 {record.success_count}
@@ -148,7 +155,11 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openCorrelationPersonsModal({ id: name, type: EntityTypes.EVENTS, properties }, false)
+                    openCorrelationPersonsModal(
+                        { id: name, type: EntityTypes.EVENTS, properties },
+                        false,
+                        record.result_type
+                    )
                 }}
             >
                 {record.failure_count}
@@ -165,7 +176,16 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     rowKey={(record: FunnelCorrelation) => record.event.event}
                     style={{ margin: '1rem' }}
                     scroll={{ x: 'max-content' }}
-                    pagination={{ pageSize: 5, hideOnSinglePage: true }}
+                    pagination={{
+                        pageSize: 5,
+                        hideOnSinglePage: true,
+                        onChange: (page, page_size) =>
+                            reportCorrelationInteraction(
+                                FunnelCorrelationResultsType.EventWithProperties,
+                                'pagination change',
+                                { page, page_size }
+                            ),
+                    }}
                 >
                     <Column
                         title="Correlated Properties"
@@ -245,7 +265,11 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 size="small"
                 scroll={{ x: 'max-content' }}
                 rowKey={(record: FunnelCorrelation) => record.event.event}
-                pagination={{ pageSize: 5, hideOnSinglePage: true }}
+                pagination={{
+                    pageSize: 5,
+                    hideOnSinglePage: true,
+                    onChange: () => reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'load more'),
+                }}
                 style={{ marginTop: '1rem' }}
                 expandable={{
                     expandedRowRender: (record) => renderNestedTable(record.event.event),

@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from typing import List
 from unittest.mock import patch
 
+import pytest
 import sqlparse
 from django.db import DEFAULT_DB_ALIAS
 
@@ -11,6 +12,7 @@ from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL
 from posthog.test.base import BaseTest
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class ClickhouseTestMixin:
     RUN_MATERIALIZED_COLUMN_TESTS = True
     # overrides the basetest in posthog/test/base.py
@@ -24,6 +26,13 @@ class ClickhouseTestMixin:
     # Ignore assertNumQueries in clickhouse tests
     def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):
         return self._assertNumQueries(func)
+
+    # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
+    def assertQueryMatchesSnapshot(self, query, params=None):
+        assert sqlparse.format(query, reindent=True) == self.snapshot  # type: ignore
+        if params is not None:
+            del params["team_id"]  # Changes every run
+            assert params == self.snapshot  # type: ignore
 
     @contextmanager
     def capture_select_queries(self):

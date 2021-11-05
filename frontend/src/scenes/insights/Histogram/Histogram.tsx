@@ -79,19 +79,15 @@ export function Histogram({
     const yAxisGrid = config.axisFn.y(y).tickSize(-config.gridlineTickSize).tickFormat('').ticks(y.ticks().length)
 
     // Update config to new values if dimensions change
-    useEffect(
-        () => {
-            const minWidth = Math.max(
-                width,
-                data.length * (config.spacing.minBarWidth + config.spacing.btwnBins) +
-                    config.margin.left +
-                    config.margin.right
-            )
-            setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [data.length, layout, width, height]
-    )
+    useEffect(() => {
+        const minWidth = Math.max(
+            width,
+            data.length * (config.spacing.minBarWidth + config.spacing.btwnBins) +
+                config.margin.left +
+                config.margin.right
+        )
+        setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
+    }, [data.length, layout, width, height])
 
     const ref = useD3(
         (container) => {

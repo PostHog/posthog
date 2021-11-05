@@ -79,15 +79,11 @@ export function SessionsPlay(): JSX.Element {
         }
     }, [addingTagShown])
 
-    useEffect(
-        () => {
-            if (shouldLoadSessionEvents && session) {
-                loadSessionEvents(session)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [session]
-    )
+    useEffect(() => {
+        if (shouldLoadSessionEvents && session) {
+            loadSessionEvents(session)
+        }
+    }, [session])
 
     const seekEvent = (time: number): void => {
         setCurrentPlayerTime(time)
