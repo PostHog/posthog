@@ -363,7 +363,7 @@
     AND person_id IN
       (SELECT person_id
        FROM person_static_cohort
-       WHERE cohort_id = 24
+       WHERE cohort_id = 2
          AND team_id = 2)
   '
 ---
