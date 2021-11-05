@@ -41,7 +41,13 @@ cd plugin-server
 
 echo "🧐 Verifying installed packages..."
 yarn --frozen-lockfile
-yarn build
+if [[ -n $DEBUG ]]; then
+  yarn start:dev
+else
+  yarn build
+  rm -rf node_modules
+fi
+
 if [ $? -ne 0 ]; then
   echo "💥 Verification failed!"
   exit 1

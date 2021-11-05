@@ -3,7 +3,7 @@
 !requirements.txt
 !requirements-dev.txt
 !posthog
-!plugins
+!plugin-server
 !staticfiles
 !manage.py
 !gunicorn.config.py
