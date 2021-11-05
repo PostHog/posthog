@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
-import { Divider, Select, Tag } from 'antd'
+import { Divider, Select, SelectProps, Tag } from 'antd'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 import { Button } from 'antd'
@@ -18,30 +18,35 @@ export function CorrelationConfig(): JSX.Element {
     ): void => {
         if (currentTeam) {
             const updatedConfig = { ...funnelCorrelationConfig }
-            if (excludedProperties?.length) {
+            if (excludedProperties !== undefined) {
                 updatedConfig.excluded_person_property_names = excludedProperties
             }
-            if (excludedEventProperties?.length) {
+            if (excludedEventProperties !== undefined) {
                 updatedConfig.excluded_event_property_names = excludedEventProperties
             }
-            if (excludedEvents?.length) {
+            if (excludedEvents !== undefined) {
                 updatedConfig.excluded_event_names = excludedEvents
             }
-            if (updatedConfig) {
+            if (updatedConfig && JSON.stringify(updatedConfig) !== JSON.stringify(funnelCorrelationConfig)) {
                 updateCurrentTeam({ correlation_config: updatedConfig })
             }
         }
     }
 
-    function tagRender(props: any): JSX.Element {
+    const tagRender: SelectProps<any>['tagRender'] = (props) => {
         // TODO: find antd default type for props
         const { label, onClose } = props
         return (
             <Tag
                 closable={true}
                 onClose={onClose}
-                // TODO: style properly
-                style={{ marginRight: 3 }}
+                style={{
+                    margin: '0.25rem',
+                    padding: '0.25rem 0.5em',
+                    background: '#D9D9D9',
+                    border: '1px solid #D9D9D9',
+                    borderRadius: '40px',
+                }}
             >
                 {label}
             </Tag>
@@ -77,17 +82,17 @@ export function CorrelationConfig(): JSX.Element {
                         }
                     />
                     <h3>Excluded event Properties</h3>
+                    <p> Choose event properties to exclude across all events.</p>
                     <div style={{ marginBottom: 8 }}>
-                        {currentTeam && (
-                            <Select
-                                mode="tags"
-                                style={{ width: '50%', marginTop: 5 }}
-                                tagRender={tagRender}
-                                onChange={(properties) => handleChange(undefined, undefined, properties)}
-                                value={currentTeam.correlation_config.excluded_event_property_names || []}
-                                tokenSeparators={[',']}
-                            />
-                        )}
+                        <Select
+                            mode="tags"
+                            style={{ width: '100%' }}
+                            allowClear
+                            tagRender={tagRender}
+                            onChange={(properties) => handleChange(undefined, undefined, properties)}
+                            value={currentTeam.correlation_config.excluded_event_property_names || []}
+                            tokenSeparators={[',']}
+                        />
                     </div>
                 </>
             )}
