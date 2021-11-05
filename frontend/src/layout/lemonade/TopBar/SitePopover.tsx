@@ -5,7 +5,15 @@ import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { LemonRow } from '../../../lib/components/LemonRow'
-import { IconCheckmark, IconOffline, IconPlus, IconLogout, IconUpdate, IconExclamation } from 'lib/components/icons'
+import {
+    IconCheckmark,
+    IconOffline,
+    IconPlus,
+    IconLogout,
+    IconUpdate,
+    IconExclamation,
+    IconBill,
+} from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
@@ -250,6 +258,16 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
                         {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
+                        {preflight?.cloud && (
+                            <LemonButton
+                                onClick={closeSitePopover}
+                                to={urls.organizationBilling()}
+                                icon={<IconBill />}
+                                fullWidth
+                            >
+                                Billing
+                            </LemonButton>
+                        )}
                         <InviteMembersButton />
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
