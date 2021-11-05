@@ -87,5 +87,6 @@
 }
 
 .SideBar__pinned-dashboards {
-    max-height: calc(100vh - 16rem);
+    max-height: calc(100vh - 20rem);
+    max-width: calc(100vw - 14rem);
 }
