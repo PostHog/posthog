@@ -3,10 +3,10 @@
   
   SELECT datediff('Week', toStartOfWeek(toDateTime('2020-06-07 00:00:00')), reference_event.event_date) as base_interval,
          datediff('Week', reference_event.event_date, toStartOfWeek(toDateTime(event_date))) as intervals_from_base,
-         COUNT(DISTINCT event.person_id) count
+         COUNT(DISTINCT event.target) count
   FROM
     (SELECT e.timestamp AS event_date,
-            pdi.person_id as person_id,
+            pdi.person_id as target,
             e.uuid AS uuid,
             e.event AS event
      FROM events e
@@ -39,7 +39,7 @@
                                     FROM JSONExtractRaw(group_properties_0, 'industry'))) ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     pdi.person_id as person_id,
+                     pdi.person_id as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -69,7 +69,7 @@
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND has(['technology'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(group_properties_0, 'industry'))) ) reference_event ON (event.person_id = reference_event.person_id)
+                                    FROM JSONExtractRaw(group_properties_0, 'industry'))) ) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -81,10 +81,10 @@
   '
   
   SELECT datediff('Week', toStartOfWeek(toDateTime('2020-06-07 00:00:00')), event_date) event_date,
-         count(DISTINCT person_id)
+         count(DISTINCT target)
   FROM
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     pdi.person_id as person_id,
+                     pdi.person_id as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -124,10 +124,10 @@
   
   SELECT datediff('Week', toStartOfWeek(toDateTime('2020-06-07 00:00:00')), reference_event.event_date) as base_interval,
          datediff('Week', reference_event.event_date, toStartOfWeek(toDateTime(event_date))) as intervals_from_base,
-         COUNT(DISTINCT event.person_id) count
+         COUNT(DISTINCT event.target) count
   FROM
     (SELECT e.timestamp AS event_date,
-            pdi.person_id as person_id,
+            pdi.person_id as target,
             e.uuid AS uuid,
             e.event AS event
      FROM events e
@@ -159,7 +159,7 @@
        AND JSONHas(group_properties_0, 'industry') ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     pdi.person_id as person_id,
+                     pdi.person_id as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -188,7 +188,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND JSONHas(group_properties_0, 'industry') ) reference_event ON (event.person_id = reference_event.person_id)
+       AND JSONHas(group_properties_0, 'industry') ) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -200,10 +200,10 @@
   '
   
   SELECT datediff('Week', toStartOfWeek(toDateTime('2020-06-07 00:00:00')), event_date) event_date,
-         count(DISTINCT person_id)
+         count(DISTINCT target)
   FROM
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     pdi.person_id as person_id,
+                     pdi.person_id as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e

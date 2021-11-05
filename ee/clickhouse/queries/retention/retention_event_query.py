@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Tuple
+from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
@@ -29,7 +29,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = [
             self.get_timestamp_field(),
-            (f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else ""),
+            (f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as target" if self._should_join_distinct_ids else ""),
             (
                 f"argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
                 if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
@@ -73,7 +73,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             {f"AND {entity_query}"}
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
-            {f"GROUP BY person_id HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
+            {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
         """
 
         return query, self.params
