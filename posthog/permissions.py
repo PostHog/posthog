@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from django.conf import settings
 from django.db.models import Model

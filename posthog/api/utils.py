@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Tuple
 
 from rest_framework import request, status
 from sentry_sdk import capture_exception

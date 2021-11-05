@@ -1,5 +1,5 @@
 import hashlib
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import models
