@@ -28,8 +28,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { allGroupProperties } = useValues(groupPropertiesModel)
+    const { allGroupProperties } = useValues(groupPropertiesModel) // eslint-disable-line no-unused-vars
     const { taxonomicTypesWithGroups } = useValues(groupsModel)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
