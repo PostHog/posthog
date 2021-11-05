@@ -102,6 +102,7 @@ def test_includes_only_intervals_within_range(client: Client):
                         "custom_name": None,
                         "math": "dau",
                         "math_property": None,
+                        "math_group_type_index": None,
                         "properties": [],
                     },
                     "breakdown_value": cohort["id"],

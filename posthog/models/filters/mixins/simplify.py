@@ -16,6 +16,7 @@ class SimplifyFilterMixin:
 
         Actions taken:
         - if filter.filter_test_accounts, adds property filters to `filter.properties`
+        - if aggregating by groups, adds property filter to remove blank groups
         - for cohort properties, replaces them with more concrete lookups or with cohort conditions
         """
 
@@ -45,13 +46,16 @@ class SimplifyFilterMixin:
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
     ) -> Dict:
         from posthog.models.entity import Entity, ExclusionEntity
+        from posthog.models.property import Property
 
         EntityClass = ExclusionEntity if entity_type == "exclusions" else Entity
 
         entity = EntityClass(entity_params)
-        return EntityClass(
-            {**entity_params, "properties": self._simplify_properties(team, entity.properties, **kwargs)}
-        ).to_dict()
+        properties = self._simplify_properties(team, entity.properties, **kwargs)
+        if entity.math == "unique_group":
+            properties.append(Property(key=f"$group_{entity.math_group_type_index}", value="", operator="is_not",))
+
+        return EntityClass({**entity_params, "properties": properties}).to_dict()
 
     def _simplify_properties(self, team: "Team", properties: List["Property"], **kwargs) -> List["Property"]:
         simplified_properties = []

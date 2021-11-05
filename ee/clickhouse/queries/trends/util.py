@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -22,21 +22,31 @@ MATH_FUNCTIONS = {
 }
 
 
-def process_math(entity: Entity) -> Tuple[str, str, Dict[str, str]]:
+def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
     aggregate_operation = "count(*)"
     join_condition = ""
-    params = {}
+    params: Dict[str, Any] = {}
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
+    elif entity.math == "unique_group":
+        if entity.math_group_type_index is None:
+            raise ValidationError(
+                {"math_group_type_index": "This field is required when `math` is set to unique_group."}, code="required"
+            )
+
+        aggregate_operation = f"count(DISTINCT JSONExtractString(properties, %(e_group_{entity.index}_math)s))"
+        params[f"e_group_{entity.index}_math"] = f"$group_{entity.math_group_type_index}"
     elif entity.math in MATH_FUNCTIONS:
         if entity.math_property is None:
             raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")
 
-        value, _ = get_property_string_expr("events", entity.math_property, f"%(e_{entity.index}_math)s", "properties")
+        value, _ = get_property_string_expr(
+            "events", entity.math_property, f"%(e_{entity.index}_math_prop)s", "properties"
+        )
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
         params["join_property_key"] = entity.math_property
-        params[f"e_{entity.index}_math"] = entity.math_property
+        params[f"e_{entity.index}_math_prop"] = entity.math_property
 
     return aggregate_operation, join_condition, params
 

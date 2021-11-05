@@ -1,5 +1,6 @@
+import re
 from contextlib import contextmanager
-from typing import List
+from functools import wraps
 from unittest.mock import patch
 
 import pytest
@@ -29,6 +30,9 @@ class ClickhouseTestMixin:
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None):
+        # :TRICKY: team_id changes every test, avoid it messing with snapshots.
+        query = re.sub(r"team_id = \d+", "team_id = 2", query)
+
         assert sqlparse.format(query, reindent=True) == self.snapshot  # type: ignore
         if params is not None:
             del params["team_id"]  # Changes every run
@@ -78,3 +82,25 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(EVENTS_TABLE_SQL)
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL)
+
+
+def snapshot_clickhouse_queries(fn):
+    """
+    Captures and snapshots select queries from test using `syrupy` library.
+
+    Requires queries to be stable to avoid flakiness.
+
+    Snapshots are automatically saved in a __snapshot__/*.ambr file.
+    Update snapshots via --update-snapshots.
+    """
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.capture_select_queries() as queries:
+            fn(self, *args, **kwargs)
+
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query)
+
+    return wrapped
