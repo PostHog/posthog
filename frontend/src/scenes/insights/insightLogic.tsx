@@ -87,7 +87,10 @@ export const insightLogic = kea<insightLogicType>({
         }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         saveInsight: true,
-        createInsight: (insight: Partial<DashboardItemType>) => ({ insight }),
+        createInsight: (insight: Partial<DashboardItemType>, options: { fromLoadResults?: boolean } = {}) => ({
+            ...options,
+            insight,
+        }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
@@ -545,7 +548,7 @@ export const insightLogic = kea<insightLogicType>({
                 return
             }
             if (!insight.id) {
-                actions.createInsight({ filters: values.filters })
+                actions.createInsight({ filters: values.filters }, { fromLoadResults: true })
             } else if (insight.filters) {
                 // This auto-saves new filters into the insight.
                 // Exceptions:
@@ -588,7 +591,7 @@ export const insightLogic = kea<insightLogicType>({
                 actions.updateInsight(metadata)
             }
         },
-        createInsight: async ({ insight }, breakpoint) => {
+        createInsight: async ({ insight, fromLoadResults }, breakpoint) => {
             actions.setInsight(
                 { id: undefined, name: '', description: '', tags: [], filters: {}, result: null, ...insight },
                 { overrideFilter: true }
@@ -604,7 +607,7 @@ export const insightLogic = kea<insightLogicType>({
                 },
                 { overrideFilter: true, fromPersistentApi: true }
             )
-            if (!values.insight.result) {
+            if (!values.insight.result && !fromLoadResults) {
                 actions.loadResults()
             }
             if (props.syncWithUrl) {
