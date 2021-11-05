@@ -371,6 +371,30 @@ export const funnelLogic = kea<funnelLogicType>({
                 },
             },
         ],
+        shouldReportCorrelationViewed: [
+            true as boolean,
+            {
+                loadResultsSuccess: () => true,
+                [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
+                    if (!propertiesTable) {
+                        return false // don't report correlation viewed again, since it was for events earlier
+                    }
+                    return current
+                },
+            },
+        ],
+        shouldReportPropertyCorrelationViewed: [
+            true as boolean,
+            {
+                loadResultsSuccess: () => true,
+                [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
+                    if (propertiesTable) {
+                        return false
+                    }
+                    return current
+                },
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -1198,24 +1222,22 @@ export const funnelLogic = kea<funnelLogicType>({
             { visible }: { visible: boolean },
             breakpoint: BreakPointFunction
         ) => {
-            if (visible) {
+            if (visible && values.shouldReportCorrelationViewed) {
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
+                await breakpoint(10000)
+                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
             }
-
-            await breakpoint(10000)
-            eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
         },
 
         [visibilitySensorLogic({ id: `${values.correlationPropKey}-properties` }).actionTypes.setVisible]: async (
             { visible }: { visible: boolean },
             breakpoint: BreakPointFunction
         ) => {
-            if (visible) {
+            if (visible && values.shouldReportPropertyCorrelationViewed) {
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
+                await breakpoint(10000)
+                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
             }
-
-            await breakpoint(10000)
-            eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
         },
     }),
 })

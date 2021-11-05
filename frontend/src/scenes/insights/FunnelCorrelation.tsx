@@ -52,7 +52,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
     }
 
     return (
-        <VisibilitySensor id={correlationPropKey} offset={150}>
+        <>
             <div className="funnel-correlation">
                 {isSkewed && (
                     <Card className="skew-warning">
@@ -158,6 +158,6 @@ export const FunnelCorrelation = (): JSX.Element | null => {
 
                 <FunnelPropertyCorrelationTable />
             </div>
-        </VisibilitySensor>
+        </>
     )
 }
