@@ -164,7 +164,6 @@ export function InfiniteList(): JSX.Element {
 
     const { styles, attributes } = usePopper(referenceElement, popperElement, {
         placement: 'right',
-
         modifiers: [
             {
                 name: 'offset',
@@ -246,7 +245,7 @@ export function InfiniteList(): JSX.Element {
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip click-outside-block"
+                          className="popper-tooltip click-outside-block Popup"
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}
