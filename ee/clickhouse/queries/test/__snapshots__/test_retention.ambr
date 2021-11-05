@@ -28,7 +28,10 @@
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
-       AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00') ) event
+       AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
+       AND NOT has([''], trim(BOTH '"'
+                              FROM JSONExtractRaw(properties, '$group_0')))
+       AND team_id = 2 ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
                      trim(BOTH '"'
@@ -53,7 +56,10 @@
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
-       AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00') ) reference_event ON (event.target = reference_event.target)
+       AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
+       AND NOT has([''], trim(BOTH '"'
+                              FROM JSONExtractRaw(properties, '$group_0')))
+       AND team_id = 2 ) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -90,7 +96,10 @@
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
-       AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00') )
+       AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
+       AND NOT has([''], trim(BOTH '"'
+                              FROM JSONExtractRaw(properties, '$group_0')))
+       AND team_id = 2 )
   GROUP BY event_date
   ORDER BY event_date
   '

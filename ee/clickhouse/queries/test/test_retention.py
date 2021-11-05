@@ -75,7 +75,8 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
                     "period": "Week",
                     "total_intervals": 7,
                     "properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}],
-                }
+                },
+                team=self.team
             ),
             self.team,
         )
@@ -94,7 +95,8 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
                     "properties": [
                         {"key": "industry", "value": "", "type": "group", "group_type_index": 0, "operator": "is_set"}
                     ],
-                }
+                },
+                team=self.team
             ),
             self.team,
         )
@@ -115,7 +117,8 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
                     "period": "Week",
                     "total_intervals": 7,
                     "aggregation_group_type_index": 0
-                }
+                },
+                team=self.team
             ),
             self.team,
         )

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypeVar, cast
 
 from posthog.utils import is_clickhouse_enabled
 
@@ -35,10 +35,14 @@ class SimplifyFilterMixin:
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
+        properties = self._simplify_properties(team, result.properties, **kwargs) # type: ignore
+        if getattr(result, "aggregation_group_type_index", None) is not None:
+            properties.append(self._group_set_property(cast(int, result.aggregation_group_type_index))) # type: ignore
+
         return result.with_data(
             {
                 **updated_entities,
-                "properties": self._simplify_properties(team, result.properties, **kwargs),  # type: ignore
+                "properties": properties,
             }
         )
 
@@ -46,14 +50,13 @@ class SimplifyFilterMixin:
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
     ) -> Dict:
         from posthog.models.entity import Entity, ExclusionEntity
-        from posthog.models.property import Property
 
         EntityClass = ExclusionEntity if entity_type == "exclusions" else Entity
 
         entity = EntityClass(entity_params)
         properties = self._simplify_properties(team, entity.properties, **kwargs)
         if entity.math == "unique_group":
-            properties.append(Property(key=f"$group_{entity.math_group_type_index}", value="", operator="is_not",))
+            properties.append(self._group_set_property(cast(int, entity.math_group_type_index)))
 
         return EntityClass({**entity_params, "properties": properties}).to_dict()
 
@@ -79,6 +82,11 @@ class SimplifyFilterMixin:
             return simplified_cohort_filter_properties(cohort, team)
 
         return [property]
+
+    def _group_set_property(self, group_type_index: int) -> "Property":
+        from posthog.models.property import Property
+
+        return Property(key=f"$group_{group_type_index}", value="", operator="is_not",)
 
     @property
     def is_simplified(self) -> bool:
