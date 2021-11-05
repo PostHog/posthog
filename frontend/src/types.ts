@@ -191,7 +191,8 @@ export interface TeamType extends TeamBasicType {
     // example can be used to exclude properties that have trivial causation
     correlation_config: {
         excluded_person_property_names?: string[]
-        excluded_events?: string[]
+        excluded_event_property_names?: string[]
+        excluded_event_names?: string[]
     }
 }
 
