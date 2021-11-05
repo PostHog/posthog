@@ -25,6 +25,7 @@ function Tick({ marker }: { marker: SeekbarEventType }): JSX.Element {
                 setHovering(false)
             }}
         >
+            <div className={clsx('tick-info', { show: hovering })}>{marker.event}</div>
             <div className="tick-marker" />
             <div className={clsx('tick-thumb', { big: hovering })} />
         </div>
