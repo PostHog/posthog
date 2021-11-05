@@ -133,6 +133,7 @@ export function FeatureFlag(): JSX.Element {
         updateVariant,
         removeVariant,
         distributeVariantsEqually,
+        setFeatureFlag,
     } = useActions(featureFlagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(featureFlagClientLogic)
 
@@ -156,6 +157,7 @@ export function FeatureFlag(): JSX.Element {
                         if (featureFlagId !== 'new' && newValues.key) {
                             setHasKeyChanged(newValues.key !== featureFlag.key)
                         }
+                        setFeatureFlag({ ...featureFlag, ...newValues })
                     }}
                     onFinish={(values) =>
                         saveFeatureFlag({
