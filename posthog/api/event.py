@@ -183,7 +183,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         if reverse:
             params["after"] = timestamp
         else:
-            params["after"] = timestamp
+            params["before"] = timestamp
         return request.build_absolute_uri("{}?{}".format(request.path, urllib.parse.urlencode(params)))
 
     def _parse_order_by(self, request: request.Request) -> List[str]:
