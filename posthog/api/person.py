@@ -132,12 +132,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def values(self, request: request.Request, **kwargs) -> response.Response:
         people = self.get_queryset()
         key = "properties__{}".format(request.GET.get("key"))
-        people = (
-            people.values(key)
-            .annotate(count=Count("id"))
-            .filter(**{"{}__isnull".format(key): False})
-            .order_by("-count")
-        )
+        people = people.values(key).annotate(count=Count("id")).filter(**{f"{key}__isnull": False}).order_by("-count")
 
         if request.GET.get("value"):
             people = people.extra(

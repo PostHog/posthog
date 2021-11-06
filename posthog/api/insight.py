@@ -328,7 +328,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         refresh = should_refresh(request)
 
         filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
-        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
         result = {"loading": True}
 
         if refresh:

@@ -15,11 +15,11 @@ class TestMigrations(TestCase):
 
     @property
     def migrate_from(self) -> Optional[str]:
-        raise NotImplementedError("TestCase '{}' must define migrate_from property".format(type(self).__name__))
+        raise NotImplementedError(f"TestCase '{type(self).__name__}' must define migrate_from property")
 
     @property
     def migrate_to(self) -> Optional[str]:
-        raise NotImplementedError("TestCase '{}' must define migrate_to property".format(type(self).__name__))
+        raise NotImplementedError(f"TestCase '{type(self).__name__}' must define migrate_to property")
 
     def setUpBeforeMigration(self, apps):
         pass
