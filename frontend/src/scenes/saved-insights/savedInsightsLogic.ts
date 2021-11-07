@@ -136,6 +136,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     selectors: {
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
+        usingFilters: [
+            (s) => [s.filters],
+            (filters) => !objectsEqual(cleanFilters({ ...filters, tab: SavedInsightsTabs.All }), cleanFilters({})),
+        ],
         paramsFromFilters: [
             (s) => [s.filters],
             (filters) => ({
