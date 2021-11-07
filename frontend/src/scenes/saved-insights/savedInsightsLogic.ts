@@ -92,6 +92,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     }
                 }
 
+                // scroll to top if the page changed
+                if (
+                    values.insights.filters?.offset !== filters.offset ||
+                    values.insights.filters?.limit !== filters.limit
+                ) {
+                    window.scrollTo(0, 0)
+                }
+
                 return { ...response, filters }
             },
             updateFavoritedInsight: async ({ id, favorited }) => {
