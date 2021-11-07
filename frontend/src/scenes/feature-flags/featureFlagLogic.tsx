@@ -245,10 +245,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.name, id: featureFlag.id },
                 callback: () => {
+                    featureFlag.id && featureFlagsLogic.findMounted()?.actions.deleteFlag(featureFlag.id)
                     router.actions.push(urls.featureFlags())
                 },
             })
-            featureFlagsLogic.findMounted()?.actions.loadFeatureFlags()
         },
         setMultivariateEnabled: async ({ enabled }) => {
             if (enabled) {
