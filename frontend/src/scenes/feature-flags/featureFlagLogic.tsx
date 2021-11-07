@@ -5,7 +5,7 @@ import { AnyPropertyFilter, FeatureFlagType, MultivariateFlagOptions, Multivaria
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo, markAsStale } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -238,7 +238,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     closeOnClick: true,
                 }
             )
-
+            markAsStale(featureFlagsLogic)
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
@@ -249,6 +249,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     router.actions.push(urls.featureFlags())
                 },
             })
+            markAsStale(featureFlagsLogic)
         },
         setMultivariateEnabled: async ({ enabled }) => {
             if (enabled) {
