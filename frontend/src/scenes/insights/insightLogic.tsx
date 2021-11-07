@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast, objectsEqual, toParams, uuid } from 'lib/utils'
+import { errorToast, objectsEqual, markAsStale, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -32,6 +32,7 @@ import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -123,6 +124,7 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
                     const updatedInsight = { ...response, result: response.result || values.insight.result }
                     callback?.(updatedInsight)
+                    markAsStale(savedInsightsLogic)
                     return updatedInsight
                 },
                 // using values.filters, query for new insight results
@@ -531,6 +533,7 @@ export const insightLogic = kea<insightLogicType>({
                     <Link to={'/saved_insights'}>Click here to see your list of saved insights</Link>
                 </div>
             )
+            markAsStale(savedInsightsLogic)
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query

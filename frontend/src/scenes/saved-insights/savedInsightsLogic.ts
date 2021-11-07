@@ -61,12 +61,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         renameInsight: (id: number) => ({ id }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
         loadInsights: true,
+        markAsStale: true,
     },
     loaders: ({ values }) => ({
         insights: {
             __default: { results: [], count: 0, filters: null } as InsightsResult,
             loadInsights: async (_, breakpoint) => {
-                if (values.insights.filters !== null) {
+                if (values.insights.filters !== null && !values.isStale) {
                     await breakpoint(300)
                 }
                 const { filters } = values
@@ -109,6 +110,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         },
     }),
     reducers: {
+        isStale: [
+            false,
+            {
+                markAsStale: () => true,
+                loadInsights: () => false,
+            },
+        ],
         rawFilters: [
             null as Partial<SavedInsightFilters> | null,
             {
@@ -231,6 +239,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             const nextFilters = cleanFilters(searchParams)
             if (values.rawFilters === null || !objectsEqual(currentFilters, nextFilters)) {
                 actions.setSavedInsightsFilters(nextFilters, false)
+            } else if (values.isStale) {
+                actions.loadInsights()
             }
         },
     }),
