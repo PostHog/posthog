@@ -117,13 +117,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             },
         },
     }),
-    reducers: () => ({
-        urlPopped: [
-            false,
-            {
-                [router.actionTypes.locationChanged]: (_, { method }) => method === 'POP',
-            },
-        ],
+    reducers: {
         rawFilters: [
             null as Partial<SavedInsightFilters> | null,
             {
@@ -138,7 +132,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     ),
             },
         ],
-    }),
+    },
     selectors: {
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
