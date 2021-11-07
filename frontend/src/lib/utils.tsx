@@ -11,7 +11,6 @@ import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
-import { LogicWrapper } from 'kea'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1137,15 +1136,4 @@ export function ensureStringIsNotBlank(s?: string | null): string | null {
 
 export function setPageTitle(title: string): void {
     document.title = title ? `${title} • PostHog` : 'PostHog'
-}
-
-export function markAsStale(logic: LogicWrapper): void {
-    const mountedLogic = logic.findMounted()
-    if (mountedLogic) {
-        if ('markAsStale' in mountedLogic.actions) {
-            mountedLogic.actions.markAsStale()
-        } else {
-            throw new Error(`Action "markAsStale" not found in logic "${mountedLogic.pathString}"`)
-        }
-    }
 }

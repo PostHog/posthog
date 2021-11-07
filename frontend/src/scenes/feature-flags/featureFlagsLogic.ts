@@ -11,7 +11,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     },
     actions: {
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
-        markAsStale: true,
     },
     loaders: ({ values }) => ({
         featureFlags: {
@@ -27,13 +26,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         },
     }),
     reducers: {
-        isStale: [
-            false,
-            {
-                markAsStale: () => true,
-                loadFeatureFlags: () => false,
-            },
-        ],
         featureFlags: {
             updateFlag: (state, { flag }) => {
                 if (state.find(({ id }) => id === flag.id)) {

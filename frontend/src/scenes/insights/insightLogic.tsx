@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast, objectsEqual, markAsStale, toParams, uuid } from 'lib/utils'
+import { errorToast, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -124,7 +124,7 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
                     const updatedInsight = { ...response, result: response.result || values.insight.result }
                     callback?.(updatedInsight)
-                    markAsStale(savedInsightsLogic)
+                    savedInsightsLogic.findMounted()?.actions.loadInsights()
                     return updatedInsight
                 },
                 // using values.filters, query for new insight results
@@ -533,7 +533,7 @@ export const insightLogic = kea<insightLogicType>({
                     <Link to={'/saved_insights'}>Click here to see your list of saved insights</Link>
                 </div>
             )
-            markAsStale(savedInsightsLogic)
+            savedInsightsLogic.findMounted()?.actions.loadInsights()
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
