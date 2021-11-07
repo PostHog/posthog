@@ -10970,10 +10970,10 @@ kea-localstorage@^1.1.1:
   resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.1.1.tgz#6edf69476779e002708fb10f2360e48333707406"
   integrity sha512-YijSF33Y1QpfHAq1hGvulWWoGC9Kckd4lVa+XStHar4t7GfoaDa1aWnTeJxzz9bWnJovfk+MnG8ekP4rWIqINA==
 
-kea-router@^1.0.5:
-  version "1.0.5"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.5.tgz#1e6e2e820bf012904589b356356dcd3156360fb9"
-  integrity sha512-EIY/0SmdtLrKTxmoE+MaB1GOQ0HHr4a38TS4ub4ylQ7mQ+lyC2D8m4KIbYRYJ9wFvkEK2QOMsuVQbmfD1AXEOA==
+kea-router@^1.0.6:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.6.tgz#2e8fbbde5bdabe1a884d454ffa336070391f093d"
+  integrity sha512-oOzPAVQKKuM8M9b1friYfUJ2j4BlZ39f3CdjwPjX5w9v2Gff4V7hyZo5BxmTfv2YH9tLSwGymDV6fID5JHpDcw==
   dependencies:
     url-pattern "^1.0.3"
 

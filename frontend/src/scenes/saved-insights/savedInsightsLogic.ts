@@ -92,10 +92,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     }
                 }
 
-                // scroll to top if the page changed
+                // scroll to top if the page changed, except if changed via back/forward
                 if (
-                    values.insights.filters?.offset !== filters.offset ||
-                    values.insights.filters?.limit !== filters.limit
+                    router.values.lastMethod !== 'POP' &&
+                    (values.insights.filters?.offset !== filters.offset ||
+                        values.insights.filters?.limit !== filters.limit)
                 ) {
                     window.scrollTo(0, 0)
                 }
@@ -117,7 +118,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             },
         },
     }),
-    reducers: {
+    reducers: () => ({
+        urlPopped: [
+            false,
+            {
+                [router.actionTypes.locationChanged]: (_, { method }) => method === 'POP',
+            },
+        ],
         rawFilters: [
             null as Partial<SavedInsightFilters> | null,
             {
@@ -132,7 +139,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     ),
             },
         ],
-    },
+    }),
     selectors: {
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
@@ -222,11 +229,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         },
     }),
     actionToUrl: ({ values }) => {
-        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: true }] | void => {
+        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
-                return ['/saved_insights', objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: true }]
+                return ['/saved_insights', objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
             }
         }
         return {
