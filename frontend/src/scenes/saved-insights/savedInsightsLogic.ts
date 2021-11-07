@@ -61,7 +61,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         renameInsight: (id: number) => ({ id }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
         loadInsights: true,
-        markAsStale: true,
     },
     loaders: ({ values }) => ({
         insights: {
