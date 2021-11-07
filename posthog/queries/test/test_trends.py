@@ -2133,7 +2133,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
 
             self.assertListEqual(
-                sorted([res["breakdown_value"] for res in event_response]), ["person1", "person2", "person3"]
+                sorted(res["breakdown_value"] for res in event_response), ["person1", "person2", "person3"]
             )
 
             for response in event_response:
@@ -2211,7 +2211,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 people = self._get_trend_people(Filter(data=data), entity)
 
                 # TODO: improve ee/postgres handling
-                value_1_ids = sorted([person["id"] for person in people])
+                value_1_ids = sorted(person["id"] for person in people)
                 self.assertTrue(
                     value_1_ids == sorted([person1.uuid, person2.uuid, person3.uuid])
                     or value_1_ids == sorted([person1.pk, person2.pk, person3.pk])

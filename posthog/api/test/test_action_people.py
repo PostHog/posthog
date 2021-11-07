@@ -391,7 +391,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
             self.assertEqual(len(action_response["results"][0]["people"]), 2)
             self.assertEqual(
-                sorted([p["id"] for p in action_response["results"][0]["people"]]), sorted([person1.pk, person2.pk])
+                sorted(p["id"] for p in action_response["results"][0]["people"]), sorted([person1.pk, person2.pk])
             )
             self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
@@ -657,7 +657,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             self.assertEqual(len(people["results"][0]["people"]), 2)
-            ordered_people = sorted([p["id"] for p in people["results"][0]["people"]])
+            ordered_people = sorted(p["id"] for p in people["results"][0]["people"])
             self.assertEqual(ordered_people, sorted([person1.pk, person2.pk]))
 
         def test_filtering_by_person_properties(self):

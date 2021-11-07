@@ -227,7 +227,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
             filter = Filter(data={"properties": {"$current_url__not_icontains": "whatever.com"}})
             events = filter_events(filter, self.team, order_by="id")
-            self.assertEqual(sorted([event["id"] for event in events]), sorted([event1.pk, event2.pk, event3.pk]))
+            self.assertEqual(sorted(event["id"] for event in events), sorted([event1.pk, event2.pk, event3.pk]))
             self.assertEqual(len(events), 3)
 
         def test_multiple(self):
