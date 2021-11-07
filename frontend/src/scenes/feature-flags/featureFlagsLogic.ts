@@ -3,7 +3,6 @@ import api from 'lib/api'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
-import { urls } from 'scenes/urls'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     connect: {
@@ -36,13 +35,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         },
     },
-    urlToAction: ({ actions, values }) => ({
-        [urls.featureFlags()]: () => {
-            if (values.isStale) {
-                actions.loadFeatureFlags()
-            }
-        },
-    }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadFeatureFlags()
