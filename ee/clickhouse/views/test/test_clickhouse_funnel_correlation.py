@@ -2,6 +2,7 @@ import dataclasses
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
+from unittest.mock import ANY
 from uuid import uuid4
 
 import pytest
@@ -100,8 +101,10 @@ class FunnelCorrelationTest(BaseTest):
                 "events": [
                     {
                         "event": {"event": "watched video", "elements": [], "properties": {}},
-                        "success_count": 1,
                         "failure_count": 1,
+                        "success_count": 1,
+                        "success_people_url": ANY,
+                        "failure_people_url": ANY,
                         "odds_ratio": 1 / 2,
                         "correlation_type": "failure",
                     },
@@ -259,6 +262,8 @@ class FunnelCorrelationTest(BaseTest):
                         "failure_count": 1,
                         "odds_ratio": 1 / 4,
                         "success_count": 0,
+                        "success_people_url": ANY,
+                        "failure_people_url": ANY,
                     }
                 ],
                 "skewed": False,
@@ -374,6 +379,8 @@ class FunnelCorrelationTest(BaseTest):
                     "event": {"event": "$browser::Positive", "elements": [], "properties": {}},
                     "success_count": 10,
                     "failure_count": 0,
+                    "success_people_url": ANY,
+                    "failure_people_url": ANY,
                     # "odds_ratio": 121.0,
                     "correlation_type": "success",
                 },
@@ -381,6 +388,8 @@ class FunnelCorrelationTest(BaseTest):
                     "event": {"event": "$browser::Negative", "elements": [], "properties": {}},
                     "success_count": 0,
                     "failure_count": 10,
+                    "success_people_url": ANY,
+                    "failure_people_url": ANY,
                     # "odds_ratio": 1 / 121,
                     "correlation_type": "failure",
                 },
@@ -524,6 +533,8 @@ class FunnelCorrelationTest(BaseTest):
                     {
                         "success_count": 3,
                         "failure_count": 0,
+                        "success_people_url": ANY,
+                        "failure_people_url": ANY,
                         "odds_ratio": 8.0,
                         "correlation_type": "success",
                         "event": {
