@@ -56,11 +56,11 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
-                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
                         {union_query}
                 )
-            ) GROUP BY person_id, steps {breakdown_clause}
+            ) GROUP BY aggregation_target, steps {breakdown_clause}
             HAVING steps = max_steps
         """
 
@@ -77,7 +77,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         for i in range(max_steps):
             inner_query = f"""
                 SELECT
-                person_id,
+                aggregation_target,
                 timestamp,
                 {partition_select}
                 {breakdown_clause}

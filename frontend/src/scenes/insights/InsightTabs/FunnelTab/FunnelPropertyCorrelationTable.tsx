@@ -153,7 +153,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     return stepsWithCount.length > 1 ? (
-        <VisibilitySensor offset={300} id={`${correlationPropKey}-properties`}>
+        <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
             <div className="funnel-correlation-table">
                 <span className="funnel-correlation-header">
                     <span className="table-header">

@@ -7,8 +7,9 @@
         font-weight: 600;
         color: var(--primary-alt);
         margin-right: 0.5rem;
+        text-align: right;
     }
-    @media screen and (min-width: $sm) {
+    @media screen and (min-width: $md) {
         display: flex;
         align-items: center;
     }

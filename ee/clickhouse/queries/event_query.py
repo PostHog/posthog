@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery

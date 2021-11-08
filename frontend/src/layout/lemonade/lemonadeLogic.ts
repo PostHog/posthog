@@ -28,7 +28,7 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideProjectSwitcher: true,
     },
     reducers: {
-        isSideBarShown: [
+        isSideBarShownRaw: [
             window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
             {
                 toggleSideBar: (state) => !state,
@@ -93,6 +93,11 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         ],
     },
     selectors: {
+        isSideBarForciblyHidden: [() => [() => document.fullscreenElement], (fullscreenElement) => !!fullscreenElement],
+        isSideBarShown: [
+            (s) => [s.isSideBarShownRaw, s.isSideBarForciblyHidden],
+            (isSideBarShownRaw, isSideBarForciblyHidden) => isSideBarShownRaw && !isSideBarForciblyHidden,
+        ],
         announcementMessage: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {

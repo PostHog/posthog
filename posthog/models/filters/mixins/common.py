@@ -38,6 +38,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType, IntervalType
+from posthog.models.filters.mixins.groups import validate_group_type_index
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.utils import relative_date_parse
 
@@ -151,12 +152,7 @@ class BreakdownMixin(BaseParamMixin):
     @cached_property
     def breakdown_group_type_index(self) -> Optional[int]:
         value = self._data.get(BREAKDOWN_GROUP_TYPE_INDEX, None)
-        if value is not None and not (isinstance(value, int) and 0 <= value < GROUP_TYPES_LIMIT):
-            raise ValidationError(
-                {
-                    "breakdown_group_type_index": f"This field is required if breakdown_type is group and must be greater than 0 and less than {GROUP_TYPES_LIMIT}"
-                }
-            )
+        validate_group_type_index(BREAKDOWN_GROUP_TYPE_INDEX, value)
 
         return value
 

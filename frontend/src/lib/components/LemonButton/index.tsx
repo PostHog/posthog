@@ -13,6 +13,7 @@ export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 
     /** URL to link to. */
     to?: string
     popup?: LemonButtonPopup
+    block?: boolean
 }
 
 /** Note that a LemonButton can be compact OR have a sideIcon, but not both at once. */
@@ -28,12 +29,12 @@ export type LemonButtonProps =
 
 /** Styled button. */
 function LemonButtonInternal(
-    { children, type = 'default', className, popup, to, ...buttonProps }: LemonButtonProps,
+    { children, type = 'default', className, popup, to, block, ...buttonProps }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
         tag: 'button',
-        className: clsx('LemonButton', type !== 'default' && `LemonButton--${type}`, className),
+        className: clsx('LemonButton', type !== 'default' && `LemonButton--${type}`, className, block && 'block'),
         type: 'button',
         ...buttonProps,
     }
