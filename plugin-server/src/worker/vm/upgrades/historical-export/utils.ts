@@ -2,10 +2,10 @@ import { CacheExtension, PluginEvent, Properties } from '@posthog/plugin-scaffol
 import { Plugin, PluginMeta } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
-import { chainToElements } from 'utils/db/utils'
 
 import { ClickHouseEvent, Event, PluginConfig, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
+import { chainToElements } from '../../../../utils/db/utils'
 import { castTimestampToClickhouseFormat, UUIDT } from '../../../../utils/utils'
 export interface TimestampBoundaries {
     min: Date | null
