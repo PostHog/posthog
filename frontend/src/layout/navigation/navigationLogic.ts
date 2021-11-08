@@ -98,8 +98,8 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 }
 
                 // On cloud non staff users don't have status metrics to review
-                const hasStatusMetrics = !statusMetrics || statusMetrics.length === 0
-                if (hasStatusMetrics && preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
+                const hasNoStatusMetrics = !statusMetrics || statusMetrics.length === 0
+                if (hasNoStatusMetrics && preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
                     return true
                 }
 
