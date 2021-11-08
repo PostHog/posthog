@@ -562,6 +562,26 @@ class FunnelCorrelation:
             }
             return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
+        if self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
+            event_name, property_name, property_value = event_definition["event"].split("::")
+            params = self._filter.to_dict()
+            params = {
+                **params,
+                "events": json.dumps(params["events"]),
+                "funnel_correlation_event_names": json.dumps(params["funnel_correlation_event_names"]),
+                "funnel_correlation_person_converted": "true" if success else "false",
+                "funnel_correlation_person_entity": json.dumps(
+                    {
+                        "id": event_name,
+                        "type": "events",
+                        "properties": [
+                            {"key": property_name, "value": property_value, "type": "event", "operator": "exact"}
+                        ],
+                    }
+                ),
+            }
+            return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             # NOTE: for property correlations, we just use the regular funnel
             # persons endpoint, with the breakdown value set, and we assume that
