@@ -156,6 +156,7 @@ export function InsightsTable({
                                   }
                                 : undefined
                         }
+                        hideSeriesSubtitle
                     />
                 </div>
             )

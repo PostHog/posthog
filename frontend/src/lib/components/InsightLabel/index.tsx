@@ -32,6 +32,7 @@ interface InsightsLabelProps {
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
     useCustomName?: boolean // Whether to show new custom name (FF `6063-rename-filters`). `{custom_name} ({id})`.
+    hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
 }
 
 function MathTag({ math, mathProperty }: Record<string, string | undefined>): JSX.Element {
@@ -74,6 +75,7 @@ export function InsightLabel({
     showCountedByTag,
     allowWrap = false,
     useCustomName = false,
+    hideSeriesSubtitle,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || hasMultipleSeries
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
@@ -107,7 +109,7 @@ export function InsightLabel({
                     {showEventName && (
                         <>
                             {useCustomName && action ? (
-                                <EntityFilterInfo filter={action} />
+                                <EntityFilterInfo filter={action} showSubTitle={!hideSeriesSubtitle} />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
                             )}
