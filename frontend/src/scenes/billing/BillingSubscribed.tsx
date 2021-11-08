@@ -29,7 +29,7 @@ export function BillingSubscribed(): JSX.Element {
                         <div className="inner">
                             {status === SubscriptionStatus.Success ? <SubscriptionSuccess /> : <SubscriptionFailure />}
                             <div className="support-footer">
-                                Have questions? <HelpButton customComponent={<a href="#">Get help</a>} />
+                                Have questions? <HelpButton inline customComponent={<a href="#">Get help</a>} />
                             </div>
                         </div>
                     </div>
