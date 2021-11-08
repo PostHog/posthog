@@ -29,6 +29,7 @@ import {
     Hook,
     Person,
     PersonDistinctId,
+    PersonPropertyUpdateOperation,
     PluginConfig,
     PluginLogEntry,
     PluginLogEntrySource,
@@ -448,6 +449,7 @@ export class DB {
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
+        propertiesOnce: Properties,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -456,10 +458,31 @@ export class DB {
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
 
+        const props = { ...propertiesOnce, ...properties }
+        const props_last_operation: Record<string, any> = {}
+        const props_last_updated_at: Record<string, any> = {}
+        Object.keys(propertiesOnce).forEach((key) => {
+            props_last_operation[key] = PersonPropertyUpdateOperation.SetOnce
+            props_last_updated_at[key] = createdAt
+        })
+        Object.keys(properties).forEach((key) => {
+            props_last_operation[key] = PersonPropertyUpdateOperation.Set
+            props_last_updated_at[key] = createdAt
+        })
+
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await client.query(
-                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-                [createdAt.toISO(), JSON.stringify(properties), '{}', teamId, isUserId, isIdentified, uuid]
+                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+                [
+                    createdAt.toISO(),
+                    JSON.stringify(props),
+                    JSON.stringify(props_last_updated_at),
+                    JSON.stringify(props_last_operation),
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    uuid,
+                ]
             )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {
@@ -468,7 +491,7 @@ export class DB {
             } as Person
 
             if (this.kafkaProducer) {
-                kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid))
+                kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, props, teamId, isIdentified, uuid))
             }
 
             for (const distinctId of distinctIds || []) {

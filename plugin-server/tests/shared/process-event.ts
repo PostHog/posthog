@@ -45,7 +45,16 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    return server.db.createPerson(DateTime.utc(), properties, team.id, null, false, new UUIDT().toString(), distinctIds)
+    return server.db.createPerson(
+        DateTime.utc(),
+        properties,
+        {},
+        team.id,
+        null,
+        false,
+        new UUIDT().toString(),
+        distinctIds
+    )
 }
 
 export type ReturnWithHub = { hub?: Hub; closeHub?: () => Promise<void> }
@@ -328,7 +337,7 @@ export const createProcessEventTests = (
         if (database === 'clickhouse') {
             expect(queryCounter).toBe(11 + 14 /* event & prop definitions */)
         } else if (database === 'postgresql') {
-            expect(queryCounter).toBe(14 + 14 /* event & prop definitions */)
+            expect(queryCounter).toBe(12 + 14 /* event & prop definitions */)
         }
 
         let persons = await hub.db.fetchPersons()
