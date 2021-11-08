@@ -59,8 +59,8 @@ function SubscriptionSuccess(): JSX.Element {
             </p>
             {billing?.plan?.key === 'standard' && (
                 <p className="text-muted-alt">
-                    You will be billed on the <b>first 3 days of each month</b>. If you use less than 1M events, you
-                    will not be billed.
+                    You will be billed within the <b>first 3 days of each month</b>. If you ingest less than 1M events,
+                    you will not be billed.
                 </p>
             )}
             <p>

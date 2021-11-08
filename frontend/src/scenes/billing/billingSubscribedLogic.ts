@@ -42,7 +42,7 @@ export const billingSubscribedLogic = kea<billingSubscribedLogicType<Subscriptio
         },
     }),
     urlToAction: ({ actions }) => ({
-        '*': (_, { s, session_id }) => {
+        '/organization/billing/subscribed': (_, { s, session_id }) => {
             if (s === 'success') {
                 actions.setStatus(SubscriptionStatus.Success)
             }

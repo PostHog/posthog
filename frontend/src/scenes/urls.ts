@@ -43,7 +43,7 @@ export const urls = {
     onboardingSetup: () => '/setup',
     // Cloud only
     organizationBilling: () => '/organization/billing',
-    billingSubscribed: () => '/billing/subscribed',
+    billingSubscribed: () => '/organization/billing/subscribed',
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
     systemStatus: () => '/instance/status',
