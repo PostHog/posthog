@@ -34,7 +34,7 @@ $bg_shaded: rgba(0, 0, 0, 0.05);
 
 // Border colors
 $border_light: rgba(0, 0, 0, 0.08);
-$border: rgba(0, 0, 0, 0.12);
+$border: rgba(0, 0, 0, 0.15);
 $border_dark: rgba(0, 0, 0, 0.24);
 $border_active: rgba(0, 0, 0, 0.36);
 
@@ -120,7 +120,7 @@ $medium: 500;
     bottom: 0;
 }
 
-$default_spacing: 16px;
+$default_spacing: 1rem;
 $radius: 4px;
 $top_nav_height: 50px;
 
