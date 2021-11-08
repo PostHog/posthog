@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from uuid import uuid4
 
+from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
@@ -28,6 +29,28 @@ def _create_event(**kwargs):
 class ClickhouseTestInsights(
     ClickhouseTestMixin, LicensedTestMixin, insight_test_factory(_create_event, _create_person)  # type: ignore
 ):
+    def test_insight_trends_basic(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_person(distinct_ids=["1"], team=self.team)
+            _create_person(distinct_ids=["2"], team=self.team)
+            _create_event(team=self.team, event="$pageview", distinct_id="1")
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
+            ).json()
+
+        self.assertEqual(response["result"][0]["count"], 2)
+        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+
+        self.assertEqual(response["result"][0]["data"][-2], 2)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.get(response["result"][0]["persons_urls"][-2]).json()
+
+        self.assertEqual(len(response["results"][0]["people"]), 2)
+
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

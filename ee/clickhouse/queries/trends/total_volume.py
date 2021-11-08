@@ -1,3 +1,6 @@
+import json
+import urllib.parse
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
@@ -61,7 +64,7 @@ class ClickhouseTrendsTotalVolume:
                     **content_sql_params,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
-                    **trend_event_query.active_user_params
+                    **trend_event_query.active_user_params,
                 )
             else:
                 content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)
@@ -69,15 +72,33 @@ class ClickhouseTrendsTotalVolume:
             null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
             params["interval"] = filter.interval
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
-            return final_query, params, self._parse_total_volume_result(filter)
+            return final_query, params, self._parse_total_volume_result(filter, entity, team_id)
 
-    def _parse_total_volume_result(self, filter: Filter) -> Callable:
+    def _parse_total_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
             for _, stats in enumerate(result):
                 parsed_result = parse_response(stats, filter)
+                parsed_result.update(
+                    {"persons_urls": self._get_persons_url(filter, entity, team_id, parsed_result["days"])}
+                )
                 parsed_results.append(parsed_result)
 
             return parsed_results
 
         return _parse
+
+    def _get_persons_url(self, filter: Filter, entity: Entity, team_id: int, dates: List[str]) -> List[str]:
+        persons_url = []
+        for date in dates:
+            params = filter.to_dict()
+            params = {
+                **params,
+                "events": json.dumps(params["events"]),
+                "entity_id": entity.id,
+                "entity_type": entity.type,
+                "date_from": date,
+                "date_to": date,
+            }
+            persons_url.append(f"/api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(params)}")
+        return persons_url
