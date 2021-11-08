@@ -30,7 +30,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = [
             self.get_timestamp_field(),
-            f"{self.get_target_field()} as target",
+            f"{self.get_aggregation_target_field()} as target",
             (
                 f"argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
                 if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
@@ -78,16 +78,6 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         """
 
         return query, self.params
-
-    def get_target_field(self) -> str:
-        if self._filter.aggregation_group_type_index is not None:
-            prop_var = f"$group_{self._filter.aggregation_group_type_index}"
-            group_expression, _ = get_property_string_expr(
-                "events", prop_var, f"'{prop_var}'", f"{self.EVENT_TABLE_ALIAS}.properties"
-            )
-            return group_expression
-        else:
-            return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
 
     def get_timestamp_field(self) -> str:
         if self._event_query_type == RetentionQueryType.TARGET:

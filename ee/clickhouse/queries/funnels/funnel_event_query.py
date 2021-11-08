@@ -16,7 +16,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 if self._column_optimizer.should_query_elements_chain_column
                 else ""
             ),
-            f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
+            f"{self.get_aggregation_target_field()} as person_id",
         ]
 
         _fields.extend(

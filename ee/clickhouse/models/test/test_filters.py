@@ -192,6 +192,14 @@ class TestFilters(PGTestFilters):
             {"properties": [{"key": "$group_0", "operator": "is_not", "value": "", "type": "event"}]},
         )
 
+    def test_simplify_funnel_entities_when_aggregating_by_group(self):
+        filter = filter = Filter(data={"events": [{"id": "$pageview"}], "aggregation_group_type_index": 2})
+
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {"properties": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"}]},
+        )
+
 
 class TestFiltering(
     ClickhouseTestMixin, property_to_Q_test_factory(_filter_events, _create_event, _create_person),  # type: ignore
