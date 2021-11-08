@@ -192,10 +192,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ groupType, value, item }) => {
             if (item && value) {
-                const groupTypeWithGroupAnalytics = groupType.startsWith('groups')
-                    ? TaxonomicFilterGroupType.GroupsPrefix
-                    : groupType
-                props.onChange?.(groupTypeWithGroupAnalytics, value, item)
+                props.onChange?.(groupType, value, item)
             }
         },
 
