@@ -23,20 +23,18 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: Breadcrumb }): JSX.Element {
     )
 }
 
-export function Breadcrumbs(): JSX.Element | false {
+export function Breadcrumbs(): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
 
-    return (
-        breadcrumbs.length > 0 && (
-            <div className="Breadcrumbs">
-                <Breadcrumb breadcrumb={breadcrumbs[0]} />
-                {breadcrumbs.slice(1).map((breadcrumb) => (
-                    <React.Fragment key={breadcrumb.name}>
-                        <IconExpandMore className="Breadcrumbs__separator" />
-                        <Breadcrumb breadcrumb={breadcrumb} />
-                    </React.Fragment>
-                ))}
-            </div>
-        )
-    )
+    return breadcrumbs.length > 0 ? (
+        <div className="Breadcrumbs">
+            <Breadcrumb breadcrumb={breadcrumbs[0]} />
+            {breadcrumbs.slice(1).map((breadcrumb) => (
+                <React.Fragment key={breadcrumb.name}>
+                    <IconExpandMore className="Breadcrumbs__separator" />
+                    <Breadcrumb breadcrumb={breadcrumb} />
+                </React.Fragment>
+            ))}
+        </div>
+    ) : null
 }

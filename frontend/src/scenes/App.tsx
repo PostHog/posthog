@@ -18,9 +18,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
-import { Breadcrumbs } from '../layout/lemonade/Breadcrumbs/Breadcrumbs'
 import { SideBar } from '../layout/lemonade/SideBar/SideBar'
 import { appScenes } from 'scenes/appScenes'
+import { Breadcrumbs } from '../layout/lemonade/Breadcrumbs/Breadcrumbs'
 
 export const appLogic = kea<appLogicType>({
     actions: {
