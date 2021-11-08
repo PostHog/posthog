@@ -46,7 +46,8 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            trim(BOTH '"'
-                                FROM JSONExtractRaw(e.properties, '$group_0')) as aggregation_target
+                                FROM JSONExtractRaw(e.properties, '$group_0')) as aggregation_target,
+                           e.properties as properties
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -65,7 +66,10 @@
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp <= '2020-01-14 23:59:59'
+                      AND NOT has([''], trim(BOTH '"'
+                                             FROM JSONExtractRaw(properties, '$group_0')))
+                      AND team_id = 2 ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
