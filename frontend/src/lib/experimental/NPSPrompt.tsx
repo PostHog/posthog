@@ -24,6 +24,7 @@ interface NPSPayload {
 }
 
 const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
+    path: ['lib', 'experimental', 'NPSPrompt'],
     selectors: {
         featureFlagEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
@@ -46,7 +47,7 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
         setPayload: (payload: NPSPayload | null) => ({ payload }),
         submit: (completed?: boolean) => ({ completed }),
         dismiss: true,
-        send: (result: 'completed' | 'partial' | 'dismissed') => ({ result }), // Sends response data to PostHog
+        send: (result: 'completed' | 'partial' | 'dismissed') => ({ result }),
     },
     reducers: {
         step: [

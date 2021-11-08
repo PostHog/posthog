@@ -13,6 +13,7 @@ import { IconArticle, IconGithub, IconMail, IconQuestionAnswer } from '../icons'
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
 export const helpButtonLogic = kea<helpButtonLogicType>({
+    path: ['lib', 'components', 'HelpButton', 'HelpButton'],
     connect: {
         actions: [eventUsageLogic, ['reportHelpButtonViewed']],
     },

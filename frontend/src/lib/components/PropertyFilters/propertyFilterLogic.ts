@@ -8,6 +8,7 @@ import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyF
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>({
+    path: (key) => ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic', key],
     props: {} as PropertyFilterLogicProps,
     key: (props) => props.pageKey,
 

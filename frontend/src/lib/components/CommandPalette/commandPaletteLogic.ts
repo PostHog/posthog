@@ -121,6 +121,7 @@ export const commandPaletteLogic = kea<
         RegExpCommandPairs
     >
 >({
+    path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
