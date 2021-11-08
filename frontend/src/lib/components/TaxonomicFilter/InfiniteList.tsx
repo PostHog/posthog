@@ -50,8 +50,8 @@ const renderItemContents = ({
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
-        listGroupType === TaxonomicFilterGroupType.Groups ||
-        listGroupType === TaxonomicFilterGroupType.CustomEvents ? (
+        listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+        listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <PropertyKeyInfo value={item.name ?? ''} disablePopover />
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
@@ -96,8 +96,8 @@ const renderItemPopup = (
             // NB: also update "selectedItemHasPopup" below
             listGroupType === TaxonomicFilterGroupType.Events ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
-            listGroupType === TaxonomicFilterGroupType.Groups ||
-            listGroupType === TaxonomicFilterGroupType.PersonProperties
+            listGroupType === TaxonomicFilterGroupType.PersonProperties ||
+            listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
         ) {
             data = getKeyMapping(value.toString(), 'event')
         } else if (listGroupType === TaxonomicFilterGroupType.Elements) {
@@ -189,7 +189,7 @@ export function InfiniteList(): JSX.Element {
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
                 onClick={() =>
                     selectItem(
-                        listGroupType?.includes('groups') ? TaxonomicFilterGroupType.Groups : listGroupType,
+                        listGroupType?.startsWith('groups') ? TaxonomicFilterGroupType.GroupsPrefix : listGroupType,
                         itemValue ?? null,
                         item
                     )

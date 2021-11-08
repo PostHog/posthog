@@ -24,7 +24,7 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 
 export interface TaxonomicFilterGroup {
     name: string
-    type: TaxonomicFilterGroupType | string
+    type: TaxonomicFilterGroupType
     endpoint?: string
     options?: Record<string, any>[]
     logic?: LogicWrapper
@@ -46,7 +46,7 @@ export enum TaxonomicFilterGroupType {
     Screens = 'screens',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
-    Groups = 'groups',
+    GroupsPrefix = 'groups',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
