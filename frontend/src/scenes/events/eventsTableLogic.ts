@@ -200,15 +200,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         ],
     }),
 
-    events: ({ values }) => ({
-        // No afterMount necessary because actionToUrl will call
-        beforeUnmount: () => {
-            if (values.pollTimeout !== null) {
-                clearTimeout(values.pollTimeout)
-            }
-        },
-    }),
-
     actionToUrl: ({ values }) => ({
         setProperties: () => {
             return [
@@ -245,19 +236,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams) => {
-            try {
-                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                if (router.values.location.pathname !== values.initialPathname) {
-                    return
-                }
-            } catch (error) {
-                // since this is a catch-all route, this code might run during or after the logic was unmounted
-                // if we have an error accessing the filter value, the logic is gone and we should return
-                return
-            }
-
+    urlToAction: ({ actions, values }) => {
+        const urlToAction = (_: Record<string, any>, searchParams: Record<string, any>) => {
             actions.setProperties(searchParams.properties || values.properties || {})
 
             if (searchParams.autoload) {
@@ -267,7 +247,16 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             if (searchParams.eventFilter) {
                 actions.setEventFilter(searchParams.eventFilter)
             }
-        },
+        }
+        return {
+            '/events': urlToAction,
+            '/person/:id': urlToAction,
+            '/action/:id': urlToAction,
+        }
+    },
+
+    events: ({ values }) => ({
+        beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
     }),
 
     listeners: ({ actions, values, props }) => ({

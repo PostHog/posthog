@@ -400,13 +400,13 @@ describe('eventsTableLogic', () => {
     })
 
     it('reads autoload from the URL', async () => {
-        router.actions.push(router.values.location.pathname, { autoload: true })
+        router.actions.push('/events', { autoload: true })
         await expectLogic(logic, () => {}).toMatchValues({ automaticLoadEnabled: true })
     })
 
     it('reads properties from the URL', async () => {
         const propertyFilter = makePropertyFilter()
-        router.actions.push(router.values.location.pathname, { properties: [propertyFilter] })
+        router.actions.push('/events', { properties: [propertyFilter] })
         await expectLogic(logic, () => {}).toMatchValues({ properties: [propertyFilter] })
     })
 
@@ -417,11 +417,12 @@ describe('eventsTableLogic', () => {
         })
         expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
     })
-
-    it('reads event filter from the URL', async () => {
-        const eventFilter = randomString()
-        router.actions.push(router.values.location.pathname, { eventFilter })
-        await expectLogic(logic, () => {}).toMatchValues({ eventFilter })
+    ;['/events', '/action/1234', '/person/1234'].forEach((url) => {
+        it(`reads event filter from the URL when on ${url}`, async () => {
+            const eventFilter = randomString()
+            router.actions.push(url, { eventFilter })
+            await expectLogic(logic, () => {}).toMatchValues({ eventFilter })
+        })
     })
 
     describe('the listeners', () => {
