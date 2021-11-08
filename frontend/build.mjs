@@ -2,10 +2,11 @@
 import * as path from 'path'
 import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isDev, startServer } from './utils.mjs'
 
-copyPublicFolder()
-copyIndexHtml('src/index.html', 'dist/index.html', 'index')
-copyIndexHtml('src/layout.html', 'dist/layout.html', 'index')
-copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard')
+function writeIndexHtml(chunks = {}) {
+    copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks)
+    copyIndexHtml('src/layout.html', 'dist/layout.html', 'index', chunks)
+    copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks)
+}
 
 let pauseServer = () => {}
 let resumeServer = () => {}
@@ -18,6 +19,14 @@ if (isDev) {
     console.log(`🛳 Starting production build`)
 }
 
+function onBuildComplete(chunks) {
+    resumeServer()
+    writeIndexHtml(chunks)
+}
+
+copyPublicFolder()
+writeIndexHtml({})
+
 await Promise.all([
     buildOrWatch({
         name: 'PostHog App',
@@ -27,7 +36,7 @@ await Promise.all([
         format: 'esm',
         outdir: path.resolve(__dirname, 'dist'),
         onBuildStart: pauseServer,
-        onBuildComplete: resumeServer,
+        onBuildComplete: onBuildComplete,
     }),
     buildOrWatch({
         name: 'Shared Dashboard',
@@ -36,7 +45,7 @@ await Promise.all([
         format: 'iife',
         outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
         onBuildStart: pauseServer,
-        onBuildComplete: resumeServer,
+        onBuildComplete: onBuildComplete,
     }),
     buildOrWatch({
         name: 'Toolbar',
@@ -45,6 +54,6 @@ await Promise.all([
         format: 'iife',
         outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
         onBuildStart: pauseServer,
-        onBuildComplete: resumeServer,
+        onBuildComplete: onBuildComplete,
     }),
 ])

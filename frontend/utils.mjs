@@ -48,18 +48,37 @@ export function copyPublicFolder() {
         }
     })
 }
-
-export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', entry = 'index') {
+export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', entry = 'index', chunks = {}) {
     const timestamp = new Date().valueOf()
+
     fse.writeFileSync(
         path.resolve(__dirname, to),
-        fse
-            .readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' })
-            .replace(
-                '</head>',
-                `<script type="module" src="${isDev ? jsURL : ''}/static/${entry}.js?${timestamp}"></script>\n` +
-                    `<link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css?${timestamp}'>\n</head>`
-            )
+        fse.readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' }).replace(
+            '</head>',
+            `   <script type="application/javascript">
+                    window.ESBUILD_LOADED_CHUNKS = new Set(); 
+                    window.ESBUILD_LOAD_SCRIPT = async function (file) {
+                        try {
+                            await import('${isDev ? jsURL : ''}/static/' + file)
+                        } catch (e) {
+                            console.error('Error loading chunk: "' + file + '"')
+                        }
+                    }
+                    window.ESBUILD_LOAD_CHUNKS = function(name) { 
+                        const chunks = ${JSON.stringify(chunks)}[name] || [];
+                        for (const chunk of chunks) { 
+                            if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
+                                window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
+                                window.ESBUILD_LOADED_CHUNKS.add(chunk);
+                            } 
+                        } 
+                    }
+                    window.ESBUILD_LOAD_SCRIPT("${entry}.js?t=" + new Date().valueOf())
+                    window.ESBUILD_LOAD_CHUNKS('index');
+                </script>
+                <link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css?${timestamp}'>
+            </head>`
+        )
     )
 }
 
@@ -82,7 +101,7 @@ export const commonConfig = {
         '.woff2': 'file',
         '.mp3': 'file',
     },
-    metafile: isDev,
+    metafile: true,
 }
 
 function getInputFiles(result) {
@@ -102,6 +121,25 @@ function reloadLiveServer() {
     const filename = path.resolve(__dirname, 'tmp', 'reload.txt')
     fse.mkdirSync(path.dirname(filename), { recursive: true })
     fse.closeSync(fse.openSync(filename, 'w'))
+}
+
+function getChunks(result) {
+    const chunks = {}
+    for (const output of Object.values(result.metafile?.outputs || {})) {
+        if (!output.entryPoint || output.entryPoint.startsWith('node_modules')) {
+            continue
+        }
+        const importStatements = output.imports.filter(
+            (i) => i.kind === 'import-statement' && i.path.startsWith('frontend/dist/chunk-')
+        )
+        const exports = output.exports.filter((e) => e !== 'default' && e !== 'scene')
+        if (importStatements.length > 0 && (exports.length > 0 || output.entryPoint === 'frontend/src/index.tsx')) {
+            chunks[exports[0] || 'index'] = importStatements.map((i) =>
+                i.path.replace('frontend/dist/chunk-', '').replace('.js', '')
+            )
+        }
+    }
+    return chunks
 }
 
 export async function buildOrWatch(config) {
@@ -125,9 +163,9 @@ export async function buildOrWatch(config) {
         onBuildStart?.()
         reloadLiveServer()
         buildPromise = runBuild()
-        await buildPromise
+        const chunks = await buildPromise
         buildPromise = null
-        onBuildComplete?.()
+        onBuildComplete?.(chunks)
         if (isDev && buildAgain) {
             void debouncedBuild()
         }
@@ -157,6 +195,7 @@ export async function buildOrWatch(config) {
             }
         }
         inputFiles = getInputFiles(result)
+        return getChunks(result)
     }
 
     if (isDev) {
