@@ -18,9 +18,8 @@ from posthog.test.base import TestMixin
 from posthog.utils import is_clickhouse_enabled
 
 
-def create_clickhouse_tables(num_tables: int):
-    # Reset clickhouse tables to default before running test
-    # Mostly so that test runs locally work correctly
+def create_clickhouse_tables():
+    # Create clickhouse tables, if they do not exist
     from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL
     from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_SQL
     from ee.clickhouse.sql.events import EVENTS_TABLE_SQL
@@ -48,42 +47,6 @@ def create_clickhouse_tables(num_tables: int):
         GROUPS_TABLE_SQL,
     ]
 
-    if num_tables == len(TABLES_TO_CREATE_DROP):
-        return
-
-    for item in TABLES_TO_CREATE_DROP:
-        sync_execute(item)
-
-
-def reset_clickhouse_tables():
-    # Reset clickhouse tables to default before running test
-    # Mostly so that test runs locally work correctly
-    from ee.clickhouse.sql.cohort import TRUNCATE_COHORTPEOPLE_TABLE_SQL
-    from ee.clickhouse.sql.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
-    from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
-    from ee.clickhouse.sql.groups import TRUNCATE_GROUPS_TABLE_SQL
-    from ee.clickhouse.sql.person import (
-        TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-        TRUNCATE_PERSON_TABLE_SQL,
-    )
-    from ee.clickhouse.sql.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-    from ee.clickhouse.sql.session_recording_events import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
-
-    # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    TABLES_TO_CREATE_DROP = [
-        TRUNCATE_EVENTS_TABLE_SQL,
-        TRUNCATE_PERSON_TABLE_SQL,
-        TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
-        TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-        TRUNCATE_COHORTPEOPLE_TABLE_SQL,
-        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
-        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-        TRUNCATE_GROUPS_TABLE_SQL,
-    ]
-
     for item in TABLES_TO_CREATE_DROP:
         sync_execute(item)
 
@@ -106,17 +69,13 @@ if is_clickhouse_enabled():
             except:
                 pass
 
-        database.create_database()  # Create database if it doesn't exist
-        table_count = sync_execute(
-            "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": CLICKHOUSE_DATABASE}
-        )[0][0]
-        create_clickhouse_tables(table_count)
+        if not django_db_keepdb or not database.db_exists:
+            database.create_database()
+            create_clickhouse_tables()
 
         yield
 
-        if django_db_keepdb:
-            reset_clickhouse_tables()
-        else:
+        if not django_db_keepdb:
             try:
                 database.drop_database()
             except:
