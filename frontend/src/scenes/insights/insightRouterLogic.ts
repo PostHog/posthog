@@ -61,8 +61,6 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
             }
         },
         '/insights/new': (_, searchParams) => {
-            // console.log(searchParams)
-            // debugger
             actions.createInsight({ filters: cleanFilters(searchParams) })
         },
     }),
