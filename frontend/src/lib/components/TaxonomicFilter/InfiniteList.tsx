@@ -183,11 +183,11 @@ export function InfiniteList(): JSX.Element {
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
 
-        return item ? (
+        return item && group ? (
             <div
                 key={`item_${rowIndex}`}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => selectItem(listGroupType, itemValue ?? null, item)}
+                onClick={() => selectItem(group, itemValue ?? null, item)}
                 onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
                 style={style}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}

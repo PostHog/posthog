@@ -44,9 +44,9 @@ export function TaxonomicPropertyFilter({
         <TaxonomicFilter
             groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type)}
             value={cohortOrOtherValue}
-            onChange={(groupType, value) => {
-                selectItem(taxonomicFilterTypeToPropertyFilterType(groupType), value)
-                if (groupType === TaxonomicFilterGroupType.Cohorts) {
+            onChange={(group, value) => {
+                selectItem(taxonomicFilterTypeToPropertyFilterType(group.type), value)
+                if (group.type === TaxonomicFilterGroupType.Cohorts) {
                     onComplete?.()
                 }
             }}

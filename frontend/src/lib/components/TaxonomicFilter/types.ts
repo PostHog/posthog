@@ -9,7 +9,7 @@ export interface SimpleOption {
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    onChange?: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue, item: any) => void
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue) => void
     onClose?: () => void
     taxonomicGroupTypes?: (TaxonomicFilterGroupType | string)[]
     taxonomicFilterLogicKey?: string
