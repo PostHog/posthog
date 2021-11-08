@@ -111,6 +111,7 @@ describe('postgres parity', () => {
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            {},
             team.id,
             null,
             false,
@@ -168,12 +169,20 @@ describe('postgres parity', () => {
     test('addDistinctId', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const person = await hub.db.createPerson(DateTime.utc(), { userProp: 'propValue' }, team.id, null, true, uuid, [
-            'distinct1',
-        ])
+        const person = await hub.db.createPerson(
+            DateTime.utc(),
+            { userProp: 'propValue' },
+            {},
+            team.id,
+            null,
+            true,
+            uuid,
+            ['distinct1']
+        )
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            {},
             team.id,
             null,
             true,
@@ -240,6 +249,7 @@ describe('postgres parity', () => {
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            {},
             team.id,
             null,
             false,
@@ -249,6 +259,7 @@ describe('postgres parity', () => {
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            {},
             team.id,
             null,
             true,
