@@ -6,7 +6,7 @@ from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, kafka_engine, table
 SESSION_RECORDING_EVENTS_TABLE = "session_recording_events"
 
 SESSION_RECORDING_EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 (
     uuid UUID,
     timestamp DateTime64(6, 'UTC'),
@@ -64,6 +64,6 @@ INSERT_SESSION_RECORDING_EVENT_SQL = """
 INSERT INTO session_recording_events SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
 """
 
-DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = (
-    f"DROP TABLE IF EXISTS {SESSION_RECORDING_EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS {SESSION_RECORDING_EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 )
