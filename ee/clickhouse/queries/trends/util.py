@@ -33,9 +33,7 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
     elif entity.math == "unique_group":
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
 
-        key = f"e_{entity.index}_math_group"
-        aggregate_operation = f"count(DISTINCT JSONExtractString(properties, %({key})s))"
-        params[key] = f"$group_{entity.math_group_type_index}"
+        aggregate_operation = f"count(DISTINCT $group_{entity.math_group_type_index})"
     elif entity.math in MATH_FUNCTIONS:
         if entity.math_property is None:
             raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")

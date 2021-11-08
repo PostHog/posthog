@@ -39,14 +39,14 @@ def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, C
         return {}
 
 
-def materialize(table: TableWithProperties, property: PropertyName) -> None:
+def materialize(table: TableWithProperties, property: PropertyName, column_name=None) -> None:
     if property in get_materialized_columns(table, use_cache=False):
         if TEST:
             return
 
         raise ValueError(f"Property already materialized. table={table}, property={property}")
 
-    column_name = materialized_column_name(table, property)
+    column_name = column_name or materialized_column_name(table, property)
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
 
