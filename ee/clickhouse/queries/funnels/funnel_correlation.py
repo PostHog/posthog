@@ -596,6 +596,9 @@ class FunnelCorrelation:
             }
             return f"/api/person/funnel/?{urllib.parse.urlencode(params)}"
 
+        else:
+            return None
+
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         return {
             "events": [
@@ -609,7 +612,7 @@ class FunnelCorrelation:
                     "event": event_definition,
                 }
                 for odds_ratio in results[0]
-                if (event_definition := self.serialize_event_with_property(odds_ratio["event"]))
+                for event_definition in [self.serialize_event_with_property(odds_ratio["event"])]
             ],
             "skewed": results[1],
         }
