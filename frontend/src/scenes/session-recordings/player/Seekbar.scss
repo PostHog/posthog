@@ -92,7 +92,6 @@ $tick_hover_size: 5px;
                 padding: $default_spacing/4 $default_spacing/2;
                 position: absolute;
                 top: -4 * $tick_size;
-                border: 2px solid $recording_player_container_bg;
                 background-color: $bg_charcoal;
                 display: none;
                 color: $text_light;
