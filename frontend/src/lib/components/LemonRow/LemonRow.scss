@@ -5,7 +5,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 2.5rem;
+    min-height: 2.5rem;
     padding: 0 1rem;
     background: none;
     border-radius: var(--radius);
@@ -14,10 +14,13 @@
     text-align: left;
 }
 
-.LemonRow--compact {
-    display: block;
-    height: 1.5rem;
-    padding: 0;
+.LemonRow--status-highlighted {
+    background: rgba($primary, 0.1);
+    color: var(--text-default);
+    font-weight: 600;
+    .LemonRow__icon {
+        color: var(--primary);
+    }
 }
 
 .LemonRow--status-danger {
@@ -46,6 +49,12 @@
     padding: 0 0.5rem;
 }
 
+.LemonRow--compact {
+    display: block;
+    min-height: 1.5rem;
+    padding: 0;
+}
+
 .LemonRow__icon {
     transition: background-color 200ms ease, color 200ms ease;
     display: flex;
@@ -56,5 +65,6 @@
 .LemonRow__content {
     flex-grow: 1;
     display: flex;
-    margin-left: 0.5rem;
+    align-items: center;
+    padding: 0 0.5rem;
 }

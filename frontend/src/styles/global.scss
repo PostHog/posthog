@@ -37,6 +37,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --radius: #{$radius};
     // Used for graph series
     --blue: #{$blue_500};
+    --blue-light: #{$blue_300};
     --purple: #{$purple_500};
     --indigo: #{$purple_700};
     --purple-light: #{$purple_300};
@@ -293,7 +294,7 @@ code.code {
 
 .main-app-content {
     min-width: 0;
-    padding: 0 $default_spacing * 3 $default_spacing * 3;
+    padding: 0 2rem 2rem;
 
     @media (min-width: 480px) and (max-width: 639px) {
         padding: $default_spacing $default_spacing * 2 !important;

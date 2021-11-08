@@ -25,7 +25,14 @@ from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyName, PropertyType
+from posthog.models.property import (
+    NEGATED_OPERATORS,
+    OperatorType,
+    Property,
+    PropertyIdentifier,
+    PropertyName,
+    PropertyType,
+)
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -98,6 +105,14 @@ def parse_prop_clauses(
             )
 
             final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
+            params.update(filter_params)
+        elif prop.type == "group":
+            # :TRICKY: This assumes group properties have already been joined, as in trends query
+            filter_query, filter_params = prop_filter_json_extract(
+                prop, idx, prepend, prop_var=f"group_properties_{prop.group_type_index}", allow_denormalized_props=False
+            )
+
+            final.append(filter_query)
             params.update(filter_params)
         elif prop.type in ("static-cohort", "precalculated-cohort"):
             cohort_id = cast(int, prop.value)
@@ -233,6 +248,8 @@ def property_table(property: Property) -> TableWithProperties:
         return "events"
     elif property.type == "person":
         return "person"
+    elif property.type == "group":
+        return "groups"
     else:
         raise ValueError(f"Property type does not have a table: {property.type}")
 
@@ -382,5 +399,5 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Counter[Tuple[PropertyName, PropertyType]]:
-    return Counter((prop.key, prop.type) for prop in props)
+def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIdentifier]:
+    return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)

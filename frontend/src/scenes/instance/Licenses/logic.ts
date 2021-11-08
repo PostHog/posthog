@@ -3,8 +3,12 @@ import { kea } from 'kea'
 import { toast } from 'react-toastify'
 import { licenseLogicType } from './logicType'
 import { APIErrorType, LicenseType } from '~/types'
+import { preflightLogic } from '../../PreflightCheck/logic'
 
 export const licenseLogic = kea<licenseLogicType>({
+    connect: {
+        values: [preflightLogic, ['preflight']],
+    },
     actions: {
         setError: (error: APIErrorType | null) => ({ error }),
         addLicense: (license: LicenseType) => ({ license }),
@@ -14,7 +18,7 @@ export const licenseLogic = kea<licenseLogicType>({
             [] as LicenseType[],
             {
                 loadLicenses: async () => {
-                    return (await api.get('api/license')).results
+                    return values.preflight?.cloud ? [] : (await api.get('api/license')).results
                 },
                 createLicense: async (payload: { key: string }) => {
                     try {

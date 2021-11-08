@@ -190,7 +190,9 @@ export interface TeamType extends TeamBasicType {
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
     correlation_config: {
-        excluded_person_property_names: string[]
+        excluded_person_property_names?: string[]
+        excluded_event_property_names?: string[]
+        excluded_event_names?: string[]
     }
 }
 
@@ -541,6 +543,11 @@ export interface EventType {
     timestamp: string
     person?: Partial<PersonType> | null
     event: string
+}
+
+export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+    percentage: number
+    timestamp: number
 }
 
 export interface EventsTableRowItem {
@@ -1116,7 +1123,7 @@ export interface FeatureFlagType {
     deleted: boolean
     active: boolean
     created_by: UserBasicType | null
-    created_at: string
+    created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
 }
@@ -1271,6 +1278,13 @@ export interface PersonProperty {
     name: string
     count: number
 }
+
+export interface GroupType {
+    group_type: string
+    group_type_index: number
+}
+
+export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface SelectOption {
     value: string

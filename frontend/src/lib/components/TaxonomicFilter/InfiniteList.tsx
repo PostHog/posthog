@@ -50,6 +50,7 @@ const renderItemContents = ({
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
+        listGroupType === TaxonomicFilterGroupType.Groups ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ? (
         <PropertyKeyInfo value={item.name ?? ''} disablePopover />
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
@@ -71,7 +72,7 @@ const renderItemPopup = (
     if (value) {
         if (listGroupType === TaxonomicFilterGroupType.Actions && 'id' in item) {
             return (
-                <div style={{ width }}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <AimOutlined /> Actions
                     <Link
                         to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
@@ -95,6 +96,7 @@ const renderItemPopup = (
             // NB: also update "selectedItemHasPopup" below
             listGroupType === TaxonomicFilterGroupType.Events ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
+            listGroupType === TaxonomicFilterGroupType.Groups ||
             listGroupType === TaxonomicFilterGroupType.PersonProperties
         ) {
             data = getKeyMapping(value.toString(), 'event')
@@ -104,7 +106,7 @@ const renderItemPopup = (
 
         if (data) {
             return (
-                <div style={{ width }}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <PropertyKeyTitle data={data} />
                     {data.description ? <hr /> : null}
                     <PropertyKeyDescription data={data} value={value.toString()} />
@@ -140,6 +142,7 @@ const selectedItemHasPopup = (
             ((listGroupType === TaxonomicFilterGroupType.Elements ||
                 listGroupType === TaxonomicFilterGroupType.Events ||
                 listGroupType === TaxonomicFilterGroupType.EventProperties ||
+                listGroupType?.includes(TaxonomicFilterGroupType.Groups) ||
                 listGroupType === TaxonomicFilterGroupType.PersonProperties) &&
                 !!getKeyMapping(
                     group?.getValue(item),
@@ -164,7 +167,6 @@ export function InfiniteList(): JSX.Element {
 
     const { styles, attributes } = usePopper(referenceElement, popperElement, {
         placement: 'right',
-
         modifiers: [
             {
                 name: 'offset',
@@ -185,7 +187,13 @@ export function InfiniteList(): JSX.Element {
             <div
                 key={`item_${rowIndex}`}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => selectItem(listGroupType, itemValue ?? null, item)}
+                onClick={() =>
+                    selectItem(
+                        listGroupType?.includes('groups') ? TaxonomicFilterGroupType.Groups : listGroupType,
+                        itemValue ?? null,
+                        item
+                    )
+                }
                 onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
                 style={style}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
@@ -246,7 +254,7 @@ export function InfiniteList(): JSX.Element {
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip click-outside-block"
+                          className="popper-tooltip click-outside-block Popup"
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}

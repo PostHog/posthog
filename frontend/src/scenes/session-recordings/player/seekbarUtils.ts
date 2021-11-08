@@ -1,6 +1,6 @@
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 
-export const THUMB_SIZE = 14
+export const THUMB_SIZE = 15
 export const THUMB_OFFSET = THUMB_SIZE / 2
 
 export type ReactInteractEvent = ReactMouseEvent<HTMLDivElement, MouseEvent> | ReactTouchEvent<HTMLDivElement>

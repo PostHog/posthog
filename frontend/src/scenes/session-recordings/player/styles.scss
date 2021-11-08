@@ -1,8 +1,5 @@
 @import '~/vars';
 
-$player_container_bg: #797973;
-$player_bg: #797973;
-
 .session-player-v2 {
     display: flex;
     flex-direction: column;
@@ -12,17 +9,17 @@ $player_bg: #797973;
     .session-player-body {
         flex: 1;
         overflow: hidden;
-        background-color: $player_container_bg;
+        background-color: $recording_player_container_bg;
 
         .player-container {
             position: relative;
-            padding: $default_spacing * 4 $default_spacing / 2;
+            padding: $default_spacing;
         }
     }
 
     .session-player-controller {
         padding: $default_spacing / 2;
-        background-color: $player_container_bg;
+        background-color: $recording_player_container_bg;
     }
 
     .rrweb-player {
@@ -107,7 +104,7 @@ $player_bg: #797973;
         width: 100%;
         background-color: $bg_light;
         border-radius: $radius;
-        border: 1px solid $player_bg;
+        border: 1px solid $recording_player_container_bg;
         padding: 0 $default_spacing;
         flex-direction: row;
         align-items: center;
@@ -149,7 +146,6 @@ $player_bg: #797973;
 
     .rrweb-speed-toggle {
         cursor: pointer;
-        margin-right: $default_spacing;
     }
 
     .rrweb-inactivity-toggle {
@@ -168,5 +164,8 @@ $player_bg: #797973;
 .ant-drawer.session-player-drawer-v2 {
     .ant-drawer-body {
         padding: 0;
+    }
+    .ant-drawer-close {
+        padding: 12px 0px;
     }
 }

@@ -11,10 +11,10 @@ export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
 const BUFFER_TIME_BUFFER_MS = 5 * 1000 // The length of time player has to have loaded to get out of buffering state
 
-function getZeroOffsetTime(time: number, meta: playerMetaData): number {
+export function getZeroOffsetTime(time: number, meta: playerMetaData): number {
     return Math.max(Math.min(time - meta.startTime, meta.totalTime), 0)
 }
-function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): number {
+export function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): number {
     return Math.max(Math.min(zeroOffsetTime + meta.startTime, meta.endTime), meta.startTime)
 }
 
@@ -151,6 +151,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 skipInactive: true,
                 triggerFocus: false,
                 speed: values.speed,
+                insertStyleRules: [
+                    `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
+                ],
             })
             replayer.on('finish', () => {
                 // Use 500ms buffer because current time is not always exactly identical to end time.
@@ -271,7 +274,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                values.replayer?.pause()
+                values.replayer?.pause(nextTime)
                 actions.clearLoadingState()
             }
             // Otherwise play

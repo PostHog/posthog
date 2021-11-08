@@ -36,7 +36,7 @@ import { AvailableFeature, TeamBasicType, UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
@@ -45,6 +45,7 @@ import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 import { TopBar } from '../lemonade/TopBar'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../lib/components/CommandPalette'
+import { RedesignOptIn } from '../lemonade/RedesignOptIn'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -126,16 +127,13 @@ function TopNavigationOriginal(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
     const { logout, updateCurrentOrganization } = useActions(userLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { showPalette } = useActions(commandPaletteLogic)
 
     const isCurrentProjectRestricted = currentTeam && !currentTeam.effective_membership_level
-    const isProjectCreationForbidden =
-        !currentOrganization?.membership_level ||
-        currentOrganization.membership_level < OrganizationMembershipLevel.Admin
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
@@ -348,6 +346,7 @@ function TopNavigationOriginal(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
+                <RedesignOptIn />
                 <HelpButton />
                 {user && (
                     <>
@@ -364,7 +363,7 @@ function TopNavigationOriginal(): JSX.Element {
                 )}
             </div>
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
-            <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
+            <CreateProjectModal isVisible={projectModalShown} onClose={() => setProjectModalShown(false)} />
             <CreateOrganizationModal
                 isVisible={organizationModalShown}
                 onClose={() => setOrganizationModalShown(false)}

@@ -13,7 +13,7 @@
     position: absolute;
     flex-shrink: 0;
     height: 100%;
-    width: 15rem;
+    width: 15.5rem;
     background: var(--bg-side);
     border-right: 1px solid var(--border);
     .SideBar--hidden & {
@@ -84,4 +84,9 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+.SideBar__pinned-dashboards {
+    max-height: calc(100vh - 20rem);
+    max-width: calc(100vw - 14rem);
 }

@@ -13,4 +13,13 @@
     &--actionable {
         border-color: var(--primary);
     }
+    h5 {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted-alt);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding-left: 0.5rem;
+        margin: 0.25rem 0;
+    }
 }

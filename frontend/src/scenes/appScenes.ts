@@ -22,8 +22,8 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'), // TODO
-    [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
-    [Scene.FeatureFlag]: () => import(/* webpackChunkName: 'featureFlag' */ './experimentation/FeatureFlag'),
+    [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './feature-flags/FeatureFlags'),
+    [Scene.FeatureFlag]: () => import(/* webpackChunkName: 'featureFlag' */ './feature-flags/FeatureFlag'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
     [Scene.OrganizationCreateFirst]: () =>
@@ -39,6 +39,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.InviteSignup]: () => import(/* webpackChunkName: 'inviteSignup' */ './authentication/InviteSignup'),
     [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
+    [Scene.BillingSubscribed]: () => import(/* webpackChunkName: 'billingSubscribed' */ './billing/BillingSubscribed'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),

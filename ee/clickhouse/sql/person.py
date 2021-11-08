@@ -10,14 +10,16 @@ from .clickhouse import (
     table_engine,
 )
 
+TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
+
 DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
-DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE IF EXISTS person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
+TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 (
     id UUID,
     created_at DateTime64,
@@ -100,7 +102,7 @@ GET_LATEST_PERSON_ID_SQL = """
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 (
     distinct_id VARCHAR,
     person_id UUID,
@@ -164,7 +166,7 @@ FROM {database}.kafka_{table_name}
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
 PERSON_STATIC_COHORT_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 (
     id UUID,
     person_id UUID,
@@ -187,8 +189,8 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     extra_fields=KAFKA_COLUMNS,
 )
 
-DROP_PERSON_STATIC_COHORT_TABLE_SQL = (
-    f"DROP TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 )
 
 INSERT_PERSON_STATIC_COHORT = (
@@ -233,7 +235,7 @@ AND team_id = %(team_id)s
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT person_id FROM ({query})
+    SELECT person_id as id FROM ({query})
 )
 """
 

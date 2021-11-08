@@ -94,13 +94,13 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         },
         loadEventsSuccess: () => {
             // Fetch next events
-            if (!!values.sessionEvents?.next) {
-                actions.loadEvents(values.sessionEvents.next)
+            if (!!values.sessionEventsData?.next) {
+                actions.loadEvents(values.sessionEventsData.next)
             }
             // Finished loading all events.
             else {
                 eventUsageLogic.actions.reportRecordingEventsFetched(
-                    values.sessionEvents.events.length ?? 0,
+                    values.sessionEvents.length ?? 0,
                     performance.now() - cache.eventsStartTime
                 )
                 cache.eventsStartTime = null
@@ -164,24 +164,25 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 }
             },
         },
-        sessionEvents: {
+        sessionEventsData: {
             loadEvents: async ({ url }) => {
                 if (!values.eventsApiParams) {
-                    return values.sessionEvents
+                    return values.sessionEventsData
                 }
                 // Use `url` if there is a `next` url to fetch
                 const apiUrl = url || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
                 const response = await api.get(apiUrl)
 
                 return {
-                    ...values.sessionEvents,
+                    ...values.sessionEventsData,
                     next: response?.next,
-                    events: [...(values.sessionEvents?.events ?? []), ...(response.results ?? [])],
+                    events: [...(values.sessionEventsData?.events ?? []), ...(response.results ?? [])],
                 }
             },
         },
     }),
     selectors: {
+        sessionEvents: [(selectors) => [selectors.sessionEventsData], (eventsData) => eventsData?.events ?? []],
         firstChunkLoaded: [
             (selectors) => [selectors.chunkPaginationIndex],
             (chunkPaginationIndex) => chunkPaginationIndex > 0,
