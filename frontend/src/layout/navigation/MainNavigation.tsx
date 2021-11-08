@@ -44,6 +44,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 interface MenuItemProps {
     title: string
@@ -211,7 +212,7 @@ function MenuItems(): JSX.Element {
                 <MenuItem
                     title="Setup"
                     icon={<SettingOutlined />}
-                    identifier="onboardingSetup"
+                    identifier={Scene.OnboardingSetup}
                     to={urls.onboardingSetup()}
                     hotkey="u"
                 />
@@ -220,7 +221,7 @@ function MenuItems(): JSX.Element {
                 <MenuItem
                     title="New Insight"
                     icon={<IconExplore />}
-                    identifier="insights"
+                    identifier={Scene.Insights}
                     to={urls.insightView(ViewType.TRENDS)}
                     hotkey="x"
                     tooltip="Answers to all your analytics questions"
@@ -229,7 +230,7 @@ function MenuItems(): JSX.Element {
             <MenuItem
                 title="Insights"
                 icon={<IconInsights />}
-                identifier={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? 'savedInsights' : 'insights'}
+                identifier={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? Scene.SavedInsights : Scene.Insights}
                 to={
                     featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
                         ? urls.savedInsights()
@@ -255,7 +256,7 @@ function MenuItems(): JSX.Element {
                     <MenuItem
                         title="Dashboards"
                         icon={<IconDashboard />}
-                        identifier="dashboards"
+                        identifier={Scene.Dashboards}
                         to={urls.dashboards()}
                         onClick={() => setPinnedDashboardsVisible(false)}
                         hotkey="d"
@@ -268,7 +269,7 @@ function MenuItems(): JSX.Element {
             <MenuItem
                 title="Events"
                 icon={<IconEvents />}
-                identifier="events"
+                identifier={Scene.Events}
                 to={urls.events()}
                 hotkey="e"
                 tooltip="List of events and actions"
@@ -277,7 +278,7 @@ function MenuItems(): JSX.Element {
                 <MenuItem
                     title="Recordings"
                     icon={<PlayCircleFilled />}
-                    identifier="sessionRecordings"
+                    identifier={Scene.SessionRecordings}
                     to={urls.sessionRecordings()}
                     hotkey="r"
                     tooltip="Playback user recordings as if you were next to them"
@@ -286,7 +287,7 @@ function MenuItems(): JSX.Element {
                 <MenuItem
                     title="Sessions"
                     icon={<ClockCircleFilled />}
-                    identifier="sessions"
+                    identifier={Scene.Sessions}
                     to={urls.sessions()}
                     hotkey="s"
                     tooltip="Understand interactions based by visits and watch session recordings"
@@ -297,7 +298,7 @@ function MenuItems(): JSX.Element {
             <MenuItem
                 title="Persons"
                 icon={<IconPersons />}
-                identifier="persons"
+                identifier={Scene.Persons}
                 to={urls.persons()}
                 hotkey="p"
                 tooltip="Understand your users individually"
@@ -305,7 +306,7 @@ function MenuItems(): JSX.Element {
             <MenuItem
                 title="Cohorts"
                 icon={<IconCohorts />}
-                identifier="cohorts"
+                identifier={Scene.Cohorts}
                 to={urls.cohorts()}
                 hotkey="c"
                 tooltip="Group users for easy filtering"
@@ -314,7 +315,7 @@ function MenuItems(): JSX.Element {
             <MenuItem
                 title="Annotations"
                 icon={<MessageOutlined />}
-                identifier="annotations"
+                identifier={Scene.Annotations}
                 to={urls.annotations()}
                 hotkey="a"
             />
@@ -322,7 +323,7 @@ function MenuItems(): JSX.Element {
             <MenuItem
                 title="Feat. Flags"
                 icon={<IconFeatureFlags />}
-                identifier="featureFlags"
+                identifier={Scene.FeatureFlags}
                 to={urls.featureFlags()}
                 hotkey="f"
                 tooltip="Controlled feature releases"
@@ -332,7 +333,7 @@ function MenuItems(): JSX.Element {
                 <MenuItem
                     title="Plugins"
                     icon={<ApiFilled />}
-                    identifier="plugins"
+                    identifier={Scene.Plugins}
                     to={urls.plugins()}
                     hotkey="l"
                     tooltip="Extend your analytics functionality"
@@ -341,7 +342,7 @@ function MenuItems(): JSX.Element {
             <MenuItem
                 title="Project"
                 icon={<ProjectFilled />}
-                identifier="projectSettings"
+                identifier={Scene.ProjectSettings}
                 to={urls.projectSettings()}
                 hotkey="j"
             />
@@ -349,7 +350,7 @@ function MenuItems(): JSX.Element {
             <MenuItem
                 title="Toolbar"
                 icon={<IconToolbar />}
-                identifier="toolbar"
+                identifier="Toolbar"
                 to=""
                 hotkey="t"
                 onClick={() => setToolbarModalOpen(true)}
