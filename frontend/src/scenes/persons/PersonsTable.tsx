@@ -12,7 +12,7 @@ import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
+import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable/ResizableTable'
 
 dayjs.extend(relativeTime)
 

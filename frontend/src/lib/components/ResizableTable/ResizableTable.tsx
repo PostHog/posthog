@@ -13,7 +13,7 @@ import './index.scss'
 
 export const TableConfig = _TableConfig
 
-export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> {
+export interface ResizableColumnType<RecordType> extends Omit<ColumnType<RecordType>, 'width'> {
     title: string | JSX.Element
     key?: string
     dataIndex?: string
@@ -52,7 +52,13 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         const lastIndex = initialColumns.length
         return initialColumns.map((col, index) => ({
             ...col,
-            width: index === lastIndex ? undefined : minColumnWidth,
+            width:
+                index === lastIndex
+                    ? undefined
+                    : Math.min(
+                          Math.max(col.defaultWidth || 0, minColumnWidth),
+                          col.widthConstraints ? col.widthConstraints[0] : 0
+                      ),
         })) as InternalColumnType<RecordType>[]
     })
     const [headerColumns, setHeaderColumns] = useState(columns)

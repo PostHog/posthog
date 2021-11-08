@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { responsiveMap } from 'antd/lib/_util/responsiveObserve'
-import { ANTD_EXPAND_BUTTON_WIDTH } from '../components/ResizableTable'
+import { ANTD_EXPAND_BUTTON_WIDTH } from '../components/ResizableTable/ResizableTable'
 
 const BREAKPOINT_MAP = Object.fromEntries(
     Object.entries(responsiveMap).map(([key, cssStatement]) => [key, parsePixelValue(cssStatement)])

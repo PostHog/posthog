@@ -19,7 +19,7 @@ import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATUR
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
+import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable/ResizableTable'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -85,8 +85,8 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             },
             fixed: 'left',
             span: 1,
-            width: 18,
-            widthConstraints: [30, 30],
+            defaultWidth: 50,
+            widthConstraints: [50, 50],
         })
     }
 
@@ -156,6 +156,8 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 sorter: (a, b) => a.data[index] - b.data[index],
                 align: 'center',
                 span: 1,
+                widthConstraints: [96, Infinity],
+                defaultWidth: 150,
             })
         )
 
@@ -198,8 +200,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             defaultSortOrder: 'descend',
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
-            fixed: 'right',
-            span: 2,
+            // TODO: Fixing column to the right does not work with resizable table
+            // fixed: 'right',
+            span: 1,
+            widthConstraints: [96, Infinity],
+            defaultWidth: 150,
             align: 'center',
         })
     }

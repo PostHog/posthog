@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useState } from 'react'
-import { InternalColumnType, ResizeHandler, ANTD_EXPAND_BUTTON_WIDTH } from './index'
+import { InternalColumnType, ResizeHandler, ANTD_EXPAND_BUTTON_WIDTH } from './ResizableTable'
 import { ResizableBox } from 'react-resizable'
 interface ResizableTitleProps {
     children: React.ReactChild
