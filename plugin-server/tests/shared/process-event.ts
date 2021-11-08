@@ -335,7 +335,7 @@ export const createProcessEventTests = (
 
         // TODO: Make this test actually useful and not flaky
         if (database === 'clickhouse') {
-            expect(queryCounter).toBe(11 + 14 /* event & prop definitions */)
+            expect(queryCounter).toBe(9 + 14 /* event & prop definitions */)
         } else if (database === 'postgresql') {
             expect(queryCounter).toBe(12 + 14 /* event & prop definitions */)
         }

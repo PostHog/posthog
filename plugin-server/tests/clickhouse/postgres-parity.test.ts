@@ -54,10 +54,16 @@ describe('postgres parity', () => {
 
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
-        const person = await hub.db.createPerson(DateTime.utc(), { userProp: 'propValue' }, team.id, null, true, uuid, [
-            'distinct1',
-            'distinct2',
-        ])
+        const person = await hub.db.createPerson(
+            DateTime.utc(),
+            { userProp: 'propValue' },
+            {},
+            team.id,
+            null,
+            true,
+            uuid,
+            ['distinct1', 'distinct2']
+        )
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
