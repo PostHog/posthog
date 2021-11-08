@@ -42,8 +42,7 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           trim(BOTH '"'
-                                FROM JSONExtractRaw(e.properties, '$group_0')) as aggregation_target
+                           $group_0 as aggregation_target
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -92,8 +91,7 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           trim(BOTH '"'
-                                FROM JSONExtractRaw(e.properties, '$group_0')) as aggregation_target
+                           $group_0 as aggregation_target
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,

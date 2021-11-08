@@ -53,7 +53,7 @@ FROM {CLICKHOUSE_DATABASE}.kafka_{GROUPS_TABLE}
 """
 
 # { ..., "group_0": 1325 }
-# To join with events join using JSONExtractString(events.properties, "$group_{group_type_index}")
+# To join with events join using $group_{group_type_index} column
 
 DROP_GROUPS_TABLE_SQL = f"DROP TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 

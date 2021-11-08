@@ -21,14 +21,15 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     created_at DateTime64(6, 'UTC')
     {materialized_columns}
     {extra_fields}
-) ENGINE = {engine} 
+) ENGINE = {engine}
 """
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = """
-    , properties_issampledevent VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'isSampledEvent'))
-    , properties_currentscreen VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'currentScreen'))
-    , properties_objectname VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'objectName'))
-    , properties_test_prop VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, 'test_prop'))
+    , $group_0 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
 """
 
 EVENTS_TABLE_SQL = (
@@ -60,7 +61,7 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {database}.{table_name} 
+TO {database}.{table_name}
 AS SELECT
 uuid,
 event,
@@ -144,7 +145,7 @@ SELECT
     elements_chain,
     created_at
 FROM events
-WHERE 
+WHERE
 team_id = %(team_id)s
 {conditions}
 {filters}
@@ -177,22 +178,22 @@ SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_fu
 -- NOTE: for week there is some unusual behavior, see:
 --       https://github.com/ClickHouse/ClickHouse/issues/7322
 --
---       This actually aligns with what we want, as they are assuming Sunday week starts, 
---       and we'd rather have the relative week num difference. Likewise the same for 
+--       This actually aligns with what we want, as they are assuming Sunday week starts,
+--       and we'd rather have the relative week num difference. Likewise the same for
 --       "month" intervals
 --
---       To ensure we get all relevant intervals, we add in the truncated "date_from" 
+--       To ensure we get all relevant intervals, we add in the truncated "date_from"
 --       value.
 --
---       This behaviour of dateDiff is different to our handling of "week" and "month" 
+--       This behaviour of dateDiff is different to our handling of "week" and "month"
 --       differences we are performing in python, which just considers seconds between
 --       date_from and date_to
 --
--- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this 
+-- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
 --       `ticks` query elsewhere.
 FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)))
 
-UNION ALL 
+UNION ALL
 
 -- Make sure we capture the interval date_from falls into.
 SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s))
@@ -203,7 +204,7 @@ INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.d
 """
 
 GET_EVENTS_WITH_PROPERTIES = """
-SELECT * FROM events WHERE 
+SELECT * FROM events WHERE
 team_id = %(team_id)s
 {filters}
 {order_by}
