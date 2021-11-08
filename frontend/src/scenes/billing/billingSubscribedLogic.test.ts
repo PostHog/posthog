@@ -34,26 +34,20 @@ describe('organizationLogic', () => {
             await expectLogic(logic).toMatchValues({
                 status: 'failed',
             })
-
-            // First one is the default, second one is the behavior we're looking for
-            await expectLogic(sceneLogic).toDispatchActions(['setPageTitle', 'setPageTitle'])
         })
 
         it('loads plan information and sets proper actions', async () => {
-            router.actions.push('/billing/subscribed', { s: 'success' })
+            router.actions.push('/organization/billing/subscribed', { s: 'success' })
             await expectLogic(logic).toDispatchActions(['setStatus'])
             await expectLogic(logic).toMatchValues({
                 status: 'success',
                 sessionId: null,
             })
             await expectLogic(logic).toNotHaveDispatchedActions(['setSessionId'])
-
-            // First one is the default, second one is the behavior we're looking for
-            await expectLogic(sceneLogic).toDispatchActions(['setPageTitle', 'setPageTitle'])
         })
 
         it('loads failed page with session id', async () => {
-            router.actions.push('/billing/subscribed', { session_id: 'cs_test_12345678' })
+            router.actions.push('/organization/billing/subscribed', { session_id: 'cs_test_12345678' })
             await expectLogic(logic).toDispatchActions(['setSessionId'])
             await expectLogic(logic).toMatchValues({
                 status: 'failed',
@@ -61,9 +55,6 @@ describe('organizationLogic', () => {
                 billing: null,
             })
             await expectLogic(logic).toNotHaveDispatchedActions(['setStatus'])
-
-            // First one is the default, second one is the behavior we're looking for
-            await expectLogic(sceneLogic).toDispatchActions(['setPageTitle', 'setPageTitle'])
         })
     })
 })
