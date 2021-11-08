@@ -212,7 +212,6 @@ describe('e2e', () => {
             )
             expect(Object.keys(exportedEvents[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',
@@ -279,7 +278,6 @@ describe('e2e', () => {
             )
             expect(Object.keys(exportedEvents[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',
@@ -329,7 +327,6 @@ describe('e2e', () => {
 
             expect(Object.keys(exportedEvents[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',
