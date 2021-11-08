@@ -175,7 +175,7 @@ export function SavedInsights(): JSX.Element {
                     <Col>
                         <Row wrap={false}>
                             <Link to={link} style={{ marginRight: 12 }}>
-                                <strong>{name || `Insight #${insight.id}`}</strong>
+                                <strong>{name || `Unnamed insight`}</strong>
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content' }}

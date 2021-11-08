@@ -121,7 +121,7 @@ export function Insights(): JSX.Element {
                         <EditableField
                             name="name"
                             value={insight.name || ''}
-                            placeholder={`Insight #${insight.id ?? '...'}`}
+                            placeholder="Unnamed insight"
                             onChange={(value) => setInsightMetadata({ name: value })}
                             className={'insight-metadata-name'}
                             dataAttr={'insight-name'}
