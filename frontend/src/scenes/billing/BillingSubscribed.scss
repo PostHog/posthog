@@ -4,7 +4,7 @@
 .billing-subscribed {
     // bridgePagesShared overrides
     .auth-main-content {
-        flex-direction: row;
+        flex-direction: row !important;
     }
 
     .support-footer {

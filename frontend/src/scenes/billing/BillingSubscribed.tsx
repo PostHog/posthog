@@ -9,6 +9,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Link } from 'lib/components/Link'
 import { billingSubscribedLogic, SubscriptionStatus } from './billingSubscribedLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: BillingSubscribed,
+    logic: billingSubscribedLogic,
+}
 
 export function BillingSubscribed(): JSX.Element {
     const { status } = useValues(billingSubscribedLogic)
