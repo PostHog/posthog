@@ -1,3 +1,4 @@
+import Piscina from '@posthog/piscina'
 import * as IORedis from 'ioredis'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
@@ -61,6 +62,7 @@ describe('e2e', () => {
     let closeHub: () => Promise<void>
     let posthog: DummyPostHog
     let redis: IORedis.Redis
+    let piscina: Piscina
 
     beforeEach(async () => {
         testConsole.reset()
@@ -79,6 +81,8 @@ describe('e2e', () => {
         )
         hub = startResponse.hub
         closeHub = startResponse.stop
+        piscina = startResponse.piscina
+
         redis = await hub.redisPool.acquire()
 
         await redis.del(hub.PLUGINS_CELERY_QUEUE)
@@ -169,13 +173,22 @@ describe('e2e', () => {
                 resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))
             })
 
-        test('export historical events', async () => {
+        test('export historical events without payload timestamps', async () => {
             await posthog.capture('historicalEvent1')
             await posthog.capture('historicalEvent2')
             await posthog.capture('historicalEvent3')
             await posthog.capture('historicalEvent4')
 
             await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
+
+            // the db needs to have events _before_ running setupPlugin
+            // to test payloads with missing timestamps
+            // hence we reload here
+            await piscina.broadcastTask({ task: 'teardownPlugins' })
+            await delay(2000)
+
+            await piscina.broadcastTask({ task: 'reloadPlugins' })
+            await delay(2000)
 
             const historicalEvents = await hub.db.fetchEvents()
             expect(historicalEvents.length).toBe(4)
@@ -300,17 +313,15 @@ describe('e2e', () => {
             const historicalEvents = await hub.db.fetchEvents()
             expect(historicalEvents.length).toBe(1)
 
-            const exportedEventsCountBeforeJob = testConsole
-                .read()
-                .filter((log) => log[0] === 'exported historical event').length
-            expect(exportedEventsCountBeforeJob).toEqual(0)
-
             const kwargs = {
                 pluginConfigTeam: 2,
                 pluginConfigId: 39,
                 type: 'Export historical events',
                 jobOp: 'start',
-                payload: {},
+                payload: {
+                    dateFrom: new Date(Date.now() - ONE_HOUR).toISOString(),
+                    dateTo: new Date().toISOString(),
+                },
             }
             const args = Object.values(kwargs)
 
@@ -336,8 +347,14 @@ describe('e2e', () => {
             )
 
             expect(exportedEvents[0].properties['$elements']).toEqual([
-                expect.objectContaining({ tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' }),
-                expect.objectContaining({ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }),
+                {
+                    attr_class: 'btn btn-sm',
+                    attributes: { attr__class: 'btn btn-sm' },
+                    nth_child: 1,
+                    nth_of_type: 2,
+                    tag_name: 'a',
+                },
+                { $el_text: '💻', attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' },
             ])
         })
     })

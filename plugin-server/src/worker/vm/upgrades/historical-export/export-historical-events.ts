@@ -47,6 +47,7 @@ export function addHistoricalEventsExportCapability(
         // the historical export to duplicate them
         meta.global.timestampBoundariesForTeam = timestampBoundaries
 
+        console.log('##########', timestampBoundaries)
         await oldSetupPlugin?.()
     }
 
@@ -211,6 +212,7 @@ export function addHistoricalEventsExportCapability(
                     `Unable to determine the lower timestamp bound for the export automatically. Please specify a 'dateFrom' value.`
                 )
             }
+
             const dateFrom = meta.global.timestampBoundariesForTeam.min.getTime()
             await meta.utils.cursor.init(TIMESTAMP_CURSOR_KEY, dateFrom - EVENTS_TIME_INTERVAL)
             await meta.storage.set(MIN_UNIX_TIMESTAMP_KEY, dateFrom)
@@ -231,6 +233,7 @@ export function addHistoricalEventsExportCapability(
                 )
             }
             await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, meta.global.timestampBoundariesForTeam.max.getTime())
+            console.log('###### did dateTo')
         }
     }
 

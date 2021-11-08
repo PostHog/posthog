@@ -139,7 +139,7 @@ export const fetchEventsForInterval = async (
 export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
     const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
     if (eventName === '$autocapture' && elements_chain) {
-        properties['$elements'] = convertDatabaseElementsToRawEventElements(chainToElements(elements_chain))
+        properties['$elements'] = convertDatabaseElementsToRawElements(chainToElements(elements_chain))
     }
     properties['$$historical_export_source_db'] = 'clickhouse'
     const parsedEvent = {
@@ -161,8 +161,9 @@ export const convertPostgresEventToPluginEvent = (event: Event): HistoricalExpor
     const { event: eventName, timestamp, team_id, distinct_id, created_at, properties, elements, id } = event
     properties['$$postgres_event_id'] = id
     if (eventName === '$autocapture' && elements) {
-        properties['$elements'] = convertDatabaseElementsToRawEventElements(elements)
+        properties['$elements'] = convertDatabaseElementsToRawElements(elements)
     }
+    console.log(properties)
 
     properties['$$historical_export_source_db'] = 'postgres'
     const parsedEvent = {
@@ -186,7 +187,7 @@ const addHistoricalExportEventProperties = (event: HistoricalExportEvent): Histo
     return event
 }
 
-const convertDatabaseElementsToRawEventElements = (elements: RawElement[]): RawElement[] => {
+const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
     for (const element of elements) {
         if (element.attributes && element.attributes.attr__class) {
             element.attr_class = element.attributes.attr__class
