@@ -13,6 +13,7 @@ class AvailableFeature(str, Enum):
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
+    CORRELATION_ANALYSIS = "correlation_analysis"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -84,6 +85,7 @@ SHOWN_AS = "shown_as"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
 BREAKDOWN_TYPE = "breakdown_type"
 BREAKDOWN_VALUE = "breakdown_value"
+BREAKDOWN_GROUP_TYPE_INDEX = "breakdown_group_type_index"
 COMPARE = "compare"
 INSIGHT = "insight"
 SESSION = "session"
@@ -147,6 +149,7 @@ PATH_DROPOFF_KEY = "path_dropoff_key"
 PATH_EDGE_LIMIT = "edge_limit"
 PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
+AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 
 
 class FunnelOrderType(str, Enum):

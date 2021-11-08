@@ -13,3 +13,5 @@ frontend/dist/
 .yalc
 .python-version
 storybook-static
+dist/
+node_modules/

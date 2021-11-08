@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any, Callable, Optional, TypeVar, Union
+from typing import Callable, Optional, TypeVar, Union
 
 from posthog.utils import str_to_bool
 

@@ -1,19 +1,32 @@
 import json
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from django.db.models import Exists, OuterRef, Q
 
 from posthog.utils import is_valid_regex
 
 ValueT = Union[str, int, List[str]]
-PropertyType = Literal["event", "person", "cohort", "element", "hasdone", "static-cohort", "precalculated-cohort"]
+PropertyType = Literal["event", "person", "cohort", "element", "static-cohort", "precalculated-cohort", "group"]
 PropertyName = str
-TableWithProperties = Literal["events", "person"]
+TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
     "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
 ]
 
+GroupTypeIndex = int
+PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
+
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
+CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "group"]
 
 
 class Property:
@@ -21,6 +34,7 @@ class Property:
     operator: Optional[OperatorType]
     value: ValueT
     type: PropertyType
+    group_type_index: Optional[int]
 
     def __init__(
         self,
@@ -28,25 +42,30 @@ class Property:
         value: ValueT,
         operator: Optional[OperatorType] = None,
         type: Optional[PropertyType] = None,
+        # Only set for `type` == `group`
+        group_type_index: Optional[int] = None,
         **kwargs,
     ) -> None:
         self.key = key
         self.value = value
         self.operator = operator
         self.type = type if type else "event"
+        self.group_type_index = group_type_index
 
     def __repr__(self):
-        return "Property({}: {}{}={})".format(
-            self.type, self.key, "__{}".format(self.operator) if self.operator else "", self.value,
-        )
+        params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
+        return f"Property({params_repr})"
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "key": self.key,
             "value": self.value,
             "operator": self.operator,
             "type": self.type,
         }
+        if self.group_type_index is not None:
+            result["group_type_index"] = self.group_type_index
+        return result
 
     def _parse_value(self, value: ValueT) -> Any:
         if isinstance(value, list):
@@ -64,6 +83,9 @@ class Property:
 
     def property_to_Q(self) -> Q:
         from .cohort import CohortPeople
+
+        if self.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
+            raise ValueError(f"property_to_Q: type is not supported: {repr(self.type)}")
 
         value = self._parse_value(self.value)
         if self.type == "cohort":

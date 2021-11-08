@@ -10,6 +10,7 @@ import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface InsightsResult {
     results: DashboardItemType[]
@@ -38,7 +39,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: values.createdBy || 'All users',
+        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
     }
@@ -47,6 +48,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
     connect: {
         values: [teamLogic, ['currentTeamId']],
+        logic: [eventUsageLogic],
     },
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
@@ -54,7 +56,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
         renameInsight: (id: number) => ({ id }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
-        addToDashboard: (item: DashboardItemType, dashboardId: number) => ({ item, dashboardId }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
@@ -161,7 +162,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 )}`
             )
         },
-        setSavedInsightsFilters: async (_, breakpoint, __, previousState) => {
+        setSavedInsightsFilters: async ({ merge }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
             const { filters } = values // not taking from props because sometimes we merge them
@@ -171,6 +172,23 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             }
             if (firstLoad || !objectsEqual(oldFilters, filters)) {
                 actions.loadInsights()
+            }
+
+            // Filters from clicks come with "merge: true",
+            // Filters from the URL come with "merge: false" and override everything
+            if (merge) {
+                let keys = Object.keys(objectDiffShallow(oldFilters, filters))
+                if (keys.includes('tab')) {
+                    keys = keys.filter((k) => k !== 'tab')
+                    eventUsageLogic.actions.reportSavedInsightTabChanged(filters.tab)
+                }
+                if (keys.includes('layoutView')) {
+                    keys = keys.filter((k) => k !== 'layoutView')
+                    eventUsageLogic.actions.reportSavedInsightLayoutChanged(filters.layoutView)
+                }
+                if (keys.length > 0) {
+                    eventUsageLogic.actions.reportSavedInsightFilterUsed(keys)
+                }
             }
         },
         renameInsight: async ({ id }) => {

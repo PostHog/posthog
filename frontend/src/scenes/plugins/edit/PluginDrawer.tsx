@@ -8,7 +8,7 @@ import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
 import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
-import Markdown from 'react-markdown'
+import ReactMarkdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
@@ -19,6 +19,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
+
+window.process = MOCK_NODE_PROCESS
 
 function EnabledDisabledSwitch({
     value,
@@ -58,23 +61,19 @@ export function PluginDrawer(): JSX.Element {
     const [invisibleFields, setInvisibleFields] = useState<string[]>([])
     const [requiredFields, setRequiredFields] = useState<string[]>([])
 
-    useEffect(
-        () => {
-            if (editingPlugin) {
-                form.setFieldsValue({
-                    ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
-                    __enabled: editingPlugin.pluginConfig.enabled,
-                    ...editingPluginInitialChanges,
-                })
-                generateApiKeysIfNeeded(form)
-            } else {
-                form.resetFields()
-            }
-            updateInvisibleAndRequiredFields()
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [editingPlugin?.id, editingPlugin?.config_schema]
-    )
+    useEffect(() => {
+        if (editingPlugin) {
+            form.setFieldsValue({
+                ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
+                __enabled: editingPlugin.pluginConfig.enabled,
+                ...editingPluginInitialChanges,
+            })
+            generateApiKeysIfNeeded(form)
+        } else {
+            form.resetFields()
+        }
+        updateInvisibleAndRequiredFields()
+    }, [editingPlugin?.id, editingPlugin?.config_schema])
 
     const updateInvisibleAndRequiredFields = (): void => {
         determineAndSetInvisibleFields()
@@ -313,7 +312,7 @@ export function PluginDrawer(): JSX.Element {
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
                                     {fieldConfig.markdown && (
-                                        <Markdown source={fieldConfig.markdown} linkTarget="_blank" />
+                                        <ReactMarkdown source={fieldConfig.markdown} linkTarget="_blank" />
                                     )}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
@@ -328,7 +327,7 @@ export function PluginDrawer(): JSX.Element {
                                                 fieldConfig.hint && (
                                                     <small>
                                                         <div style={{ height: 2 }} />
-                                                        <Markdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                        <ReactMarkdown source={fieldConfig.hint} linkTarget="_blank" />
                                                     </small>
                                                 )
                                             }

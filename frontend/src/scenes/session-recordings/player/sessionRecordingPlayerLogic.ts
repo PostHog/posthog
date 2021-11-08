@@ -4,17 +4,17 @@ import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SessionPlayerState, SessionPlayerTime } from '~/types'
 import { eventWithTime, playerMetaData } from 'rrweb/typings/types'
-import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
 const BUFFER_TIME_BUFFER_MS = 5 * 1000 // The length of time player has to have loaded to get out of buffering state
 
-function getZeroOffsetTime(time: number, meta: playerMetaData): number {
+export function getZeroOffsetTime(time: number, meta: playerMetaData): number {
     return Math.max(Math.min(time - meta.startTime, meta.totalTime), 0)
 }
-function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): number {
+export function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): number {
     return Math.max(Math.min(zeroOffsetTime + meta.startTime, meta.endTime), meta.startTime)
 }
 
@@ -22,10 +22,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect: {
         logic: [eventUsageLogic],
         values: [
-            sessionsPlayLogic,
+            sessionRecordingLogic,
             ['sessionRecordingId', 'sessionPlayerData', 'sessionPlayerDataLoading', 'isPlayable'],
         ],
-        actions: [sessionsPlayLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
+        actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
     },
     actions: {
         initReplayer: (frame: HTMLDivElement) => ({ frame }),
@@ -271,7 +271,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                values.replayer?.pause()
+                values.replayer?.pause(nextTime)
                 actions.clearLoadingState()
             }
             // Otherwise play

@@ -1,7 +1,7 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
-import 'scenes/actions/Actions.scss'
+import '../../../scenes/actions/Actions.scss'
 import { AnyPropertyFilter } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { Button, Row } from 'antd'
@@ -33,15 +33,11 @@ export function PathItemFilters({
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
-    useEffect(
-        () => {
-            if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
-                setFilters([...propertyFilters, {}])
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [propertyFilters]
-    )
+    useEffect(() => {
+        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
+            setFilters([...propertyFilters, {}])
+        }
+    }, [propertyFilters])
 
     return (
         <div className="mb" style={style}>

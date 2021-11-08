@@ -102,6 +102,12 @@ export const teamLogic = kea<teamLogicType>({
                 return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
             },
         ],
+        funnelCorrelationConfig: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): Partial<TeamType['correlation_config']> => {
+                return currentTeam?.correlation_config || {}
+            },
+        ],
     },
     listeners: ({ actions }) => ({
         deleteTeam: async ({ team }) => {

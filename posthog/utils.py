@@ -214,8 +214,8 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     template = get_template(template_name)
 
-    context["self_capture"] = False
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
+    context["self_capture"] = settings.SELF_CAPTURE
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -229,7 +229,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["e2e_testing"] = True
 
     if settings.SELF_CAPTURE:
-        context["self_capture"] = True
         api_token = get_self_capture_api_token(request)
 
         if api_token:
@@ -240,6 +239,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
+    context["js_url"] = settings.JS_URL
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):

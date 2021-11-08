@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import dayjs from 'dayjs'
 import { EventElements } from 'scenes/events/EventElements'
 import { Tabs, Button } from 'antd'
 
 import { createActionFromEvent } from './createActionFromEvent'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
 import { Properties } from '@posthog/plugin-scaffold'

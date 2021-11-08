@@ -6,7 +6,10 @@ from rest_framework import response, status
 
 class AnalyticsDestroyModelMixin:
     """
-    Destroy a model instance sending analytics information.
+    DestroyModelMixin enhancement that provides reporting of when an object is deleted.
+
+    Generally this would be better off executed at the serializer level,
+    but deletion (i.e. `destroy`) is performed directly in the viewset, which is why this mixin is a thing.
     """
 
     def perform_destroy(self, instance):

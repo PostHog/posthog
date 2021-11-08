@@ -16,8 +16,8 @@
         "benchmark:vm:memory": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/vm/memory.benchmark.ts",
         "benchmark:vm:worker": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/vm/worker.benchmark.ts",
         "start": "yarn start:dev",
-        "start:dist": "BASE_DIR=../posthog node dist/index.js",
-        "start:dev": "NODE_ENV=dev BASE_DIR=../posthog ts-node-dev --exit-child src/index.ts",
+        "start:dist": "BASE_DIR=.. node dist/index.js",
+        "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --exit-child src/index.ts",
         "start:dev:ee": "KAFKA_ENABLED=true KAFKA_HOSTS=localhost:9092 yarn start:dev",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
@@ -31,13 +31,13 @@
         "prettier:check": "prettier --check .",
         "prepare": "yarn protobuf:compile",
         "prepublishOnly": "yarn build",
-        "setup:dev:clickhouse": "cd ../posthog && export DEBUG=1 PRIMARY_DB=clickhouse && source env/bin/activate && python manage.py migrate_clickhouse",
+        "setup:dev:clickhouse": "cd .. && export DEBUG=1 PRIMARY_DB=clickhouse && python manage.py migrate_clickhouse",
         "setup:test:ee": "yarn setup:test:postgres && yarn setup:test:clickhouse",
-        "setup:test:postgres": "cd ../posthog && (dropdb test_posthog || echo 'no db to drop') && createdb test_posthog && source env/bin/activate && DATABASE_URL=postgres://localhost:5432/test_posthog DEBUG=1 python manage.py migrate",
-        "setup:test:clickhouse": "cd ../posthog && export TEST=1 PRIMARY_DB=clickhouse CLICKHOUSE_DATABASE=posthog_test && source env/bin/activate && python manage.py migrate_clickhouse",
-        "services:start": "cd ../posthog && docker-compose -f ee/docker-compose.ch.yml up zookeeper kafka clickhouse",
-        "services:stop": "cd ../posthog && docker-compose -f ee/docker-compose.ch.yml down",
-        "services:clean": "cd ../posthog && docker-compose -f ee/docker-compose.ch.yml rm -v zookeeper kafka clickhouse",
+        "setup:test:postgres": "cd .. && (dropdb test_posthog || echo 'no db to drop') && createdb test_posthog && DATABASE_URL=postgres://localhost:5432/test_posthog DEBUG=1 python manage.py migrate",
+        "setup:test:clickhouse": "cd .. && unset KAFKA_URL && export TEST=1 PRIMARY_DB=clickhouse CLICKHOUSE_DATABASE=posthog_test && python manage.py migrate_clickhouse",
+        "services:start": "cd .. && docker-compose -f ee/docker-compose.ch.yml up zookeeper kafka clickhouse",
+        "services:stop": "cd .. && docker-compose -f ee/docker-compose.ch.yml down",
+        "services:clean": "cd .. && docker-compose -f ee/docker-compose.ch.yml rm -v zookeeper kafka clickhouse",
         "services": "yarn services:stop && yarn services:clean && yarn services:start"
     },
     "bin": {
@@ -116,23 +116,12 @@
         "eslint-plugin-promise": "^5.1.0",
         "eslint-plugin-react": "^7.24.0",
         "eslint-plugin-simple-import-sort": "^7.0.0",
-        "husky": "~4.3.5",
         "jest": "^27.0.4",
-        "lint-staged": "~10.5.4",
         "prettier": "^2.3.1",
         "rimraf": "^3.0.2",
         "ts-jest": "^27.0.3",
         "ts-node": "^10.0.0",
         "ts-node-dev": "^1.1.6",
         "typescript": "^4.4.0"
-    },
-    "husky": {
-        "hooks": {
-            "pre-commit": "lint-staged"
-        }
-    },
-    "lint-staged": {
-        "*.{js,ts}": "eslint --fix",
-        "*.{js,ts,css,scss,json,yml,yaml,md}": "prettier --write"
     }
 }

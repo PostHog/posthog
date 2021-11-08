@@ -1,11 +1,19 @@
 import React from 'react'
 import { CaretDownOutlined } from '@ant-design/icons'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { LemonRow } from '../../../lib/components/LemonRow'
-import { IconCheckmark, IconOffline, IconPlus, IconLogout, IconUpdate } from '../../../lib/components/icons'
+import {
+    IconCheckmark,
+    IconOffline,
+    IconPlus,
+    IconLogout,
+    IconUpdate,
+    IconExclamation,
+    IconBill,
+} from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
@@ -19,6 +27,7 @@ import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
 import dayjs from 'dayjs'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
+import { membershipLevelToName } from '../../../lib/utils/permissioning'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -37,14 +46,27 @@ function AccountInfo(): JSX.Element {
         <div className="AccountInfo">
             <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
             <div className="AccountInfo__identification SitePopover__main-info">
-                <b>{user?.first_name}</b>
+                <strong>{user?.first_name}</strong>
                 <div className="supplement" title={user?.email}>
                     {user?.email}
                 </div>
             </div>
-            <Link to={urls.mySettings()} onClick={closeSitePopover} className="SitePopover__side-link">
+            <Link
+                to={urls.mySettings()}
+                onClick={closeSitePopover}
+                className="SitePopover__side-link"
+                data-attr="top-menu-item-me"
+            >
                 Manage account
             </Link>
+        </div>
+    )
+}
+
+function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
+    return (
+        <div className="AccessLevelIndicator" title={`Your ${organization.name} organization access level`}>
+            {organization.membership_level ? membershipLevelToName.get(organization.membership_level) : '?'}
         </div>
     )
 }
@@ -55,10 +77,16 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     return (
         <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
             <>
-                <div className="SitePopover__main-info">
-                    <b>{organization.name}</b>
+                <div className="SitePopover__main-info SitePopover__organization">
+                    <strong>{organization.name}</strong>
+                    <AccessLevelIndicator organization={organization} />
                 </div>
-                <Link to={urls.organizationSettings()} onClick={closeSitePopover} className="SitePopover__side-link">
+                <Link
+                    to={urls.organizationSettings()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="top-menu-item-org-settings"
+                >
                     Settings
                 </Link>
             </>
@@ -73,11 +101,13 @@ function OtherOrganizationButton({ organization }: { organization: OrganizationB
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark name={organization.name} />}
+            className="SitePopover__organization"
             type="stealth"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
             {organization.name}
+            <AccessLevelIndicator organization={organization} />
         </LemonButton>
     )
 }
@@ -93,6 +123,7 @@ function InviteMembersButton(): JSX.Element {
                 showInviteModal()
             }}
             fullWidth
+            data-attr="top-menu-invite-team-members"
         >
             Invite members
         </LemonButton>
@@ -145,7 +176,12 @@ function License(): JSX.Element {
                         </div>
                     )}
                 </div>
-                <Link to={urls.instanceLicenses()} onClick={closeSitePopover} className="SitePopover__side-link">
+                <Link
+                    to={urls.instanceLicenses()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="top-menu-item-licenses"
+                >
                     Manage license
                 </Link>
             </>
@@ -167,7 +203,12 @@ function SystemStatus(): JSX.Element {
                 <div className="SitePopover__main-info">
                     {systemStatus ? 'All systems operational' : 'Potential system issue'}
                 </div>
-                <Link to={urls.systemStatus()} onClick={closeSitePopover} className="SitePopover__side-link">
+                <Link
+                    to={urls.systemStatus()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="system-status-badge"
+                >
                     System status
                 </Link>
             </>
@@ -177,7 +218,7 @@ function SystemStatus(): JSX.Element {
 
 function Version(): JSX.Element {
     const { closeSitePopover, showChangelogModal } = useActions(lemonadeLogic)
-    const { updateAvailable } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { updateAvailable, latestVersion } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -188,7 +229,10 @@ function Version(): JSX.Element {
         >
             <>
                 <div className="SitePopover__main-info">
-                    Version <b>{preflight?.posthog_version}</b>
+                    <div>
+                        Version <strong>{preflight?.posthog_version}</strong>
+                    </div>
+                    {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
                 <Link
                     onClick={() => {
@@ -196,6 +240,7 @@ function Version(): JSX.Element {
                         closeSitePopover()
                     }}
                     className="SitePopover__side-link"
+                    data-attr="update-indicator-badge"
                 >
                     Release notes
                 </Link>
@@ -208,7 +253,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} type="stealth" fullWidth>
+        <LemonButton onClick={logout} icon={<IconLogout />} type="stealth" fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )
@@ -220,6 +265,8 @@ export function SitePopover(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { isSitePopoverOpen } = useValues(lemonadeLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
+    const { systemStatus } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    useMountedLogic(licenseLogic)
 
     return (
         <Popup
@@ -233,6 +280,17 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
                         {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
+                        {preflight?.cloud && (
+                            <LemonButton
+                                onClick={closeSitePopover}
+                                to={urls.organizationBilling()}
+                                icon={<IconBill />}
+                                fullWidth
+                                data-attr="top-menu-item-billing"
+                            >
+                                Billing
+                            </LemonButton>
+                        )}
                         <InviteMembersButton />
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
@@ -257,7 +315,13 @@ export function SitePopover(): JSX.Element {
             }
         >
             <div className="SitePopover__crumb" onClick={toggleSitePopover}>
-                <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
+                <div
+                    className="SitePopover__profile-picture"
+                    title={systemStatus ? undefined : 'Potential system issue'}
+                >
+                    <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
+                    {!systemStatus && <IconExclamation className="SitePopover__danger" />}
+                </div>
                 <CaretDownOutlined />
             </div>
         </Popup>

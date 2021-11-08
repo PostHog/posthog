@@ -3,6 +3,7 @@ import { kea, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
+import { preflightLogic } from './PreflightCheck/logic'
 import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
@@ -10,7 +11,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
@@ -18,8 +18,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
-import { SideBar } from '../layout/lemonade/SideBar'
 import { Breadcrumbs } from '../layout/lemonade/Breadcrumbs'
+import { SideBar } from '../layout/lemonade/SideBar/SideBar'
+import { appScenes } from 'scenes/appScenes'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -65,7 +66,7 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { sceneConfig } = useValues(sceneLogic)
+    const { sceneConfig } = useValues(sceneLogic({ scenes: appScenes }))
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (showApp) {

@@ -4,7 +4,7 @@ import { ActionStepType, ActionStepUrlMatching, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { encodeParams } from 'kea-router'
+import { combineUrl, encodeParams } from 'kea-router'
 
 // these plus any element with cursor:pointer will be click targets
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
@@ -408,8 +408,9 @@ export async function toolbarFetch(
     method: string = 'GET',
     payload?: Record<string, any>
 ): Promise<Response> {
-    const params = { temporary_token: toolbarLogic.values.temporaryToken }
-    const fullUrl = `${toolbarLogic.values.apiURL}${url}${encodeParams(params, '?')}`
+    const { pathname, searchParams } = combineUrl(url)
+    const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
+    const fullUrl = `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
 
     const payloadData = payload
         ? {

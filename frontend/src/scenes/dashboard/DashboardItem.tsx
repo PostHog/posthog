@@ -255,15 +255,11 @@ export function DashboardItem({
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
-    useEffect(
-        () => {
-            if (previousLoading && !insightLoading && !initialLoaded) {
-                setInitialLoaded(true)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [insightLoading]
-    )
+    useEffect(() => {
+        if (previousLoading && !insightLoading && !initialLoaded) {
+            setInitialLoaded(true)
+        }
+    }, [insightLoading])
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {

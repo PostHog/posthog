@@ -129,12 +129,15 @@ pytest-django==4.1.0
     # via -r requirements-dev.in
 pytest-mock==3.5.1
     # via -r requirements-dev.in
+pytest-split==0.3.3
+    # via -r requirements-dev.in
 pytest==6.2.2
     # via
     #   -r requirements-dev.in
     #   pytest-cov
     #   pytest-django
     #   pytest-mock
+    #   pytest-split
     #   syrupy
 python-dateutil==2.8.1
     # via

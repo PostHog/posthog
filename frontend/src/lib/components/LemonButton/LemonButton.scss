@@ -1,7 +1,6 @@
 @import '~/vars';
 
 .LemonButton {
-    transition: background-color 200ms ease;
     color: var(--primary);
     font-weight: 600;
     cursor: pointer;
@@ -38,5 +37,14 @@
     font-weight: 600;
     .LemonRow__icon {
         color: var(--primary);
+    }
+}
+
+.LemonButtonWithSideAction {
+    position: relative;
+    .side-button {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
     }
 }

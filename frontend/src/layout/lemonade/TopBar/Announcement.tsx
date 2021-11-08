@@ -2,6 +2,9 @@ import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import clsx from 'clsx'
 import { CloseOutlined } from '@ant-design/icons'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
+
+window.process = MOCK_NODE_PROCESS
 
 export interface AnnouncementProps {
     message: string

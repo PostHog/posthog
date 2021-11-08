@@ -13,7 +13,7 @@ export const urls = {
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
     insights: () => '/insights',
-    insightView: (view: ViewType) => `/insights?insight=${view}`,
+    newInsight: (insight?: ViewType) => `/insights/new${insight ? `?insight=${encodeURIComponent(insight)}` : ``}`,
     insightRouter: (id: string) => `/i/${id}`,
     savedInsights: () => '/saved_insights',
     sessions: () => '/sessions',

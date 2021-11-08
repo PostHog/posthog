@@ -8,7 +8,6 @@ from posthog.constants import PROPERTIES
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
-    BreakdownTypeMixin,
     BreakdownValueMixin,
     CompareMixin,
     DateMixin,
@@ -39,6 +38,7 @@ from posthog.models.filters.mixins.funnel import (
     FunnelWindowMixin,
     HistogramMixin,
 )
+from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 
@@ -53,7 +53,6 @@ class Filter(
     SelectorMixin,
     ShownAsMixin,
     BreakdownMixin,
-    BreakdownTypeMixin,
     BreakdownValueMixin,
     FilterTestAccountsMixin,
     CompareMixin,
@@ -72,6 +71,7 @@ class Filter(
     FunnelLayoutMixin,
     FunnelTypeMixin,
     HistogramMixin,
+    GroupsAggregationMixin,
     FunnelCorrelationMixin,
     FunnelCorrelationPersonsMixin,
     SimplifyFilterMixin,
