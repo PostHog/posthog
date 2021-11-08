@@ -37,6 +37,7 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
     key?: string
+    sceneUrl: string
 }
 
 export interface OnFetchEventsSuccess {
@@ -57,7 +58,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
-        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key]
+        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key, props.sceneUrl]
             .filter((keyPart) => !!keyPart)
             .join('-'),
     connect: {
@@ -236,22 +237,30 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    urlToAction: ({ actions, values }) => {
-        const urlToAction = (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            actions.setProperties(searchParams.properties || values.properties || {})
-
-            if (searchParams.autoload) {
-                actions.toggleAutomaticLoad(searchParams.autoload)
-            }
-
-            if (searchParams.eventFilter) {
-                actions.setEventFilter(searchParams.eventFilter)
-            }
-        }
+    urlToAction: ({ actions, values, props }) => {
         return {
-            '/events': urlToAction,
-            '/person/:id': urlToAction,
-            '/action/:id': urlToAction,
+            [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
+                try {
+                    // if the url changed, but we are not anymore on the page we were at when the logic was mounted
+                    if (router.values.location.pathname !== values.initialPathname) {
+                        return
+                    }
+                } catch (error) {
+                    // since this is a catch-all route, this code might run during or after the logic was unmounted
+                    // if we have an error accessing the filter value, the logic is gone and we should return
+                    return
+                }
+
+                actions.setProperties(searchParams.properties || values.properties || {})
+
+                if (searchParams.autoload) {
+                    actions.toggleAutomaticLoad(searchParams.autoload)
+                }
+
+                if (searchParams.eventFilter) {
+                    actions.setEventFilter(searchParams.eventFilter)
+                }
+            },
         }
     },
 

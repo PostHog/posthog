@@ -23,6 +23,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 dayjs.extend(relativeTime)
 
@@ -118,6 +119,7 @@ export function Person(): JSX.Element {
                                     pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                     fixedFilters={{ person_id: person.id }}
                                     hidePersonColumn
+                                    sceneUrl={urls.person(':id')}
                                 />
                             )}
                         </div>

@@ -29,6 +29,7 @@ import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
+import { urls } from 'scenes/urls'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -44,6 +45,7 @@ interface EventsTable {
     filtersEnabled?: boolean
     pageKey?: string
     hidePersonColumn?: boolean
+    sceneUrl?: string
 }
 
 export const scene: SceneExport = {
@@ -57,8 +59,9 @@ export function EventsTable({
     filtersEnabled = true,
     pageKey,
     hidePersonColumn,
+    sceneUrl,
 }: EventsTable = {}): JSX.Element {
-    const logic = eventsTableLogic({ fixedFilters, key: pageKey })
+    const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events() })
 
     const {
         properties,

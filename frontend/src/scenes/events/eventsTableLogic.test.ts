@@ -47,17 +47,21 @@ describe('eventsTableLogic', () => {
         logic: eventsTableLogic,
         props: {
             key: 'test-key',
+            sceneUrl: '/events',
         },
         onLogic: (l) => (logic = l),
+        beforeLogic: () => {
+            router.actions.push('/events')
+        },
     })
 
     it('sets a key', () => {
-        expect(logic.key).toEqual('all-test-key')
+        expect(logic.key).toEqual('all-test-key-/events')
     })
 
     it('starts with known defaults', async () => {
         await expectLogic(logic).toMatchValues({
-            initialPathname: '/',
+            initialPathname: '/events',
             properties: expect.arrayContaining([]),
             eventFilter: '',
             isLoading: true,
@@ -416,13 +420,6 @@ describe('eventsTableLogic', () => {
             logic.actions.setEventFilter(eventFilter)
         })
         expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
-    })
-    ;['/events', '/action/1234', '/person/1234'].forEach((url) => {
-        it(`reads event filter from the URL when on ${url}`, async () => {
-            const eventFilter = randomString()
-            router.actions.push(url, { eventFilter })
-            await expectLogic(logic, () => {}).toMatchValues({ eventFilter })
-        })
     })
 
     describe('the listeners', () => {
