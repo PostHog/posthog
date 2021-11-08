@@ -97,10 +97,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
+    [Scene.OrganizationSettings]: {
+        organizationBased: true,
+    },
     [Scene.ProjectCreateFirst]: {
         plain: true,
+        organizationBased: true,
     },
     [Scene.Billing]: {
+        organizationBased: true,
         hideDemoWarnings: true,
     },
     // Onboarding/setup routes
@@ -122,6 +127,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
         plain: true,
+    },
+    // Instance management routes
+    [Scene.SystemStatus]: {
+        instanceLevel: true,
+    },
+    [Scene.InstanceLicenses]: {
+        instanceLevel: true,
+    },
+    // Personal routes
+    [Scene.MySettings]: {
+        personal: true,
     },
 }
 

@@ -1,10 +1,8 @@
 .Breadcrumbs {
     display: flex;
     align-items: center;
-    margin-top: 1rem;
-    .Lettermark {
-        margin-right: 0.5rem;
-    }
+    margin-top: 1.5rem;
+    cursor: default;
 }
 
 .Breadcrumbs__breadcrumb {
@@ -12,6 +10,12 @@
     align-items: center;
     color: var(--primary);
     font-weight: 500;
+    a & {
+        text-decoration: underline;
+    }
+    > :first-child {
+        margin-right: 0.5rem;
+    }
 }
 
 .Breadcrumbs__separator {
