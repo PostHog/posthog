@@ -33,15 +33,11 @@ export function PathItemFilters({
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
-    useEffect(
-        () => {
-            if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
-                setFilters([...propertyFilters, {}])
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [propertyFilters]
-    )
+    useEffect(() => {
+        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
+            setFilters([...propertyFilters, {}])
+        }
+    }, [propertyFilters])
 
     return (
         <div className="mb" style={style}>

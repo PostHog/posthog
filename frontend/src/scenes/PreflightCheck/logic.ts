@@ -34,6 +34,7 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
             (preflight): boolean =>
                 Boolean(preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length),
         ],
+        clickhouseEnabled: [(s) => [s.preflight], (preflight): boolean => !!preflight?.is_clickhouse_enabled],
         realm: [
             (s) => [s.preflight],
             (preflight): 'cloud' | 'hosted' | 'hosted-clickhouse' | null => {

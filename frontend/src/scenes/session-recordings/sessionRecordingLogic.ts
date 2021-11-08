@@ -3,10 +3,13 @@ import api from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
 import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import { SessionPlayerData, SessionRecordingId, SessionRecordingMeta, SessionRecordingUsageType } from '~/types'
-import dayjs from 'dayjs'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+
+dayjs.extend(utc)
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -32,6 +35,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         }),
         loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
         loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
+        loadEvents: (url?: string) => ({ url }),
     },
     reducers: {
         sessionRecordingId: [
@@ -63,6 +67,10 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         ],
     },
     listeners: ({ values, actions, sharedListeners, cache }) => ({
+        loadRecordingMetaSuccess: () => {
+            cache.eventsStartTime = performance.now()
+            actions.loadEvents()
+        },
         loadRecordingSnapshotsSuccess: async () => {
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
@@ -84,8 +92,23 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 actions.reportUsage(values.sessionPlayerData, performance.now() - cache.startTime)
             }
         },
+        loadEventsSuccess: () => {
+            // Fetch next events
+            if (!!values.sessionEventsData?.next) {
+                actions.loadEvents(values.sessionEventsData.next)
+            }
+            // Finished loading all events.
+            else {
+                eventUsageLogic.actions.reportRecordingEventsFetched(
+                    values.sessionEvents.length ?? 0,
+                    performance.now() - cache.eventsStartTime
+                )
+                cache.eventsStartTime = null
+            }
+        },
         loadRecordingMetaFailure: sharedListeners.showErrorToast,
         loadRecordingSnapshotsFailure: sharedListeners.showErrorToast,
+        loadEventsFailure: sharedListeners.showErrorToast,
         reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
             await breakpoint()
             eventUsageLogic.actions.reportRecording(
@@ -129,16 +152,10 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 }
             },
             loadRecordingSnapshots: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
-                let response
-                if (url) {
-                    // Subsequent calls to get rest of recording
-                    response = await api.get(url)
-                } else {
-                    // Very first call
-                    response = await api.get(
-                        `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
-                    )
-                }
+                const apiUrl =
+                    url || `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
+                const response = await api.get(apiUrl)
+
                 const currData = values.sessionPlayerData
                 return {
                     ...currData,
@@ -147,8 +164,25 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 }
             },
         },
+        sessionEventsData: {
+            loadEvents: async ({ url }) => {
+                if (!values.eventsApiParams) {
+                    return values.sessionEventsData
+                }
+                // Use `url` if there is a `next` url to fetch
+                const apiUrl = url || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
+                const response = await api.get(apiUrl)
+
+                return {
+                    ...values.sessionEventsData,
+                    next: response?.next,
+                    events: [...(values.sessionEventsData?.events ?? []), ...(response.results ?? [])],
+                }
+            },
+        },
     }),
     selectors: {
+        sessionEvents: [(selectors) => [selectors.sessionEventsData], (eventsData) => eventsData?.events ?? []],
         firstChunkLoaded: [
             (selectors) => [selectors.chunkPaginationIndex],
             (chunkPaginationIndex) => chunkPaginationIndex > 0,
@@ -164,6 +198,26 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     !sessionPlayerDataLoading) && // data isn't being fetched
                 sessionPlayerData?.snapshots.length > 1 && // more than one snapshot needed to init rrweb Replayer
                 !!sessionPlayerData?.snapshots?.find((s: eventWithTime) => s.type === 2), // there's a full snapshot in the data that was loaded
+        ],
+        eventsApiParams: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                if (
+                    !sessionPlayerData?.person?.id ||
+                    !sessionPlayerData?.session_recording?.start_time ||
+                    !sessionPlayerData?.session_recording?.recording_duration
+                ) {
+                    return null
+                }
+
+                const buffer_ms = 60000 // +- before and after start and end of a recording to query for.
+                return {
+                    person_id: sessionPlayerData.person.id,
+                    after: dayjs.utc(sessionPlayerData.session_recording.start_time).subtract(buffer_ms, 'ms').format(),
+                    before: dayjs.utc(sessionPlayerData.session_recording.end_time).add(buffer_ms, 'ms').format(),
+                    orderBy: ['timestamp'],
+                }
+            },
         ],
     },
     urlToAction: ({ actions, values, cache }) => {

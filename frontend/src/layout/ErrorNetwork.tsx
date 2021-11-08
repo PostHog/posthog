@@ -5,7 +5,7 @@ import { ReloadOutlined } from '@ant-design/icons'
 export function ErrorNetwork(): JSX.Element {
     return (
         <div>
-            <h2>Network Error</h2>
+            <h1 className="page-title">Network Error</h1>
             <p>There was an issue loading the requested resource.</p>
             <p>
                 <Button onClick={() => window.location.reload()}>

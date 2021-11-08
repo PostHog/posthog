@@ -531,7 +531,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                             filters: dashboardItem.filters,
                             cachedResults: refreshedDashboardItem.result,
                         })
-                        itemResultLogic.actions.setInsight({ ...dashboardItem, result: refreshedDashboardItem.result })
+                        itemResultLogic.actions.setInsight(
+                            { ...dashboardItem, result: refreshedDashboardItem.result },
+                            { fromPersistentApi: true }
+                        )
                     }
 
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)

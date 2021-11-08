@@ -21,6 +21,7 @@ import {
     SessionPlayerData,
     AvailableFeature,
     SessionRecordingUsageType,
+    FunnelCorrelation,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -262,6 +263,10 @@ export const eventUsageLogic = kea<
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
+        reportSavedInsightTabChanged: (tab: string) => ({ tab }),
+        reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
+        reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
+        reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
@@ -275,6 +280,17 @@ export const eventUsageLogic = kea<
         ) => ({ recordingData, source, loadTime, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
+        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
+            filters,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            propertiesTable,
+        }),
+        reportCorrelationInteraction: (
+            correlationType: FunnelCorrelation['result_type'],
+            action: string,
+            props?: Record<string, any>
+        ) => ({ correlationType, action, props }),
+        reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
     },
@@ -617,6 +633,18 @@ export const eventUsageLogic = kea<
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
         },
+        reportSavedInsightFilterUsed: ({ filterKeys }) => {
+            posthog.capture('saved insights list page filter used', { filter_keys: filterKeys })
+        },
+        reportSavedInsightTabChanged: ({ tab }) => {
+            posthog.capture('saved insights list page tab changed', { tab })
+        },
+        reportSavedInsightLayoutChanged: ({ layout }) => {
+            posthog.capture('saved insights list page layout changed', { layout })
+        },
+        reportSavedInsightNewInsightClicked: ({ insightType }) => {
+            posthog.capture('saved insights new insight clicked', { insight_type: insightType })
+        },
         reportRecording: ({ recordingData, source, loadTime, type }) => {
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -630,6 +658,9 @@ export const eventUsageLogic = kea<
                 source: source,
             }
             posthog.capture(`recording ${type}`, payload)
+        },
+        reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
+            posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)
@@ -654,6 +685,19 @@ export const eventUsageLogic = kea<
         },
         reportCorrelationAnalysisDetailedFeedback: (props) => {
             posthog.capture('correlation analysis detailed feedback', props)
+        },
+        reportCorrelationInteraction: ({ correlationType, action, props }) => {
+            posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
+        },
+        reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
+            if (delay === 0) {
+                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+            } else {
+                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} analyzed`, {
+                    filters,
+                    delay,
+                })
+            }
         },
     },
 })

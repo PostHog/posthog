@@ -18,6 +18,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
+import { SideBar } from '../layout/lemonade/SideBar/SideBar'
 import { appScenes } from 'scenes/appScenes'
 
 export const appLogic = kea<appLogicType>({
@@ -117,18 +118,13 @@ function AppScene(): JSX.Element | null {
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
         (() => (showingDelayedSpinner ? <SceneLoading /> : null))
 
-    const essentialElements = (
-        // Components that should always be mounted inside Layout
-        <>
-            <ToastContainer autoClose={8000} transition={Slide} position="bottom-right" />
-        </>
-    )
+    const toastContainer = <ToastContainer autoClose={8000} transition={Slide} position="bottom-right" />
 
     if (!user) {
         return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <SceneComponent {...params} />
-                {essentialElements}
+                {toastContainer}
             </Layout>
         ) : null
     }
@@ -138,31 +134,40 @@ function AppScene(): JSX.Element | null {
             <Layout style={{ minHeight: '100vh' }}>
                 {!sceneConfig.hideTopNav && <TopNavigation />}
                 <SceneComponent user={user} {...params} />
-                {essentialElements}
+                {toastContainer}
             </Layout>
         )
     }
 
+    const layoutContent = activeScene ? (
+        <Layout.Content className="main-app-content" data-attr="layout-content">
+            {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
+            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
+                <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
+            ) : null}
+            <BillingAlerts />
+            <BackTo />
+            <SceneComponent user={user} {...params} />
+        </Layout.Content>
+    ) : null
+
     return (
         <>
-            <Layout>
-                <MainNavigation />
+            {featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                 <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
                     {!sceneConfig.hideTopNav && <TopNavigation />}
-                    {activeScene ? (
-                        <Layout.Content className="main-app-content" data-attr="layout-content">
-                            {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
-                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
-                                <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
-                            ) : null}
-                            <BillingAlerts />
-                            <BackTo />
-                            <SceneComponent user={user} {...params} />
-                        </Layout.Content>
-                    ) : null}
+                    <SideBar>{layoutContent}</SideBar>
                 </Layout>
-                {essentialElements}
-            </Layout>
+            ) : (
+                <Layout>
+                    <MainNavigation />
+                    <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
+                        {!sceneConfig.hideTopNav && <TopNavigation />}
+                        {layoutContent}
+                    </Layout>
+                </Layout>
+            )}
+            {toastContainer}
             <UpgradeModal />
         </>
     )

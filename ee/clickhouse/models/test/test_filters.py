@@ -9,6 +9,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.filters import Filter
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
 from posthog.models.filters.test.test_filter import property_to_Q_test_factory
 from posthog.models.person import Person
@@ -151,6 +152,7 @@ class TestFilters(PGTestFilters):
                         "id": "$pageview",
                         "math": None,
                         "math_property": None,
+                        "math_group_type_index": None,
                         "custom_name": None,
                         "order": None,
                         "name": "$pageview",
@@ -158,6 +160,44 @@ class TestFilters(PGTestFilters):
                     }
                 ],
             },
+        )
+
+    def test_simplify_entities_with_group_math(self):
+        filter = Filter(data={"events": [{"id": "$pageview", "math": "unique_group", "math_group_type_index": 2}]})
+
+        self.assertEqual(
+            filter.simplify(self.team).entities_to_dict(),
+            {
+                "events": [
+                    {
+                        "type": "events",
+                        "id": "$pageview",
+                        "math": "unique_group",
+                        "math_property": None,
+                        "math_group_type_index": 2,
+                        "custom_name": None,
+                        "order": None,
+                        "name": "$pageview",
+                        "properties": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"},],
+                    }
+                ],
+            },
+        )
+
+    def test_simplify_when_aggregating_by_group(self):
+        filter = RetentionFilter(data={"aggregation_group_type_index": 0})
+
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {"properties": [{"key": "$group_0", "operator": "is_not", "value": "", "type": "event"}]},
+        )
+
+    def test_simplify_funnel_entities_when_aggregating_by_group(self):
+        filter = Filter(data={"events": [{"id": "$pageview"}], "aggregation_group_type_index": 2})
+
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {"properties": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"}]},
         )
 
 

@@ -276,52 +276,52 @@ export const keyMapping: KeyMappingInterface = {
         // UTM tags
         utm_source: {
             label: 'UTM Source',
-            description: 'The last UTM source tag that this user saw (last-touch).',
+            description: 'UTM source tag (last-touch).',
             examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
         },
         $initial_utm_source: {
             label: 'Initial UTM Source',
-            description: 'The initial UTM source tag that this user saw (first-touch).',
+            description: 'UTM source tag (first-touch).',
             examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
         },
         utm_medium: {
             label: 'UTM Medium',
-            description: 'The last UTM medium tag that this user saw (last-touch).',
+            description: 'UTM medium tag (last-touch).',
             examples: ['Social', 'Organic', 'Paid', 'Email'],
         },
         $initial_utm_medium: {
             label: 'Initial UTM Medium',
-            description: 'The initial UTM medium tag that this user saw (first-touch).',
+            description: 'UTM medium tag (first-touch).',
             examples: ['Social', 'Organic', 'Paid', 'Email'],
         },
         utm_campaign: {
             label: 'UTM Campaign',
-            description: 'The last UTM campaign tag that this user saw (last-touch).',
+            description: 'UTM campaign tag (last-touch).',
             examples: ['feature launch', 'discount'],
         },
         $initial_utm_campaign: {
             label: 'Initial UTM Campaign',
-            description: 'The initial UTM campaign tag that this user saw (first-touch).',
+            description: 'UTM campaign tag (first-touch).',
             examples: ['feature launch', 'discount'],
         },
         utm_content: {
             label: 'UTM Content',
-            description: 'The last UTM content tag that this user saw (last-touch).',
+            description: 'UTM content tag (last-touch).',
             examples: ['bottom link', 'second button'],
         },
         $initial_utm_content: {
             label: 'Initial UTM Content',
-            description: 'The initial UTM content tag that this user saw (first-touch).',
+            description: 'UTM content tag (first-touch).',
             examples: ['bottom link', 'second button'],
         },
         utm_term: {
             label: 'UTM Term',
-            description: 'The last UTM term tag that this user saw (last-touch).',
+            description: 'UTM term tag (last-touch).',
             examples: ['free goodies'],
         },
         $initial_utm_term: {
             label: 'Initial UTM Term',
-            description: 'The initial UTM term tag that this user saw (first-touch).',
+            description: 'UTM term tag (first-touch).',
             examples: ['free goodies'],
         },
 

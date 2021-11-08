@@ -74,6 +74,20 @@ describe('extractObjectDiffKeys()', () => {
             '',
             { changed_action_0_math: 'total' },
         ],
+        [
+            'nested action',
+            { insight: 'TRENDS', actions: undefined, events: [] },
+            { insight: 'TRENDS', actions: [], events: undefined },
+            '',
+            {},
+        ],
+        [
+            'nested action',
+            { insight: 'TRENDS', actions: undefined, events: [] },
+            { insight: 'TRENDS', actions: [{ name: 'pageview', math: 'dau ' }], events: undefined },
+            '',
+            { changed_actions_length: 0 },
+        ],
     ]
 
     testCases.forEach(([testName, oldFilter, newFilter, prefix, expected]) => {

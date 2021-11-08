@@ -1,17 +1,19 @@
 from uuid import uuid4
 
-import sqlparse
+from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -51,12 +53,13 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
 
-        sync_execute(query, params)
+        result = sync_execute(query, params)
 
-        return query
+        return result, query
 
+    @snapshot_clickhouse_queries
     def test_basic_event_filter(self):
-        query = self._run_query(
+        self._run_query(
             Filter(
                 data={
                     "date_from": "2021-05-01 00:00:00",
@@ -65,17 +68,6 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
                 }
             )
         )
-
-        correct = """
-        SELECT e.timestamp as timestamp
-        FROM events e
-        WHERE team_id = %(team_id)s
-            AND event = %(event)s
-            AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime(%(date_from)s))
-            AND timestamp <= %(date_to)s
-        """
-
-        self.assertEqual(sqlparse.format(query, reindent=True), sqlparse.format(correct, reindent=True))
 
     def test_person_properties_filter(self):
         filter = Filter(
@@ -111,6 +103,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         self._run_query(filter, entity)
 
+    @snapshot_clickhouse_queries
     def test_event_properties_filter(self):
         filter = Filter(
             data={
@@ -144,6 +137,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter, entity)
 
     # just smoke test making sure query runs because no new functions are used here
+    @snapshot_clickhouse_queries
     def test_cohort_filter(self):
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
 
@@ -159,6 +153,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter)
 
     # just smoke test making sure query runs because no new functions are used here
+    @snapshot_clickhouse_queries
     def test_entity_filtered_by_cohort(self):
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
 
@@ -185,6 +180,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter)
 
     # smoke test make sure query is formatted and runs
+    @snapshot_clickhouse_queries
     def test_static_cohort_filter(self):
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
 
@@ -200,6 +196,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         self._run_query(filter)
 
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
     def test_account_filters(self):
         person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -237,6 +235,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         self._run_query(filter)
 
+    @snapshot_clickhouse_queries
     def test_denormalised_props(self):
         filters = {
             "events": [
@@ -273,9 +272,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(data=filters)
-        query = self._run_query(filter)
+        _, query = self._run_query(filter)
         self.assertIn("mat_test_prop", query)
 
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
     def test_element(self):
         _create_event(
             event="$autocapture",
@@ -332,3 +333,84 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
                 {"properties": [{"key": "tag_name", "value": [], "operator": "exact", "type": "element"}],}
             )
         )
+
+    def _create_groups_test_data(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"another": "value"})
+
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "foobar"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"$browser": "test"})
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$group_0": "org:5", "$group_1": "company:1"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$group_0": "org:6", "$group_1": "company:1"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$group_0": "org:6"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$group_0": "org:5"},
+        )
+
+    @snapshot_clickhouse_queries
+    def test_groups_filters(self):
+        self._create_groups_test_data()
+
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "properties": [
+                    {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
+                    {"key": "another", "value": "value", "type": "group", "group_type_index": 1},
+                ],
+            },
+            team=self.team,
+        )
+
+        results, _ = self._run_query(filter)
+        self.assertEqual(len(results), 1)
+
+    @snapshot_clickhouse_queries
+    def test_groups_filters_mixed(self):
+        self._create_groups_test_data()
+
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "properties": [
+                    {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
+                    {"key": "$browser", "value": "test", "type": "person"},
+                ],
+            },
+            team=self.team,
+        )
+
+        results, _ = self._run_query(filter)
+        self.assertEqual(len(results), 2)

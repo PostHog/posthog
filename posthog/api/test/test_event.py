@@ -2,6 +2,7 @@ import json
 import uuid
 from typing import Union
 from unittest.mock import patch
+from urllib.parse import unquote, urlencode
 
 import pytz
 from dateutil import parser
@@ -358,11 +359,12 @@ def factory_test_event_api(event_factory, person_factory, _):
                     )
                 response = self.client.get("/api/event/?distinct_id=1").json()
                 self.assertEqual(len(response["results"]), 100)
-                self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
+                self.assertIn("http://testserver/api/event/?distinct_id=1&before=", unquote(response["next"]))
                 response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
                 self.assertEqual(len(response["results"]), 100)
                 self.assertIn(
-                    f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=", response["next"]
+                    f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=",
+                    unquote(response["next"]),
                 )
 
                 page2 = self.client.get(response["next"]).json()
@@ -380,8 +382,8 @@ def factory_test_event_api(event_factory, person_factory, _):
 
                 self.assertEqual(len(page2["results"]), 100)
                 self.assertEqual(
-                    page2["next"],
-                    f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294Z",
+                    unquote(page2["next"]),
+                    f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294+00:00",
                 )
 
                 page3 = self.client.get(page2["next"]).json()
@@ -391,29 +393,35 @@ def factory_test_event_api(event_factory, person_factory, _):
         def test_pagination_bounded_date_range(self):
             with freeze_time("2021-10-10T12:03:03.829294Z"):
                 person_factory(team=self.team, distinct_ids=["1"])
-                after = now = timezone.now() - relativedelta(months=11)
-                before = now + relativedelta(days=23)
-                after_str = f"after={after.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
-                before_str = f"before={before.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
+                now = timezone.now() - relativedelta(months=11)
+                after = (now).astimezone(pytz.utc).isoformat()
+                before = (now + relativedelta(days=23)).astimezone(pytz.utc).isoformat()
+                params = {"distinct_id": "1", "after": after, "before": before, "limit": 10}
+                params_string = urlencode(params)
                 for idx in range(0, 25):
                     event_factory(
                         team=self.team,
                         event="some event",
                         distinct_id="1",
-                        timestamp=now + relativedelta(days=idx, seconds=idx),
+                        timestamp=now + relativedelta(days=idx, seconds=-idx),
                     )
-
-                response = self.client.get(f"/api/event/?distinct_id=1&{after_str}&{before_str}&limit=10").json()
+                response = self.client.get(f"/api/event/?{params_string}").json()
                 self.assertEqual(len(response["results"]), 10)
-                self.assertIn("before=", response["next"])
-                self.assertIn(after_str, response["next"])
+                self.assertIn("before=", unquote(response["next"]))
+                self.assertIn(f"after={after}", unquote(response["next"]))
 
-                response = self.client.get(
-                    f"/api/projects/{self.team.id}/events/?distinct_id=1&{after_str}&{before_str}&limit=10"
-                ).json()
+                params = {
+                    "distinct_id": "1",
+                    "after": after,
+                    "before": before,
+                    "limit": 10,
+                }
+                params_string = urlencode(params)
+
+                response = self.client.get(f"/api/projects/{self.team.id}/events/?{params_string}").json()
                 self.assertEqual(len(response["results"]), 10)
-                self.assertIn(f"before=", response["next"])
-                self.assertIn(after_str, response["next"])
+                self.assertIn(f"before=", unquote(response["next"]))
+                self.assertIn(f"after={after}", unquote(response["next"]))
 
                 page2 = self.client.get(response["next"]).json()
                 from posthog.utils import is_clickhouse_enabled
@@ -429,8 +437,8 @@ def factory_test_event_api(event_factory, person_factory, _):
                     )
 
                 self.assertEqual(len(page2["results"]), 10)
-                self.assertIn(f"before=", page2["next"])
-                self.assertIn(after_str, page2["next"])
+                self.assertIn(f"before=", unquote(page2["next"]))
+                self.assertIn(f"after={after}", unquote(page2["next"]))
 
                 page3 = self.client.get(page2["next"]).json()
                 self.assertEqual(len(page3["results"]), 3)

@@ -50,14 +50,15 @@ export function copyPublicFolder() {
 }
 
 export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', entry = 'index') {
+    const timestamp = new Date().valueOf()
     fse.writeFileSync(
         path.resolve(__dirname, to),
         fse
             .readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' })
             .replace(
                 '</head>',
-                `<script type="module" src="${isDev ? jsURL : ''}/static/${entry}.js"></script>\n` +
-                    `<link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css'>\n</head>`
+                `<script type="module" src="${isDev ? jsURL : ''}/static/${entry}.js?${timestamp}"></script>\n` +
+                    `<link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css?${timestamp}'>\n</head>`
             )
     )
 }

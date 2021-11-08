@@ -3,7 +3,8 @@ import * as path from 'path'
 import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isDev, startServer } from './utils.mjs'
 
 copyPublicFolder()
-copyIndexHtml()
+copyIndexHtml('src/index.html', 'dist/index.html', 'index')
+copyIndexHtml('src/layout.html', 'dist/layout.html', 'index')
 copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard')
 
 let pauseServer = () => {}

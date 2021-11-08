@@ -5,6 +5,7 @@ SELECT groupArray(value) FROM (
         {aggregate_operation} as count
     FROM events e
     {person_join_clauses}
+    {groups_join_clauses}
     WHERE
         team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
     GROUP BY value

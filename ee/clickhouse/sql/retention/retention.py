@@ -2,14 +2,14 @@ RETENTION_SQL = """
 SELECT
     datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), reference_event.event_date) as base_interval,
     datediff(%(period)s, reference_event.event_date, {trunc_func}(toDateTime(event_date))) as intervals_from_base,
-    COUNT(DISTINCT event.person_id) count
+    COUNT(DISTINCT event.target) count
 FROM (
     {returning_event_query}
 ) event
 JOIN (
     {target_event_query}
 ) reference_event
-    ON (event.person_id = reference_event.person_id)
+    ON (event.target = reference_event.target)
 WHERE {trunc_func}(event.event_date) > {trunc_func}(reference_event.event_date)
 GROUP BY base_interval, intervals_from_base
 ORDER BY base_interval, intervals_from_base
@@ -51,7 +51,7 @@ LIMIT 100 OFFSET %(offset)s
 
 INITIAL_INTERVAL_SQL = """
 SELECT datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), event_date) event_date,
-       count(DISTINCT person_id) FROM (
+       count(DISTINCT target) FROM (
     {reference_event_sql}
 ) GROUP BY event_date ORDER BY event_date
 """
