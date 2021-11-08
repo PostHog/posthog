@@ -138,7 +138,11 @@ export function InsightContainer(): JSX.Element {
                 <Card style={{ marginTop: 8 }}>
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <h3 className="l3">Details table</h3>
-                        <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
+                        <InsightsTable
+                            showTotalCount={activeView !== ViewType.SESSIONS}
+                            typeKey={activeView === ViewType.TRENDS ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={activeView === ViewType.TRENDS}
+                        />
                     </BindLogic>
                 </Card>
             )

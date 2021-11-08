@@ -20,10 +20,13 @@ import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATUR
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
     showTotalCount?: boolean
+    typeKey: string // key for the entityFilterLogic
+    canEditSeriesNameInline?: boolean
 }
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
@@ -32,19 +35,31 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     median: 'Median',
 }
 
-export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
+export function InsightsTable({
+    isLegend = true,
+    showTotalCount = false,
+    typeKey,
+    canEditSeriesNameInline,
+}: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic(insightProps))
-    const { toggleVisibility } = useActions(trendsLogic(insightProps))
+    const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
+
+    const _entityFilterLogic = entityFilterLogic({
+        setFilters,
+        filters,
+        typeKey,
+    })
+    const { showModal, selectFilter } = useActions(_entityFilterLogic)
+
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
-
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isSingleEntity = indexedResults.length === 1
@@ -94,9 +109,10 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
             ),
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
+                const label = formatBreakdownLabel(item.breakdown_value, cohorts)
                 return (
                     <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
-                        {formatBreakdownLabel(item.breakdown_value, cohorts)}
+                        <div title={label}>{label}</div>
                     </SeriesToggleWrapper>
                 )
             },
@@ -114,7 +130,14 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         title: 'Event or Action',
         render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
             return (
-                <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
+                <div
+                    onClick={() => {
+                        if (canEditSeriesNameInline) {
+                            selectFilter(item.action)
+                            showModal()
+                        }
+                    }}
+                >
                     <InsightLabel
                         seriesColor={colorList[item.id]}
                         action={item.action}
@@ -125,8 +148,16 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         hideBreakdown
                         hideIcon
                         useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
+                        innerStyle={
+                            canEditSeriesNameInline
+                                ? {
+                                      cursor: 'pointer',
+                                      borderBottom: '1px dashed var(--primary)',
+                                  }
+                                : undefined
+                        }
                     />
-                </SeriesToggleWrapper>
+                </div>
             )
         },
         fixed: 'left',

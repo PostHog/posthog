@@ -19,6 +19,8 @@ interface InsightsLabelProps {
     seriesColor?: string
     action?: ActionFilter
     value?: string
+    style?: React.CSSProperties
+    innerStyle?: React.CSSProperties // Style for the inner component, the actual value content
     breakdownValue?: string | number
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
@@ -59,6 +61,8 @@ export function InsightLabel({
     seriesColor = '#000000',
     action,
     value,
+    style,
+    innerStyle,
     breakdownValue,
     hideBreakdown,
     hideIcon,
@@ -76,7 +80,7 @@ export function InsightLabel({
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
 
     return (
-        <Row className="insights-label" wrap={false}>
+        <Row className="insights-label" wrap={false} style={style}>
             <Col style={{ display: 'flex', alignItems: 'center' }} flex="auto">
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
@@ -99,7 +103,7 @@ export function InsightLabel({
                         hasBreakdown={!!breakdownValue}
                     />
                 )}
-                <div className={allowWrap ? '' : 'protect-width'}>
+                <div className={allowWrap ? '' : 'protect-width'} style={innerStyle}>
                     {showEventName && (
                         <>
                             {useCustomName && action ? (
