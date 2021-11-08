@@ -159,7 +159,7 @@ export const routes: Record<string, Scene> = {
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
-    [urls.instanceLicenses()]: Scene.InstanceLicenses,
+    [urls.instanceLicenses()]: Scene.Licenses,
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.mySettings()]: Scene.MySettings,
