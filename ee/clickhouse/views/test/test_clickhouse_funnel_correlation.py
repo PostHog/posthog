@@ -13,7 +13,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized, FunnelCorrelation
 from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
-from posthog.models.person import Person
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 from posthog.test.base import BaseTest
 
@@ -265,7 +265,7 @@ class FunnelCorrelationTest(BaseTest):
             },
         }
 
-    def test_correlation_endpoint_provides_people_drill_down_urls(self):
+    def test_events_correlation_endpoint_provides_people_drill_down_urls(self):
         """
         Here we are setting up three users, and looking to retrieve one
         correlation for watched video, with a url we can use to retrieve people
@@ -387,6 +387,70 @@ class FunnelCorrelationTest(BaseTest):
             ],
         )
 
+    def test_properties_correlation_endpoint_provides_people_drill_down_urls(self):
+        """
+        Here we are setting up three users, two with a specified property but
+        differing values, and one with this property absent. We expect to be
+        able to use the correlation people drill down urls to retrieve the
+        associated people for each.
+        """
+
+        with freeze_time("2020-01-01"):
+            self.client.force_login(self.user)
+
+            update_or_create_person(distinct_ids=["Person 1"], team_id=self.team.pk, properties={"$browser": "1"})
+            update_or_create_person(distinct_ids=["Person 2"], team_id=self.team.pk, properties={"$browser": "1"})
+
+            events = {
+                "Person 1": [
+                    # Failure / $browser::1
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                ],
+                "Person 2": [
+                    # Success / $browser::1
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+                "Person 3": [
+                    # Success / $browser not set
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
+
+            create_events(events_by_person=events, team=self.team)
+
+            odds = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    date_to="2020-04-04",
+                    funnel_correlation_type=FunnelCorrelationType.PROPERTIES,
+                    funnel_correlation_names=json.dumps(["$browser"]),
+                ),
+            )
+
+            (browser_correlation,) = [
+                correlation
+                for correlation in odds["result"]["events"]
+                if correlation["event"]["event"] == "$browser::1"
+            ]
+
+            (notset_correlation,) = [
+                correlation for correlation in odds["result"]["events"] if correlation["event"]["event"] == "$browser::"
+            ]
+
+            assert get_people_for_correlation_ok(client=self.client, correlation=browser_correlation) == {
+                "success": ["Person 2"],
+                "failure": ["Person 1"],
+            }
+
+            assert get_people_for_correlation_ok(client=self.client, correlation=notset_correlation) == {
+                "success": ["Person 3"],
+                "failure": [],
+            }
+
     def test_correlation_endpoint_request_with_no_steps_doesnt_fail(self):
         """
         This just checks that we get an empty result, this mimics what happens
@@ -503,7 +567,7 @@ def create_events(events_by_person, team: Team):
     Helper for creating specific events for a team.
     """
     for distinct_id, events in events_by_person.items():
-        create_person(distinct_ids=[distinct_id], team=team)
+        update_or_create_person(distinct_ids=[distinct_id], team_id=team.pk)
         for event in events:
             _create_event(
                 team=team,
@@ -553,11 +617,14 @@ def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSer
     success_people_url = correlation["success_people_url"]
     failure_people_url = correlation["failure_people_url"]
 
+    if not success_people_url or not failure_people_url:
+        return {}
+
     success_people_response = client.get(success_people_url)
-    assert success_people_response.status_code == 200
+    assert success_people_response.status_code == 200, success_people_response.content
 
     failure_people_response = client.get(failure_people_url)
-    assert failure_people_response.status_code == 200
+    assert failure_people_response.status_code == 200, failure_people_response.content
 
     return {
         "success": [person["name"] for person in success_people_response.json()["results"][0]["people"]],
@@ -566,7 +633,21 @@ def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSer
 
 
 def create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    return Person.objects.create(**kwargs)
+
+
+def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
+    (person, _) = Person.objects.update_or_create(
+        persondistinctid__distinct_id__in=distinct_ids,
+        persondistinctid__team_id=team_id,
+        defaults={**kwargs, "team_id": team_id},
+    )
+    for distinct_id in distinct_ids:
+        PersonDistinctId.objects.update_or_create(
+            distinct_id=distinct_id,
+            team_id=person.team_id,
+            defaults={"person_id": person.id, "team_id": team_id, "distinct_id": distinct_id},
+        )
     return person
 
 

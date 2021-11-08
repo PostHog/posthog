@@ -541,28 +541,63 @@ class FunnelCorrelation:
     def construct_people_url(self, success: bool, event_definition: EventDefinition) -> Optional[str]:
         #  NOTE: initially only supporting events type, and there is an implicit
         #  events type when correlation_type is not set.
-        if self._filter.correlation_type and self._filter.correlation_type != FunnelCorrelationType.EVENTS:
-            return None
+        if not self._filter.correlation_type or self._filter.correlation_type == FunnelCorrelationType.EVENTS:
+            # NOTE: we need to convert certain params to strings. I don't think this
+            # class should need to know these details. As we are trying to encode
+            # the filter dict into form encoding, but the persons endpoint is
+            # expecting some attributes to be further encoded as JSON, e.g.
+            # `funnel_correlation_person_entity`, `entities`.
+            # NOTE: I tried using `self._filter.with_data` but this caused errors to
+            # be raised either in `to_dict` or when deserializing on the people endpoint
+            # TODO: remove url serialization details from this class, it likely
+            # belongs in the application layer, or perhaps `FunnelCorrelationPeople`
+            params = self._filter.to_dict()
+            params = {
+                **params,
+                "events": json.dumps(params["events"]),
+                "funnel_correlation_person_converted": "true" if success else "false",
+                "funnel_correlation_person_entity": json.dumps(
+                    {"id": event_definition["event"], "type": "events", "properties": event_definition["properties"]}
+                ),
+            }
+            return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
-        # NOTE: we need to convert certain params to strings. I don't think this
-        # class should need to know these details. As we are trying to encode
-        # the filter dict into form encoding, but the persons endpoint is
-        # expecting some attributes to be further encoded as JSON, e.g.
-        # `funnel_correlation_person_entity`, `entities`.
-        # NOTE: I tried using `self._filter.with_data` but this caused errors to
-        # be raised either in `to_dict` or when deserializing on the people endpoint
-        # TODO: remove url serialization details from this class, it likely
-        # belongs in the application layer, or perhaps `FunnelCorrelationPeople`
-        params = self._filter.to_dict()
-        params = {
-            **params,
-            "events": json.dumps(params["events"]),
-            "funnel_correlation_person_converted": "true" if success else "false",
-            "funnel_correlation_person_entity": json.dumps(
-                {"id": event_definition["event"], "type": "events", "properties": event_definition["properties"]}
-            ),
-        }
-        return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+        if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
+            # NOTE: for property correlations, we just use the regular funnel
+            # persons endpoint, with the breakdown value set, and we assume that
+            # event.event will be of the format "{property_name}::{property_value}"
+            # NOTE: this is just trying to recreate what we are doing in the
+            # frontend here:
+            # https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelPropertyCorrelationTable.tsx#L77:L77
+            #
+            # That's a pretty complicated code path so I'd have low confidence
+            # that this was right.
+            property_name, property_value = event_definition["event"].split("::")
+            params = {
+                key: value
+                for key, value in self._filter.to_dict().items()
+                # NOTE: we want to filter anything about correlation, as the
+                # funnel persons endpoint does not understand or need these
+                # params.
+                if not key.startswith("funnel_correlation_")
+            }
+            params = {
+                **params,
+                "events": json.dumps(params["events"]),
+                "breakdown": property_name,
+                "funnel_step_breakdown": property_value,
+                "breakdown_type": "person",
+                "funnel_steps": len(params["events"]) if success else -2,
+                "funnel_to_step": 1,
+                "funnel_from_step": 0,
+                "funnel_viz_type": "steps",
+                "display": "FunnelViz",
+                "funnel_custom_steps": json.dumps(
+                    [len(params["events"])] if success else list(range(1, len(params["events"]) - 1))
+                ),
+                "name": property_name,
+            }
+            return f"/api/person/funnel/?{urllib.parse.urlencode(params)}"
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         return {
