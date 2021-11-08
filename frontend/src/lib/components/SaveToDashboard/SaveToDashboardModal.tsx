@@ -50,20 +50,6 @@ export function SaveToDashboardModal({ closeModal, insight }: SaveToDashboardMod
             okText={newItem ? 'Add panel to dashboard' : 'Update panel on dashboard'}
         >
             <form onSubmit={(e) => void save(e)}>
-                <label>Panel name on dashboard</label>
-                <Input
-                    name="name"
-                    required
-                    type="text"
-                    placeholder="Users who did x"
-                    autoFocus={!name}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                />
-
-                <br />
-                <br />
-
                 <label>Dashboard</label>
                 <Select
                     value={dashboardId}

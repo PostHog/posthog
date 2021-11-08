@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Button, Tooltip } from 'antd'
+import { Button } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
 import { DashboardItemType } from '~/types'
 import { CheckSquareOutlined } from '@ant-design/icons'
@@ -7,6 +7,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
 import { LinkButton } from '../LinkButton'
 import { urls } from '../../../scenes/urls'
+import { Tooltip } from '../Tooltip'
 
 interface Props {
     insight: Partial<DashboardItemType>
@@ -21,7 +22,7 @@ export function SaveToDashboard({ insight }: Props): JSX.Element {
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
             {openModal && <SaveToDashboardModal closeModal={() => setOpenModal(false)} insight={insight} />}
             {dashboard ? (
-                <Tooltip title={dashboard?.name ? `Go to dashboard "${dashboard?.name}"` : undefined}>
+                <Tooltip title={`Go to dashboard "${dashboard?.name}"`} placement="bottom">
                     <LinkButton
                         to={urls.dashboard(dashboard.id)}
                         type="default"
