@@ -1,6 +1,7 @@
-from typing import Any, Dict, Literal, Tuple
+from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import (
@@ -29,7 +30,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = [
             self.get_timestamp_field(),
-            (f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else ""),
+            f"{self.get_target_field()} as target",
             (
                 f"argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
                 if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
@@ -73,10 +74,20 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             {f"AND {entity_query}"}
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
-            {f"GROUP BY person_id HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
+            {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
         """
 
         return query, self.params
+
+    def get_target_field(self) -> str:
+        if self._filter.aggregation_group_type_index is not None:
+            prop_var = f"$group_{self._filter.aggregation_group_type_index}"
+            group_expression, _ = get_property_string_expr(
+                "events", prop_var, f"'{prop_var}'", f"{self.EVENT_TABLE_ALIAS}.properties"
+            )
+            return group_expression
+        else:
+            return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
 
     def get_timestamp_field(self) -> str:
         if self._event_query_type == RetentionQueryType.TARGET:
