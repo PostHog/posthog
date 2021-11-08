@@ -11,7 +11,7 @@ from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Element
 from posthog.models.action import Action
@@ -1403,6 +1403,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
                 self._get_people_at_step(filter, 2), [person1.uuid],
             )
 
+    @snapshot_clickhouse_queries
     def test_funnel_aggregation_with_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
@@ -1423,9 +1424,6 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
         }
-
-        filter = Filter(data=filters)
-        funnel = ClickhouseFunnel(filter, self.team)
 
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
         _create_event(
@@ -1455,7 +1453,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:6"},
         )
 
-        result = funnel.run()
+        result = ClickhouseFunnel(Filter(data=filters), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)

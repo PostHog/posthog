@@ -8,7 +8,7 @@ from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnord
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -683,6 +683,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             self._get_people_at_step(filter, 5), [person4.uuid],
         )
 
+    @snapshot_clickhouse_queries
     def test_unordered_funnel_with_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)

@@ -193,7 +193,7 @@ class TestFilters(PGTestFilters):
         )
 
     def test_simplify_funnel_entities_when_aggregating_by_group(self):
-        filter = filter = Filter(data={"events": [{"id": "$pageview"}], "aggregation_group_type_index": 2})
+        filter = Filter(data={"events": [{"id": "$pageview"}], "aggregation_group_type_index": 2})
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
