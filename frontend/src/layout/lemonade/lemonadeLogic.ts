@@ -30,7 +30,7 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
     },
     reducers: {
         isSideBarShownRaw: [
-            window.innerWidth >= 576,
+            window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
             {
                 toggleSideBar: (state) => !state,
                 hideSideBar: () => false,

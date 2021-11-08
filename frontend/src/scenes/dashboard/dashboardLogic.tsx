@@ -70,8 +70,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (id: number, loading = false) => ({ id, loading }),
-        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }),
+        setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
+        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }), // id represents dashboardItem id's
         setRefreshError: (id: number) => ({ id }),
     },
 
