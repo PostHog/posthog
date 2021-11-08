@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu, Skeleton, Table } from 'antd'
+import { Dropdown, Menu, Skeleton } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -7,7 +7,6 @@ import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { CohortType, IntervalType } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
 import { average, median, maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -20,6 +19,7 @@ import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATUR
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -68,7 +68,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     )
 
     // Build up columns to include. Order matters.
-    const columns: ColumnsType<IndexedTrendResult> = []
+    const columns: ResizableColumnType<IndexedTrendResult>[] = []
 
     if (isLegend) {
         columns.push({
@@ -84,7 +84,9 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 )
             },
             fixed: 'left',
-            width: 30,
+            span: 1,
+            width: 18,
+            widthConstraints: [30, 30],
         })
     }
 
@@ -101,7 +103,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 )
             },
             fixed: 'left',
-            width: 150,
+            span: 3,
             sorter: (a, b) => {
                 const labelA = formatBreakdownLabel(a.breakdown_value, cohorts)
                 const labelB = formatBreakdownLabel(b.breakdown_value, cohorts)
@@ -130,7 +132,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             )
         },
         fixed: 'left',
-        width: 200,
+        span: 3,
         sorter: (a, b) => {
             const labelA = a.action?.name || a.label || ''
             const labelB = b.action?.name || b.label || ''
@@ -139,20 +141,23 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     })
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
-        const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
-            title: (
-                <DateDisplay
-                    interval={(filters.interval as IntervalType) || 'day'}
-                    date={(indexedResults[0].dates || indexedResults[0].days)[index]}
-                    hideWeekRange
-                />
-            ),
-            render: function RenderPeriod({}, item: IndexedTrendResult) {
-                return maybeAddCommasToInteger(item.data[index])
-            },
-            sorter: (a, b) => a.data[index] - b.data[index],
-            align: 'center',
-        }))
+        const valueColumns: ResizableColumnType<IndexedTrendResult>[] = indexedResults[0].data.map(
+            ({}, index: number) => ({
+                title: (
+                    <DateDisplay
+                        interval={(filters.interval as IntervalType) || 'day'}
+                        date={(indexedResults[0].dates || indexedResults[0].days)[index]}
+                        hideWeekRange
+                    />
+                ),
+                render: function RenderPeriod({}, item: IndexedTrendResult) {
+                    return maybeAddCommasToInteger(item.data[index])
+                },
+                sorter: (a, b) => a.data[index] - b.data[index],
+                align: 'center',
+                span: 1,
+            })
+        )
 
         columns.push(...valueColumns)
     }
@@ -166,7 +171,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                     </span>
                 </Dropdown>
             ),
-            render: function RenderCalc(count: number, item: IndexedTrendResult) {
+            render: function RenderCalc(_: any, item: IndexedTrendResult) {
                 if (calcColumnState === 'average') {
                     return average(item.data).toLocaleString()
                 } else if (calcColumnState === 'median') {
@@ -181,7 +186,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 }
                 return (
                     <>
-                        {count.toLocaleString()}
+                        {item.count.toLocaleString()}
                         {item.action && item.action?.math === 'dau' && (
                             <Tooltip title="Keep in mind this is just the sum of all values in the row, not the unique users across the entire time period (i.e. this number may contain duplicate users).">
                                 <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--primary-alt)' }} />
@@ -194,7 +199,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
             fixed: 'right',
-            width: 120,
+            span: 2,
             align: 'center',
         })
     }
@@ -204,7 +209,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     }
 
     return (
-        <Table
+        <ResizableTable
             dataSource={indexedResults}
             columns={columns}
             size="small"
