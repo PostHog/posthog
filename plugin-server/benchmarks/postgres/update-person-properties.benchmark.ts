@@ -20,23 +20,20 @@ const RUNS = 2000
 const FUTURE_TIMESTAMP = '2050-10-14T11:42:06.502Z'
 const PAST_TIMESTAMP = '2000-10-14T11:42:06.502Z'
 
-function generateProperties(
-    target: number
-): [Record<string, string>, Record<string, string>, Record<string, PersonPropertyUpdateOperation>] {
+function generateProperties(target: number): [Record<string, string>, Record<string, string>, Record<string, any>] {
     const startingProperties: Record<string, any> = {}
-    const propertyUpdates: Record<string, any> = {}
-    const propertyToOperationMap: Record<string, PersonPropertyUpdateOperation> = {}
+    const setProperties: Record<string, any> = {}
+    const setOnceProperties: Record<string, any> = {}
     const propertiesLastUpdatedAt: Record<string, string> = {}
     const propertiesLastOperation: Record<string, string> = {}
 
     for (let i = 0; i < target; ++i) {
         const propName = `property_${i}`
         startingProperties[propName] = 'this is my initial value'
-        propertyUpdates[propName] = 'this is my updated value'
         if (i % 2 === 0) {
-            propertyToOperationMap[propName] = PersonPropertyUpdateOperation.Set
+            setProperties[propName] = 'this is my updated value'
         } else {
-            propertyToOperationMap[propName] = PersonPropertyUpdateOperation.SetOnce
+            setOnceProperties[propName] = 'this is my updated value'
         }
 
         if (i % 3 === 0) {
@@ -52,15 +49,15 @@ function generateProperties(
         }
     }
 
-    return [startingProperties, propertyUpdates, propertyToOperationMap]
+    return [startingProperties, setProperties, setOnceProperties]
 }
 
 async function runUpdateCycle(
     hub: Hub,
     teamId: number,
     startingProperties: Record<string, any>,
-    propertyUpdates: Record<string, any>,
-    propertyToOperationMap: Record<string, PersonPropertyUpdateOperation>,
+    setProperties: Record<string, any>,
+    setOnceProperties: Record<string, any>,
     isControl = false
 ): Promise<number> {
     const uuid = new UUIDT().toString()
@@ -71,9 +68,9 @@ async function runUpdateCycle(
 
     const startTime = performance.now()
     if (isControl) {
-        await hub.db.updatePerson(person, { properties: propertyUpdates })
+        await hub.db.updatePersonPropertiesOld(teamId, distinctId, setProperties, setOnceProperties)
     } else {
-        await hub.db.updatePersonProperties(person, propertyUpdates, propertyToOperationMap, new Date().toISOString())
+        await hub.db.updatePersonProperties(teamId, distinctId, setProperties, setOnceProperties, DateTime.now())
     }
     const endTime = performance.now()
     return endTime - startTime
@@ -91,9 +88,9 @@ describe('ingestion benchmarks', () => {
 
         // warmup
         for (let i = 0; i < 5; ++i) {
-            const [startingProperties, propertyUpdates, propertyToOperationMap] = generateProperties(20)
-            await runUpdateCycle(hub, team.id, startingProperties, propertyUpdates, propertyToOperationMap)
-            await runUpdateCycle(hub, team.id, startingProperties, propertyUpdates, propertyToOperationMap, true)
+            const [startingProperties, setProperties, setOnceProperties] = generateProperties(20)
+            await runUpdateCycle(hub, team.id, startingProperties, setProperties, setOnceProperties)
+            await runUpdateCycle(hub, team.id, startingProperties, setProperties, setOnceProperties, true)
         }
     })
 
@@ -130,15 +127,15 @@ describe('ingestion benchmarks', () => {
         }
 
         for (const totalProperties of [10, 20, 50, 100]) {
-            const [startingProperties, propertyUpdates, propertyToOperationMap] = generateProperties(totalProperties)
+            const [startingProperties, setProperties, setOnceProperties] = generateProperties(totalProperties)
             let totalTimeControl = 0
             for (let i = 0; i < RUNS; ++i) {
                 const timeTaken = await runUpdateCycle(
                     hub,
                     team.id,
                     startingProperties,
-                    propertyUpdates,
-                    propertyToOperationMap,
+                    setProperties,
+                    setOnceProperties,
                     true
                 )
                 totalTimeControl += timeTaken
@@ -150,8 +147,8 @@ describe('ingestion benchmarks', () => {
                     hub,
                     team.id,
                     startingProperties,
-                    propertyUpdates,
-                    propertyToOperationMap
+                    setProperties,
+                    setOnceProperties
                 )
                 totalTimeNew += timeTaken
             }

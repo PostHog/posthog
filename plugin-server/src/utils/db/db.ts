@@ -1,6 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
+import equal from 'fast-deep-equal'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
@@ -538,6 +539,41 @@ export class DB {
         }
 
         return client ? kafkaMessages : updatedPerson
+    }
+
+    public async updatePersonPropertiesOld(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties
+    ): Promise<void> {
+        const personFound = await this.fetchPerson(teamId, distinctId)
+        if (!personFound) {
+            throw new Error(
+                `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update properties`
+            )
+        }
+
+        // Figure out which properties we are actually setting
+        const updatedProperties: Properties = { ...personFound.properties }
+        Object.entries(propertiesOnce).map(([key, value]) => {
+            if (typeof personFound?.properties[key] === 'undefined') {
+                updatedProperties[key] = value
+            }
+        })
+        Object.entries(properties).map(([key, value]) => {
+            if (personFound?.properties[key] !== value) {
+                updatedProperties[key] = value
+            }
+        })
+
+        const arePersonsEqual = equal(personFound.properties, updatedProperties)
+
+        if (arePersonsEqual && !this.kafkaProducer) {
+            return
+        }
+
+        await this.updatePerson(personFound, { properties: updatedProperties })
     }
 
     private async updatePersonSetProperties(person: Person, client: PoolClient): Promise<void> {
