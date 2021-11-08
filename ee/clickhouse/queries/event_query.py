@@ -82,18 +82,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         else:
             return ""
 
-    def get_aggregation_target_field(self) -> str:
-        if self._filter.aggregation_group_type_index is not None:
-            prop_var = f"$group_{self._filter.aggregation_group_type_index}"
-            group_expression, _ = get_property_string_expr(
-                "events", prop_var, f"'{prop_var}'", f"{self.EVENT_TABLE_ALIAS}.properties"
-            )
-            return group_expression
-        elif self._should_join_distinct_ids:
-            return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        else:
-            return f"{self.EVENT_TABLE_ALIAS}.distinct_id"
-
     def _determine_should_join_persons(self) -> None:
         if self._person_query.is_used:
             self._should_join_distinct_ids = True

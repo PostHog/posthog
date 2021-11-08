@@ -1,5 +1,6 @@
 from typing import Any, Dict, Tuple
 
+from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
@@ -16,7 +17,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 if self._column_optimizer.should_query_elements_chain_column
                 else ""
             ),
-            f"{self.get_aggregation_target_field()} as person_id",
+            f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as person_id",
         ]
 
         _fields.extend(
