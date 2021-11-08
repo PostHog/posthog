@@ -100,5 +100,5 @@ class ClickhouseTrendsTotalVolume:
                 "date_from": date,
                 "date_to": date,
             }
-            persons_url.append(f"/api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(params)}")
+            persons_url.append(f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(params)}")
         return persons_url

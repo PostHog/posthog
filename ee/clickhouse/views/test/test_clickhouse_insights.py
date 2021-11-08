@@ -47,7 +47,7 @@ class ClickhouseTestInsights(
         self.assertEqual(response["result"][0]["data"][-2], 2)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(response["result"][0]["persons_urls"][-2]).json()
+            response = self.client.get("/" + response["result"][0]["persons_urls"][-2]).json()
 
         self.assertEqual(len(response["results"][0]["people"]), 2)
 
