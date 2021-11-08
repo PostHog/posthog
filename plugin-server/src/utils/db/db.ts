@@ -418,9 +418,8 @@ export class DB {
         }
     }
 
-    public async fetchPerson(teamId: number, distinctId: string): Promise<Person | undefined> {
-        const selectResult = await this.postgresQuery(
-            `SELECT
+    public async fetchPerson(teamId: number, distinctId: string, client?: PoolClient): Promise<Person | undefined> {
+        const queryString = `SELECT
                 posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
                 posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified,
                 posthog_person.uuid, posthog_persondistinctid.team_id AS persondistinctid__team_id,
@@ -430,10 +429,16 @@ export class DB {
             WHERE
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
-                AND posthog_persondistinctid.distinct_id = $2`,
-            [teamId, distinctId],
-            'fetchPerson'
-        )
+                AND posthog_persondistinctid.distinct_id = $2`
+        const values = [teamId, distinctId]
+
+        let selectResult
+        if (client) {
+            selectResult = await client.query(queryString, values)
+        } else {
+            selectResult = await this.postgresQuery(queryString, values, 'fetchPerson')
+        }
+
         if (selectResult.rows.length > 0) {
             const rawPerson: RawPerson = selectResult.rows[0]
             return { ...rawPerson, created_at: DateTime.fromISO(rawPerson.created_at).toUTC() }

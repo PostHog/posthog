@@ -112,13 +112,9 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
 
         // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
         // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
-        useEffect(
-            () => {
-                setLocalFilters(filters)
-            },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-            [filters]
-        )
+        useEffect(() => {
+            setLocalFilters(filters)
+        }, [filters])
 
         function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
             function move(arr: LocalFilter[], from: number, to: number): LocalFilter[] {

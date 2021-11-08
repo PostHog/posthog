@@ -20,6 +20,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --bg-side: #{$bg_side};
     --bg-navy: #{$bg_navy};
     --bg-charcoal: #{$bg_charcoal};
     --bg-bridge: #{$bg_bridge};
@@ -36,6 +37,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --radius: #{$radius};
     // Used for graph series
     --blue: #{$blue_500};
+    --blue-light: #{$blue_300};
     --purple: #{$purple_500};
     --indigo: #{$purple_700};
     --purple-light: #{$purple_300};
@@ -291,8 +293,8 @@ code.code {
 }
 
 .main-app-content {
-    /* top | horizontal | bottom */
-    padding: 0px $default_spacing * 3 $default_spacing * 3;
+    min-width: 0;
+    padding: 0 $default_spacing * 3 $default_spacing * 3;
 
     @media (min-width: 480px) and (max-width: 639px) {
         padding: $default_spacing $default_spacing * 2 !important;

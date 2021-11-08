@@ -3,9 +3,10 @@ from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
@@ -135,6 +136,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             )
         else:
             return "", {}
+
+    def _get_groups_query(self) -> Tuple[str, Dict]:
+        return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 

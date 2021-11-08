@@ -61,6 +61,7 @@ class License(models.Model):
         AvailableFeature.DASHBOARD_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,
+        AvailableFeature.CORRELATION_ANALYSIS,
     ]
 
     ENTERPRISE_PLAN = "enterprise"

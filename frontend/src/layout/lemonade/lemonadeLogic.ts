@@ -8,6 +8,8 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         values: [featureFlagLogic, ['featureFlags']],
     },
     actions: {
+        toggleSideBar: true,
+        hideSideBar: true,
         hideAnnouncement: true,
         openSitePopover: true,
         closeSitePopover: true,
@@ -16,14 +18,27 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideInviteModal: true,
         showCreateOrganizationModal: true,
         hideCreateOrganizationModal: true,
+        showCreateProjectModal: true,
+        hideCreateProjectModal: true,
         showChangelogModal: true,
         hideChangelogModal: true,
+        showToolbarModal: true,
+        hideToolbarModal: true,
+        toggleProjectSwitcher: true,
+        hideProjectSwitcher: true,
     },
     reducers: {
-        isAnnouncementHidden: [
-            false,
+        isSideBarShownRaw: [
+            window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
             {
-                hideAnnouncement: () => true,
+                toggleSideBar: (state) => !state,
+                hideSideBar: () => false,
+            },
+        ],
+        isAnnouncementShown: [
+            true,
+            {
+                hideAnnouncement: () => false,
             },
         ],
         isSitePopoverOpen: [
@@ -48,6 +63,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
                 hideCreateOrganizationModal: () => false,
             },
         ],
+        isCreateProjectModalShown: [
+            false,
+            {
+                showCreateProjectModal: () => true,
+                hideCreateProjectModal: () => false,
+            },
+        ],
         isChangelogModalShown: [
             false,
             {
@@ -55,8 +77,27 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
                 hideChangelogModal: () => false,
             },
         ],
+        isToolbarModalShown: [
+            false,
+            {
+                showToolbarModal: () => true,
+                hideToolbarModal: () => false,
+            },
+        ],
+        isProjectSwitcherShown: [
+            false,
+            {
+                toggleProjectSwitcher: (state) => !state,
+                hideProjectSwitcher: () => false,
+            },
+        ],
     },
     selectors: {
+        isSideBarForciblyHidden: [() => [() => document.fullscreenElement], (fullscreenElement) => !!fullscreenElement],
+        isSideBarShown: [
+            (s) => [s.isSideBarShownRaw, s.isSideBarForciblyHidden],
+            (isSideBarShownRaw, isSideBarForciblyHidden) => isSideBarShownRaw && !isSideBarForciblyHidden,
+        ],
         announcementMessage: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {

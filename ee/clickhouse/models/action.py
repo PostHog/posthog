@@ -6,7 +6,7 @@ from ee.clickhouse.models.util import PersonPropertiesMode
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
-from posthog.models.property import Property, PropertyName, PropertyType
+from posthog.models.property import Property, PropertyIdentifier, PropertyName, PropertyType
 
 
 def format_action_filter(
@@ -106,14 +106,14 @@ def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team
     return entity_filter, params
 
 
-def get_action_tables_and_properties(action: Action) -> Counter[Tuple[PropertyName, PropertyType]]:
+def get_action_tables_and_properties(action: Action) -> Counter[PropertyIdentifier]:
     from ee.clickhouse.models.property import extract_tables_and_properties
 
-    result: Counter[Tuple[PropertyName, PropertyType]] = Counter()
+    result: Counter[PropertyIdentifier] = Counter()
 
     for action_step in action.steps.all():
         if action_step.url:
-            result[("$current_url", "event")] += 1
+            result[("$current_url", "event", None)] += 1
         result += extract_tables_and_properties(Filter(data={"properties": action_step.properties or []}).properties)
 
     return result

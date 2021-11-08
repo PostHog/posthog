@@ -71,7 +71,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         self._update_filters(validated_data)
 
-        variants = validated_data.get("filters", {}).get("multivariate", {}).get("variants", [])
+        variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
         variant_rollout_sum = 0
         for variant in variants:
             variant_rollout_sum += variant.get("rollout_percentage")

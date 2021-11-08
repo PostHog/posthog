@@ -8,7 +8,7 @@ export function SearchBox(): JSX.Element {
     const { showPalette } = useActions(commandPaletteLogic)
 
     return (
-        <div className="SearchBox" onClick={showPalette}>
+        <div className="SearchBox" onClick={showPalette} data-attr="command-palette-toggle">
             <div className="SearchBox__primary-area">
                 <SearchOutlined className="SearchBox__magnifier" />
                 Search

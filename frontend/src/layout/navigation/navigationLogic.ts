@@ -5,9 +5,10 @@ import { navigationLogicType } from './navigationLogicType'
 import { SystemStatus } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 type WarningType =
     | 'welcome'
@@ -96,17 +97,18 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                     return false
                 }
 
-                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
-                let aliveSignals = 0
-                for (const metric of statusMetrics) {
-                    if (metric.key && aliveMetrics.includes(metric.key) && metric.value) {
-                        aliveSignals = aliveSignals + 1
-                    }
-                    if (aliveSignals >= aliveMetrics.length) {
-                        return true
-                    }
+                // On cloud non staff users don't have status metrics to review
+                const hasNoStatusMetrics = !statusMetrics || statusMetrics.length === 0
+                if (hasNoStatusMetrics && preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
+                    return true
                 }
-                return false
+
+                // if you have status metrics these three must have `value: true`
+                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
+                const aliveSignals = statusMetrics
+                    .filter((sm) => sm.key && aliveMetrics.includes(sm.key))
+                    .filter((sm) => sm.value).length
+                return aliveSignals >= aliveMetrics.length
             },
         ],
         updateAvailable: [

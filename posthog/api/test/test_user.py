@@ -70,8 +70,14 @@ class TestUserAPI(APIBaseTest):
                     "id": str(self.organization.id),
                     "name": self.organization.name,
                     "slug": slugify(self.organization.name),
+                    "membership_level": 1,
                 },
-                {"id": str(self.new_org.id), "name": "New Organization", "slug": "new-organization"},
+                {
+                    "id": str(self.new_org.id),
+                    "name": "New Organization",
+                    "slug": "new-organization",
+                    "membership_level": 1,
+                },
             ],
         )
 

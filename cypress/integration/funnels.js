@@ -1,6 +1,6 @@
 const TIMEOUT = 30000 // increase timeout for funnel viz as sometimes github actions can be slow
 
-describe('Funnels', () => {
+describe.skip('Funnels', () => {
     beforeEach(() => {
         // :TRICKY: Race condition populating the first dropdown in funnel
         cy.get('[data-test-filters-loading]').should('not.exist')

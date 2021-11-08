@@ -179,31 +179,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def _build_next_url(self, request: request.Request, last_event_timestamp: datetime) -> str:
         params = request.GET.dict()
         reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-        timestamp = last_event_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        try:
-            del params["after"]
-        except KeyError:
-            pass
-        try:
-            del params["before"]
-        except KeyError:
-            pass
-
-        # Next url is by default unbounded. If both "before" and "after" are supplied, supply an end date
-        clamped_date = ""
-        if request.GET.get("before", None) and request.GET.get("after", None):
-            clamped_date = f"before={request.GET.get('before')}" if reverse else f"after={request.GET.get('after')}"
-
-        return request.build_absolute_uri(
-            "{}?{}{}{}={}{}".format(
-                request.path,
-                urllib.parse.urlencode(params),
-                "&" if len(params) > 0 else "",
-                "after" if reverse else "before",
-                timestamp,
-                f"&{clamped_date}" if clamped_date else "",
-            )
-        )
+        timestamp = last_event_timestamp.astimezone().isoformat()
+        if reverse:
+            params["after"] = timestamp
+        else:
+            params["before"] = timestamp
+        return request.build_absolute_uri("{}?{}".format(request.path, urllib.parse.urlencode(params)))
 
     def _parse_order_by(self, request: request.Request) -> List[str]:
         order_by_param = request.GET.get("orderBy")

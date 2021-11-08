@@ -2,7 +2,7 @@ import { Col, Dropdown, Input, Menu, Radio, Row, Select, Table, Tabs } from 'ant
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
@@ -24,7 +24,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
@@ -42,8 +41,11 @@ import {
     InsightsTrendsIcon,
 } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
+import { TZLabel } from 'lib/components/TimezoneAware'
 import { ColumnsType } from 'antd/lib/table'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { TabPane } = Tabs
 
@@ -113,7 +115,7 @@ export const scene: SceneExport = {
 }
 
 const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
-    <div style={{ fontSize: 10, paddingLeft: 8 }}>
+    <div style={{ fontSize: 10, paddingLeft: 8, whiteSpace: 'nowrap' }}>
         {direction === 'down' ? <ArrowDownOutlined /> : direction === 'up' ? <ArrowUpOutlined /> : null}
         <MenuOutlined />
     </div>
@@ -126,14 +128,11 @@ export function SavedInsights(): JSX.Element {
         loadPaginatedInsights,
         renameInsight,
         duplicateInsight,
-        addToDashboard,
-        addGraph,
         setSavedInsightsFilters,
     } = useActions(savedInsightsLogic)
     const { insights, count, offset, nextResult, previousResult, insightsLoading, filters } =
         useValues(savedInsightsLogic)
 
-    const { nameSortedDashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
@@ -174,7 +173,7 @@ export function SavedInsights(): JSX.Element {
 
                 return (
                     <Col>
-                        <Row>
+                        <Row wrap={false}>
                             <Link to={link} style={{ marginRight: 12 }}>
                                 <strong>{name || `Insight #${insight.id}`}</strong>
                             </Link>
@@ -223,95 +222,87 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'updated_at',
             key: 'updated_at',
             render: function renderLastModified(updated_at: string) {
-                return <span>{humanFriendlyDetailedTime(updated_at)}</span>
+                return <div style={{ whiteSpace: 'nowrap' }}>{updated_at && <TZLabel time={updated_at} />}</div>
             },
         },
-        {
-            title: (
-                <div
-                    className="order-by"
-                    onClick={() =>
-                        setSavedInsightsFilters({ order: order === 'created_by' ? '-created_by' : 'created_by' })
-                    }
-                >
-                    {normalizeColumnTitle('Created by')}{' '}
-                    {columnSort(order === '-created_by' ? 'up' : order === 'created_by' ? 'down' : 'none')}
-                </div>
-            ),
-            render: function Render(_: any, item) {
-                return item.created_by ? (
-                    <Row align={'middle'}>
-                        <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
-                        <div style={{ verticalAlign: 'middle', marginLeft: 8 }}>
-                            {item.created_by.first_name || item.created_by.email}
-                        </div>
-                    </Row>
-                ) : (
-                    '-'
-                )
-            },
-        },
+        tab === SavedInsightsTabs.Yours
+            ? {}
+            : {
+                  title: (
+                      <div
+                          className="order-by"
+                          onClick={() =>
+                              setSavedInsightsFilters({ order: order === 'created_by' ? '-created_by' : 'created_by' })
+                          }
+                      >
+                          {normalizeColumnTitle('Created by')}{' '}
+                          {columnSort(order === '-created_by' ? 'up' : order === 'created_by' ? 'down' : 'none')}
+                      </div>
+                  ),
+                  render: function Render(_: any, item) {
+                      return item.created_by ? (
+                          <Row align="middle" wrap={false}>
+                              <ProfilePicture
+                                  name={item.created_by.first_name}
+                                  email={item.created_by.email}
+                                  size="md"
+                              />
+                              <div style={{ verticalAlign: 'middle', marginLeft: 8 }}>
+                                  {item.created_by.first_name || item.created_by.email}
+                              </div>
+                          </Row>
+                      ) : (
+                          '-'
+                      )
+                  },
+              },
         {
             title: '',
             className: 'options-column',
             render: function Render(_: any, item) {
                 return (
-                    <Dropdown
-                        placement="bottomRight"
-                        trigger={['click']}
-                        overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
-                        overlay={
-                            <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
-                                {nameSortedDashboards.filter((d) => d.id !== item.id).length > 0 ? (
-                                    <Menu.SubMenu
-                                        data-attr={'insight-' + item.id + '-dropdown-move'}
-                                        key="move"
-                                        title="Add to dashboard"
+                    <Row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Dropdown
+                            placement="bottomRight"
+                            trigger={['click']}
+                            overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
+                            overlay={
+                                <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
+                                    <Menu.Item
+                                        onClick={() => renameInsight(item.id)}
+                                        data-attr={`insight-item-${item.id}-dropdown-rename`}
+                                        title="Rename"
                                     >
-                                        {nameSortedDashboards
-                                            .filter((d) => d.id !== item.id)
-                                            .map((dashboard, moveIndex) => (
-                                                <Menu.Item
-                                                    data-attr={`insight-item-${item.id}-dropdown-move-${moveIndex}`}
-                                                    key={dashboard.id}
-                                                    onClick={() => addToDashboard(item, dashboard.id)}
-                                                >
-                                                    {dashboard.name}
-                                                </Menu.Item>
-                                            ))}
-                                    </Menu.SubMenu>
-                                ) : null}
-                                <Menu.Item
-                                    onClick={() => renameInsight(item.id)}
-                                    data-attr={`insight-item-${item.id}-dropdown-rename`}
-                                    title="Rename"
-                                >
-                                    Rename
-                                </Menu.Item>
-                                <Menu.Item
-                                    onClick={() => duplicateInsight(item)}
-                                    data-attr={`insight-item-${item.id}-dropdown-duplicate`}
-                                >
-                                    Duplicate
-                                </Menu.Item>
-                                <Menu.Item
-                                    onClick={() =>
-                                        deleteWithUndo({
-                                            object: item,
-                                            endpoint: `projects/${currentTeamId}/insights`,
-                                            callback: loadInsights,
-                                        })
-                                    }
-                                    style={{ color: 'var(--danger)' }}
-                                    data-attr={`insight-item-${item.id}-dropdown-remove`}
-                                >
-                                    Remove
-                                </Menu.Item>
-                            </Menu>
-                        }
-                    >
-                        <EllipsisOutlined style={{ color: 'var(--primary)' }} className="insight-dropdown-actions" />
-                    </Dropdown>
+                                        Rename
+                                    </Menu.Item>
+                                    <Menu.Item
+                                        onClick={() => duplicateInsight(item)}
+                                        data-attr={`insight-item-${item.id}-dropdown-duplicate`}
+                                    >
+                                        Duplicate
+                                    </Menu.Item>
+                                    <Menu.Item
+                                        onClick={() =>
+                                            deleteWithUndo({
+                                                object: item,
+                                                endpoint: `projects/${currentTeamId}/insights`,
+                                                callback: loadInsights,
+                                            })
+                                        }
+                                        style={{ color: 'var(--danger)' }}
+                                        data-attr={`insight-item-${item.id}-dropdown-remove`}
+                                    >
+                                        Remove
+                                    </Menu.Item>
+                                </Menu>
+                            }
+                        >
+                            <EllipsisOutlined
+                                style={{ color: 'var(--primary)' }}
+                                className="insight-dropdown-actions"
+                            />
+                        </Dropdown>
+                    </Row>
                 )
             },
         },
@@ -327,23 +318,40 @@ export function SavedInsights(): JSX.Element {
                             {insightTypes
                                 .filter((i) => i.inMenu)
                                 .map((menuItem) => (
-                                    <Menu.Item onClick={() => addGraph(menuItem.type)} key={menuItem.type}>
-                                        <Row className="icon-menu">
-                                            <Col>
-                                                {menuItem.icon ? <menuItem.icon color="#747EA2" noBackground /> : null}
-                                            </Col>
-                                            <Col>
-                                                <strong>{menuItem.name}</strong>
-                                                <p>{menuItem.description}</p>
-                                            </Col>
-                                        </Row>
+                                    <Menu.Item key={menuItem.type}>
+                                        <Link
+                                            to={urls.insightView(menuItem.type)}
+                                            data-attr="saved-insights-create-new-insight"
+                                            data-attr-insight-type={menuItem.type}
+                                            onClick={() =>
+                                                eventUsageLogic.actions.reportSavedInsightNewInsightClicked(
+                                                    menuItem.type
+                                                )
+                                            }
+                                        >
+                                            <Row className="icon-menu">
+                                                <Col>
+                                                    {menuItem.icon ? (
+                                                        <menuItem.icon color="#747EA2" noBackground />
+                                                    ) : null}
+                                                </Col>
+                                                <Col>
+                                                    <strong>{menuItem.name}</strong>
+                                                    <p>{menuItem.description}</p>
+                                                </Col>
+                                            </Row>
+                                        </Link>
                                     </Menu.Item>
                                 ))}
                         </Menu>
                     }
                     trigger={['click']}
                 >
-                    <button className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
+                    <button
+                        className="new-insight-dropdown-btn"
+                        onClick={(e) => e.preventDefault()}
+                        data-attr="saved-insights-new-insight-button"
+                    >
                         New Insight <CaretDownFilled style={{ paddingLeft: 12 }} />
                     </button>
                 </Dropdown>
@@ -407,23 +415,25 @@ export function SavedInsights(): JSX.Element {
                         onChange={(fromDate, toDate) => setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })}
                     />
                 </Col>
-                <Col>
-                    Created by
-                    <Select
-                        value={createdBy}
-                        style={{ paddingLeft: 8, width: 140 }}
-                        onChange={(cb) => {
-                            setSavedInsightsFilters({ createdBy: cb })
-                        }}
-                    >
-                        <Select.Option value={'All users'}>All users</Select.Option>
-                        {members.map((member) => (
-                            <Select.Option key={member.user.id} value={member.user.id}>
-                                {member.user.first_name}
-                            </Select.Option>
-                        ))}
-                    </Select>
-                </Col>
+                {tab !== SavedInsightsTabs.Yours ? (
+                    <Col>
+                        Created by
+                        <Select
+                            value={createdBy}
+                            style={{ paddingLeft: 8, width: 140 }}
+                            onChange={(cb) => {
+                                setSavedInsightsFilters({ createdBy: cb })
+                            }}
+                        >
+                            <Select.Option value={'All users'}>All users</Select.Option>
+                            {members.map((member) => (
+                                <Select.Option key={member.user.id} value={member.user.id}>
+                                    {member.user.first_name}
+                                </Select.Option>
+                            ))}
+                        </Select>
+                    </Col>
+                ) : null}
             </Row>
             {insights.count > 0 && (
                 <Row className="list-or-card-layout">

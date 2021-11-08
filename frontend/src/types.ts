@@ -22,6 +22,7 @@ import { PostHog } from 'posthog-js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
+// Keep this in sync with backend constants (constants.py)
 export enum AvailableFeature {
     ZAPIER = 'zapier',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
@@ -31,6 +32,7 @@ export enum AvailableFeature {
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
+    CORRELATION_ANALYSIS = 'correlation_analysis',
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -85,6 +87,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    membership_level: OrganizationMembershipLevel | null
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -98,7 +101,6 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
-    membership_level: OrganizationMembershipLevel | null
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -188,7 +190,9 @@ export interface TeamType extends TeamBasicType {
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
     correlation_config: {
-        excluded_person_property_names: string[]
+        excluded_person_property_names?: string[]
+        excluded_event_property_names?: string[]
+        excluded_event_names?: string[]
     }
 }
 
@@ -256,6 +260,7 @@ export interface EditorProps {
 
 export interface ToolbarProps extends EditorProps {
     posthog?: PostHog
+    disableExternalStyles?: boolean
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -540,6 +545,11 @@ export interface EventType {
     event: string
 }
 
+export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+    percentage: number
+    timestamp: number
+}
+
 export interface EventsTableRowItem {
     event?: EventType
     date_break?: string
@@ -572,6 +582,11 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+}
+
+export interface SessionRecordingEvents {
+    next?: string
+    events: EventType[]
 }
 
 export interface BillingType {
@@ -1076,6 +1091,8 @@ export interface SetInsightOptions {
     shouldMergeWithExisting?: boolean
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
+    /** calling with this updates the "last saved" filters */
+    fromPersistentApi?: boolean
 }
 
 export interface FeatureFlagGroupType {
@@ -1106,7 +1123,7 @@ export interface FeatureFlagType {
     deleted: boolean
     active: boolean
     created_by: UserBasicType | null
-    created_at: string
+    created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
 }
@@ -1262,6 +1279,13 @@ export interface PersonProperty {
     count: number
 }
 
+export interface GroupType {
+    group_type: string
+    group_type_index: number
+}
+
+export type GroupTypeProperties = Record<number, Array<PersonProperty>>
+
 export interface SelectOption {
     value: string
     label?: string
@@ -1339,6 +1363,7 @@ export enum FunnelCorrelationResultsType {
 
 export enum HelpType {
     Slack = 'slack',
+    GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
 }
