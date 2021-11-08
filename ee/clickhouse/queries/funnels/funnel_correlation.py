@@ -578,6 +578,8 @@ class FunnelCorrelation:
         )
 
     def get_funnel_persons_cte(self) -> Tuple[str, Dict[str, Any]]:
+        if False:
+            print("this can never be tested")
 
         return (
             self._funnel_persons_generator.get_query(extra_fields=["steps", "final_timestamp", "first_timestamp"]),
