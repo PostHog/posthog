@@ -2,7 +2,7 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightTabs/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { FunnelVizType, ViewType } from '~/types'
+import { FunnelVizType, ItemMode, ViewType } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -141,7 +141,7 @@ export function InsightContainer(): JSX.Element {
                         <InsightsTable
                             showTotalCount={activeView !== ViewType.SESSIONS}
                             typeKey={activeView === ViewType.TRENDS ? `trends_${activeView}` : ''}
-                            canEditSeriesNameInline={activeView === ViewType.TRENDS}
+                            canEditSeriesNameInline={activeView === ViewType.TRENDS && insightMode === ItemMode.Edit}
                         />
                     </BindLogic>
                 </Card>
