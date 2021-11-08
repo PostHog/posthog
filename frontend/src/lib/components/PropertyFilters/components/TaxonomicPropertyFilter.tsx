@@ -12,10 +12,7 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import {
-    propertyFilterTypeToTaxonomicFilterType,
-    taxonomicFilterTypeToPropertyFilterType,
-} from 'lib/components/PropertyFilters/utils'
+import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 
 let uniqueMemoizedIndex = 0
 
@@ -44,9 +41,9 @@ export function TaxonomicPropertyFilter({
         <TaxonomicFilter
             groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type)}
             value={cohortOrOtherValue}
-            onChange={(group, value) => {
-                selectItem(taxonomicFilterTypeToPropertyFilterType(group.type), value)
-                if (group.type === TaxonomicFilterGroupType.Cohorts) {
+            onChange={(taxonomicGroup, value) => {
+                selectItem(taxonomicGroup, value)
+                if (taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts) {
                     onComplete?.()
                 }
             }}
