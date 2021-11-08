@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
     Input,
     Button,
@@ -133,6 +133,7 @@ export function FeatureFlag(): JSX.Element {
         updateVariant,
         removeVariant,
         distributeVariantsEqually,
+        setFeatureFlag,
     } = useActions(featureFlagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(featureFlagClientLogic)
 
@@ -140,6 +141,10 @@ export function FeatureFlag(): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
     // whether to warn the user that their variants will be lost
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
+
+    useEffect(() => {
+        form.setFieldsValue({ ...featureFlag })
+    }, [featureFlag])
 
     return (
         <div className="feature-flag">
@@ -152,6 +157,7 @@ export function FeatureFlag(): JSX.Element {
                         if (featureFlagId !== 'new' && newValues.key) {
                             setHasKeyChanged(newValues.key !== featureFlag.key)
                         }
+                        setFeatureFlag({ ...featureFlag, ...newValues })
                     }}
                     onFinish={(values) =>
                         saveFeatureFlag({
@@ -449,7 +455,7 @@ export function FeatureFlag(): JSX.Element {
                                                     <Slider
                                                         tooltipPlacement="top"
                                                         value={rollout_percentage}
-                                                        onChange={(value) =>
+                                                        onChange={(value: number) =>
                                                             updateVariant(index, { rollout_percentage: value })
                                                         }
                                                     />

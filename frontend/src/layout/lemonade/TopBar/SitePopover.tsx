@@ -5,7 +5,15 @@ import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
 import { LemonButton } from '../../../lib/components/LemonButton'
 import { LemonRow } from '../../../lib/components/LemonRow'
-import { IconCheckmark, IconOffline, IconPlus, IconLogout, IconUpdate, IconExclamation } from 'lib/components/icons'
+import {
+    IconCheckmark,
+    IconOffline,
+    IconPlus,
+    IconLogout,
+    IconUpdate,
+    IconExclamation,
+    IconBill,
+} from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
@@ -43,7 +51,12 @@ function AccountInfo(): JSX.Element {
                     {user?.email}
                 </div>
             </div>
-            <Link to={urls.mySettings()} onClick={closeSitePopover} className="SitePopover__side-link">
+            <Link
+                to={urls.mySettings()}
+                onClick={closeSitePopover}
+                className="SitePopover__side-link"
+                data-attr="top-menu-item-me"
+            >
                 Manage account
             </Link>
         </div>
@@ -68,7 +81,12 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                     <strong>{organization.name}</strong>
                     <AccessLevelIndicator organization={organization} />
                 </div>
-                <Link to={urls.organizationSettings()} onClick={closeSitePopover} className="SitePopover__side-link">
+                <Link
+                    to={urls.organizationSettings()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="top-menu-item-org-settings"
+                >
                     Settings
                 </Link>
             </>
@@ -105,6 +123,7 @@ function InviteMembersButton(): JSX.Element {
                 showInviteModal()
             }}
             fullWidth
+            data-attr="top-menu-invite-team-members"
         >
             Invite members
         </LemonButton>
@@ -157,7 +176,12 @@ function License(): JSX.Element {
                         </div>
                     )}
                 </div>
-                <Link to={urls.instanceLicenses()} onClick={closeSitePopover} className="SitePopover__side-link">
+                <Link
+                    to={urls.instanceLicenses()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="top-menu-item-licenses"
+                >
                     Manage license
                 </Link>
             </>
@@ -179,7 +203,12 @@ function SystemStatus(): JSX.Element {
                 <div className="SitePopover__main-info">
                     {systemStatus ? 'All systems operational' : 'Potential system issue'}
                 </div>
-                <Link to={urls.systemStatus()} onClick={closeSitePopover} className="SitePopover__side-link">
+                <Link
+                    to={urls.systemStatus()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="system-status-badge"
+                >
                     System status
                 </Link>
             </>
@@ -211,6 +240,7 @@ function Version(): JSX.Element {
                         closeSitePopover()
                     }}
                     className="SitePopover__side-link"
+                    data-attr="update-indicator-badge"
                 >
                     Release notes
                 </Link>
@@ -223,7 +253,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} type="stealth" fullWidth>
+        <LemonButton onClick={logout} icon={<IconLogout />} type="stealth" fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )
@@ -250,6 +280,17 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
                         {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
+                        {preflight?.cloud && (
+                            <LemonButton
+                                onClick={closeSitePopover}
+                                to={urls.organizationBilling()}
+                                icon={<IconBill />}
+                                fullWidth
+                                data-attr="top-menu-item-billing"
+                            >
+                                Billing
+                            </LemonButton>
+                        )}
                         <InviteMembersButton />
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (

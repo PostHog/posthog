@@ -48,6 +48,7 @@ const propertyFilterMapping: Record<string, TaxonomicFilterGroupType> = {
     event: TaxonomicFilterGroupType.EventProperties,
     cohort: TaxonomicFilterGroupType.Cohorts,
     element: TaxonomicFilterGroupType.Elements,
+    groups: TaxonomicFilterGroupType.Groups,
 }
 
 export function propertyFilterTypeToTaxonomicFilterType(

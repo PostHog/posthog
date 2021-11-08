@@ -26,27 +26,26 @@ export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelec
     const addElementWithToggle = React.cloneElement(addElement, { onClick: toggle })
 
     return (
-        <div>
-            <div>
-                {selectedEvents.map((name) => (
-                    <PropertyTag handleRemove={handleRemove} name={name} key={name} />
-                ))}
+        <div style={{ marginBottom: 16 }}>
+            {selectedEvents.map((name) => (
+                <PropertyTag handleRemove={handleRemove} name={name} key={name} />
+            ))}
 
-                <Popup
-                    visible={open}
-                    overlay={
-                        <TaxonomicFilter
-                            onChange={(_, value) => {
-                                handleChange(value as string)
-                                hide()
-                            }}
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-                        />
-                    }
-                >
-                    {addElementWithToggle}
-                </Popup>
-            </div>
+            <Popup
+                visible={open}
+                onClickOutside={() => hide()}
+                overlay={
+                    <TaxonomicFilter
+                        onChange={(_, value) => {
+                            handleChange(value as string)
+                            hide()
+                        }}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    />
+                }
+            >
+                {addElementWithToggle}
+            </Popup>
         </div>
     )
 }
@@ -86,6 +85,7 @@ const PropertyTag = ({ name, handleRemove }: PropertyTagProps): JSX.Element => (
             background: '#D9D9D9',
             border: '1px solid #D9D9D9',
             borderRadius: '40px',
+            fontSize: 'inherit',
         }}
     >
         {name}

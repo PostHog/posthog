@@ -1,0 +1,76 @@
+@import '~/vars.scss';
+
+.LemonSwitch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.LemonSwitch__slider {
+    position: absolute;
+    left: 0;
+    top: 5px;
+    display: inline-block;
+    width: 36px;
+    height: 10px;
+    border-radius: 25px;
+    background-color: var(--border);
+    transition: background-color 100ms ease;
+    .LemonSwitch--checked & {
+        background-color: rgba($primary_alt, 0.25);
+    }
+}
+
+.LemonSwitch__handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.625rem;
+    background-color: #fff;
+    border: 2px solid var(--border);
+    transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
+    &::after {
+        content: '';
+        transition: border-color 100ms ease;
+        animation: spin 1000ms linear infinite;
+        display: block;
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-radius: 0.625rem;
+        border: 2px solid transparent;
+        border-left-color: transparent;
+    }
+    .LemonSwitch--loading &::after {
+        border-left-color: var(--primary-alt);
+    }
+    .LemonSwitch--loading.LemonSwitch--checked &::after {
+        border-left-color: #fff;
+    }
+    .LemonSwitch--checked & {
+        transform: translateX(1rem);
+        background-color: var(--primary-alt);
+        border-color: var(--primary-alt);
+    }
+    .LemonSwitch--active & {
+        transform: scale(1.1);
+    }
+    .LemonSwitch--active.LemonSwitch--checked & {
+        transform: translateX(1rem) scale(1.1);
+    }
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}

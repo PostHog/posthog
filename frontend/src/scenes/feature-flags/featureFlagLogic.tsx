@@ -8,11 +8,14 @@ import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
-const NEW_FLAG = {
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+
+const NEW_FLAG: FeatureFlagType = {
     id: null,
+    created_at: null,
     key: '',
     name: '',
-    filters: { groups: [{ properties: [], rollout_percentage: null }] },
+    filters: { groups: [{ properties: [], rollout_percentage: null }], multivariate: null },
     deleted: false,
     active: true,
     created_by: null,
@@ -40,6 +43,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     },
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
+        setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         addMatchGroup: true,
         removeMatchGroup: (index: number) => ({ index }),
         updateMatchGroup: (
@@ -69,6 +73,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         featureFlag: [
             null as FeatureFlagType | null,
             {
+                setFeatureFlag: (_, { featureFlag }) => featureFlag,
                 addMatchGroup: (state) => {
                     if (!state) {
                         return state
@@ -206,22 +211,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 return NEW_FLAG
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { created_at, id, ...flag } = updatedFlag
                 if (!updatedFlag.id) {
-                    return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, {
-                        ...updatedFlag,
-                        id: undefined,
-                    })
+                    return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
                 } else {
-                    return await api.update(`api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`, {
-                        ...updatedFlag,
-                        id: undefined,
-                    })
+                    return await api.update(
+                        `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
+                        flag
+                    )
                 }
             },
         },
     }),
     listeners: ({ actions, values }) => ({
-        saveFeatureFlagSuccess: () => {
+        saveFeatureFlagSuccess: ({ featureFlag }) => {
             toast.success(
                 <div>
                     <h1>Your feature flag has been saved!</h1>
@@ -234,6 +238,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     closeOnClick: true,
                 }
             )
+
+            featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
@@ -254,7 +260,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     }),
     selectors: {
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
-        variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters?.multivariate?.variants || []],
+        variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters.multivariate?.variants || []],
         nonEmptyVariants: [(s) => [s.variants], (variants) => variants.filter(({ key }) => !!key)],
         variantRolloutSum: [
             (s) => [s.variants],
@@ -267,13 +273,31 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 variantRolloutSum === 100,
         ],
     },
-    urlToAction: ({ actions }) => ({
+    actionToUrl: () => ({
+        // change URL from '/feature_flags/new' to '/feature_flags/123' after saving
+        saveFeatureFlagSuccess: ({ featureFlag }) => [
+            `/feature_flags/${featureFlag.id || 'new'}`,
+            {},
+            {},
+            { replace: true },
+        ],
+    }),
+    urlToAction: ({ actions, values }) => ({
         '/feature_flags/*': ({ _: id }) => {
-            if (id) {
+            if (id && id !== values.featureFlagId) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 actions.setFeatureFlagId(parsedId)
+
+                const foundFlag = featureFlagsLogic
+                    .findMounted()
+                    ?.values.featureFlags.find((flag) => flag.id === parsedId)
+                if (foundFlag) {
+                    actions.setFeatureFlag(foundFlag)
+                    actions.loadFeatureFlag() // reload cache
+                } else {
+                    actions.setFeatureFlag(NEW_FLAG)
+                }
             }
-            actions.loadFeatureFlag()
         },
     }),
 })

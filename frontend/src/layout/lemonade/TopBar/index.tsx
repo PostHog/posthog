@@ -13,11 +13,13 @@ import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInvit
 import { ChangelogModal } from '../../ChangelogModal'
 import { Link } from '../../../lib/components/Link'
 import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
+import { RedesignOptIn } from '../RedesignOptIn'
 import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 
 export function TopBar(): JSX.Element {
     const {
         isSideBarShown,
+        isSideBarForciblyHidden,
         announcementMessage,
         isAnnouncementShown,
         isInviteModalShown,
@@ -41,15 +43,18 @@ export function TopBar(): JSX.Element {
             )}
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
-                    <div className="TopBar__hamburger" onClick={toggleSideBar}>
-                        {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
-                    </div>
+                    {!isSideBarForciblyHidden && (
+                        <div className="TopBar__hamburger" onClick={toggleSideBar}>
+                            {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
+                        </div>
+                    )}
                     <Link to="/" className="TopBar__logo">
                         <FriendlyLogo />
                     </Link>
                     <SearchBox />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
+                    <RedesignOptIn />
                     <HelpButton />
                     <SitePopover />
                 </div>

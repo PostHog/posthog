@@ -28,7 +28,7 @@
         margin-right: 1rem;
     }
     &--right > * {
-        margin-left: 1rem;
+        margin-left: 1.25rem;
     }
 }
 
@@ -67,9 +67,12 @@
     p {
         margin: 0;
     }
-    a {
-        color: var(--purple-light);
+    a:link {
+        color: var(--blue-light);
         text-decoration: underline;
+    }
+    a:visited {
+        color: var(--purple-light);
     }
 }
 

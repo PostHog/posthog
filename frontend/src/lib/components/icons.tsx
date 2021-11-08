@@ -823,6 +823,21 @@ export function IconGithub(): JSX.Element {
     )
 }
 
+/** Material Design Receipt icon. */
+export function IconBill(): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <g fill="currentColor">
+                <path d="m18.85 4.35-1.35-1.35-1.35 1.35-1.35-1.35-1.35 1.35-1.35-1.35-1.35 1.35-1.35-1.35-1.35 1.35-1.35-1.35v12.6h-2.7v2.7c0 1.494 1.206 2.7 2.7 2.7h10.8c1.494 0 2.7-1.206 2.7-2.7v-15.3zm-4.05 14.85h-8.1c-.495 0-.9-.405-.9-.9v-.9h9zm3.6-.9c0 .495-.405.9-.9.9s-.9-.405-.9-.9v-2.7h-8.1v-9.9h9.9z" />
+                <path d="m14.8001 7.5h-5.39995v1.8h5.39995z" />
+                <path d="m17.5001 7.5h-1.8v1.8h1.8z" />
+                <path d="m14.8001 10.1996h-5.39995v1.8h5.39995z" />
+                <path d="m17.5001 10.1996h-1.8v1.8h1.8z" />
+            </g>
+        </svg>
+    )
+}
+
 // AntD arrows rotated at convenient angles
 
 export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {

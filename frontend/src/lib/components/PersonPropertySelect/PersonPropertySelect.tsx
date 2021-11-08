@@ -23,53 +23,53 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
     }
 
     return (
-        <div>
-            <div>
-                {selectedProperties.length > 0 &&
-                    selectedProperties.map((name) => {
-                        return (
-                            <Tag
-                                key={name}
-                                closable
-                                onClose={(): void => handleRemove(name)}
-                                style={{
-                                    margin: '0.25rem',
-                                    padding: '0.25rem 0.5em',
-                                    background: '#D9D9D9',
-                                    border: '1px solid #D9D9D9',
-                                    borderRadius: '40px',
-                                }}
-                            >
-                                {name}
-                            </Tag>
-                        )
-                    })}
-
-                <Popup
-                    visible={open}
-                    overlay={
-                        <TaxonomicFilter
-                            onChange={(_, value) => {
-                                handleChange(value as string)
-                                hide()
+        <div style={{ marginBottom: 16 }}>
+            {selectedProperties.length > 0 &&
+                selectedProperties.map((name) => {
+                    return (
+                        <Tag
+                            key={name}
+                            closable
+                            onClose={(): void => handleRemove(name)}
+                            style={{
+                                margin: '0.25rem',
+                                padding: '0.25rem 0.5em',
+                                background: '#D9D9D9',
+                                border: '1px solid #D9D9D9',
+                                borderRadius: '40px',
+                                fontSize: 'inherit',
                             }}
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                        />
-                    }
-                >
-                    {({ setRef }) => (
-                        <Button
-                            ref={setRef}
-                            onClick={() => toggle()}
-                            type="link"
-                            className="new-prop-filter"
-                            icon={<PlusCircleOutlined />}
                         >
-                            Exclude person property
-                        </Button>
-                    )}
-                </Popup>
-            </div>
+                            {name}
+                        </Tag>
+                    )
+                })}
+
+            <Popup
+                visible={open}
+                onClickOutside={() => hide()}
+                overlay={
+                    <TaxonomicFilter
+                        onChange={(_, value) => {
+                            handleChange(value as string)
+                            hide()
+                        }}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                    />
+                }
+            >
+                {({ setRef }) => (
+                    <Button
+                        ref={setRef}
+                        onClick={() => toggle()}
+                        type="link"
+                        className="new-prop-filter"
+                        icon={<PlusCircleOutlined />}
+                    >
+                        Add exclusion
+                    </Button>
+                )}
+            </Popup>
         </div>
     )
 }

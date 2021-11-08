@@ -16,6 +16,8 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { groupsModel } from '~/models/groupsModel'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 
 export interface TrendTabProps {
     view: string
@@ -26,6 +28,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
+    groupPropertiesModel.mount()
+    const { taxonomicTypesWithGroups } = useValues(groupsModel)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
         { name: 'new', tooltip: 'Users that are new.' },
@@ -90,7 +94,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     {filters.insight !== ViewType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle />
-                            <PropertyFilters pageKey="trends-filters" />
+                            <PropertyFilters taxonomicGroupTypes={taxonomicTypesWithGroups} pageKey="trends-filters" />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             {formulaAvailable && (
                                 <>

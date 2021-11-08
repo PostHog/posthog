@@ -1,6 +1,7 @@
 import re
 from contextlib import contextmanager
 from functools import wraps
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -20,6 +21,8 @@ class ClickhouseTestMixin:
     #  this way the team id will increment so we don't have to destroy all clickhouse tables on each test
     CLASS_DATA_LEVEL_SETUP = False
 
+    snapshot: Any
+
     @contextmanager
     def _assertNumQueries(self, func):
         yield
@@ -31,12 +34,12 @@ class ClickhouseTestMixin:
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None):
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
-        query = re.sub(r"team_id = \d+", "team_id = 2", query)
+        query = re.sub(r"(team|cohort)_id = \d+", r"\1_id = 2", query)
 
-        assert sqlparse.format(query, reindent=True) == self.snapshot  # type: ignore
+        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
-            assert params == self.snapshot  # type: ignore
+            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
 
     @contextmanager
     def capture_select_queries(self):

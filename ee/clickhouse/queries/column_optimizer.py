@@ -85,6 +85,10 @@ class ColumnOptimizer:
             # :TRICKY: We only support string breakdown for event/person properties
             assert isinstance(self.filter.breakdown, str)
             counter[(self.filter.breakdown, self.filter.breakdown_type, None)] += 1
+        elif self.filter.breakdown_type == "group":
+            # :TRICKY: We only support string breakdown for group properties
+            assert isinstance(self.filter.breakdown, str)
+            counter[(self.filter.breakdown, self.filter.breakdown_type, self.filter.breakdown_group_type_index)] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):

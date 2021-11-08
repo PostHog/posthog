@@ -8,6 +8,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     connect: {
         values: [teamLogic, ['currentTeamId']],
     },
+    actions: {
+        updateFlag: (flag: FeatureFlagType) => ({ flag }),
+    },
     loaders: ({ values }) => ({
         featureFlags: {
             __default: [] as FeatureFlagType[],
@@ -21,6 +24,17 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         },
     }),
+    reducers: {
+        featureFlags: {
+            updateFlag: (state, { flag }) => {
+                if (state.find(({ id }) => id === flag.id)) {
+                    return state.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag))
+                } else {
+                    return [flag, ...state]
+                }
+            },
+        },
+    },
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadFeatureFlags()

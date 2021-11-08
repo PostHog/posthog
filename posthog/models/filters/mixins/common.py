@@ -6,10 +6,12 @@ from typing import Dict, List, Literal, Optional, Union, cast
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
     ACTIONS,
     BREAKDOWN,
+    BREAKDOWN_GROUP_TYPE_INDEX,
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
@@ -21,6 +23,7 @@ from posthog.constants import (
     EXCLUSIONS,
     FILTER_TEST_ACCOUNTS,
     FORMULA,
+    GROUP_TYPES_LIMIT,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
@@ -35,6 +38,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType, IntervalType
+from posthog.models.filters.mixins.groups import validate_group_type_index
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.utils import relative_date_parse
 
@@ -141,15 +145,25 @@ class BreakdownMixin(BaseParamMixin):
 
         return result
 
-
-class BreakdownTypeMixin(BaseParamMixin):
     @cached_property
     def breakdown_type(self) -> Optional[BreakdownType]:
         return self._data.get(BREAKDOWN_TYPE, None)
 
+    @cached_property
+    def breakdown_group_type_index(self) -> Optional[int]:
+        value = self._data.get(BREAKDOWN_GROUP_TYPE_INDEX, None)
+        validate_group_type_index(BREAKDOWN_GROUP_TYPE_INDEX, value)
+
+        return value
+
     @include_dict
-    def breakdown_type_to_dict(self):
-        return {BREAKDOWN_TYPE: self.breakdown_type} if self.breakdown_type else {}
+    def breakdown_type_and_group_to_dict(self):
+        if self.breakdown_type == "group":
+            return {BREAKDOWN_TYPE: self.breakdown_type, BREAKDOWN_GROUP_TYPE_INDEX: self.breakdown_group_type_index}
+        elif self.breakdown_type:
+            return {BREAKDOWN_TYPE: self.breakdown_type}
+        else:
+            return {}
 
 
 class BreakdownValueMixin(BaseParamMixin):
