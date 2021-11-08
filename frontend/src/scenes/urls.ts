@@ -30,11 +30,7 @@ export const urls = {
     projectSettings: () => '/project/settings',
     mySettings: () => '/me/settings',
     organizationSettings: () => '/organization/settings',
-    organizationBilling: () => '/organization/billing',
     organizationCreateFirst: () => '/organization/create',
-    instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
     // Onboarding / setup routes
     login: () => '/login',
     passwordReset: () => '/reset',
@@ -45,4 +41,11 @@ export const urls = {
     personalization: () => '/personalization',
     ingestion: () => '/ingestion',
     onboardingSetup: () => '/setup',
+    // Cloud only
+    organizationBilling: () => '/organization/billing',
+    billingSubscribed: () => '/organization/billing/subscribed',
+    // Self-hosted only
+    instanceLicenses: () => '/instance/licenses',
+    systemStatus: () => '/instance/status',
+    systemStatusPage: (page: string) => `/instance/status/${page}`,
 }

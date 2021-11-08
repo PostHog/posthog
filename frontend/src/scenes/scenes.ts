@@ -104,10 +104,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         plain: true,
         organizationBased: true,
     },
-    [Scene.Billing]: {
-        organizationBased: true,
-        hideDemoWarnings: true,
-    },
     // Onboarding/setup routes
     [Scene.Login]: {
         onlyUnauthenticated: true,
@@ -138,6 +134,16 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     // Personal routes
     [Scene.MySettings]: {
         personal: true,
+    },
+    // Cloud-only routes
+    [Scene.Billing]: {
+        hideDemoWarnings: true,
+        organizationBased: true,
+    },
+    [Scene.BillingSubscribed]: {
+        plain: true,
+        hideTopNav: true,
+        allowUnauthenticated: true,
     },
 }
 
@@ -175,6 +181,7 @@ export const routes: Record<string, Scene> = {
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
+    [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.instanceLicenses()]: Scene.InstanceLicenses,
     [urls.systemStatus()]: Scene.SystemStatus,
