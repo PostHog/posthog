@@ -13,6 +13,7 @@ $tick_hover_size: 5px;
     .slider {
         z-index: 2;
         position: relative;
+        height: 100%;
 
         .thumb {
             z-index: 5;
@@ -69,6 +70,7 @@ $tick_hover_size: 5px;
         z-index: 1;
         position: relative;
         width: 100%;
+        bottom: 100%;
 
         .tick-hover-box {
             cursor: pointer;
