@@ -32,6 +32,7 @@ export interface TaxonomicFilterGroup {
     searchAlias?: string
     getName: (instance: any) => string
     getValue: (instance: any) => TaxonomicFilterValue
+    groupTypeIndex?: number
 }
 
 export enum TaxonomicFilterGroupType {

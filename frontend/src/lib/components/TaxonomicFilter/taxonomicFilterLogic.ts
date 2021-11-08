@@ -179,6 +179,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     value: `groupProperties_${index}`,
                     getName: (group) => group.name,
                     getValue: (group) => group.name,
+                    groupTypeIndex: index,
                 })),
         ],
         value: [() => [(_, props) => props.value], (value) => value],

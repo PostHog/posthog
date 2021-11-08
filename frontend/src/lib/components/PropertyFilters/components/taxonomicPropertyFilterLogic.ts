@@ -69,7 +69,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         propertyKey.toString(),
                         null, // Reset value field
                         operator,
-                        propertyType
+                        propertyType,
+                        taxonomicGroup.groupTypeIndex
                     )
                 }
                 actions.closeDropdown()
