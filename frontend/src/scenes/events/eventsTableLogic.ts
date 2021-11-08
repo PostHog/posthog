@@ -237,7 +237,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     }),
 
     urlToAction: ({ actions, values }) => {
-        const urlToAction = (_: Record<string, any>, searchParams: Record<string, any>) => {
+        const urlToAction = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             actions.setProperties(searchParams.properties || values.properties || {})
 
             if (searchParams.autoload) {
