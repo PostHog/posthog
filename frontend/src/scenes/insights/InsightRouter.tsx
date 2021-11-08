@@ -11,6 +11,7 @@ import { insightRouterLogicType } from './InsightRouterType'
 import { SceneExport } from 'scenes/sceneTypes'
 
 const insightRouterLogic = kea<insightRouterLogicType>({
+    path: ['scenes', 'insights', 'InsightRouter'],
     actions: {
         loadInsight: (id: string) => ({ id }),
         setError: true,

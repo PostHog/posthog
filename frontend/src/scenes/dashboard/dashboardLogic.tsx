@@ -24,6 +24,7 @@ export interface DashboardLogicProps {
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
+    path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
     connect: {
         values: [teamLogic, ['currentTeamId']],
         logic: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
@@ -69,8 +70,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
-        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }), // id represents dashboardItem id's
+        setRefreshStatus: (id: number, loading = false) => ({ id, loading }),
+        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }),
         setRefreshError: (id: number) => ({ id }),
     },
 
@@ -226,7 +227,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 setRefreshStatuses: (_, { ids, loading }) =>
                     Object.fromEntries(
                         ids.map((id) => [id, loading ? { loading: true } : { refreshed: true }])
-                    ) as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
+                    ) as Record<
+                        number,
+                        {
+                            loading?: boolean
+                            refreshed?: boolean
+                            error?: boolean
+                        }
+                    >,
                 setRefreshError: (state, { id }) => ({
                     ...state,
                     [id]: { error: true },

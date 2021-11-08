@@ -5,6 +5,7 @@ import { FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
+    path: ['scenes', 'feature-flags', 'featureFlagsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
     },

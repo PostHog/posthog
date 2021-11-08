@@ -19,6 +19,7 @@ export function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): num
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>({
+    path: ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic'],
     connect: {
         logic: [eventUsageLogic],
         values: [

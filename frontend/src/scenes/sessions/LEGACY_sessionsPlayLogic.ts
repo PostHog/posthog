@@ -34,6 +34,7 @@ const convertToNewSessionPlayerDataType = (legacyData: LEGACY_SessionPlayerData)
 }
 
 export const LEGACY_sessionsPlayLogic = kea<LEGACY_sessionsPlayLogicType>({
+    path: ['scenes', 'sessions', 'LEGACY_sessionsPlayLogic'],
     connect: {
         logic: [eventUsageLogic],
         values: [
