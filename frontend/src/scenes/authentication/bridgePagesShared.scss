@@ -25,11 +25,17 @@
         background-color: #000;
         color: white;
         font-weight: $medium;
-        padding-top: $default_spacing * 0.75;
-        padding-bottom: $default_spacing * 0.75;
+        padding-top: $default_spacing * 0.7;
+        padding-bottom: $default_spacing * 0.7;
         font-size: 1.1em;
         height: unset;
-        border: 0;
+        border: 2px solid #000;
+
+        &.outlined {
+            border: 2px solid #000;
+            color: #000;
+            background-color: white;
+        }
     }
 
     // Local styles
@@ -55,6 +61,11 @@
             background-color: white;
             border-radius: $radius;
         }
+    }
+
+    .main-art {
+        width: 300px;
+        padding-right: 48px;
     }
 
     .header-logo {

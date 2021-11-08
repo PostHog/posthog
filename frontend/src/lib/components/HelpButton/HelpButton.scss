@@ -5,7 +5,9 @@
     align-items: center;
     height: 2.5rem;
     cursor: pointer;
+    display: inline-block;
     margin-left: 1.25rem !important;
+
     .help-icon {
         color: var(--bg-navy);
         font-size: 1.25rem;

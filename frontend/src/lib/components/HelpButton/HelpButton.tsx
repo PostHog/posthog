@@ -45,9 +45,10 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
 
 export interface HelpButtonProps {
     placement?: Placement
+    customComponent?: JSX.Element
 }
 
-export function HelpButton({ placement }: HelpButtonProps): JSX.Element {
+export function HelpButton({ placement, customComponent }: HelpButtonProps): JSX.Element {
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
     const { isHelpVisible } = useValues(helpButtonLogic)
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic)
@@ -116,8 +117,12 @@ export function HelpButton({ placement }: HelpButtonProps): JSX.Element {
             actionable
         >
             <div className="help-button" onClick={toggleHelp}>
-                <QuestionCircleOutlined className="help-icon" />
-                <CaretDownOutlined />
+                {customComponent || (
+                    <>
+                        <QuestionCircleOutlined className="help-icon" />
+                        <CaretDownOutlined />
+                    </>
+                )}
             </div>
         </Popup>
     )
