@@ -1,6 +1,17 @@
 import dataclasses
+import json
+import urllib.parse
 from os import stat
-from typing import Any, Dict, List, Literal, Tuple, TypedDict, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    TypedDict,
+    cast,
+)
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.utils.serializer_helpers import ReturnList
@@ -13,8 +24,9 @@ from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
+from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_EVENTS, FunnelCorrelationType
 from posthog.models import Filter, Team
+from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
 
@@ -36,8 +48,13 @@ class EventOddsRatio(TypedDict):
 
 class EventOddsRatioSerialized(TypedDict):
     event: EventDefinition
+
     success_count: int
+    success_people_url: Optional[str]
+
     failure_count: int
+    failure_people_url: Optional[str]
+
     odds_ratio: float
     correlation_type: Literal["success", "failure"]
 
@@ -521,17 +538,46 @@ class FunnelCorrelation:
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
         return events, skewed_totals
 
+    def construct_people_url(self, success: bool, event_definition: EventDefinition) -> Optional[str]:
+        #  NOTE: initially only supporting events type, and there is an implicit
+        #  events type when correlation_type is not set.
+        if self._filter.correlation_type and self._filter.correlation_type != FunnelCorrelationType.EVENTS:
+            return None
+
+        # NOTE: we need to convert certain params to strings. I don't think this
+        # class should need to know these details. As we are trying to encode
+        # the filter dict into form encoding, but the persons endpoint is
+        # expecting some attributes to be further encoded as JSON, e.g.
+        # `funnel_correlation_person_entity`, `entities`.
+        # NOTE: I tried using `self._filter.with_data` but this caused errors to
+        # be raised either in `to_dict` or when deserializing on the people endpoint
+        # TODO: remove url serialization details from this class, it likely
+        # belongs in the application layer, or perhaps `FunnelCorrelationPeople`
+        params = self._filter.to_dict()
+        params = {
+            **params,
+            "events": json.dumps(params["events"]),
+            "funnel_correlation_person_converted": "true" if success else "false",
+            "funnel_correlation_person_entity": json.dumps(
+                {"id": event_definition["event"], "type": "events", "properties": event_definition["properties"]}
+            ),
+        }
+        return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         return {
             "events": [
                 {
                     "success_count": odds_ratio["success_count"],
+                    "success_people_url": self.construct_people_url(success=True, event_definition=event_definition),
                     "failure_count": odds_ratio["failure_count"],
+                    "failure_people_url": self.construct_people_url(success=False, event_definition=event_definition),
                     "odds_ratio": odds_ratio["odds_ratio"],
                     "correlation_type": odds_ratio["correlation_type"],
-                    "event": self.serialize_event_with_property(odds_ratio["event"]),
+                    "event": event_definition,
                 }
                 for odds_ratio in results[0]
+                if (event_definition := self.serialize_event_with_property(odds_ratio["event"]))
             ],
             "skewed": results[1],
         }
@@ -554,6 +600,8 @@ class FunnelCorrelation:
 
         query, params = self.get_contingency_table_query()
         results_with_total = sync_execute(query, params)
+
+        assert isinstance(results_with_total, list)
 
         # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]

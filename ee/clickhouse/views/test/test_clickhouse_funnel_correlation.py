@@ -10,6 +10,7 @@ from django.test import Client
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized, FunnelCorrelation
 from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
 from posthog.models.person import Person
@@ -264,6 +265,57 @@ class FunnelCorrelationTest(BaseTest):
             },
         }
 
+    def test_correlation_endpoint_provides_people_drill_down_urls(self):
+        """
+        Here we are setting up three users, and looking to retrieve one
+        correlation for watched video, with a url we can use to retrieve people
+        that successfully completed the funnel AND watched the video, and
+        another for people that did not complete the funnel but also watched the
+        video.
+        """
+
+        with freeze_time("2020-01-01"):
+            self.client.force_login(self.user)
+
+            events = {
+                "Person 1": [
+                    # Failure / watched
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "timestamp": datetime(2020, 1, 2)},
+                ],
+                "Person 2": [
+                    # Success / watched
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "timestamp": datetime(2020, 1, 2)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+                "Person 3": [
+                    # Success / did not watched. We don't expect to retrieve
+                    # this one as part of the
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
+
+            create_events(events_by_person=events, team=self.team)
+
+            odds = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    date_to="2020-04-04",
+                ),
+            )
+
+            assert odds["result"]["events"][0]["event"]["event"] == "watched video"
+            watched_video_correlation = odds["result"]["events"][0]
+
+            assert get_people_for_correlation_ok(client=self.client, correlation=watched_video_correlation) == {
+                "success": ["Person 2"],
+                "failure": ["Person 1"],
+            }
+
     def test_correlation_endpoint_with_properties(self):
         self.client.force_login(self.user)
 
@@ -491,6 +543,26 @@ def get_funnel_correlation_ok(client: Client, team_id: int, request: FunnelCorre
 
     assert response.status_code == 200
     return response.json()
+
+
+def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSerialized) -> Dict[str, Any]:
+    """
+    Helper for getting people for a correlation. Note we keep checking to just
+    inclusion of name, to make the stable to changes in other people props.
+    """
+    success_people_url = correlation["success_people_url"]
+    failure_people_url = correlation["failure_people_url"]
+
+    success_people_response = client.get(success_people_url)
+    assert success_people_response.status_code == 200
+
+    failure_people_response = client.get(failure_people_url)
+    assert failure_people_response.status_code == 200
+
+    return {
+        "success": [person["name"] for person in success_people_response.json()["results"][0]["people"]],
+        "failure": [person["name"] for person in failure_people_response.json()["results"][0]["people"]],
+    }
 
 
 def create_person(**kwargs):
