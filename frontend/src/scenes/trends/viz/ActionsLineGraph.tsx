@@ -19,7 +19,7 @@ export function ActionsLineGraph({
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
-    const { loadPeople } = useActions(personsModalLogic)
+    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
 
     return indexedResults &&
@@ -42,8 +42,9 @@ export function ActionsLineGraph({
                 dashboardItemId || filters.formula
                     ? null
                     : (point) => {
-                          const { dataset, day, value: pointValue } = point
-                          loadPeople({
+                          const { dataset, day, value: pointValue, index } = point
+                          console.log(point)
+                          const params = {
                               action: dataset.action || 'session',
                               label: dataset.label,
                               date_from: day,
@@ -53,7 +54,12 @@ export function ActionsLineGraph({
                                   dataset.breakdown_value === undefined ? dataset.status : dataset.breakdown_value,
                               saveOriginal: true,
                               pointValue,
-                          })
+                          }
+                          if (dataset.persons_urls?.[index]) {
+                              loadPeople(params, dataset.persons_urls[index])
+                          } else {
+                              loadPeople(params)
+                          }
                       }
             }
         />
