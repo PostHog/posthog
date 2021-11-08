@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from freezegun import freeze_time
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
@@ -195,6 +197,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter)
 
     @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
     def test_account_filters(self):
         person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -273,6 +276,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("mat_test_prop", query)
 
     @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
     def test_element(self):
         _create_event(
             event="$autocapture",
