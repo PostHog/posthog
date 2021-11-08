@@ -3,10 +3,14 @@ import { Plugin, PluginMeta } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
-import { ClickHouseEvent, Event, PluginConfig, TimestampFormat } from '../../../../types'
+import { ClickHouseEvent, Element, Event, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
 import { chainToElements } from '../../../../utils/db/utils'
 import { castTimestampToClickhouseFormat, UUIDT } from '../../../../utils/utils'
+
+export interface RawElement extends Element {
+    $el_text?: string
+}
 export interface TimestampBoundaries {
     min: Date | null
     max: Date | null
@@ -134,7 +138,9 @@ export const fetchEventsForInterval = async (
 
 export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
     const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
-    properties['$elements'] = chainToElements(elements_chain)
+    if (eventName === '$autocapture' && elements_chain) {
+        properties['$elements'] = convertDatabaseElementsToRawEventElements(chainToElements(elements_chain))
+    }
     properties['$$historical_export_source_db'] = 'clickhouse'
     const parsedEvent = {
         uuid,
@@ -154,7 +160,10 @@ export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): His
 export const convertPostgresEventToPluginEvent = (event: Event): HistoricalExportEvent => {
     const { event: eventName, timestamp, team_id, distinct_id, created_at, properties, elements, id } = event
     properties['$$postgres_event_id'] = id
-    properties['$elements'] = elements
+    if (eventName === '$autocapture' && elements) {
+        properties['$elements'] = convertDatabaseElementsToRawEventElements(elements)
+    }
+
     properties['$$historical_export_source_db'] = 'postgres'
     const parsedEvent = {
         uuid: new UUIDT().toString(), // postgres events don't store a uuid
@@ -175,4 +184,16 @@ const addHistoricalExportEventProperties = (event: HistoricalExportEvent): Histo
     event.properties['$$is_historical_export_event'] = true
     event.properties['$$historical_export_timestamp'] = new Date().toISOString()
     return event
+}
+
+const convertDatabaseElementsToRawEventElements = (elements: RawElement[]): RawElement[] => {
+    for (const element of elements) {
+        if (element.attributes && element.attributes.attr__class) {
+            element.attr_class = element.attributes.attr__class
+        }
+        if (element.text) {
+            element.$el_text = element.text
+        }
+    }
+    return elements
 }

@@ -48,7 +48,9 @@ const indexJs = `
 
     export async function exportEvents(events) {
         for (const event of events) {
-            testConsole.log('exported event', event.event)
+            if (event.properties && event.properties['$$is_historical_export_event']) {
+                testConsole.log('exported historical event', event)
+            }
         }
     }
 `
@@ -162,9 +164,9 @@ describe('e2e', () => {
     })
 
     describe('e2e export historical events', () => {
-        const awaitLogs = async () =>
+        const awaitHistoricalEventLogs = async () =>
             await new Promise((resolve) => {
-                resolve(testConsole.read().filter((log) => log[0] === 'exported event'))
+                resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))
             })
 
         test('export historical events', async () => {
@@ -174,12 +176,13 @@ describe('e2e', () => {
             await posthog.capture('historicalEvent4')
 
             await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
-            await delay(100)
 
             const historicalEvents = await hub.db.fetchEvents()
             expect(historicalEvents.length).toBe(4)
 
-            const exportedEventsCountBeforeJob = testConsole.read().filter((log) => log[0] === 'exported event').length
+            const exportedEventsCountBeforeJob = testConsole
+                .read()
+                .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
             const kwargs = {
@@ -194,24 +197,26 @@ describe('e2e', () => {
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
-            await delayUntilEventIngested(awaitLogs, 4)
-            await delay(100)
+            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
 
-            const exportedEventsAfterJob = testConsole.read().filter((log) => log[0] === 'exported event')
-            expect(exportedEventsAfterJob.length).toEqual(4)
-            expect(exportedEventsAfterJob.map((log) => log[1])).toEqual(
+            const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
+            const exportedEventsCountAfterJob = exportLogs.length
+            const exportedEvents = exportLogs.map((log) => log[1])
+
+            expect(exportedEventsCountAfterJob).toEqual(4)
+            expect(exportedEvents.map((e) => e.event)).toEqual(
                 expect.arrayContaining(['historicalEvent1', 'historicalEvent2', 'historicalEvent3', 'historicalEvent4'])
             )
-            expect(Object.keys(exportedEventsAfterJob[0].properties)).toEqual(
+            expect(Object.keys(exportedEvents[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$elements',
                     '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',
                 ])
             )
-            expect(exportedEventsAfterJob[0].properties['$$historical_export_source_db']).toEqual('postgres')
+
+            expect(exportedEvents[0].properties['$$historical_export_source_db']).toEqual('postgres')
         })
 
         test('export historical events with specified timestamp boundaries', async () => {
@@ -221,12 +226,13 @@ describe('e2e', () => {
             await posthog.capture('historicalEvent4')
 
             await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
-            await delay(1000)
 
             const historicalEvents = await hub.db.fetchEvents()
             expect(historicalEvents.length).toBe(4)
 
-            const exportedEventsCountBeforeJob = testConsole.read().filter((log) => log[0] === 'exported event').length
+            const exportedEventsCountBeforeJob = testConsole
+                .read()
+                .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
             const kwargs = {
@@ -242,30 +248,34 @@ describe('e2e', () => {
             let args = Object.values(kwargs)
 
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
+
+            // pass in an incorrect date range first
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
             await delay(10000)
 
             const exportedEventsCountAfterFirstJob = testConsole
                 .read()
-                .filter((log) => log[0] === 'exported event').length
+                .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountAfterFirstJob).toEqual(0)
 
+            // pass in the correct date range
             kwargs.payload.dateFrom = new Date(Date.now() - ONE_HOUR).toISOString()
             args = Object.values(kwargs)
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
-            await delayUntilEventIngested(awaitLogs, 4)
-            await delay(1000)
+            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
 
-            const exportedEventsAfterSecondJob = testConsole.read().filter((log) => log[0] === 'exported event')
-            expect(exportedEventsAfterSecondJob.length).toEqual(4)
-            expect(exportedEventsAfterSecondJob.map((log) => log[1])).toEqual(
+            const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
+            const exportedEventsCountAfterSecondJob = exportLogs.length
+            const exportedEvents = exportLogs.map((log) => log[1])
+
+            expect(exportedEventsCountAfterSecondJob).toEqual(4)
+            expect(exportedEvents.map((e) => e.event)).toEqual(
                 expect.arrayContaining(['historicalEvent1', 'historicalEvent2', 'historicalEvent3', 'historicalEvent4'])
             )
-            expect(Object.keys(exportedEventsAfterSecondJob[0].properties)).toEqual(
+            expect(Object.keys(exportedEvents[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$elements',
                     '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
@@ -273,7 +283,62 @@ describe('e2e', () => {
                 ])
             )
 
-            expect(exportedEventsAfterSecondJob[0].properties['$$historical_export_source_db']).toEqual('postgres')
+            expect(exportedEvents[0].properties['$$historical_export_source_db']).toEqual('postgres')
+        })
+
+        test('correct $elements included in historical event', async () => {
+            const properties = {
+                $elements: [
+                    { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
+                    { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
+                ],
+            }
+            await posthog.capture('$autocapture', properties)
+
+            await delayUntilEventIngested(() => hub.db.fetchEvents(), 1)
+
+            const historicalEvents = await hub.db.fetchEvents()
+            expect(historicalEvents.length).toBe(1)
+
+            const exportedEventsCountBeforeJob = testConsole
+                .read()
+                .filter((log) => log[0] === 'exported historical event').length
+            expect(exportedEventsCountBeforeJob).toEqual(0)
+
+            const kwargs = {
+                pluginConfigTeam: 2,
+                pluginConfigId: 39,
+                type: 'Export historical events',
+                jobOp: 'start',
+                payload: {},
+            }
+            const args = Object.values(kwargs)
+
+            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
+            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
+
+            await delayUntilEventIngested(awaitHistoricalEventLogs, 1, 1000)
+
+            const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
+            const exportedEventsCountAfterJob = exportLogs.length
+            const exportedEvents = exportLogs.map((log) => log[1])
+
+            expect(exportedEventsCountAfterJob).toEqual(1)
+            expect(exportedEvents.map((e) => e.event)).toEqual(['$autocapture'])
+
+            expect(Object.keys(exportedEvents[0].properties)).toEqual(
+                expect.arrayContaining([
+                    '$$postgres_event_id',
+                    '$$historical_export_source_db',
+                    '$$is_historical_export_event',
+                    '$$historical_export_timestamp',
+                ])
+            )
+
+            expect(exportedEvents[0].properties['$elements']).toEqual([
+                expect.objectContaining({ tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' }),
+                expect.objectContaining({ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }),
+            ])
         })
     })
 })
