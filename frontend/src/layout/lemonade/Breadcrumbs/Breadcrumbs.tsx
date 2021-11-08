@@ -3,10 +3,10 @@ import React from 'react'
 import { IconExpandMore } from '../../../lib/components/icons'
 import { Link } from '../../../lib/components/Link'
 import './Breadcrumbs.scss'
-import { Breadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
+import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
 import { Tooltip } from '../../../lib/components/Tooltip'
 
-function Breadcrumb({ breadcrumb }: { breadcrumb: Breadcrumb }): JSX.Element {
+function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
     let breadcrumbContent = (
         <div className="Breadcrumbs__breadcrumb">
             {breadcrumb.symbol}
