@@ -3,10 +3,11 @@ import { createImporter } from 'sass-extended-importer'
 import { lessLoader } from 'esbuild-plugin-less'
 import * as path from 'path'
 import * as url from 'url'
+import express from 'express'
+import cors from 'cors'
 import fse from 'fs-extra'
 import { build } from 'esbuild'
 import chokidar from 'chokidar'
-import liveServer from 'live-server'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -114,15 +115,6 @@ function getInputFiles(result) {
     )
 }
 
-function reloadLiveServer() {
-    // The live-server watches just this one file, and touching it asks it to reload all files.
-    // We use this file to trigger a reload as soon as we start a build, and then use a middleware
-    // to pause serving the files until the build finishes. This gives improves reloads from 5sec to 3sec.
-    const filename = path.resolve(__dirname, 'tmp', 'reload.txt')
-    fse.mkdirSync(path.dirname(filename), { recursive: true })
-    fse.closeSync(fse.openSync(filename, 'w'))
-}
-
 function getChunks(result) {
     const chunks = {}
     for (const output of Object.values(result.metafile?.outputs || {})) {
@@ -217,11 +209,17 @@ export async function buildOrWatch(config) {
     await debouncedBuild()
 }
 
+let clients = new Set()
+
+function reloadLiveServer() {
+    clients.forEach((client) => client.write(`data: reload\n\n`))
+}
+
 export function startServer(opts = {}) {
     const host = opts.host || defaultHost
     const port = opts.port || defaultPort
 
-    console.log(`🍱 Started server at http://${host}:${port}`)
+    console.log(`🍱 Starting server at http://${host}:${port}`)
 
     let resolve = null
     let ifPaused = null
@@ -236,30 +234,46 @@ export function startServer(opts = {}) {
     }
     resumeServer()
 
-    liveServer.start({
-        port,
-        host,
-        root: path.resolve(__dirname, 'dist'),
-        open: false,
-        cors: true,
-        file: 'index.html',
-        mount: [['/static', path.resolve(__dirname, 'dist')]],
-        watch: [path.resolve(__dirname, 'tmp', 'reload.txt')],
-        logLevel: 0,
-        middleware: [
-            async (req, res, next) => {
-                if (ifPaused && !ifPaused.logged && req.url.startsWith('/static/')) {
+    const app = express()
+    app.on('error', function (e) {
+        if (e.code === 'EADDRINUSE') {
+            console.error(`🛑 http://${host}:${port} is already in use. Trying another port.`)
+        } else {
+            console.error(`🛑 ${e}`)
+        }
+        process.exit(1)
+    })
+    app.use(cors())
+    app.get('/_reload', (request, response, next) => {
+        response.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            Connection: 'keep-alive',
+            'Cache-Control': 'no-cache',
+        })
+        clients.add(response)
+        request.on('close', () => clients.delete(response))
+    })
+    app.get('*', async (req, res, next) => {
+        if (req.url.startsWith('/static/')) {
+            if (ifPaused) {
+                if (!ifPaused.logged) {
                     console.log('⌛️ Waiting for build to complete...')
                     ifPaused.logged = true
-                    await ifPaused
-                    // somehow must still delay before the static server reloads
-                    // rewriting to use our own express app would solve this
-                    await new Promise((r) => setTimeout(r, 400))
                 }
-                next()
-            },
-        ],
+                await ifPaused
+            }
+            const pathFromUrl = req.url.replace(/^\/static\//, '')
+            const filePath = path.resolve(__dirname, 'dist', pathFromUrl)
+            // protect against "/../" urls
+            if (filePath.startsWith(path.resolve(__dirname, 'dist'))) {
+                res.sendFile(filePath.split('?')[0])
+                return
+            }
+        }
+        res.sendFile(path.resolve(__dirname, 'dist', 'index.html'))
     })
+    app.listen(port)
+
     return {
         pauseServer,
         resumeServer,
