@@ -23,6 +23,7 @@ import { appScenes } from 'scenes/appScenes'
 import { Breadcrumbs } from '../layout/lemonade/Breadcrumbs/Breadcrumbs'
 
 export const appLogic = kea<appLogicType>({
+    path: ['scenes', 'App'],
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,

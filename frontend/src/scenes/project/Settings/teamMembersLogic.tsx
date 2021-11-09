@@ -21,6 +21,7 @@ import { teamLogic } from '../../teamLogic'
 export const MINIMUM_IMPLICIT_ACCESS_LEVEL = OrganizationMembershipLevel.Admin
 
 export const teamMembersLogic = kea<teamMembersLogicType>({
+    path: ['scenes', 'project', 'Settings', 'teamMembersLogic'],
     actions: {
         changeUserAccessLevel: (user: UserBasicType, newLevel: TeamMembershipLevel) => ({
             user,

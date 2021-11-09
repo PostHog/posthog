@@ -35,6 +35,7 @@ interface PathNode {
 }
 
 export const pathsLogic = kea<pathsLogicType<PathNode>>({
+    path: (key) => ['scenes', 'paths', 'pathsLogic', key],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
 

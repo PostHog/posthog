@@ -25,6 +25,11 @@ class FunnelEventQuery(ClickhouseEventQuery):
             for column_name in self._column_optimizer.event_columns_to_query
         )
 
+        _fields.extend(
+            f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
+            for group_index in self._column_optimizer.group_types_to_query
+        )
+
         if self._should_join_persons:
             _fields.extend(
                 f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._person_query.fields
@@ -50,10 +55,14 @@ class FunnelEventQuery(ClickhouseEventQuery):
         person_query, person_params = self._get_person_query()
         self.params.update(person_params)
 
+        groups_query, groups_params = self._get_groups_query()
+        self.params.update(groups_params)
+
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
             {person_query}
+            {groups_query}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}

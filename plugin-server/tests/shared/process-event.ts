@@ -117,16 +117,7 @@ export const createProcessEventTests = (
         sentAt: DateTime | null,
         eventUuid: string
     ): Promise<EventProcessingResult | void> {
-        const response = await eventsProcessor.processEvent(
-            distinctId,
-            ip,
-            siteUrl,
-            data,
-            teamId,
-            now,
-            sentAt,
-            eventUuid
-        )
+        const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
         if (database === 'clickhouse') {
             await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
         }
@@ -1129,7 +1120,6 @@ export const createProcessEventTests = (
         await eventsProcessor.processEvent(
             'some-id',
             '',
-            '',
             {
                 event: '$snapshot',
                 properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
@@ -1156,7 +1146,6 @@ export const createProcessEventTests = (
     test('$snapshot event creates new person if needed', async () => {
         await eventsProcessor.processEvent(
             'some_new_id',
-            '',
             '',
             {
                 event: '$snapshot',

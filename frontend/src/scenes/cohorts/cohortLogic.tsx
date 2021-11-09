@@ -41,6 +41,7 @@ export const cohortLogic = kea<cohortLogicType>({
         cohort: CohortType
     },
     key: (props) => props.cohort.id || 'new',
+    path: (key) => ['scenes', 'cohorts', 'cohortLogic', key],
     connect: [cohortsModel],
 
     actions: () => ({

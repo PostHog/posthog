@@ -271,6 +271,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 const timeout = window.setTimeout(() => actions.setScene(scene, params, true), 500)
                 let importedScene
                 try {
+                    window.ESBUILD_LOAD_CHUNKS?.(scene)
                     importedScene = await props.scenes[scene]()
                 } catch (error) {
                     if (

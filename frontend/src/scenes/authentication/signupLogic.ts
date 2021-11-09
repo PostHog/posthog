@@ -11,6 +11,7 @@ interface AccountResponse {
 }
 
 export const signupLogic = kea<signupLogicType<AccountResponse>>({
+    path: ['scenes', 'authentication', 'signupLogic'],
     actions: {
         setInitialEmail: (email: string) => ({ email }),
         setFormSubmitted: (submitted: boolean) => ({ submitted }),

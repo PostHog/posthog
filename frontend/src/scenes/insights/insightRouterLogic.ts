@@ -8,6 +8,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightRouterLogicType } from './insightRouterLogicType'
 
 export const insightRouterLogic = kea<insightRouterLogicType>({
+    path: ['scenes', 'insights', 'insightRouterLogic'],
     actions: {
         loadInsight: (id: string) => ({ id }),
         setError: true,

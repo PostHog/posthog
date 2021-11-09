@@ -22,6 +22,7 @@ interface AcceptInvitePayloadInterface {
 }
 
 export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadInterface, ErrorInterface>>({
+    path: ['scenes', 'authentication', 'inviteSignupLogic'],
     actions: {
         setError: (payload: ErrorInterface) => ({ payload }),
     },

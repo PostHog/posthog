@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { teamLogic } from '../scenes/teamLogic'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
+    path: ['models', 'dashboardItemsModel'],
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
         renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),

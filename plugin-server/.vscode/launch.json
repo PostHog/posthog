@@ -13,7 +13,10 @@
             "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/ts-node-dev",
             "runtimeArgs": ["--inspect", "--exit-child"],
             "args": ["src/index.ts"],
-            "env": { "NODE_ENV": "dev", "BASE_DIR": "${workspaceFolder}/../posthog" }
+            "env": {
+                "NODE_ENV": "dev",
+                "BASE_DIR": "${workspaceFolder}/../posthog"
+            }
         },
         {
             "name": "Debug (ClickHouse)",
@@ -32,6 +35,17 @@
                 "KAFKA_ENABLED": "1",
                 "KAFKA_HOSTS": "kafka:9092"
             }
+        },
+        {
+            "type": "node",
+            "name": "vscode-jest-tests",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "disableOptimisticBPs": true,
+            "program": "${workspaceFolder}/node_modules/.bin/jest",
+            "cwd": "${workspaceFolder}",
+            "args": ["--runInBand", "--forceExit", "--watchAll=false"]
         }
     ]
 }

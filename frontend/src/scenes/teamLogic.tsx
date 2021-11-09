@@ -10,6 +10,7 @@ import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 
 export const teamLogic = kea<teamLogicType>({
+    path: ['scenes', 'teamLogic'],
     actions: {
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,

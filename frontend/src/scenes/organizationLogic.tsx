@@ -12,6 +12,7 @@ export type OrganizationUpdatePayload = Partial<
 >
 
 export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
+    path: ['scenes', 'organizationLogic'],
     actions: {
         deleteOrganization: (organization: OrganizationType) => ({ organization }),
         deleteOrganizationSuccess: true,
