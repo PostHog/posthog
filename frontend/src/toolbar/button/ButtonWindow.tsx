@@ -1,7 +1,7 @@
 import React from 'react'
 import { Fade } from 'lib/components/Fade/Fade'
 import Draggable from 'react-draggable'
-
+import { CloseOutlined } from '@ant-design/icons'
 interface ButtonWindowProps {
     name: string
     visible: boolean
@@ -9,7 +9,7 @@ interface ButtonWindowProps {
     savePosition: (x: number, y: number) => void
     close: () => void
     label: string | JSX.Element
-    icon: string | JSX.Element
+    tagComponent?: null | JSX.Element
     children?: JSX.Element
 }
 
@@ -20,7 +20,7 @@ export function ButtonWindow({
     savePosition,
     close,
     label,
-    icon,
+    tagComponent,
     children,
 }: ButtonWindowProps): JSX.Element {
     return (
@@ -34,12 +34,10 @@ export function ButtonWindow({
                 <div className={`toolbar-info-windows ${name}-button-window`}>
                     <div className="toolbar-info-window-title">
                         <div className="toolbar-info-window-draggable">
-                            {icon}
                             <div className="window-label">{label}</div>
+                            {tagComponent}
                         </div>
-                        <div className="close-button" onClick={close}>
-                            X
-                        </div>
+                        <CloseOutlined className="close-button" onClick={close} />
                     </div>
                     {children}
                 </div>

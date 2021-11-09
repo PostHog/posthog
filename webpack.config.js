@@ -1,43 +1,18 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
-const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
 
-// main = app
-// toolbar = toolbar
-// shared_dashboard = publicly available dashboard
-module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
-
 function createEntry(entry) {
     const commonLoadersForSassAndLess = [
-        entry === 'toolbar'
-            ? {
-                  loader: 'style-loader',
-                  options: {
-                      insert: function insertAtTop(element) {
-                          // tunnel behind the shadow root
-                          if (window.__PHGTLB_ADD_STYLES__) {
-                              window.__PHGTLB_ADD_STYLES__(element)
-                          } else {
-                              if (!window.__PHGTLB_STYLES__) {
-                                  window.__PHGTLB_STYLES__ = []
-                              }
-                              window.__PHGTLB_STYLES__.push(element)
-                          }
-                      },
-                  },
-              }
-            : {
-                  // After all CSS loaders we use plugin to do his work.
-                  // It gets all transformed CSS and extracts it into separate
-                  // single bundled file
-                  loader: MiniCssExtractPlugin.loader,
-              },
+        {
+            loader: 'style-loader',
+        },
         {
             // This loader resolves url() and @imports inside CSS
             loader: 'css-loader',
@@ -51,15 +26,20 @@ function createEntry(entry) {
     return {
         name: entry,
         mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
-        devtool: process.env.NODE_ENV === 'production' ? 'source-map' : 'inline-source-map',
+        devtool:
+            process.env.GENERATE_SOURCEMAP === 'false'
+                ? false
+                : process.env.NODE_ENV === 'production'
+                ? 'source-map'
+                : 'inline-source-map',
         entry: {
             [entry]:
-                entry === 'main'
+                entry === 'main' || entry === 'cypress'
                     ? './frontend/src/index.tsx'
                     : entry === 'toolbar'
                     ? './frontend/src/toolbar/index.tsx'
                     : entry === 'shared_dashboard'
-                    ? './frontend/src/scenes/dashboard/SharedDashboard.js'
+                    ? './frontend/src/scenes/dashboard/SharedDashboard.tsx'
                     : null,
         },
         watchOptions: {
@@ -69,28 +49,21 @@ function createEntry(entry) {
             path: path.resolve(__dirname, 'frontend', 'dist'),
             filename: '[name].js',
             chunkFilename: '[name].[contenthash].js',
-            publicPath:
-                process.env.NODE_ENV === 'production'
-                    ? '/static/'
-                    : process.env.JS_URL
-                    ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
-                    : process.env.IS_PORTER
-                    ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
-                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
+            publicPath: process.env.JS_URL
+                ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
+                : process.env.NODE_ENV === 'production'
+                ? '/static/'
+                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
-            extensions: ['.js', '.ts', '.tsx'],
+            extensions: ['.js', '.jsx', '.ts', '.tsx'],
             alias: {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
-                ...(process.env.NODE_ENV !== 'production'
-                    ? {
-                          'react-dom': '@hot-loader/react-dom',
-                      }
-                    : {}),
+                cypress: path.resolve(__dirname, 'cypress'),
             },
         },
         module: {
@@ -183,36 +156,32 @@ function createEntry(entry) {
                 },
             ],
         },
-        devServer: {
-            contentBase: path.join(__dirname, 'frontend', 'dist'),
-            hot: true,
-            host: webpackDevServerHost,
-            port: 8234,
-            stats: 'minimal',
-            disableHostCheck: !!process.env.LOCAL_HTTPS,
-            public: process.env.JS_URL
-                ? new URL(process.env.JS_URL).host
-                : process.env.IS_PORTER
-                ? `${process.env.PORTER_WEBPACK_HOST}`
-                : `${webpackDevServerFrontendAddr}:8234`,
-            allowedHosts: process.env.IS_PORTER
-                ? [`${process.env.PORTER_WEBPACK_HOST}`, `${process.env.PORTER_SERVER_HOST}`]
-                : [],
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': '*',
-            },
-        },
+        // add devServer config only to 'main' entry
+        ...(entry === 'main'
+            ? {
+                  devServer: {
+                      contentBase: path.join(__dirname, 'frontend', 'dist'),
+                      hot: true,
+                      host: webpackDevServerHost,
+                      port: 8234,
+                      stats: 'minimal',
+                      disableHostCheck: !!process.env.LOCAL_HTTPS,
+                      public: process.env.JS_URL
+                          ? new URL(process.env.JS_URL).host
+                          : `${webpackDevServerFrontendAddr}:8234`,
+                      headers: {
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Headers': '*',
+                      },
+                  },
+              }
+            : {}),
         plugins: [
+            new AntdDayjsWebpackPlugin(),
             // common plugins for all entrypoints
         ].concat(
             entry === 'main'
                 ? [
-                      // other bundles include the css in js via style-loader
-                      new MiniCssExtractPlugin({
-                          filename: '[name].css',
-                          ignoreOrder: true,
-                      }),
                       // we need these only once per build
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
@@ -231,10 +200,6 @@ function createEntry(entry) {
                   ]
                 : entry === 'shared_dashboard'
                 ? [
-                      new MiniCssExtractPlugin({
-                          filename: '[name].css',
-                          ignoreOrder: true,
-                      }),
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
                           title: 'PostHog',
@@ -243,7 +208,15 @@ function createEntry(entry) {
                       }),
                       new HtmlWebpackHarddiskPlugin(),
                   ]
+                : entry === 'cypress'
+                ? [new HtmlWebpackHarddiskPlugin()]
                 : []
         ),
     }
 }
+
+// main = app
+// toolbar = toolbar
+// shared_dashboard = publicly available dashboard
+module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
+module.exports.createEntry = createEntry

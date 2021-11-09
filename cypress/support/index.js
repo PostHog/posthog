@@ -1,62 +1,59 @@
+import '@cypress/react/support'
+import 'givens/setup'
 import './commands'
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-require('cypress-terminal-report/src/installLogsCollector')()
+import { unmount } from '@cypress/react'
 
-beforeEach(() => {
-    cy.visit('/')
+try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('cypress-terminal-report/src/installLogsCollector')()
+} catch {}
 
-    cy.url().then((url) => {
-        if (url.includes('preflight')) {
-            cy.get('.text-center > .ant-btn-default').click()
-            cy.get('[data-attr=preflight-complete]').click()
-            signUp()
-        } else if (url.includes('signup')) {
-            signUp()
-        } else if (url.includes('login')) {
-            logIn()
-        }
-        cy.wait(200)
-        cy.get('body').then(($body) => {
-            if ($body.find('[data-attr=select-platform-Web]').length) {
-                cy.get('[data-attr=select-platform-Web]').click()
-                cy.get('[data-attr=wizard-step-counter]').should('contain', 'Step 2')
-                cy.get('[data-attr=wizard-continue-button]').click()
-                cy.get('[data-attr=wizard-complete-button]').should('exist')
-                cy.get('[data-attr=wizard-complete-button]').click()
-            }
-        })
-    })
+// Add console errors into cypress logs. This helps with failures in Github Actions which otherwise swallows them.
+// From: https://github.com/cypress-io/cypress/issues/300#issuecomment-688915086
+Cypress.on('window:before:load', (win) => {
+    cy.spy(win.console, 'error')
+    cy.spy(win.console, 'warn')
 })
 
-const signUp = () => {
-    cy.get('#signupCompanyName').type('Hedgehogs, Inc.').should('have.value', 'Hedgehogs, Inc.')
+beforeEach(() => {
+    if (Cypress.spec.specType === 'component') {
+        // Freeze time to 2021.01.05 Noon UTC - this should be the same date regardless of timezone.
+        cy.clock(1578225600000, ['Date'])
+    } else {
+        if (Cypress.spec.name.includes('Premium')) {
+            cy.visit('/login?next=/?no-preloaded-app-context=true')
+            cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
+            cy.login()
+        } else {
+            cy.visit('/')
 
-    cy.get('#signupFirstName').type('name').should('have.value', 'name')
+            cy.url().then((url) => {
+                if (url.includes('login')) {
+                    cy.login()
+                }
+            })
+        }
+    }
+})
 
-    cy.get('#signupEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+beforeEach(() => {
+    if (Cypress.spec.specType !== 'component') {
+        // Make sure the insights page is actually loaded before running tests
+        cy.get('.insights-page').should('exist')
+    }
+})
 
-    cy.get('#signupPassword').type('Test1234').should('have.value', 'Test1234')
+afterEach(() => {
+    if (Cypress.spec.specType === 'component') {
+        unmount()
+    }
+})
 
-    cy.get('button[data-attr="signup"]').click()
-
-    cy.wait(3000)
-
-    cy.visit('/demo')
-
-    cy.wait(1000)
-
-    cy.visit('/')
-}
-
-const logIn = () => {
-    cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
-
-    cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
-
-    cy.get('.btn').click()
-}
-
-Cypress.on('uncaught:exception', () => {
-    return false
+const resizeObserverLoopErrRe = /^[^(ResizeObserver loop limit exceeded)]/
+Cypress.on('uncaught:exception', (err) => {
+    /* returning false here prevents Cypress from failing the test */
+    if (resizeObserverLoopErrRe.test(err.message)) {
+        return false
+    }
 })

@@ -15,14 +15,8 @@ export function EditAction(): JSX.Element {
     const [form] = Form.useForm()
 
     const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
-    const {
-        selectAction,
-        inspectForElementWithIndex,
-        setEditingFields,
-        setForm,
-        saveAction,
-        deleteAction,
-    } = useActions(actionsTabLogic)
+    const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction, deleteAction } =
+        useActions(actionsTabLogic)
 
     const { getFieldValue } = form
 
@@ -109,14 +103,38 @@ export function EditAction(): JSX.Element {
 
                                         {step?.event === '$autocapture' || inspectingElement === index ? (
                                             <>
-                                                <StepField field={field} step={step} item="href" label="Link href" />
-                                                <StepField field={field} step={step} item="text" label="Text" />
-                                                <StepField field={field} step={step} item="selector" label="Selector" />
+                                                <StepField
+                                                    field={field}
+                                                    step={step}
+                                                    item="href"
+                                                    label="Link target"
+                                                    caption={
+                                                        <>
+                                                            If your element is a link, the location that the link opens
+                                                            (<code>href</code> tag)
+                                                        </>
+                                                    }
+                                                />
+                                                <StepField
+                                                    field={field}
+                                                    step={step}
+                                                    item="text"
+                                                    label="Text"
+                                                    caption="Text content inside your element"
+                                                />
+                                                <StepField
+                                                    field={field}
+                                                    step={step}
+                                                    item="selector"
+                                                    label="Selector"
+                                                    caption="CSS selector that uniquely identifies your element"
+                                                />
                                                 <StepField
                                                     field={field}
                                                     step={step}
                                                     item="url"
-                                                    label="URL of current page"
+                                                    label="Page URL"
+                                                    caption="Elements will match only when triggered from the URL."
                                                 />
                                             </>
                                         ) : null}

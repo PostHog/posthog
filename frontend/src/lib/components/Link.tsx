@@ -1,33 +1,43 @@
-import React, { HTMLProps } from 'react'
+import React from 'react'
 import { router } from 'kea-router'
 
-interface LinkProps extends HTMLProps<HTMLAnchorElement> {
-    to: string | [string, string?, string?]
+type RoutePart = string | Record<string, any>
+
+export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
+    to?: string | [string, RoutePart?, RoutePart?]
     preventClick?: boolean
-    tag?: string | React.Component
+    tag?: string | React.FunctionComponentElement<any>
 }
 
 export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
-    const onClick = (event): void => {
+    const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
         if (event.metaKey || event.ctrlKey) {
-            event.preventDefault()
             event.stopPropagation()
-            return window.open(to, '_blank')
+            return
         }
 
         if (!props.target) {
             event.preventDefault()
-            event.stopPropagation()
             if (to && to !== '#' && !preventClick) {
-                router.actions.push(to) // router is mounted automatically, so this is safe to call
+                if (Array.isArray(to)) {
+                    router.actions.push(...to)
+                } else {
+                    router.actions.push(to)
+                }
             }
         }
         props.onClick && props.onClick(event)
     }
 
-    return React.createElement(tag, {
+    const elProps = {
         href: to || '#',
         ...props,
         onClick,
-    })
+    }
+
+    if (typeof tag === 'string') {
+        return React.createElement(tag, elProps)
+    } else {
+        return React.cloneElement(tag, elProps)
+    }
 }

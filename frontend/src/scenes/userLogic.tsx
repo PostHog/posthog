@@ -1,137 +1,159 @@
+import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { posthogEvents } from 'lib/utils'
-import { router } from 'kea-router'
-import { userLogicType } from 'types/scenes/userLogicType'
-import { UserType, UserUpdateType } from '~/types'
+import { userLogicType } from './userLogicType'
+import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
 import posthog from 'posthog-js'
+import { toast } from 'react-toastify'
+import { getAppContext } from 'lib/utils/getAppContext'
+import { teamLogic } from './teamLogic'
 
-interface EventProperty {
-    value: string
-    label: string
-}
-
-export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateType>>({
+export const userLogic = kea<userLogicType>({
+    path: ['scenes', 'userLogic'],
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
-        setUser: (user: UserType | null, updateKey?: string) => ({
-            user: user && ({ ...user } as UserType),
-            updateKey,
-        }), // make and use a copy of user to patch some legacy issues
-        userUpdateRequest: (update: UserUpdateType, updateKey?: string) => ({ update, updateKey }),
-        userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
-        userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
-        currentTeamUpdateRequest: (teamId: number) => ({ teamId }),
-        currentOrganizationUpdateRequest: (organizationId: string) => ({ organizationId }),
-        completedOnboarding: true,
+        updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
+        updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
+        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
     }),
-
-    reducers: {
+    loaders: ({ values, actions }) => ({
         user: [
+            // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
+            // TODO: We already send the current user in `posthog_app_context`, so we don't have to do this extra request
             null as UserType | null,
             {
-                setUser: (_, payload) => payload.user,
-                userUpdateSuccess: (_, payload) => payload.user,
-            },
-        ],
-    },
-
-    events: ({ actions }) => ({
-        afterMount: () => actions.loadUser(true),
-    }),
-
-    selectors: ({ selectors }) => ({
-        eventProperties: [
-            () => [selectors.user],
-            (user): EventProperty[] =>
-                user?.team
-                    ? user.team.event_properties.map(
-                          (property: string) => ({ value: property, label: property } as EventProperty)
-                      )
-                    : [],
-        ],
-        eventPropertiesNumerical: [
-            () => [selectors.user],
-            (user): EventProperty[] =>
-                user?.team
-                    ? user.team.event_properties_numerical.map(
-                          (property: string) => ({ value: property, label: property } as EventProperty)
-                      )
-                    : [],
-        ],
-        eventNames: [() => [selectors.user], (user) => user?.team?.event_names ?? []],
-        customEventNames: [
-            () => [selectors.eventNames],
-            (eventNames) => {
-                return eventNames.filter((event: string) => !event.startsWith('!'))
-            },
-        ],
-        eventNamesGrouped: [
-            () => [selectors.user],
-            (user) => {
-                const data = [
-                    { label: 'Custom events', options: [] as EventProperty[] },
-                    { label: 'PostHog events', options: [] as EventProperty[] },
-                ]
-                if (user?.team)
-                    user.team.event_names.forEach((name: string) => {
-                        const format = { label: name, value: name } as EventProperty
-                        if (posthogEvents.includes(name)) return data[1].options.push(format)
-                        data[0].options.push(format)
-                    })
-                return data
-            },
-        ],
-    }),
-
-    listeners: ({ actions }) => ({
-        setUser: ({ user }) => {
-            if (user && !user.team) router.actions.push('/organization/members')
-        },
-        loadUser: async ({ resetOnFailure }) => {
-            try {
-                const user = await api.get('api/user')
-                actions.setUser(user)
-
-                if (user && user.id) {
-                    const Sentry = (window as any).Sentry
-                    Sentry?.setUser({
-                        email: user.email,
-                        id: user.id,
-                    })
-
-                    if (posthog) {
-                        if (posthog.get_distinct_id() !== user.distinct_id) {
-                            posthog.reset()
-                        }
-
-                        posthog.identify(user.distinct_id)
-                        posthog.people.set({ email: user.anonymize_data ? null : user.email })
-
-                        posthog.register({
-                            posthog_version: user.posthog_version,
-                            has_slack_webhook: !!user.team.slack_incoming_webhook,
-                        })
+                loadUser: async () => {
+                    try {
+                        return await api.get('api/users/@me/')
+                    } catch (error) {
+                        console.error(error)
+                        actions.loadUserFailure(error.message)
                     }
-                }
-            } catch {
-                if (resetOnFailure) {
-                    actions.setUser(null)
-                }
-            }
-        },
-        userUpdateRequest: async ({ update, updateKey }) => {
-            try {
-                const user = await api.update('api/user', update)
-                actions.userUpdateSuccess(user, updateKey)
-            } catch (error) {
-                actions.userUpdateFailure(error, updateKey)
-            }
-        },
+                    return null
+                },
+                updateUser: async ({ user, successCallback }) => {
+                    if (!values.user) {
+                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                    }
+                    try {
+                        const response = await api.update('api/users/@me/', user)
+                        successCallback && successCallback()
+                        return response
+                    } catch (error) {
+                        console.error(error)
+                        actions.updateUserFailure(error.message)
+                    }
+                },
+            },
+        ],
+    }),
+    listeners: ({ values }) => ({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
+        },
+        loadUserSuccess: ({ user }) => {
+            if (user && user.uuid) {
+                const Sentry = (window as any).Sentry
+                Sentry?.setUser({
+                    email: user.email,
+                    id: user.uuid,
+                })
+
+                if (posthog) {
+                    // If user is not anonymous and the distinct id is different from the current one, reset
+                    if (
+                        posthog.get_property('$device_id') !== posthog.get_distinct_id() &&
+                        posthog.get_distinct_id() !== user.distinct_id
+                    ) {
+                        posthog.reset()
+                    }
+
+                    posthog.identify(user.distinct_id)
+                    posthog.people.set({
+                        email: user.anonymize_data ? null : user.email,
+                        realm: user.realm,
+                        posthog_version: user.posthog_version,
+                    })
+
+                    posthog.register({
+                        is_demo_project: teamLogic.values.currentTeam?.is_demo,
+                    })
+
+                    if (user.organization) {
+                        posthog.group('organization', user.organization.id, {
+                            id: user.organization.id,
+                            name: user.organization.name,
+                            slug: user.organization.slug,
+                            created_at: user.organization.created_at,
+                            available_features: user.organization.available_features,
+                        })
+                    }
+                }
+            }
+        },
+        updateUserSuccess: () => {
+            toast.dismiss('updateUser')
+            toast.success(
+                <div>
+                    <h1>Your preferences have been saved!</h1>
+                    <p>All set. Click here to dismiss.</p>
+                </div>,
+                {
+                    toastId: 'updateUser',
+                }
+            )
+        },
+        updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
+            if (values.user?.team?.id === teamId) {
+                return
+            }
+            await breakpoint(10)
+            await api.update('api/users/@me/', { set_current_team: teamId })
+            window.location.href = destination || '/'
+        },
+        updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
+            if (values.user?.organization?.id === organizationId) {
+                return
+            }
+            await breakpoint(10)
+            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            window.location.href = destination || '/'
+        },
+    }),
+    selectors: {
+        hasAvailableFeature: [
+            (s) => [s.user],
+            (user) => {
+                return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
+            },
+        ],
+        otherOrganizations: [
+            (s) => [s.user],
+            (user): OrganizationBasicType[] =>
+                user
+                    ? user.organizations
+                          .filter((organization) => organization.id !== user.organization?.id)
+                          .sort((orgA, orgB) =>
+                              orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
+                          )
+                    : [],
+        ],
+    },
+    events: ({ actions }) => ({
+        afterMount: () => {
+            const preloadedUser = getAppContext()?.current_user
+            if (preloadedUser) {
+                actions.loadUserSuccess(preloadedUser)
+            } else if (preloadedUser === null) {
+                actions.loadUserFailure('Logged out')
+            } else {
+                actions.loadUser()
+            }
         },
     }),
 })

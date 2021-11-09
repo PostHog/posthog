@@ -4,46 +4,196 @@
 #
 #    pip-compile requirements-dev.in
 #
-appdirs==1.4.4            # via black
-asgiref==3.2.7            # via django
-attrs==19.3.0             # via black, flake8-bugbear
-black==19.10b0            # via -r requirements-dev.in
-click==7.1.1              # via black, pip-tools
-django-debug-toolbar==2.2  # via -r requirements-dev.in
-django-stubs==1.5.0       # via -r requirements-dev.in, djangorestframework-stubs
-django==3.0.6             # via django-debug-toolbar, django-stubs
-djangorestframework-stubs==1.1.0  # via -r requirements-dev.in
-entrypoints==0.3          # via flake8
-fakeredis==1.4.4          # via -r requirements-dev.in
-flake8-bugbear==20.1.4    # via -r requirements-dev.in
-flake8-colors==0.1.6      # via -r requirements-dev.in
-flake8-commas==2.0.0      # via -r requirements-dev.in
-flake8-comprehensions==3.2.2  # via -r requirements-dev.in
-flake8-import-order==0.18.1  # via -r requirements-dev.in
-flake8-logging-format==0.6.0  # via -r requirements-dev.in
-flake8-print==3.1.4       # via -r requirements-dev.in
-flake8==3.7.9             # via -r requirements-dev.in, flake8-bugbear, flake8-colors, flake8-commas, flake8-comprehensions, flake8-print
-freezegun==0.3.15         # via -r requirements-dev.in
-isort==5.2.2              # via -r requirements-dev.in
-mccabe==0.6.1             # via flake8
-mypy-extensions==0.4.3    # via -r requirements-dev.in, mypy
-mypy==0.770               # via -r requirements-dev.in, django-stubs, djangorestframework-stubs
-packaging==20.4           # via -r requirements-dev.in
-pathspec==0.8.0           # via black
-pip-tools==5.0.0          # via -r requirements-dev.in
-pycodestyle==2.5.0        # via flake8, flake8-import-order, flake8-print
-pyflakes==2.1.1           # via flake8
-pyparsing==2.4.7          # via packaging
-python-dateutil==2.8.1    # via freezegun
-pytz==2020.1              # via django
-redis==3.5.3              # via fakeredis
-regex==2020.6.8           # via black
-six==1.14.0               # via fakeredis, flake8-print, freezegun, packaging, pip-tools, python-dateutil
-sortedcontainers==2.3.0   # via fakeredis
-sqlparse==0.3.1           # via django, django-debug-toolbar
-toml==0.10.1              # via black
-typed-ast==1.4.1          # via black, mypy
-typing-extensions==3.7.4.2  # via django-stubs, djangorestframework-stubs, mypy
+appdirs==1.4.4
+    # via black
+asgiref==3.3.2
+    # via
+    #   -c requirements.txt
+    #   django
+attrs==19.3.0
+    # via
+    #   black
+    #   flake8-bugbear
+    #   pytest
+    #   syrupy
+black==19.10b0
+    # via -r requirements-dev.in
+certifi==2019.11.28
+    # via
+    #   -c requirements.txt
+    #   requests
+chardet==3.0.4
+    # via
+    #   -c requirements.txt
+    #   requests
+click==7.1.1
+    # via
+    #   black
+    #   pip-tools
+colored==1.4.2
+    # via syrupy
+coreapi==2.3.3
+    # via djangorestframework-stubs
+coreschema==0.0.4
+    # via coreapi
+coverage==5.5
+    # via pytest-cov
+django-stubs-ext==0.2.0
+    # via django-stubs
+django-stubs==1.8.0
+    # via
+    #   -r requirements-dev.in
+    #   djangorestframework-stubs
+django==3.2.5
+    # via
+    #   -c requirements.txt
+    #   django-stubs
+    #   django-stubs-ext
+djangorestframework-stubs==1.4.0
+    # via -r requirements-dev.in
+fakeredis==1.4.5
+    # via -r requirements-dev.in
+flake8-bugbear==20.1.4
+    # via -r requirements-dev.in
+flake8-colors==0.1.6
+    # via -r requirements-dev.in
+flake8-commas==2.0.0
+    # via -r requirements-dev.in
+flake8-comprehensions==3.2.2
+    # via -r requirements-dev.in
+flake8-import-order==0.18.1
+    # via -r requirements-dev.in
+flake8-logging-format==0.6.0
+    # via -r requirements-dev.in
+flake8-print==3.1.4
+    # via -r requirements-dev.in
+flake8==3.9.2
+    # via
+    #   -r requirements-dev.in
+    #   flake8-bugbear
+    #   flake8-colors
+    #   flake8-commas
+    #   flake8-comprehensions
+    #   flake8-print
+freezegun==0.3.15
+    # via -r requirements-dev.in
+idna==2.8
+    # via
+    #   -c requirements.txt
+    #   requests
+iniconfig==1.1.1
+    # via pytest
+isort==5.2.2
+    # via -r requirements-dev.in
+itypes==1.2.0
+    # via coreapi
+jinja2==2.11.3
+    # via coreschema
+markupsafe==1.1.1
+    # via jinja2
+mccabe==0.6.1
+    # via flake8
+mypy-extensions==0.4.3
+    # via
+    #   -r requirements-dev.in
+    #   mypy
+mypy==0.790
+    # via
+    #   -r requirements-dev.in
+    #   django-stubs
+    #   djangorestframework-stubs
+packaging==20.4
+    # via
+    #   -r requirements-dev.in
+    #   pytest
+pathspec==0.8.0
+    # via black
+pip-tools==5.5.0
+    # via -r requirements-dev.in
+pluggy==0.13.1
+    # via pytest
+py==1.10.0
+    # via pytest
+pycodestyle==2.7.0
+    # via
+    #   flake8
+    #   flake8-import-order
+    #   flake8-print
+pyflakes==2.3.1
+    # via flake8
+pyparsing==2.4.7
+    # via packaging
+pytest-cov==2.12.1
+    # via -r requirements-dev.in
+pytest-django==4.1.0
+    # via -r requirements-dev.in
+pytest-mock==3.5.1
+    # via -r requirements-dev.in
+pytest-split==0.3.3
+    # via -r requirements-dev.in
+pytest==6.2.2
+    # via
+    #   -r requirements-dev.in
+    #   pytest-cov
+    #   pytest-django
+    #   pytest-mock
+    #   pytest-split
+    #   syrupy
+python-dateutil==2.8.1
+    # via
+    #   -c requirements.txt
+    #   freezegun
+pytz==2021.1
+    # via
+    #   -c requirements.txt
+    #   django
+redis==3.4.1
+    # via
+    #   -c requirements.txt
+    #   fakeredis
+regex==2020.6.8
+    # via black
+requests==2.25.1
+    # via
+    #   -c requirements.txt
+    #   coreapi
+    #   djangorestframework-stubs
+six==1.14.0
+    # via
+    #   -c requirements.txt
+    #   fakeredis
+    #   flake8-print
+    #   freezegun
+    #   packaging
+    #   python-dateutil
+sortedcontainers==2.3.0
+    # via fakeredis
+sqlparse==0.3.0
+    # via
+    #   -c requirements.txt
+    #   django
+syrupy==1.4.6
+    # via -r requirements-dev.in
+toml==0.10.1
+    # via
+    #   black
+    #   pytest
+    #   pytest-cov
+typed-ast==1.4.1
+    # via
+    #   black
+    #   mypy
+typing-extensions==3.7.4.2
+    # via
+    #   django-stubs
+    #   djangorestframework-stubs
+    #   mypy
+uritemplate==3.0.1
+    # via coreapi
+urllib3==1.26.5
+    # via
+    #   -c requirements.txt
+    #   requests
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip

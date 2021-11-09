@@ -1,0 +1,51 @@
+@import '~/vars';
+@import './bridgePagesShared';
+
+.bridge-page.signup {
+    // bridgePagesShared overrides
+    .auth-main-content {
+        min-height: calc(100vh - 54px); // To account for the footer
+        flex-direction: row;
+        padding-bottom: 32px;
+    }
+
+    footer {
+        margin-bottom: $default_spacing * 2;
+        .footer-inner {
+            text-align: center;
+            display: flex;
+            padding: 0 10%;
+            font-weight: $medium;
+            opacity: 0.75;
+            span {
+                flex-grow: 1;
+                margin-right: $default_spacing * 2;
+                &:last-of-type {
+                    margin-right: 0;
+                }
+            }
+        }
+    }
+
+    .ant-form-item-explain {
+        &:not(.ant-form-item-explain-error) {
+            .anticon-exclamation-circle {
+                display: none;
+            }
+        }
+    }
+
+    @media (max-width: $md) {
+        .auth-main-content {
+            min-height: 100vh;
+        }
+
+        .main-art {
+            display: none;
+        }
+
+        footer {
+            display: none;
+        }
+    }
+}

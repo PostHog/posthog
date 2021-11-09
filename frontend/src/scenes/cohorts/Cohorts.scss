@@ -1,0 +1,34 @@
+@import '~/vars';
+
+.cohorts-drawer .ant-drawer-content-wrapper {
+    max-width: 850px !important;
+    width: 100% !important;
+}
+
+.cohort-recalculating {
+    background-color: $bg_mid;
+    padding: $default_spacing / 2 $default_spacing;
+    margin-top: $default_spacing;
+    border-radius: $radius;
+    .ant-spin-spinning {
+        margin-right: $default_spacing * 0.375;
+    }
+}
+
+.cohort-csv-dragger {
+    .ant-upload-drag-container {
+        display: flex !important;
+        text-align: left;
+
+        .ant-upload-drag-icon {
+            margin: 0 !important;
+            padding-left: $default_spacing;
+            padding-right: $default_spacing;
+        }
+
+        .ant-upload-text {
+            font-size: 1rem !important;
+            margin: 0 !important;
+        }
+    }
+}

@@ -1,23 +1,23 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function GoInstallSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Bash}>{'go get "github.com/posthog/posthog-go"'}</CodeSnippet>
 }
 
 function GoSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <CodeSnippet language={Language.Go}>
             {`package main
 import (
-    "os"
     "github.com/posthog/posthog-go"
 )
 func main() {
-    client := posthog.NewWithConfig(os.Getenv("${user?.team?.api_token}"), posthog.Config{Endpoint: "${window.location.origin}"})
+    client, _ := posthog.NewWithConfig("${currentTeam?.api_token}", posthog.Config{Endpoint: "${window.location.origin}"})
     defer client.Close()
 }`}
         </CodeSnippet>

@@ -1,6 +1,6 @@
 describe('Annotations', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-annotations]').click()
+        cy.clickNavMenu('annotations')
     })
 
     it('Annotations loaded', () => {
@@ -11,6 +11,6 @@ describe('Annotations', () => {
         cy.get('[data-attr=create-annotation]').click()
         cy.get('[data-attr=create-annotation-input]').type('Test Annotation')
         cy.get('[data-attr=create-annotation-submit]').click()
-        cy.contains('Test Annotation').should('exist')
+        cy.get('[data-attr=annotations-table]').contains('Test Annotation').should('exist')
     })
 })

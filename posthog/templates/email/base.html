@@ -15,7 +15,7 @@
                 <td>
                     <div class="header">
                         {% block header %}
-                        <h1>
+                        <h1 class="text-center">
                             <a href="{% absolute_uri %}"
                                 ><img
                                     src="{% absolute_asset_url 'posthog-logo.png' %}"
@@ -49,8 +49,7 @@
                             </div>
                             <div class="socialLinks spacingTop">
                                 <a href="https://github.com/posthog/">GitHub</a><span>|</span
-                                ><a href="https://twitter.com/posthoghq">Twitter</a><span>|</span
-                                ><a href="https://medium.com/posthog">Medium</a><span>|</span
+                                ><a href="https://twitter.com/posthog">Twitter</a><span>|</span
                                 ><a href="https://posthog.com/slack">Slack</a>
                             </div>
                             {% endblock %}

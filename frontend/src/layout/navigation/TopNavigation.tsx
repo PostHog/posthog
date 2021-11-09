@@ -1,179 +1,381 @@
-import React, { useState } from 'react'
+import React from 'react'
 import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
-import { IconBuilding, IconMenu } from './icons'
+import { IconBuilding, IconMenu } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Dropdown } from 'antd'
-import { ProjectOutlined, DownOutlined, ToolOutlined, PlusOutlined, UpOutlined } from '@ant-design/icons'
-import { guardPremiumFeature } from 'scenes/UpgradeModal'
+import { Button, Card, Dropdown } from 'antd'
+import {
+    ProjectOutlined,
+    DownOutlined,
+    ToolOutlined,
+    PlusOutlined,
+    UpOutlined,
+    SearchOutlined,
+    SettingOutlined,
+    UserAddOutlined,
+    InfoCircleOutlined,
+    CreditCardOutlined,
+    KeyOutlined,
+    SmileOutlined,
+    StopOutlined,
+} from '@ant-design/icons'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { hot } from 'react-hot-loader/root'
+import { isMobile, platformCommandControlKey } from 'lib/utils'
+import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { Link } from 'lib/components/Link'
+import { LinkButton } from 'lib/components/LinkButton'
+import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
+import { AvailableFeature, TeamBasicType, UserType } from '~/types'
+import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { Tooltip } from 'lib/components/Tooltip'
+import { teamLogic } from 'scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
+import { TopBar } from '../lemonade/TopBar'
+import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import { CommandPalette } from '../../lib/components/CommandPalette'
+import { RedesignOptIn } from '../lemonade/RedesignOptIn'
 
-export const TopNavigation = hot(_TopNavigation)
-export function _TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
-        navigationLogic
+export function WhoAmI({ user }: { user: UserType }): JSX.Element {
+    return (
+        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
+            <ProfilePicture name={user.first_name} email={user.email} />
+            <div className="details hide-lte-lg">
+                <span>{user.first_name}</span>
+                <span>{user.organization?.name}</span>
+            </div>
+        </div>
     )
-    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
-    const { user } = useValues(userLogic)
-    const { logout } = useActions(userLogic)
-    const { showUpgradeModal } = useActions(sceneLogic)
-    const { push } = router.actions
-    const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
-    const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
+}
+
+function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(userLogic)
+    const { push } = useActions(router)
+
+    const isCurrent = team.id === currentTeam?.id
+    const isRestricted = !team.effective_membership_level
+
+    return (
+        <button
+            key={team.id}
+            className="plain-button"
+            type="button"
+            onClick={(e) => {
+                if (!isCurrent && !isRestricted) {
+                    updateCurrentTeam(team.id, '/')
+                } else {
+                    e.preventDefault() // Prevent dropdown from hiding if can't switch project
+                }
+            }}
+            disabled={isCurrent || isRestricted}
+            style={{
+                cursor: isCurrent || isRestricted ? 'default' : undefined,
+                color: isRestricted ? 'var(--text-muted)' : undefined,
+            }}
+        >
+            {isRestricted ? <StopOutlined className="mr-05" /> : <ProjectOutlined className="mr-05" />}
+            <span style={{ flexGrow: 1, fontWeight: isCurrent ? 'bold' : 'normal' }}>{team.name}</span>
+            {!isRestricted && (
+                <span
+                    className="subaction"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        if (isCurrent) {
+                            push(urls.projectSettings())
+                        } else {
+                            updateCurrentTeam(team.id, '/project/settings')
+                        }
+                    }}
+                >
+                    <ToolOutlined />
+                </span>
+            )}
+        </button>
+    )
+}
+
+function TopNavigationOriginal(): JSX.Element {
+    const {
+        setMenuCollapsed,
+        setChangelogModalOpen,
+        setInviteMembersModalOpen,
+        setProjectModalShown,
+        setOrganizationModalShown,
+    } = useActions(navigationLogic)
+    const {
+        menuCollapsed,
+        systemStatus,
+        updateAvailable,
+        changelogModalOpen,
+        inviteMembersModalOpen,
+        projectModalShown,
+        organizationModalShown,
+    } = useValues(navigationLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { user, otherOrganizations } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { billing } = useValues(billingLogic)
+    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
+    const { logout, updateCurrentOrganization } = useActions(userLogic)
+    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { sceneConfig } = useValues(sceneLogic)
+    const { showPalette } = useActions(commandPaletteLogic)
+
+    const isCurrentProjectRestricted = currentTeam && !currentTeam.effective_membership_level
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
-            <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <div className="pp">{user?.name[0].toUpperCase()}</div>
+            <div className="whoami" style={{ margin: 16 }}>
+                <ProfilePicture name={user?.first_name} email={user?.email} />
                 <div className="details">
                     <span>{user?.email}</span>
-                    <span>{user?.organization.name}</span>
+                    <span>{user?.organization?.name}</span>
                 </div>
             </div>
-            <div className="text-center">
-                <div>
-                    <Button className="mt" onClick={() => push('/organization/settings')}>
-                        Organization settings
-                    </Button>
-                </div>
-                <div className="mt-05">
-                    <a onClick={() => push('/me/settings')}>My account</a>
-                </div>
-            </div>
-            <div className="divider mt-05" />
-            <div className="organizations">
-                {user?.organizations.map((organization) => {
-                    return (
-                        <a key={organization.id} onClick={() => updateCurrentOrganization(organization.id)}>
-                            <IconBuilding /> {organization.name}
-                        </a>
-                    )
-                })}
-                <a
-                    style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
-                    onClick={() =>
-                        guardPremiumFeature(
-                            user,
-                            showUpgradeModal,
-                            'organizations_projects',
-                            'multiple organizations',
-                            () => {
-                                setOrganizationModalShown(true)
-                            }
-                        )
-                    }
+            {preflight?.cloud && billing?.should_display_current_bill && (
+                <Link to={urls.organizationBilling()} data-attr="top-menu-billing-usage">
+                    <Card
+                        bodyStyle={{ padding: '8px 16px', fontWeight: 'bold' }}
+                        style={{ marginBottom: 16, cursor: 'pointer' }}
+                    >
+                        <span className="text-small text-muted">
+                            <b>Current usage</b>
+                        </span>
+                        <div style={{ fontSize: '1.05rem' }}>
+                            {billing?.current_bill_amount !== undefined && billing?.current_bill_amount !== null ? (
+                                `$${billing?.current_bill_amount?.toLocaleString()}`
+                            ) : (
+                                <>
+                                    Unavailable{' '}
+                                    <Tooltip title="We can't show your current bill amount right now. Please check back in a few minutes. If you keep seeing this message, contact us.">
+                                        <InfoCircleOutlined />
+                                    </Tooltip>
+                                </>
+                            )}
+                        </div>
+                    </Card>
+                </Link>
+            )}
+            {preflight?.email_service_available ? (
+                <Button
+                    type="primary"
+                    icon={<UserAddOutlined />}
+                    onClick={() => setInviteMembersModalOpen(true)}
+                    data-attr="top-menu-invite-team-members"
                 >
-                    <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
-                </a>
-            </div>
-            <div className="divider mb-05" />
-            <div className="text-center">
-                <a onClick={logout}>Log out</a>
-            </div>
+                    Invite team members
+                </Button>
+            ) : (
+                <CreateInviteModalWithButton />
+            )}
+            <LinkButton to={urls.mySettings()} data-attr="top-menu-item-me" icon={<SmileOutlined />}>
+                My account
+            </LinkButton>
+            {preflight?.cloud ? (
+                <LinkButton
+                    to={urls.organizationBilling()}
+                    data-attr="top-menu-item-billing"
+                    icon={<CreditCardOutlined />}
+                >
+                    Billing
+                </LinkButton>
+            ) : (
+                <LinkButton to={urls.instanceLicenses()} data-attr="top-menu-item-licenses" icon={<KeyOutlined />}>
+                    Licenses
+                </LinkButton>
+            )}
+            <LinkButton
+                to={urls.organizationSettings()}
+                data-attr="top-menu-item-org-settings"
+                icon={<SettingOutlined />}
+            >
+                Organization settings
+            </LinkButton>
+            {
+                <div className="organizations">
+                    {otherOrganizations.map((organization) => (
+                        <button
+                            type="button"
+                            className="plain-button"
+                            key={organization.id}
+                            onClick={() => updateCurrentOrganization(organization.id)}
+                        >
+                            <IconBuilding className="mr-05" style={{ width: 14 }} />
+                            {organization.name}
+                        </button>
+                    ))}
+                    {preflight?.can_create_org && (
+                        <button
+                            type="button"
+                            className="plain-button text-primary"
+                            onClick={() =>
+                                guardAvailableFeature(
+                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                    'multiple organizations',
+                                    'Organizations group people building products together. An organization can then have multiple projects.',
+                                    () => {
+                                        setOrganizationModalShown(true)
+                                    },
+                                    {
+                                        cloud: false,
+                                        selfHosted: true,
+                                    }
+                                )
+                            }
+                        >
+                            <PlusOutlined className="mr-05" />
+                            Create new organization
+                        </button>
+                    )}
+                </div>
+            }
+            <button type="button" onClick={logout} className="bottom-button" data-attr="top-menu-item-logout">
+                Log out
+            </button>
         </div>
     )
 
     const projectDropdown = (
         <div className="navigation-top-dropdown project-dropdown">
-            <div className="dp-title">SELECT A PROJECT</div>
+            <div className="title">Select project</div>
             <div className="projects">
-                {user?.organization.teams.map((team) => {
-                    return (
-                        <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
-                            <span style={{ flexGrow: 1 }}>{team.name}</span>
-                            <span
-                                className="settings"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (team.id === user?.team.id) {
-                                        push('/project/settings')
-                                    } else {
-                                        updateCurrentProject(team.id, '/project/settings')
-                                    }
-                                }}
-                            >
-                                <ToolOutlined />
-                            </span>
-                        </a>
-                    )
-                })}
-            </div>
-            <div className="divider mt mb-05" />
-            <div className="text-center">
-                <a
-                    onClick={() =>
-                        guardPremiumFeature(
-                            user,
-                            showUpgradeModal,
-                            'organizations_projects',
-                            'multiple projects',
-                            () => {
-                                setProjectModalShown(true)
-                            }
+                {currentOrganization?.teams &&
+                    currentOrganization.teams
+                        .sort((teamA, teamB) =>
+                            teamA.id === currentTeam?.id
+                                ? -2
+                                : teamA.effective_membership_level
+                                ? 2
+                                : teamA.name.localeCompare(teamB.name)
                         )
-                    }
-                >
-                    <PlusOutlined /> Create new project
-                </a>
+                        .map((team) => <ProjectRow key={team.id} team={team} />)}
             </div>
+            <button
+                type="button"
+                className="plain-button text-primary"
+                disabled={isProjectCreationForbidden}
+                onClick={() =>
+                    guardAvailableFeature(
+                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                        'multiple projects',
+                        'Projects allow you to separate data and configuration for different products or environments.',
+                        () => {
+                            setProjectModalShown(true)
+                        }
+                    )
+                }
+                style={{
+                    cursor: isProjectCreationForbidden ? 'not-allowed' : 'default',
+                    color: isProjectCreationForbidden ? 'var(--text-muted)' : undefined,
+                }}
+            >
+                <PlusOutlined className="mr-05" />
+                Create new project
+            </button>
         </div>
     )
 
     return (
         <>
             <div className="navigation-spacer" />
-            <div className="navigation-top">
+            <div className={`navigation-top${sceneConfig.plain ? ' full-width' : ''}`}>
                 <div style={{ justifyContent: 'flex-start' }}>
                     <div className="hide-gte-lg menu-toggle" onClick={() => setMenuCollapsed(!menuCollapsed)}>
                         <IconMenu />
                     </div>
                     <div className="hide-lte-lg ml-05">
-                        {!user?.is_multi_tenancy && (
+                        {!isMobile() && (
                             <Badge
-                                type={systemStatus ? 'success' : 'danger'}
-                                onClick={() => push('/instance/status')}
-                                tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
+                                data-attr="command-palette-toggle"
+                                onClick={showPalette}
+                                tooltip={`Toggle command palette (${platformCommandControlKey('K')})`}
+                                icon={<SearchOutlined />}
                                 className="mr"
+                                type="primary"
                             />
                         )}
-                        <Badge
-                            type={updateAvailable ? 'warning' : undefined}
-                            tooltip={updateAvailable ? 'New version available' : undefined}
-                            icon={<UpOutlined />}
-                            onClick={() => setChangelogModalOpen(true)}
-                        />
+                        {(!preflight?.cloud || user?.is_staff) && (
+                            <Link to={urls.systemStatus()}>
+                                <Badge
+                                    data-attr="system-status-badge"
+                                    type={systemStatus ? 'success' : 'danger'}
+                                    tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
+                                    className="mr"
+                                />
+                            </Link>
+                        )}
+                        {!preflight?.cloud && (
+                            <Badge
+                                data-attr="update-indicator-badge"
+                                type={updateAvailable ? 'warning' : undefined}
+                                tooltip={updateAvailable ? 'New version available' : 'PostHog is up-to-date'}
+                                icon={<UpOutlined />}
+                                onClick={() => setChangelogModalOpen(true)}
+                            />
+                        )}
                     </div>
                 </div>
-                <div className="project-chooser">
-                    <Dropdown overlay={projectDropdown} trigger={['click']} placement="bottomCenter">
-                        <div style={{ height: '100%' }} className="cursor-pointer flexed">
-                            <ProjectOutlined className="mr-05" />
-                            {user?.team.name} <DownOutlined className="ml-05" />
+                <div className="project-chooser-container">
+                    <Dropdown
+                        overlay={projectDropdown}
+                        className="project-chooser"
+                        overlayClassName="navigation-top-dropdown-overlay"
+                        trigger={['click']}
+                        placement="bottomCenter"
+                    >
+                        <div>
+                            {isCurrentProjectRestricted ? (
+                                <StopOutlined className="mr-05" />
+                            ) : (
+                                <ProjectOutlined className="mr-05" />
+                            )}
+                            {currentTeam ? currentTeam.name : <i>Choose project</i>}
+                            <DownOutlined className="ml-05" />
                         </div>
                     </Dropdown>
                 </div>
-                <div>
-                    <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
-                        <div className="whoami cursor-pointer">
-                            <div className="pp">{user?.name[0].toUpperCase()}</div>
-                            <div className="details hide-lte-lg">
-                                <span>{user?.name}</span>
-                                <span>{user?.organization.name}</span>
+                <RedesignOptIn />
+                <HelpButton />
+                {user && (
+                    <>
+                        <Dropdown
+                            overlay={whoAmIDropdown}
+                            overlayClassName="navigation-top-dropdown-overlay"
+                            trigger={['click']}
+                        >
+                            <div>
+                                <WhoAmI user={user} />
                             </div>
-                        </div>
-                    </Dropdown>
-                </div>
+                        </Dropdown>
+                    </>
+                )}
             </div>
-            <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
-            <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
+            <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />
+            <CreateProjectModal isVisible={projectModalShown} onClose={() => setProjectModalShown(false)} />
+            <CreateOrganizationModal
+                isVisible={organizationModalShown}
+                onClose={() => setOrganizationModalShown(false)}
+            />
+            <CommandPalette />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
     )
+}
+
+export function TopNavigation(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return featureFlags[FEATURE_FLAGS.LEMONADE] ? <TopBar /> : <TopNavigationOriginal />
 }

@@ -1,36 +1,42 @@
 import React from 'react'
 import { Button, Modal } from 'antd'
 import { useValues } from 'kea'
-import { useLatestVersion } from 'lib/hooks/useLatestVersion'
-import { userLogic } from 'scenes/userLogic'
+import { navigationLogic } from './navigation/navigationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
-export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.Element {
-    const { user } = useValues(userLogic)
-    const latestVersion = useLatestVersion(user?.posthog_version)
+export interface ChangelogModalProps {
+    onDismiss: () => void
+    visible?: boolean
+}
+
+export function ChangelogModal({ onDismiss, visible }: ChangelogModalProps): JSX.Element | null {
+    const { preflight } = useValues(preflightLogic)
+    const { latestVersion } = useValues(navigationLogic)
+
+    if (preflight?.cloud) {
+        // The changelog is not available on cloud
+        return null
+    }
 
     return (
         <Modal
-            visible
+            visible={visible}
             onOk={onDismiss}
             onCancel={onDismiss}
             footer={<Button onClick={onDismiss}>Close</Button>}
             style={{ top: 20, minWidth: '70%', fontSize: 16 }}
         >
-            {!window.location.href.includes('app.posthog.com') ? (
-                <span>
-                    You're on version <b>{user?.posthog_version}</b> of PostHog.{' '}
-                    {latestVersion &&
-                        (latestVersion === user?.posthog_version ? (
-                            'This is the newest version.'
-                        ) : (
-                            <>
-                                The newest version is <b>{latestVersion}</b>.
-                            </>
-                        ))}
-                </span>
-            ) : (
-                <span>You're on the newest version of PostHog.</span>
-            )}
+            <span>
+                You're on version <b>{preflight?.posthog_version}</b> of PostHog.{' '}
+                {latestVersion &&
+                    (latestVersion === preflight?.posthog_version ? (
+                        'This is the newest version.'
+                    ) : (
+                        <span className="text-warning">
+                            The newest version is <b>{latestVersion}</b>.
+                        </span>
+                    ))}
+            </span>
             <iframe
                 data-attr="changelog-modal"
                 style={{

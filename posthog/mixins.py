@@ -6,7 +6,10 @@ from rest_framework import response, status
 
 class AnalyticsDestroyModelMixin:
     """
-    Destroy a model instance sending analytics information.
+    DestroyModelMixin enhancement that provides reporting of when an object is deleted.
+
+    Generally this would be better off executed at the serializer level,
+    but deletion (i.e. `destroy`) is performed directly in the viewset, which is why this mixin is a thing.
     """
 
     def perform_destroy(self, instance):
@@ -15,11 +18,12 @@ class AnalyticsDestroyModelMixin:
     def destroy(self, request, *args, **kwgars):
 
         instance = self.get_object()  # type: ignore
-        self.perform_destroy(instance)
 
         metadata: Optional[Dict] = instance.get_analytics_metadata() if hasattr(
             instance, "get_analytics_metadata",
         ) else None
+
+        self.perform_destroy(instance)
 
         posthoganalytics.capture(
             request.user.distinct_id, f"{instance._meta.verbose_name} deleted", metadata,

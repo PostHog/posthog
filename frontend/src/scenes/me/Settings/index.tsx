@@ -3,15 +3,18 @@ import { useValues } from 'kea'
 import { Divider, Card } from 'antd'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { hot } from 'react-hot-loader/root'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { ChangePassword } from './ChangePassword'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 import { OptOutCapture } from './OptOutCapture'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExport } from 'scenes/sceneTypes'
 
-export const MySettings = hot(_MySettings)
-function _MySettings(): JSX.Element {
+export const scene: SceneExport = {
+    component: MySettings,
+}
+
+export function MySettings(): JSX.Element {
     const { location } = useValues(router)
 
     useAnchor(location.hash)

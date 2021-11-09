@@ -1,49 +1,45 @@
 {% if debug %}
-<div id="bottom-notice" class="tricolor">
+<div id="bottom-notice" class="tricolor click-close" style="display: none">
     <div>
-        <span>Current branch: </span><b><code>{{ git_branch|default:"unknown" }}</code></b
-        ><span>.</span>
+        <span>
+            <span>Current branch: </span
+            ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
+            ><span>.</span>
+        </span>
     </div>
     <div>
-        <span>PostHog running in </span><b><code>DEBUG</code></b> mode!
+        <span
+            ><span>PostHog running in </span><b><code style="background: 0; color: white">DEBUG</code></b> mode!</span
+        >
     </div>
     <div>
-        <span>Current revision: </span><b><code>{{ git_rev|default:"unknown" }}</code></b
-        ><span>.</span>
+        <span
+            ><span>Current revision: </span
+            ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
+            ><span>.</span></span
+        >
     </div>
-    <button title="Close debug bar" onclick="document.getElementById('bottom-notice').remove()">
-        <code>×</code>
+    <button title="Close debug bar">
+        <code style="background: 0; color: white">×</code>
     </button>
 </div>
-{% else %}
+<script>
+    document.getElementById('bottom-notice').addEventListener('click', function (e) {
+        if (e.target.tagName !== 'SPAN') {
+            document.getElementById('bottom-notice').remove()
+        }
+    })
+</script>
+{% elif not e2e_testing %}
 <script>
     if (location.protocol !== 'https:') {
         const element = document.createElement('div')
         element.id = 'bottom-notice'
         element.className = 'warning'
         element.innerHTML =
-            '<div>PostHog dangerously running in&nbsp;<b><code>PRODUCTION</code></b>&nbsp;mode without&nbsp;TLS! ' +
-            'Use a&nbsp;valid TLS&nbsp;certificate and&nbsp;route&nbsp;to&nbsp;<code>https://</code>.</div>'
+            '<div>PostHog dangerously running in&nbsp;<b><code style="background: 0; color: white">PRODUCTION</code></b>&nbsp;mode without&nbsp;TLS! ' +
+            'Use a&nbsp;valid TLS&nbsp;certificate and&nbsp;route&nbsp;to&nbsp;<code style="background: 0; color: white">https://</code>.</div>'
         document.body.prepend(element)
     }
 </script>
 {% endif %}
-
-<script>
-    window.Papercups = {
-        config: {
-            accountId: '873f5102-d267-4b09-9de0-d6e741e0e076',
-            title: 'Welcome to PostHog',
-            subtitle: 'Ask us anything in the chat window below 😊',
-            primaryColor: '#5375ff',
-            greeting: "Hi! Send us a message and we'll respond as soon as we can.",
-            customer: {
-                email: '{{ request.user.email }}',
-                name: '{{ request.user.first_name }}',
-            },
-            newMessagePlaceholder: 'Start typing…',
-            baseUrl: 'https://app.papercups.io',
-        },
-    }
-</script>
-<script type="text/javascript" async defer src="https://app.papercups.io/widget.js"></script>

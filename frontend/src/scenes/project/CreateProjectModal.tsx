@@ -1,56 +1,86 @@
 import { Alert, Input, Modal } from 'antd'
-import { useActions } from 'kea'
-import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import React, { useCallback, useRef, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export function CreateProjectModal({
     isVisible,
-    setIsVisible,
+    onClose,
+    title,
+    caption,
 }: {
     isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
+    onClose?: () => void
+    title?: string
+    caption?: JSX.Element
 }): JSX.Element {
     const { createTeam } = useActions(teamLogic)
+    const { user } = useValues(userLogic)
+    const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
     const closeModal: () => void = useCallback(() => {
-        setErrorMessage(null)
-        setIsVisible(false)
-        if (inputRef.current) inputRef.current.setValue('')
-    }, [inputRef, setIsVisible])
+        if (onClose) {
+            setErrorMessage(null)
+            onClose()
+            if (inputRef.current) {
+                inputRef.current.setValue('')
+            }
+        }
+    }, [inputRef, onClose])
+
+    const handleSubmit = (): void => {
+        const name = inputRef.current?.state.value?.trim()
+        if (name) {
+            reportProjectCreationSubmitted(user?.organization?.teams ? user.organization.teams.length : 0, name.length)
+            setErrorMessage(null)
+            createTeam(name)
+            closeModal()
+        } else {
+            setErrorMessage('Your project needs a name!')
+        }
+    }
+
+    const defaultCaption = (
+        <p>
+            Projects are a way of tracking multiple products under the umbrella of a single organization.
+            <br />
+            All organization members will be able to access the new project.
+        </p>
+    )
 
     return (
         <Modal
-            title="Creating a Project"
+            title={
+                title || (user?.organization ? `Creating a Project in ${user.organization.name}` : 'Creating a Project')
+            }
             okText="Create Project"
-            cancelText="Cancel"
-            onOk={() => {
-                const name = inputRef.current?.state.value?.trim()
-                if (name) {
-                    setErrorMessage(null)
-                    createTeam(name)
-                    closeModal()
-                } else {
-                    setErrorMessage('Your project needs a name!')
-                }
-            }}
+            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
+            closable={!!onClose}
+            onOk={handleSubmit}
             onCancel={closeModal}
             visible={isVisible}
         >
-            <p>
-                Projects are a way of tracking multiple products under the umbrella of a single organization.
-                <br />
-                All organization members will be able to access the new project.
-            </p>
-            <Input
-                addonBefore="Name"
-                ref={inputRef}
-                placeholder='for example "Global Website"'
-                maxLength={64}
-                autoFocus
-            />
-            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
+            {caption || defaultCaption}
+            <div className="input-set">
+                <label htmlFor="projectName">Project Name</label>
+                <Input
+                    ref={inputRef}
+                    placeholder='for example "Web app", "Mobile app", "Production", "Landing website"'
+                    maxLength={64}
+                    autoFocus
+                    name="projectName"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            handleSubmit()
+                        }
+                    }}
+                />
+            </div>
+            {errorMessage && <Alert message={errorMessage} type="error" />}
         </Modal>
     )
 }

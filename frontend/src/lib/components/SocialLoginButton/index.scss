@@ -1,0 +1,41 @@
+@import '~/vars';
+
+.social-logins {
+    margin-bottom: $default_spacing;
+    margin-top: $default_spacing * 2;
+    text-align: center;
+
+    &:not(.empty) {
+        border-top: 1px dashed $border;
+        padding-top: $default_spacing;
+    }
+
+    button,
+    a {
+        margin-bottom: $default_spacing / 2;
+    }
+
+    .caption {
+        margin-bottom: $default_spacing / 2;
+        color: $text_muted;
+    }
+
+    @media screen and (max-width: $sm) {
+        margin-top: 0;
+
+        .link-social-login {
+            padding: 0 $default_spacing / 2;
+        }
+    }
+}
+
+.link-social-login {
+    display: inline-flex;
+    align-items: center;
+    color: $primary;
+
+    .anticon {
+        color: $primary_alt;
+        transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    }
+}

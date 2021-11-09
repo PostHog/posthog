@@ -1,10 +1,8 @@
 ## Changes
 
 *Please describe.*  
-*If this affects the front-end, include screenshots.*  
+*If this affects the frontend, include screenshots.*  
 
-## Checklist
+## How did you test this code?
 
-- [ ] All querysets/queries filter by Organization, Team, and User (if this PR affects ANY querysets/queries).
-- [ ] Django backend tests (if this PR affects the backend).
-- [ ] Cypress end-to-end tests (if this PR affects the frontend).
+*Please describe.*

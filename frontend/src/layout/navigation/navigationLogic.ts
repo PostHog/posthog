@@ -1,19 +1,36 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
+import { navigationLogicType } from './navigationLogicType'
+import { SystemStatus } from '~/types'
+import { organizationLogic } from 'scenes/organizationLogic'
+import dayjs from 'dayjs'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { navigationLogicType } from 'types/layout/navigation/navigationLogicType'
-import { UserType } from '~/types'
 
-export const navigationLogic = kea<navigationLogicType<UserType>>({
+type WarningType =
+    | 'welcome'
+    | 'incomplete_setup_on_demo_project'
+    | 'incomplete_setup_on_real_project'
+    | 'demo_project'
+    | 'real_project_with_no_events'
+    | null
+
+export const navigationLogic = kea<navigationLogicType<WarningType>>({
+    path: ['layout', 'navigation', 'navigationLogic'],
     actions: {
-        setMenuCollapsed: (collapsed) => ({ collapsed }),
+        setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
-        setSystemStatus: (status) => ({ status }),
-        setChangelogModalOpen: (isOpen) => ({ isOpen }),
-        updateCurrentOrganization: (id) => ({ id }),
-        updateCurrentProject: (id, dest) => ({ id, dest }),
-        setToolbarModalOpen: (isOpen) => ({ isOpen }),
+        setSystemStatus: (status: SystemStatus) => ({ status }),
+        setChangelogModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
+        setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
+        setProjectModalShown: (isShown: boolean) => ({ isShown }),
+        setOrganizationModalShown: (isShown: boolean) => ({ isShown }),
     },
     reducers: {
         menuCollapsed: [
@@ -34,38 +51,101 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 setToolbarModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
+        inviteMembersModalOpen: [
+            false,
+            {
+                setInviteMembersModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        pinnedDashboardsVisible: [
+            false,
+            {
+                setPinnedDashboardsVisible: (_, { visible }) => visible,
+            },
+        ],
+        hotkeyNavigationEngaged: [
+            false,
+            {
+                setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
+            },
+        ],
+        projectModalShown: [
+            false,
+            {
+                setProjectModalShown: (_, { isShown }) => isShown,
+            },
+        ],
+        organizationModalShown: [
+            false,
+            {
+                setOrganizationModalShown: (_, { isShown }) => isShown,
+            },
+        ],
     },
     selectors: {
         systemStatus: [
-            () => [systemStatusLogic.selectors.systemStatus, systemStatusLogic.selectors.systemStatusLoading],
-            (statusMetrics, statusLoading) => {
+            () => [
+                systemStatusLogic.selectors.overview,
+                systemStatusLogic.selectors.systemStatusLoading,
+                preflightLogic.selectors.siteUrlMisconfigured,
+            ],
+            (statusMetrics, statusLoading, siteUrlMisconfigured) => {
                 if (statusLoading) {
                     return true
                 }
-                const aliveMetrics = ['redis_alive', 'db_alive']
-                let aliveSignals = 0
-                for (const metric of statusMetrics) {
-                    if (aliveMetrics.includes(metric.key) && metric.value) {
-                        aliveSignals = aliveSignals + 1
-                    }
-                    if (aliveSignals >= aliveMetrics.length) {
-                        return true
-                    }
+
+                if (siteUrlMisconfigured) {
+                    return false
                 }
-                return false
+
+                // On cloud non staff users don't have status metrics to review
+                const hasNoStatusMetrics = !statusMetrics || statusMetrics.length === 0
+                if (hasNoStatusMetrics && preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
+                    return true
+                }
+
+                // if you have status metrics these three must have `value: true`
+                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
+                const aliveSignals = statusMetrics
+                    .filter((sm) => sm.key && aliveMetrics.includes(sm.key))
+                    .filter((sm) => sm.value).length
+                return aliveSignals >= aliveMetrics.length
             },
         ],
         updateAvailable: [
-            (selectors) => [selectors.latestVersion, selectors.latestVersionLoading, userLogic.selectors.user],
-            (latestVersion, latestVersionLoading, user) => {
+            (selectors) => [
+                selectors.latestVersion,
+                selectors.latestVersionLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return !latestVersionLoading && !user?.is_multi_tenancy && latestVersion !== user?.posthog_version
+                return !latestVersionLoading && !preflight?.cloud && latestVersion !== preflight?.posthog_version
             },
         ],
-        currentTeam: [
-            () => [userLogic.selectors.user],
-            (user) => {
-                return user?.team.id
+        demoWarning: [
+            () => [organizationLogic.selectors.currentOrganization, teamLogic.selectors.currentTeam],
+            (organization, currentTeam): WarningType => {
+                if (!organization) {
+                    return null
+                }
+
+                if (
+                    organization.setup.is_active &&
+                    dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
+                    currentTeam?.is_demo
+                ) {
+                    return 'welcome'
+                } else if (organization.setup.is_active && currentTeam?.is_demo) {
+                    return 'incomplete_setup_on_demo_project'
+                } else if (organization.setup.is_active) {
+                    return 'incomplete_setup_on_real_project'
+                } else if (currentTeam?.is_demo) {
+                    return 'demo_project'
+                } else if (currentTeam && !currentTeam.ingested_event) {
+                    return 'real_project_with_no_events'
+                }
+                return null
             },
         ],
     },
@@ -86,25 +166,16 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 actions.setMenuCollapsed(true)
             }
         },
-        updateCurrentOrganization: async ({ id }) => {
-            await api.update('api/user', {
-                user: { current_organization_id: id },
-            })
-            location.href = '/'
-        },
-        updateCurrentProject: async ({ id, dest }) => {
-            if (values.currentTeam === id) {
-                return
+        setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
+            if (hotkeyNavigationEngaged) {
+                eventUsageLogic.actions.reportHotkeyNavigation('global', 'g')
+                await breakpoint(3000)
+                actions.setHotkeyNavigationEngaged(false)
             }
-            await api.update('api/user', {
-                user: { current_team_id: id },
-            })
-            location.href = dest
         },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            systemStatusLogic.actions.loadSystemStatus()
             actions.loadLatestVersion()
         },
     }),

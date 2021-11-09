@@ -1,0 +1,40 @@
+.taxonomic-infinite-list {
+    min-height: 200px;
+
+    &.empty-infinite-list {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        .no-infinite-results {
+            color: #666;
+        }
+    }
+
+    .taxonomic-list-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #2d2d2d;
+        padding: 4px 12px;
+        cursor: pointer;
+        border: none;
+        white-space: nowrap;
+        overflow-x: auto;
+
+        &.hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        &.selected {
+            font-weight: bold;
+        }
+
+        &.skeleton-row {
+            // center-align this antd skeleton
+            .ant-skeleton-paragraph {
+                margin-bottom: 0;
+            }
+        }
+    }
+}

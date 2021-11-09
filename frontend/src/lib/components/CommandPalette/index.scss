@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .palette__overlay {
-    z-index: 2147483021;
+    z-index: $z_command_palette;
     position: fixed;
     top: 0;
     left: 0;
@@ -13,6 +13,7 @@
 }
 
 .palette__box {
+    @extend %mixin-elevated;
     position: absolute;
     top: 30%;
     display: flex;
@@ -23,7 +24,7 @@
     color: $text_light;
     border-radius: $radius;
     background-color: $bg_menu;
-    @extend .mixin-elevated;
+    overflow: hidden;
 
     @media (max-width: 500px) {
         top: 10%;
@@ -81,7 +82,6 @@
     align-items: center;
     font-size: 1rem;
     position: relative;
-    cursor: pointer;
 }
 
 .palette__result--focused {
@@ -103,8 +103,11 @@
     }
 }
 
-.palette__result--executable::after {
-    background: $primary;
+.palette__result--executable {
+    cursor: pointer;
+    &::after {
+        background: $primary;
+    }
 }
 
 .palette__scope {

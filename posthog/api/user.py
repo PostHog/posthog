@@ -1,148 +1,177 @@
-import functools
 import json
 import os
 import secrets
 import urllib.parse
-from typing import cast
+from typing import Any, Optional, cast
 
-import posthoganalytics
 import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
+from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
-from rest_framework import exceptions, serializers
+from loginas.utils import is_impersonated_session
+from rest_framework import mixins, permissions, serializers, viewsets
 
+from posthog.api.organization import OrganizationSerializer
+from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
-from posthog.email import is_email_available
-from posthog.models import Event, Team, User
-from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
-from posthog.version import VERSION
+from posthog.event_usage import report_user_updated
+from posthog.models import Team, User
+from posthog.models.organization import Organization
+from posthog.tasks import user_identify
 
 
 class UserSerializer(serializers.ModelSerializer):
+
+    has_password = serializers.SerializerMethodField()
+    is_impersonated = serializers.SerializerMethodField()
+    team = TeamBasicSerializer(read_only=True)
+    organization = OrganizationSerializer(read_only=True)
+    organizations = OrganizationBasicSerializer(many=True, read_only=True)
+    set_current_organization = serializers.CharField(write_only=True, required=False)
+    set_current_team = serializers.CharField(write_only=True, required=False)
+    current_password = serializers.CharField(write_only=True, required=False)
+
     class Meta:
         model = User
-        fields = ["id", "distinct_id", "first_name", "email"]
-
-
-# TODO: remake these endpoints with DRF!
-@authenticate_secondarily
-def user(request):
-    organization = request.user.organization
-    organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
-    team = request.user.team
-    teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
-    user = cast(User, request.user)
-
-    if request.method == "PATCH":
-        data = json.loads(request.body)
-
-        if "team" in data:
-            team.app_urls = data["team"].get("app_urls", team.app_urls)
-            team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
-            team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
-            team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
-            team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
-            if data["team"].get("plugins_opt_in") is not None:
-                reload_plugins_on_workers()
-            team.plugins_opt_in = data["team"].get("plugins_opt_in", team.plugins_opt_in)
-            team.completed_snippet_onboarding = data["team"].get(
-                "completed_snippet_onboarding", team.completed_snippet_onboarding,
-            )
-            team.save()
-
-        if "user" in data:
-            try:
-                user.current_organization = user.organizations.get(id=data["user"]["current_organization_id"])
-                user.current_team = user.organization.teams.first()
-            except KeyError:
-                pass
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Organization not found for user."}, status=404)
-            except KeyError:
-                pass
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Organization not found for user."}, status=404)
-            try:
-                user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
-            except (KeyError, TypeError):
-                pass
-            except ValueError:
-                return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
-            user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
-            user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
-            user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
-            posthoganalytics.identify(
-                user.distinct_id,
-                {
-                    "email_opt_in": user.email_opt_in,
-                    "anonymize_data": user.anonymize_data,
-                    "email": user.email if not user.anonymize_data else None,
-                    "is_signed_up": True,
-                    "toolbar_mode": user.toolbar_mode,
-                    "billing_plan": user.organization.billing_plan,
-                    "is_team_unique_user": (team.users.count() == 1),
-                    "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event),
-                },
-            )
-            user.save()
-
-    return JsonResponse(
-        {
-            "id": user.pk,
-            "distinct_id": user.distinct_id,
-            "name": user.first_name,
-            "email": user.email,
-            "email_opt_in": user.email_opt_in,
-            "anonymize_data": user.anonymize_data,
-            "toolbar_mode": user.toolbar_mode,
-            "organization": {
-                "id": organization.id,
-                "name": organization.name,
-                "billing_plan": organization.billing_plan,
-                "available_features": organization.available_features,
-                "created_at": organization.created_at,
-                "updated_at": organization.updated_at,
-                "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
-            },
-            "organizations": organizations,
-            "team": team
-            and {
-                "id": team.id,
-                "name": team.name,
-                "app_urls": team.app_urls,
-                "api_token": team.api_token,
-                "opt_out_capture": team.opt_out_capture,
-                "anonymize_ips": team.anonymize_ips,
-                "slack_incoming_webhook": team.slack_incoming_webhook,
-                "event_names": team.event_names,
-                "event_names_with_usage": team.event_names_with_usage
-                or [{"event": event, "volume": None, "usage_count": None} for event in team.event_names],
-                "event_properties": team.event_properties,
-                "event_properties_numerical": team.event_properties_numerical,
-                "event_properties_with_usage": team.event_properties_with_usage
-                or [{"key": key, "volume": None, "usage_count": None} for key in team.event_properties],
-                "completed_snippet_onboarding": team.completed_snippet_onboarding,
-                "session_recording_opt_in": team.session_recording_opt_in,
-                "plugins_opt_in": team.plugins_opt_in,
-                "ingested_event": team.ingested_event,
-            },
-            "teams": teams,
-            "has_password": user.has_usable_password(),
-            "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": VERSION,
-            "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
-            "ee_available": user.ee_available,
-            "email_service_available": is_email_available(with_absolute_urls=True),
-            "plugin_access": {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()},
+        fields = [
+            "date_joined",
+            "uuid",
+            "distinct_id",
+            "first_name",
+            "email",
+            "email_opt_in",
+            "anonymize_data",
+            "toolbar_mode",
+            "has_password",
+            "is_staff",
+            "is_impersonated",
+            "team",
+            "organization",
+            "organizations",
+            "set_current_organization",
+            "set_current_team",
+            "password",
+            "current_password",  # used when changing current password
+            "events_column_config",
+        ]
+        extra_kwargs = {
+            "date_joined": {"read_only": True},
+            "is_staff": {"read_only": True},
+            "password": {"write_only": True},
         }
-    )
+
+    def get_has_password(self, instance: User) -> bool:
+        return instance.has_usable_password()
+
+    def get_is_impersonated(self, _) -> Optional[bool]:
+        if "request" not in self.context:
+            return None
+        return is_impersonated_session(self.context["request"])
+
+    def validate_set_current_organization(self, value: str) -> Organization:
+        try:
+            organization = Organization.objects.get(id=value)
+            if organization.memberships.filter(user=self.context["request"].user).exists():
+                return organization
+        except Organization.DoesNotExist:
+            pass
+
+        raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
+
+    def validate_set_current_team(self, value: str) -> Team:
+        try:
+            team = Team.objects.get(pk=value)
+            if self.context["request"].user.teams.filter(pk=team.pk).exists():
+                return team
+        except Team.DoesNotExist:
+            pass
+
+        raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
+
+    def validate_password_change(
+        self, instance: User, current_password: Optional[str], password: Optional[str]
+    ) -> Optional[str]:
+        if password:
+            if instance.password and instance.has_usable_password():
+                # If user has a password set, we check it's provided to allow updating it. We need to check that is both
+                # usable (properly hashed) and that a password actually exists.
+                if not current_password:
+                    raise serializers.ValidationError(
+                        {"current_password": ["This field is required when updating your password."]}, code="required"
+                    )
+
+                if not instance.check_password(current_password):
+                    raise serializers.ValidationError(
+                        {"current_password": ["Your current password is incorrect."]}, code="incorrect_password"
+                    )
+            try:
+                validate_password(password, instance)
+            except ValidationError as e:
+                raise serializers.ValidationError({"password": e.messages})
+
+        return password
+
+    def update(self, instance: models.Model, validated_data: Any) -> Any:
+
+        # Update current_organization and current_team
+        current_organization = validated_data.pop("set_current_organization", None)
+        current_team = validated_data.pop("set_current_team", None)
+        if current_organization:
+            if current_team and not current_organization.teams.filter(pk=current_team.pk).exists():
+                raise serializers.ValidationError(
+                    {"set_current_team": ["Team must belong to the same organization in set_current_organization."]}
+                )
+
+            validated_data["current_organization"] = current_organization
+            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+        elif current_team:
+            validated_data["current_team"] = current_team
+            validated_data["current_organization"] = current_team.organization
+
+        # Update password
+        current_password = validated_data.pop("current_password", None)
+        password = self.validate_password_change(
+            cast(User, instance), current_password, validated_data.pop("password", None)
+        )
+
+        updated_attrs = list(validated_data.keys())
+        instance = cast(User, super().update(instance, validated_data))
+
+        if password:
+            instance.set_password(password)
+            instance.save()
+            update_session_auth_hash(self.context["request"], instance)
+            updated_attrs.append("password")
+
+        report_user_updated(instance, updated_attrs)
+
+        return instance
+
+    def to_representation(self, instance: Any) -> Any:
+        user_identify.identify_task.delay(user_id=instance.id)
+        return super().to_representation(instance)
+
+
+class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+    serializer_class = UserSerializer
+    permission_classes = [
+        permissions.IsAuthenticated,
+    ]
+    queryset = User.objects.none()
+    lookup_field = "uuid"
+
+    def get_object(self) -> Any:
+        lookup_value = self.kwargs[self.lookup_field]
+        if lookup_value == "@me":
+            return self.request.user
+        raise serializers.ValidationError(
+            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
+        )
 
 
 @authenticate_secondarily
@@ -163,6 +192,7 @@ def redirect_to_site(request):
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
+        "dataAttributes": team.data_attributes,
     }
 
     if settings.JS_URL:
@@ -181,39 +211,6 @@ def redirect_to_site(request):
         return redirect("{}#state={}".format(app_url, state))
 
 
-@require_http_methods(["PATCH"])
-@authenticate_secondarily
-def change_password(request):
-    """Change the password of a regular User."""
-    try:
-        body = json.loads(request.body)
-    except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({"error": "Cannot parse request body"}, status=400)
-
-    old_password = body.get("oldPassword")
-    new_password = body.get("newPassword")
-
-    user = cast(User, request.user)
-
-    if user.has_usable_password():
-        if not old_password or not new_password:
-            return JsonResponse({"error": "Missing payload"}, status=400)
-
-        if not user.check_password(old_password):
-            return JsonResponse({"error": "Incorrect old password"}, status=400)
-
-    try:
-        validate_password(new_password, user)
-    except ValidationError as err:
-        return JsonResponse({"error": err.messages[0]}, status=400)
-
-    user.set_password(new_password)
-    user.save()
-    update_session_auth_hash(request, user)
-
-    return JsonResponse({})
-
-
 @require_http_methods(["POST"])
 @authenticate_secondarily
 def test_slack_webhook(request):
@@ -227,7 +224,7 @@ def test_slack_webhook(request):
 
     if not webhook:
         return JsonResponse({"error": "no webhook URL"})
-    message = {"text": "Greetings from PostHog!"}
+    message = {"text": "_Greetings_ from PostHog!"}
     try:
         response = requests.post(webhook, verify=False, json=message)
 

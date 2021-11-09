@@ -1,17 +1,24 @@
-import re
-from typing import Dict, List, Tuple
+from typing import Counter, Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
-from posthog.constants import AUTOCAPTURE_EVENT
-from posthog.models import Action, Filter
+from ee.clickhouse.models.util import PersonPropertiesMode
+from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
+from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
-from posthog.models.event import Selector
+from posthog.models.property import Property, PropertyIdentifier, PropertyName, PropertyType
 
 
-def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: bool = False) -> Tuple[str, Dict]:
+def format_action_filter(
+    action: Action,
+    prepend: str = "action",
+    use_loop: bool = False,
+    filter_by_team=True,
+    table_name: str = "",
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
+) -> Tuple[str, Dict]:
     # get action steps
-    params = {"team_id": action.team.pk}
+    params = {"team_id": action.team.pk} if filter_by_team else {}
     steps = action.steps.all()
     if len(steps) == 0:
         # If no steps, it shouldn't match this part of the query
@@ -22,12 +29,15 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
         conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            el_conditions, element_params = filter_element(step, "{}{}".format(index, prepend))
+            from ee.clickhouse.models.property import filter_element  # prevent circular import
+
+            el_condition, element_params = filter_element(model_to_dict(step), prepend=f"{action.pk}_{index}{prepend}")
             params = {**params, **element_params}
-            conditions += el_conditions
+            if len(el_condition) > 0:
+                conditions.append(el_condition)
 
         # filter event conditions (ie URL)
-        event_conditions, event_params = filter_event(step, "{}{}".format(index, prepend), index)
+        event_conditions, event_params = filter_event(step, f"{action.pk}_{index}{prepend}", index, table_name)
         params = {**params, **event_params}
         conditions += event_conditions
 
@@ -35,7 +45,11 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
             from ee.clickhouse.models.property import parse_prop_clauses
 
             prop_query, prop_params = parse_prop_clauses(
-                Filter(data={"properties": step.properties}).properties, action.team.pk
+                Filter(data={"properties": step.properties}).properties,
+                team_id=action.team.pk if filter_by_team else None,
+                prepend=f"action_props_{action.pk}_{step.pk}",
+                table_name=table_name,
+                person_properties_mode=person_properties_mode,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -51,72 +65,64 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
     return formatted_query, params
 
 
-def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[List[str], Dict]:
-    params = {}
+def filter_event(
+    step: ActionStep, prepend: str = "event", index: int = 0, table_name: str = ""
+) -> Tuple[List[str], Dict]:
+    from ee.clickhouse.models.property import get_property_string_expr
+
+    params = {"{}_{}".format(prepend, index): step.event}
     conditions = []
 
-    if step.url:
-        if step.url_matching == ActionStep.EXACT:
-            conditions.append(
-                "JSONExtractString(properties, '$current_url') = %({}_prop_val_{})s".format(prepend, index)
-            )
-            params.update({"{}_prop_val_{}".format(prepend, index): step.url})
-        elif step.url_matching == ActionStep.REGEX:
-            conditions.append(
-                "match(JSONExtractString(properties, '$current_url'), %({}_prop_val_{})s)".format(prepend, index)
-            )
-            params.update({"{}_prop_val_{}".format(prepend, index): step.url})
-        else:
-            conditions.append(
-                "JSONExtractString(properties, '$current_url') LIKE %({}_prop_val_{})s".format(prepend, index)
-            )
-            params.update({"{}_prop_val_{}".format(prepend, index): "%" + step.url + "%"})
+    if table_name != "":
+        table_name += "."
 
-    conditions.append("event = '{}'".format(step.event))
+    if step.url:
+        value_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", f"{table_name}properties")
+        prop_name = f"{prepend}_prop_val_{index}"
+        if step.url_matching == ActionStep.EXACT:
+            conditions.append(f"{value_expr} = %({prop_name})s")
+            params.update({prop_name: step.url})
+        elif step.url_matching == ActionStep.REGEX:
+            conditions.append(f"match({value_expr}, %({prop_name})s)")
+            params.update({prop_name: step.url})
+        else:
+            conditions.append(f"{value_expr} LIKE %({prop_name})s")
+            params.update({prop_name: f"%{step.url}%"})
+
+    conditions.append(f"event = %({prepend}_{index})s")
 
     return conditions, params
 
 
-def _create_regex(selector: Selector) -> str:
-    regex = r""
-    for idx, tag in enumerate(selector.parts):
-        if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
-            regex += tag.data["tag_name"]
-        if tag.data.get("attr_class__contains"):
-            regex += r".*?\.{}".format(r"\..*?".join(sorted(tag.data["attr_class__contains"])))
-        if tag.ch_attributes:
-            regex += ".*?"
-            for key, value in sorted(tag.ch_attributes.items()):
-                regex += '{}="{}".*?'.format(key, value)
-        regex += r"([-_a-zA-Z0-9\.]*?)?($|;|:([^;^\s]*(;|$|\s)))"
-        if tag.direct_descendant:
-            regex += ".*"
-    return regex
+def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team=True) -> Tuple[str, Dict]:
+    if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        action = entity.get_action()
+        entity_filter, params = format_action_filter(action, prepend=prepend, filter_by_team=filter_by_team)
+    else:
+        key = f"{prepend}_event"
+        entity_filter = f"event = %({key})s"
+        params = {key: entity.id}
+
+    return entity_filter, params
 
 
-def filter_element(step: ActionStep, prepend: str = "") -> Tuple[List[str], Dict]:
-    filters = model_to_dict(step)
-    params = {}
-    conditions = []
+def get_action_tables_and_properties(action: Action) -> Counter[PropertyIdentifier]:
+    from ee.clickhouse.models.property import extract_tables_and_properties
 
-    if filters.get("selector"):
-        selector = Selector(filters["selector"], escape_slashes=False)
-        params["{}selector_regex".format(prepend)] = _create_regex(selector)
-        conditions.append("match(elements_chain, %({}selector_regex)s)".format(prepend))
+    result: Counter[PropertyIdentifier] = Counter()
 
-    if filters.get("tag_name"):
-        params["{}tag_name_regex".format(prepend)] = r"(^|;){}(\.|$|;|:)".format(filters["tag_name"])
-        conditions.append("match(elements_chain, %({}tag_name_regex)s)".format(prepend))
+    for action_step in action.steps.all():
+        if action_step.url:
+            result[("$current_url", "event", None)] += 1
+        result += extract_tables_and_properties(Filter(data={"properties": action_step.properties or []}).properties)
 
-    attributes: Dict[str, str] = {}
-    for key in ["href", "text"]:
-        if filters.get(key):
-            attributes[key] = re.escape(filters[key])
+    return result
 
-    if len(attributes.keys()) > 0:
-        params["{}attributes_regex".format(prepend)] = ".*?({}).*?".format(
-            ".*?".join(['{}="{}"'.format(key, value) for key, value in attributes.items()])
-        )
-        conditions.append("match(elements_chain, %({}attributes_regex)s)".format(prepend))
 
-    return (conditions, params)
+def uses_elements_chain(action: Action) -> bool:
+    for action_step in action.steps.all():
+        if any(Property(**prop).type == "element" for prop in (action_step.properties or [])):
+            return True
+        if any(getattr(action_step, attribute) is not None for attribute in ["selector", "tag_name", "href", "text"]):
+            return True
+    return False

@@ -1,9 +1,16 @@
-from django.db.models import Count, Prefetch, QuerySet
+from typing import cast
+
+from django.db.models import Count, Prefetch
 from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.models import Element, ElementGroup, Event, Filter, Team
+from posthog.models import Element, ElementGroup, Event, Filter
+from posthog.models.user import User
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.base import properties_to_Q
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -22,7 +29,9 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-class ElementViewSet(viewsets.ModelViewSet):
+class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    filter_rewrite_rules = {"team_id": "group__team_id"}
+
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
     authentication_classes = [
@@ -31,27 +40,23 @@ class ElementViewSet(viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
-        return queryset.filter(group__team=self.request.user.team)
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     @action(methods=["GET"], detail=False)
-    def stats(self, request: request.Request) -> response.Response:
-        team = self.request.user.team
-        filter = Filter(request=request)
+    def stats(self, request: request.Request, **kwargs) -> response.Response:
+        team_id = self.team_id
+        filter = Filter(request=request, team=self.team)
 
         events = (
-            Event.objects.filter(team=team, event="$autocapture")
-            .filter(filter.properties_to_Q(team_id=team.pk))
+            Event.objects.filter(team_id=team_id, event="$autocapture")
+            .filter(properties_to_Q(filter.properties, team_id=team_id))
             .filter(filter.date_filter_Q)
         )
 
         events = events.values("elements_hash").annotate(count=Count(1)).order_by("-count")[0:100]
 
         groups = ElementGroup.objects.filter(
-            team=team, hash__in=[item["elements_hash"] for item in events]
+            team_id=team_id, hash__in=[item["elements_hash"] for item in events]
         ).prefetch_related(Prefetch("element_set", queryset=Element.objects.order_by("order", "id")))
 
         return response.Response(
@@ -71,7 +76,7 @@ class ElementViewSet(viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         params = []
         where = ""
@@ -86,11 +91,13 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         # This samples a bunch of elements with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
+        team = cast(User, request.user).team
+        assert team is not None
         values = Element.objects.raw(
             """
             SELECT
                 value, COUNT(1) as id
-            FROM ( 
+            FROM (
                 SELECT
                     ("posthog_element"."{key}") as "value"
                 FROM
@@ -106,9 +113,13 @@ class ElementViewSet(viewsets.ModelViewSet):
             ORDER BY id DESC
             LIMIT 50;
         """.format(
-                where=where, team_id=request.user.team.pk, key=key
+                where=where, team_id=self.team_id, key=key
             ),
             params,
         )
 
         return response.Response([{"name": value.value} for value in values])
+
+
+class LegacyElementViewSet(ElementViewSet):
+    legacy_team_compatibility = True

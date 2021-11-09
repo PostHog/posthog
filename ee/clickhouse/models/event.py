@@ -5,15 +5,21 @@ from typing import Dict, List, Optional, Tuple, Union
 import celery
 import pytz
 from dateutil.parser import isoparse
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
+from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
-from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.models.hook import Hook
+from posthog.constants import AvailableFeature
+from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -29,7 +35,6 @@ def create_event(
     elements: Optional[List[Element]] = None,
     site_url: Optional[str] = None,
 ) -> str:
-
     if not timestamp:
         timestamp = timezone.now()
     assert timestamp is not None
@@ -59,11 +64,6 @@ def create_event(
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
     return str(event_uuid)
-
-
-def get_events():
-    events = sync_execute(GET_EVENTS_SQL)
-    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
 def get_events_by_team(team_id: Union[str, int]):
@@ -112,7 +112,9 @@ class ClickhouseEventSerializer(serializers.Serializer):
             prop_vals = [res.strip('"') for res in event[9]]
             return dict(zip(event[8], prop_vals))
         else:
-            props = json.loads(event[2])
+            # parse_constants gets called for any NaN, Infinity etc values
+            # we just want those to be returned as None
+            props = json.loads(event[2], parse_constant=lambda x: None)
             unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
             return unpadded
 
@@ -125,8 +127,16 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_person(self, event):
         if not self.context.get("people") or event[5] not in self.context["people"]:
-            return event[5]
-        return self.context["people"][event[5]].properties.get("email", event[5])
+            return None
+
+        person = self.context["people"][event[5]]
+        return {
+            "is_identified": person.is_identified,
+            "distinct_ids": person.distinct_ids[:1],  # only send the first one to avoid a payload bloat
+            "properties": {
+                key: person.properties[key] for key in ["email", "name", "username"] if key in person.properties
+            },
+        }
 
     def get_elements(self, event):
         if not event[6]:
@@ -137,13 +147,15 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event[6]
 
 
-def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
+def determine_event_conditions(
+    team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool
+) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
     for idx, (k, v) in enumerate(conditions.items()):
         if not isinstance(v, str):
             continue
-        if k == "after":
+        if k == "after" and not long_date_from:
             timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s"
             params.update({"after": timestamp})
@@ -153,9 +165,9 @@ def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> 
             params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s)"""
-            distinct_ids = Person.objects.filter(pk=v)[0].distinct_ids
-            distinct_ids = [distinct_id.__str__() for distinct_id in distinct_ids]
-            params.update({"distinct_ids": distinct_ids})
+            person = Person.objects.filter(pk=v, team_id=team.pk).first()
+            distinct_ids = person.distinct_ids if person is not None else []
+            params.update({"distinct_ids": list(map(str, distinct_ids))})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s"
             params.update({"distinct_id": v})
@@ -163,3 +175,126 @@ def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> 
             result += "AND event = %(event)s"
             params.update({"event": v})
     return result, params
+
+
+def get_event_count_for_team_and_period(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id = %(team_id)s
+        AND timestamp between %(begin)s AND %(end)s
+    """,
+        {"team_id": str(team_id), "begin": begin, "end": end},
+    )[0][0]
+    return result
+
+
+def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id IN (%(team_id_clause)s)
+    """,
+        {"team_id_clause": team_ids},
+    )[0][0]
+    return result
+
+
+def get_agg_event_count_for_teams_and_period(
+    team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
+) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id IN (%(team_id_clause)s)
+        AND timestamp between %(begin)s AND %(end)s
+    """,
+        {"team_id_clause": team_ids, "begin": begin, "end": end},
+    )[0][0]
+    return result
+
+
+def get_event_count_for_team(team_id: Union[str, int]) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id = %(team_id)s
+    """,
+        {"team_id": str(team_id)},
+    )[0][0]
+    return result
+
+
+def get_event_count() -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+    """
+    )[0][0]
+    return result
+
+
+def get_event_count_for_last_month() -> int:
+    result = sync_execute(
+        """
+        -- count of events last month
+        SELECT
+        COUNT(1) freq
+        FROM events
+        WHERE 
+        toStartOfMonth(timestamp) = toStartOfMonth(date_sub(MONTH, 1, now()))
+    """
+    )[0][0]
+    return result
+
+
+def get_event_count_month_to_date() -> int:
+    result = sync_execute(
+        """
+        -- count of events month to date
+        SELECT
+        COUNT(1) freq
+        FROM events
+        WHERE toStartOfMonth(timestamp) = toStartOfMonth(now());
+    """
+    )[0][0]
+    return result
+
+
+def get_events_count_for_team_by_client_lib(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> dict:
+    results = sync_execute(
+        """
+        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq 
+        FROM events
+        WHERE team_id = %(team_id)s 
+        AND timestamp between %(begin)s AND %(end)s
+        GROUP BY lib
+    """,
+        {"team_id": str(team_id), "begin": begin, "end": end},
+    )
+    return {result[0]: result[1] for result in results}
+
+
+def get_events_count_for_team_by_event_type(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> dict:
+    results = sync_execute(
+        """
+        SELECT event, COUNT(1) as freq 
+        FROM events
+        WHERE team_id = %(team_id)s
+        AND timestamp between %(begin)s AND %(end)s
+        GROUP BY event 
+    """,
+        {"team_id": str(team_id), "begin": begin, "end": end},
+    )
+    return {result[0]: result[1] for result in results}

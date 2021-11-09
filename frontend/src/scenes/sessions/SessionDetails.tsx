@@ -1,25 +1,44 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Table } from 'antd'
-import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
+import { humanFriendlyDetailedTime, humanFriendlyDiff } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
 import { eventToName } from 'lib/utils'
-import { EventType } from '~/types'
+import { EventType, SessionType } from '~/types'
+import { useActions, useValues } from 'kea'
+import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
+import { MATCHING_EVENT_ICON_SIZE } from 'scenes/sessions/SessionsView'
+import { ExpandIcon } from 'lib/components/ExpandIcon'
+import { MonitorOutlined } from '@ant-design/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
-export function SessionDetails({ events }: { events: EventType[] }): JSX.Element {
+export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
+    const { filteredSessionEvents } = useValues(sessionsTableLogic)
+    const { loadSessionEvents } = useActions(sessionsTableLogic)
+
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
+    const events = filteredSessionEvents[session.global_session_id]
+    const matchingEventIds = useMemo(() => new Set(session.matching_events || []), [session.matching_events])
+
+    useEffect(() => {
+        if (!events) {
+            loadSessionEvents(session)
+        }
+    }, [])
 
     const columns = [
         {
             title: 'Event',
             key: 'id',
             render: function RenderEvent(event: EventType) {
-                return eventToName(event)
+                return <PropertyKeyInfo value={eventToName(event)} ellipsis={false} />
             },
         },
         {
-            title: 'URL / Screen',
+            title: 'URL / screen',
             key: 'url',
             render: function renderURL(event: EventType) {
                 if (!event) {
@@ -37,34 +56,29 @@ export function SessionDetails({ events }: { events: EventType[] }): JSX.Element
             },
         },
         {
-            title: 'Time Elapsed from Previous',
+            title: 'Time since previous event',
             render: function RenderElapsed({ timestamp }: EventType, _: any, index: number) {
                 const realIndex = (page - 1) * pageSize + index
-                const lastEvent = realIndex > 0 ? events[realIndex - 1] : null
-                return <span>{lastEvent ? humanFriendlyDiff(lastEvent.timestamp, timestamp) : 0}</span>
-            },
-        },
-        {
-            title: 'Order',
-            render: function RenderOrder(_: Event, __: any, index: number) {
-                const realIndex = (page - 1) * pageSize + index
-                return <span>{realIndex + 1}</span>
+                const lastEvent = realIndex > 0 ? events?.[realIndex - 1] : null
+                return <span>{lastEvent ? humanFriendlyDiff(lastEvent.timestamp, timestamp) : '0s'}</span>
             },
         },
     ]
     return (
         <Table
             columns={columns}
-            rowKey={(event) => event.id}
+            rowKey="id"
+            rowClassName={(event: EventType) => (matchingEventIds.has(event.id) ? 'sessions-event-highlighted' : '')}
             dataSource={events}
+            loading={!events}
             pagination={{
                 pageSize: pageSize,
-                hideOnSinglePage: events.length < 10,
+                hideOnSinglePage: !events || events.length < 10,
                 showSizeChanger: true,
                 pageSizeOptions: ['10', '20', '50', '100', '200', '500'],
-                onChange: (page, pageSize) => {
-                    setPage(page)
-                    setPageSize(pageSize || 50)
+                onChange: (changedPage, changedPageSize) => {
+                    setPage(changedPage)
+                    setPageSize(changedPageSize || 50)
                 },
             }}
             expandable={{
@@ -73,6 +87,23 @@ export function SessionDetails({ events }: { events: EventType[] }): JSX.Element
                 },
                 rowExpandable: (event) => !!event,
                 expandRowByClick: true,
+                columnWidth: ANTD_EXPAND_BUTTON_WIDTH + MATCHING_EVENT_ICON_SIZE,
+                expandIcon: function _renderExpandIcon(expandProps) {
+                    const { record: event } = expandProps
+                    return (
+                        <ExpandIcon {...expandProps}>
+                            {matchingEventIds.has(event.id) ? (
+                                <Tooltip title="Matches your event filters">
+                                    <div className="sessions-event-matching-events-icon cursor-pointer ml-05">
+                                        <MonitorOutlined />
+                                    </div>
+                                </Tooltip>
+                            ) : (
+                                <></>
+                            )}
+                        </ExpandIcon>
+                    )
+                },
             }}
         />
     )

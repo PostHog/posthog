@@ -2,57 +2,52 @@ version: '3'
 
 services:
     db:
-        image: postgres:11-alpine
+        image: postgres:12-alpine
         container_name: posthog_db
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
         ports:
-            - '5439:5432'
+            - '5432:5432'
     redis:
         image: 'redis:5-alpine'
         container_name: posthog_redis
         ports:
             - '6379:6379'
-    web:
+    backend: &backend
         build:
             context: .
             dockerfile: dev.Dockerfile
-        command: ./bin/docker-dev-web
+        command: ./bin/docker-backend
         volumes:
             - .:/code
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            REDIS_URL: 'redis://redis:6379/'
+            SECRET_KEY: '<randomly generated secret key>'
+            DEBUG: 'true'
+            PGHOST: db
+            PGUSER: posthog
+            PGPASSWORD: posthog
+        depends_on:
+            - db
+            - redis
+        links:
+            - db:db
+            - redis:redis
         ports:
             - '8000:8000'
+    frontend:
+        <<: *backend
+        command: ./bin/docker-frontend
+        ports:
             - '8234:8234'
-        environment:
-            IS_DOCKER: 'true'
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
-            DEBUG: 'true'
-        depends_on:
-            - db
-            - redis
-        links:
-            - db:db
-            - redis:redis
     worker:
-        build:
-            context: .
-            dockerfile: dev.Dockerfile
+        <<: *backend
         command: ./bin/docker-worker
-        volumes:
-            - .:/code
-        environment:
-            IS_DOCKER: 'true'
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
-            DEBUG: 'true'
+        ports: []
         depends_on:
             - db
             - redis
-        links:
-            - db:db
-            - redis:redis
+            - backend

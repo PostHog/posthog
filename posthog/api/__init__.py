@@ -1,18 +1,20 @@
-from rest_framework import decorators, exceptions, response
-from rest_framework_extensions.routers import ExtendedDefaultRouter
+from rest_framework import decorators, exceptions
 
-from posthog.ee import is_ee_enabled
+from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.utils import is_clickhouse_enabled
 
 from . import (
     action,
     annotation,
+    authentication,
     cohort,
     dashboard,
     element,
     event,
+    event_definition,
     feature_flag,
-    funnel,
     insight,
+    instance_status,
     organization,
     organization_invite,
     organization_member,
@@ -20,16 +22,13 @@ from . import (
     person,
     personal_api_key,
     plugin,
+    plugin_log_entry,
+    property_definition,
+    session_recording,
+    sessions_filter,
     team,
+    user,
 )
-
-
-class DefaultRouterPlusPlus(ExtendedDefaultRouter):
-    """DefaultRouter with optional trailing slash and drf-extensions nesting."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.trailing_slash = r"/?"
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -40,53 +39,115 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
-router.register(r"annotation", annotation.AnnotationsViewSet)
-router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
-router.register(r"funnel", funnel.FunnelViewSet)
-router.register(r"dashboard", dashboard.DashboardsViewSet)
-router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
-router.register(r"cohort", cohort.CohortViewSet)
-router.register(r"plugin", plugin.PluginViewSet)
-router.register(r"plugin_config", plugin.PluginConfigViewSet)
-router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
-teams_router = router.register(r"projects", team.TeamViewSet)
-organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
-organizations_router.register(
-    r"members",
-    organization_member.OrganizationMemberViewSet,
-    "organization_members",
-    parents_query_lookups=["organization_id"],
+
+# Legacy endpoints shared (to be removed eventually)
+router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
+router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Should be completely unused now
+router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be completely unused now
+router.register(r"dashboard_item", dashboard.LegacyDashboardItemViewSet)  # To be deleted - unified into insight viewset
+router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
+router.register(r"sessions_filter", sessions_filter.LegacySessionsFilterViewSet)
+
+# Nested endpoints shared
+projects_router = router.register(r"projects", team.TeamViewSet)
+project_plugins_configs_router = projects_router.register(
+    r"plugin_configs", plugin.PluginConfigViewSet, "project_plugin_configs", ["team_id"]
+)
+project_plugins_configs_router.register(
+    r"logs", plugin_log_entry.PluginLogEntryViewSet, "project_plugins_config_logs", ["team_id", "plugin_config_id"]
+)
+projects_router.register(
+    r"feature_flag_overrides", feature_flag.FeatureFlagOverrideViewset, "project_feature_flag_overrides", ["team_id"]
+)
+projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
+projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
+projects_router.register(r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"])
+projects_router.register(
+    r"sessions_filters", sessions_filter.SessionsFilterViewSet, "project_session_filters", ["team_id"]
+)
+
+
+organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+organization_plugins_router = organizations_router.register(
+    r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
 )
 organizations_router.register(
-    r"invites",
-    organization_invite.OrganizationInviteViewSet,
-    "organization_invites",
-    parents_query_lookups=["organization_id"],
+    r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
+)
+organizations_router.register(
+    r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"],
+)
+organizations_router.register(
+    r"onboarding", organization.OrganizationOnboardingViewset, "organization_onboarding", ["organization_id"],
 )
 
-if is_ee_enabled():
-    try:
-        from ee.clickhouse.views.actions import ClickhouseActions
-        from ee.clickhouse.views.element import ClickhouseElement
-        from ee.clickhouse.views.events import ClickhouseEvents
-        from ee.clickhouse.views.insights import ClickhouseInsights
-        from ee.clickhouse.views.paths import ClickhousePathsViewSet
-        from ee.clickhouse.views.person import ClickhousePerson
-    except ImportError as e:
-        print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres.")
-        print(e)
+# Project nested endpoints
+projects_router = router.register(r"projects", team.TeamViewSet, "projects")
 
-    router.register(r"action", ClickhouseActions, basename="action")
-    router.register(r"event", ClickhouseEvents, basename="event")
-    router.register(r"insight", ClickhouseInsights, basename="insight")
-    router.register(r"person", ClickhousePerson, basename="person")
-    router.register(r"paths", ClickhousePathsViewSet, basename="paths")
-    router.register(r"element", ClickhouseElement, basename="element")
+projects_router.register(
+    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
+)
+projects_router.register(
+    r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
+)
 
+
+# General endpoints (shared across CH & PG)
+router.register(r"login", authentication.LoginViewSet)
+router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
+router.register(r"users", user.UserViewSet)
+router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
+router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
+
+if is_clickhouse_enabled():
+    from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
+    from ee.clickhouse.views.cohort import ClickhouseCohortViewSet, LegacyClickhouseCohortViewSet
+    from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
+    from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
+    from ee.clickhouse.views.groups import ClickhouseGroupsView
+    from ee.clickhouse.views.insights import ClickhouseInsightsViewSet, LegacyClickhouseInsightsViewSet
+    from ee.clickhouse.views.paths import ClickhousePathsViewSet, LegacyClickhousePathsViewSet
+    from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhousePersonViewSet
+    from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
+
+    # Legacy endpoints CH (to be removed eventually)
+    router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")  # Should be completely unused now
+    router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")  # Should be completely unused now
+    router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")  # Should be completely unused now
+    router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
+    router.register(r"paths", LegacyClickhousePathsViewSet, basename="paths")
+    router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
+    router.register(r"cohort", LegacyClickhouseCohortViewSet, basename="cohort")
+    # Nested endpoints CH
+    projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
+    projects_router.register(r"events", ClickhouseEventsViewSet, "project_events", ["team_id"])
+    projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
+    projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
+    projects_router.register(r"persons", ClickhousePersonViewSet, "project_persons", ["team_id"])
+    projects_router.register(r"paths", ClickhousePathsViewSet, "project_paths", ["team_id"])
+    projects_router.register(r"elements", ClickhouseElementViewSet, "project_elements", ["team_id"])
+    projects_router.register(r"cohorts", ClickhouseCohortViewSet, "project_cohorts", ["team_id"])
+    projects_router.register(
+        r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
+    )
 else:
-    router.register(r"insight", insight.InsightViewSet)
-    router.register(r"action", action.ActionViewSet)
-    router.register(r"person", person.PersonViewSet)
-    router.register(r"event", event.EventViewSet)
-    router.register(r"paths", paths.PathsViewSet, basename="paths")
-    router.register(r"element", element.ElementViewSet)
+    # Legacy endpoints PG (to be removed eventually)
+    router.register(r"insight", insight.LegacyInsightViewSet)  # Should be completely unused now
+    router.register(r"action", action.LegacyActionViewSet)  # Should be completely unused now
+    router.register(r"person", person.LegacyPersonViewSet)
+    router.register(r"event", event.LegacyEventViewSet)  # Should be completely unused now
+    router.register(r"paths", paths.LegacyPathsViewSet, basename="paths")
+    router.register(r"element", element.LegacyElementViewSet)
+    router.register(r"cohort", cohort.LegacyCohortViewSet)
+    # Nested endpoints PG
+    projects_router.register(r"insights", insight.LegacyInsightViewSet, "project_insights", ["team_id"])
+    projects_router.register(r"actions", action.ActionViewSet, "project_actions", ["team_id"])
+    projects_router.register(r"persons", person.LegacyPersonViewSet, "project_persons", ["team_id"])
+    projects_router.register(r"events", event.LegacyEventViewSet, "project_events", ["team_id"])
+    projects_router.register(r"paths", paths.LegacyPathsViewSet, "project_paths", ["team_id"])
+    projects_router.register(r"elements", element.LegacyElementViewSet, "project_elements", ["team_id"])
+    projects_router.register(r"cohorts", cohort.LegacyCohortViewSet, "project_cohorts", ["team_id"])
+    projects_router.register(
+        r"session_recordings", session_recording.SessionRecordingViewSet, "project_session_recordings", ["team_id"],
+    )

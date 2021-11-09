@@ -7,6 +7,7 @@ $primary_alt: #35416b;
 $success: #77b96c;
 $warning: #f7a501;
 $danger: #f96132;
+$danger_bridge: #df4313; // Used for bridge pages
 
 // Brand colors, as in logo
 $brand_blue: #1d4aff;
@@ -16,25 +17,45 @@ $brand_yellow: #f9bd2b;
 // Text colors
 $text_default: #2d2d2d;
 $text_light: rgba(255, 255, 255, 0.88);
-$text_muted: #d9d9d9;
-$text_muted_alt: #35416b;
+$text_muted: rgba(0, 0, 0, 0.5);
+$text_muted_alt: #747ea1;
 
 // Background colors
 $bg_navy: #35416b;
 $bg_charcoal: #2d2d2d;
 $bg_mid: #f2f2f2;
 $bg_light: #ffffff;
+$bg_side: #fafaf9;
 $bg_depth: #0f0f0f;
 $bg_menu: #2c3035;
+$bg_bridge: #ebece8;
+$bg_overlay: #333333;
+$bg_shaded: rgba(0, 0, 0, 0.05);
 
 // Border colors
-$border_light: #f0f0f0;
-$border: #d9d9d9;
-$border_dark: #bdbdbd;
+$border_light: rgba(0, 0, 0, 0.08);
+$border: rgba(0, 0, 0, 0.15);
+$border_dark: rgba(0, 0, 0, 0.24);
+$border_active: rgba(0, 0, 0, 0.36);
 
-.bg-mid {
-    background-color: $bg_mid !important;
-}
+// Lfecycle series
+$lifecycle_new: #99c5ff;
+$lifecycle_returning: #71b96b;
+$lifecycle_resurrecting: #c277cf;
+$lifecycle_dormant: #f86234;
+
+// Funnels
+$funnel_default: $primary;
+$funnel_alt: $primary_alt;
+$funnel_background: #e7e8ee;
+$funnel_axis_zero: $bg_depth;
+$funnel_axis: $border_dark;
+$funnel_axis_label: $text_muted;
+$antd_table_background_dark: #fafafa;
+
+// Session Recording
+$recording_player_container_bg: #797973;
+$recording_buffer_bg: #faaf8c;
 
 // Blue Swatch
 $blue_700: #35416b;
@@ -42,14 +63,103 @@ $blue_500: #597dce;
 $blue_300: #8da9e7;
 $blue_100: #b8cefd;
 
+// Yellow Swatch
+$yellow_500: #f8a523;
+$yellow_300: #ffc035;
+$yellow_100: #fbdd99;
+$yellow_50: #fdedc9;
+
 // Purple Swatch
 $purple_700: #7c4286;
 $purple_500: #c278cf;
 $purple_300: #dcb1e3;
 
+// High-contrast colors
+$hc_navy: #35416b; // paired with $hc_light_lilac or $hc_yellow
+$hc_light_lilac: #ead1ee; // paired with $hc_navy
+$hc_yellow: #fbd577;
+
+// Gradients
+$sky: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
+$dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
+$night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
+$space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
+
+// Fonts
+$medium: 500;
+
 // Additional style configurations
-.mixin-elevated {
-    box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
+%mixin-base-bordered-card {
+    border-radius: var(--radius);
+    box-shadow: none;
+    border: 1px solid var(--border);
 }
-$default_spacing: 16px;
-$radius: 2px;
+
+%mixin-elevated {
+    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.02), 0 5px 7px rgba(0, 0, 0, 0.03), 0 11px 16px rgba(0, 0, 0, 0.03),
+        0 32px 48px rgba(0, 0, 0, 0.05) !important;
+}
+
+.mixin-gradient-overlay {
+    content: '';
+    width: 100%;
+    height: 3rem;
+    background: linear-gradient(to top, #fff, transparent);
+    position: absolute;
+    pointer-events: none;
+    bottom: 0;
+}
+
+.mixin-gradient-overlay-right {
+    content: '';
+    width: 3rem;
+    height: 100%;
+    background: linear-gradient(to left, #fff, transparent);
+    position: absolute;
+    pointer-events: none;
+    bottom: 0;
+}
+
+$default_spacing: 1rem;
+$radius: 4px;
+$top_nav_height: 50px;
+
+.text-ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: calc(100% - 8px);
+}
+
+// Z-indexes, sync with vars.ts
+$z_nps_overlay: 5200;
+$z_bottom_notice: 5100;
+$z_command_palette: 1875;
+$z_ant_select_dropdown: 1065;
+$z_ant_message: 1070;
+$z_ant_modal_wrap: 1060;
+$z_ant_modal_mask: 1050;
+$z_popup: 1049;
+$z_plugins-popconfirm: 1001;
+$z_pinned_dashboards_popup: 962;
+$z_graph_tooltip: 951;
+$z_drawer: 950;
+$z_main_nav: 948;
+$z_lemon_sidebar: 940;
+$z_mobile_nav_overlay: 931;
+$z_top_navigation: 800;
+$z_content_overlay: 488;
+$z_graph_annotation_prompt: 99;
+$z_raised: 5;
+$z_city_background_content: 1;
+$z_city_background_image: 0;
+
+// Shadows
+$shadow_popup: 0 3px 6px -4px rgb(0 0 0 / 12%), 0 6px 16px 0 rgb(0 0 0 / 8%), 0 9px 28px 8px rgb(0 0 0 / 5%);
+
+// Breakpoints (from AntD)
+$sm: 576px;
+$md: 768px;
+$lg: 992px;
+$xl: 1200px;
+$xxl: 1600px;

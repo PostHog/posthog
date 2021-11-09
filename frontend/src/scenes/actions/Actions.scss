@@ -58,10 +58,16 @@
     }
 }
 
-// ActionStepV2.js
+// ActionStep
 .action-step {
     margin-bottom: 0;
     height: 100%;
+
+    .action-step-caption {
+        font-size: 0.8em;
+        color: $text_muted;
+        padding-bottom: $default_spacing;
+    }
 
     .remove-wrapper {
         position: absolute;
@@ -80,19 +86,13 @@
     }
 
     .type-switcher {
-        width: 100%;
-        margin-top: 16px;
-
-        button {
-            flex: 1;
-            font-size: 0.85rem;
+        &.unselected {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 100%;
+            text-align: center;
         }
-    }
-
-    .mc-main {
-        position: absolute;
-        top: 50%;
-        left: -30px;
     }
 
     .property-filters {

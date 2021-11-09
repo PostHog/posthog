@@ -4,7 +4,7 @@ from typing import Optional
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
-from posthog.models import Event, OrganizationInvite, PersonDistinctId, Team
+from posthog.models import Event, Organization, OrganizationInvite, PersonDistinctId, Team, User, organization
 from posthog.templatetags.posthog_filters import compact_number
 from posthog.utils import get_previous_week
 
@@ -113,14 +113,34 @@ def _send_weekly_email_report_for_team(team_id: int) -> None:
 @app.task(max_retries=1)
 def send_invite(invite_id: str) -> None:
     campaign_key: str = f"invite_email_{invite_id}"
-    invite: OrganizationInvite = OrganizationInvite.objects.select_related("created_by").select_related(
-        "organization"
-    ).get(id=invite_id)
+    invite: OrganizationInvite = OrganizationInvite.objects.select_related("created_by", "organization").get(
+        id=invite_id
+    )
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"{invite.created_by.first_name} invited you to join {invite.organization.name} on PostHog",
         template_name="invite",
         template_context={"invite": invite},
+        reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
     message.add_recipient(email=invite.target_email)
     message.send()
+
+
+@app.task(max_retries=1)
+def send_member_join(invitee_uuid: str, organization_id: str) -> None:
+    invitee: User = User.objects.get(uuid=invitee_uuid)
+    organization: Organization = Organization.objects.get(id=organization_id)
+    campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"{invitee.first_name} joined you on PostHog",
+        template_name="member_join",
+        template_context={"invitee": invitee, "organization": organization},
+    )
+    # Don't send this email to the new member themselves
+    members_to_email = organization.members.exclude(email=invitee.email)
+    if members_to_email:
+        for user in members_to_email:
+            message.add_recipient(email=user.email, name=user.first_name)
+        message.send()

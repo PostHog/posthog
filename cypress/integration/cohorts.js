@@ -1,8 +1,8 @@
 describe('Cohorts', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click() // TODO: Remove when releasing navigation-1775
-        cy.get('[data-attr=menu-item-cohorts]').click()
+        cy.clickNavMenu('cohorts')
     })
+
     it('Cohorts new and list', () => {
         // load an empty page
         cy.get('h1').should('contain', 'Cohorts')
@@ -10,35 +10,42 @@ describe('Cohorts', () => {
 
         // go to create a new cohort
         cy.get('[data-attr="create-cohort"]').click()
-        cy.get('[data-attr="cohort-name"]').type('Test Cohort')
 
         // select "add filter" and "property"
-        cy.get('.ant-radio-group > :nth-child(2)').click()
-        cy.get('[data-attr="new-prop-filter-cohort_0"]').click()
+        cy.get('[data-attr="property-filter-0"] button').first().click()
 
         // select the first property
-        cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('[data-attr=prop-filter-person-0]').click({ force: true })
-
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')
+        cy.get('[data-attr=prop-filter-person_properties-0]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('[data-attr="cohort-name"]').click()
+
+        // set cohort name & description
+        cy.get('[data-attr="cohort-name"]').type('Test Cohort')
 
         // save
         cy.get('[data-attr="save-cohort"]').click()
         cy.get('[data-attr=success-toast]').should('exist')
 
         // back to cohorts
-        cy.get('h1').should('contain', 'Persons')
-        cy.get('[data-attr=menu-item-cohorts]').click()
+        cy.get('.ant-drawer-close').click({ force: true })
+        cy.get('.ant-table-tbody').contains('Test Cohort')
 
-        cy.get('h1').should('contain', 'Cohorts')
-        cy.get('.ant-empty').should('not.exist')
+        it('Cohorts new and list', () => {
+            cy.get('[data-test-cohort-row]').first().click()
+            cy.get('[data-test-goto-person]').first().click()
+            cy.url().should('include', '/person/')
 
-        // click the first row's first column's cohort title
-        cy.get('[data-row-key="1"] > :nth-child(1) > a').click()
+            cy.get('[data-attr="persons-cohorts-tab"]').click()
+            cy.get('[data-test-cohort-row]').first().click()
 
-        // back on the persons page
-        cy.get('h1').should('contain', 'Persons')
-        cy.get('.ant-table-tbody > tr').should('exist')
+            cy.get('div:not(disabled) > [data-attr="persons-cohorts-tab"]').click()
+            cy.get('[data-test-cohort-row]').first().click()
+
+            cy.url().should('include', '/cohorts/')
+            cy.get('[data-attr="cohort-name"]').should('have.value', 'Test Cohort')
+        })
     })
 })

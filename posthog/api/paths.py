@@ -1,23 +1,28 @@
 from django.db import connection
 from rest_framework import request, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.models import Event, Filter
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.models import Event
+from posthog.models.filters.path_filter import PathFilter
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import paths
 from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
 
 
-class PathsViewSet(viewsets.ViewSet):
+class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+
     @action(methods=["GET"], detail=False)
-    def elements(self, request: request.Request):
+    def elements(self, request: request.Request, **kwargs):
 
         rows = self.get_elements(request)
         return Response(rows)
 
     def get_elements(self, request: request.Request):
-        team = request.user.team
-        all_events = Event.objects.filter(team=team, event="$autocapture")
+        all_events = Event.objects.filter(team_id=self.team_id, event="$autocapture")
         all_events_SQL, sql_params = all_events.query.sql_with_params()
 
         elements_readble = '\
@@ -34,17 +39,21 @@ class PathsViewSet(viewsets.ViewSet):
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
-    def list(self, request):
+    def list(self, request, **kwargs):
         resp = self.get_list(request)
         return Response(resp)
 
     def get_list(self, request):
-        team = request.user.team
+        team = self.team
         date_query = request_to_date_query(request.GET, exact=False)
-        filter = Filter(request=request)
+        filter = PathFilter(request=request)
         start_point = request.GET.get("start")
         request_type = request.GET.get("type", None)
         resp = paths.Paths().run(
             filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team,
         )
         return resp
+
+
+class LegacyPathsViewSet(PathsViewSet):
+    legacy_team_compatibility = True

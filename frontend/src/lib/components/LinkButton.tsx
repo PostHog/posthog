@@ -1,7 +1,8 @@
-import React, { HTMLProps } from 'react'
+import React from 'react'
 import { Button } from 'antd'
-import { Link } from 'lib/components/Link'
+import { Link, LinkProps } from 'lib/components/Link'
 
-export function LinkButton(props: HTMLProps<HTMLAnchorElement>): JSX.Element {
-    return <Link {...props} tag={Button} />
+export function LinkButton(props: LinkProps & { icon?: React.ReactNode }): JSX.Element {
+    const { icon, ...linkProps } = props
+    return <Link {...linkProps} tag={<Button icon={icon} disabled={props.disabled} />} />
 }

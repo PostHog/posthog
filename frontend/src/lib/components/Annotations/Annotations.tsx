@@ -1,11 +1,25 @@
 import React from 'react'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
-import { AnnotationScope } from 'lib/constants'
+import { AnnotationType, AnnotationScope } from '~/types'
 
-export const Annotations = function Annotations({
+interface AnnotationsProps {
+    dates: string[]
+    leftExtent: number
+    interval: number
+    topExtent: number
+    dashboardItemId?: number
+    color: string | null
+    graphColor: string
+    accessoryColor: string | null
+    currentDateMarker: string
+    onClick: () => void
+    onClose: () => void
+}
+
+export function Annotations({
     dates,
     leftExtent,
     interval,
@@ -17,57 +31,80 @@ export const Annotations = function Annotations({
     onClose,
     graphColor,
     currentDateMarker,
-}: Record<string, any>): JSX.Element[] {
+}: AnnotationsProps): JSX.Element[] {
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
             pageKey: dashboardItemId ? dashboardItemId : null,
         })
     )
 
-    const {
-        createAnnotation,
-        createAnnotationNow,
-        deleteAnnotation,
-        deleteGlobalAnnotation,
-        createGlobalAnnotation,
-    } = useActions(
-        annotationsLogic({
-            pageKey: dashboardItemId ? dashboardItemId : null,
-        })
-    )
+    const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
+        useActions(
+            annotationsLogic({
+                pageKey: dashboardItemId ? dashboardItemId : null,
+            })
+        )
 
     const markers: JSX.Element[] = []
-    dates.forEach((date: string, index: number) => {
-        const annotations = groupedAnnotations[moment(date).startOf(diffType)]
-        if (annotations) {
-            markers.push(
-                <AnnotationMarker
-                    elementId={dates[index]}
-                    label={moment(dates[index]).format('MMMM Do YYYY')}
-                    key={index}
-                    left={index * interval + leftExtent - 12.5}
-                    top={topExtent}
-                    annotations={annotations}
-                    onCreate={(input, applyAll) => {
-                        if (applyAll) createGlobalAnnotation(input, dates[index], dashboardItemId)
-                        else if (dashboardItemId) createAnnotationNow(input, dates[index])
-                        else createAnnotation(input, dates[index])
-                    }}
-                    onDelete={(data) => {
-                        annotations.length === 1 && onClose?.()
-                        if (data.scope !== AnnotationScope.DashboardItem) deleteGlobalAnnotation(data.id)
-                        else deleteAnnotation(data.id)
-                    }}
-                    onClick={onClick}
-                    onClose={onClose}
-                    color={color}
-                    graphColor={graphColor}
-                    accessoryColor={accessoryColor}
-                    currentDateMarker={currentDateMarker}
-                    index={index}
-                />
-            )
-        }
-    })
+
+    const makeAnnotationMarker = (index: number, date: string, annotationsToMark: AnnotationType[]): JSX.Element => (
+        <AnnotationMarker
+            elementId={date}
+            label={dayjs(date).format('MMMM Do YYYY')}
+            key={index}
+            left={index * interval + leftExtent - 12.5}
+            top={topExtent}
+            annotations={annotationsToMark}
+            onCreate={(input: string, applyAll: boolean) => {
+                if (applyAll) {
+                    createGlobalAnnotation(input, date, dashboardItemId)
+                } else if (dashboardItemId) {
+                    createAnnotationNow(input, date)
+                } else {
+                    createAnnotation(input, date)
+                }
+            }}
+            onDelete={(data: AnnotationType) => {
+                annotationsToMark.length === 1 && onClose?.()
+                if (data.scope !== AnnotationScope.DashboardItem) {
+                    deleteGlobalAnnotation(data.id)
+                } else {
+                    deleteAnnotation(data.id)
+                }
+            }}
+            onClick={onClick}
+            onClose={onClose}
+            color={color}
+            graphColor={graphColor}
+            accessoryColor={accessoryColor}
+            currentDateMarker={currentDateMarker}
+            index={index}
+        />
+    )
+
+    const filterAnnotations = (annotations: AnnotationType[], dateKey: string, index: number): void => {
+        annotations.forEach((annotation) => {
+            if (annotation.date_marker.startsWith(dateKey)) {
+                markers.push(makeAnnotationMarker(index, dates[index], [annotation]))
+            }
+        })
+    }
+
+    dates &&
+        dates.forEach((date: string, index: number) => {
+            const chosenTime = dayjs(date).startOf(diffType as dayjs.OpUnitType)
+            const groupedAnnotationKey = chosenTime.format('YYYY-MM-DD')
+            const annotations = groupedAnnotations[groupedAnnotationKey] || []
+
+            if (diffType === 'minute') {
+                const minuteKey = chosenTime.format('YYYY-MM-DDTHH:mm')
+                filterAnnotations(annotations, minuteKey, index)
+            } else if (diffType === 'hour') {
+                const hourKey = chosenTime.format('YYYY-MM-DDTHH')
+                filterAnnotations(annotations, hourKey, index)
+            } else if (annotations.length) {
+                markers.push(makeAnnotationMarker(index, dates[index], annotations))
+            }
+        })
     return markers
 }

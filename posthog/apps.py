@@ -1,5 +1,4 @@
 import os
-import sys
 
 import posthoganalytics
 from django.apps import AppConfig
@@ -20,11 +19,16 @@ class PostHogConfig(AppConfig):
         if settings.DEBUG:
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
+                # Sync all organization.available_features once on launch, in case plans changed
+                from posthog.celery import sync_all_organization_available_features
+
+                sync_all_organization_available_features()
+
                 posthoganalytics.capture(
                     get_machine_id(),
                     "development server launched",
                     {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch(),},
                 )
             posthoganalytics.disabled = True
-        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE"):
+        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True

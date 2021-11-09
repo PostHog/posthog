@@ -6,9 +6,10 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.models.event import create_event
 from posthog.models import Event, Organization, Person, PersonDistinctId, Team
+from posthog.models.event_definition import EventDefinition
+from posthog.models.property_definition import PropertyDefinition
 from posthog.models.utils import UUIDT
 
 PRICING_TIERS = [("basic", 10), ("growth", 20), ("premium", 30)]
@@ -55,10 +56,9 @@ class Command(BaseCommand):
         else:
             self._generate_psql_data(team, options["event_number"], options["days"])
 
-        team.event_names.append("$purchase")
-        team.event_properties.append("plan")
-        team.event_properties_numerical.append("purchase_value")
-        team.save()
+        EventDefinition.objects.get_or_create(team=team, name="$purchase")
+        PropertyDefinition.objects.update_or_create(team=team, name="plan", defaults={"is_numerical": True})
+        PropertyDefinition.objects.update_or_create(team=team, name="purchase_value", defaults={"is_numerical": True})
 
     def _generate_psql_data(self, team, n_events, n_days):
         distinct_ids = []
@@ -84,7 +84,7 @@ class Command(BaseCommand):
     def _generate_ch_data(self, team, n_events, n_days):
         distinct_ids = []
         for i in range(0, n_events):
-            distinct_id = generate_clickhouse_uuid()
+            distinct_id = str(UUIDT())
             distinct_ids.append(distinct_id)
             Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
 
@@ -109,9 +109,11 @@ class Command(BaseCommand):
                 team = organization.teams.filter(id=team_id)[0]
         except Team.DoesNotExist:
             team = Team.objects.create_with_data(
+                default_dashboards=False,
                 organization=organization,
                 name=team_name if team_name else "HogFlix Demo App",
                 ingested_event=True,
                 completed_snippet_onboarding=True,
+                is_demo=True,
             )
         return team

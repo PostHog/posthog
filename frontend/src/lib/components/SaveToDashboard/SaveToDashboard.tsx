@@ -1,60 +1,34 @@
 import React, { useState } from 'react'
-import { Button } from 'antd'
+import { Button, Tooltip } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
-import { router } from 'kea-router'
+import { DashboardItemType } from '~/types'
+import { CheckSquareOutlined } from '@ant-design/icons'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { useValues } from 'kea'
 
 interface Props {
-    item: DashboardItemAttributes
+    insight: Partial<DashboardItemType>
 }
 
-interface DashboardItemAttributes {
-    type: string
-    entity: TrendPayload | FunnelPayload
-}
-
-interface TrendPayload {
-    filters: Record<string, any>
-    annotations: Array<Record<string, any>>
-}
-
-interface FunnelPayload {
-    name: string
-}
-
-export function SaveToDashboard(props: Props): JSX.Element {
-    const { item } = props
+export function SaveToDashboard({ insight }: Props): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
-    const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
-    let _name: string
-    let _filters: Record<string, any> | null = null
-    let _annotations: Array<Record<string, any>> | null = null
-
-    const _type: string = item.type
-
-    if ('filters' in item.entity) {
-        _filters = item.entity.filters
-        _annotations = item.entity.annotations
-    } else {
-        _name = item.entity.name
-    }
+    const { rawDashboards } = useValues(dashboardsModel)
+    const dashboard = (insight.dashboard && rawDashboards[insight.dashboard]) || null
 
     return (
-        <span className="save-to-dashboard">
-            {openModal && (
-                <SaveToDashboardModal
-                    closeModal={(): void => setOpenModal(false)}
-                    name={_name}
-                    type={_type}
-                    filters={_filters}
-                    fromItem={fromItem}
-                    fromDashboard={fromDashboard}
-                    fromItemName={fromItemName}
-                    annotations={_annotations}
-                />
-            )}
-            <Button onClick={(): void => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
-                {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
-            </Button>
+        <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
+            {openModal && <SaveToDashboardModal closeModal={() => setOpenModal(false)} insight={insight} />}
+            <Tooltip title={dashboard?.name ? `Saved on "${dashboard?.name}"` : undefined}>
+                <Button
+                    onClick={() => setOpenModal(true)}
+                    type="default"
+                    style={{ color: 'var(--primary)' }}
+                    icon={!!insight.dashboard ? <CheckSquareOutlined /> : null}
+                    className="btn-save"
+                >
+                    {!!insight.dashboard ? 'On dashboard' : 'Add to dashboard'}
+                </Button>
+            </Tooltip>
         </span>
     )
 }

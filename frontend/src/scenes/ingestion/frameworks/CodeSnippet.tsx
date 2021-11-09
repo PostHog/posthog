@@ -24,6 +24,7 @@ import { PopconfirmProps } from 'antd/lib/popconfirm'
 
 export interface Action {
     Icon: any
+    title: string
     callback: () => void
     popconfirmProps?: Omit<PopconfirmProps, 'onConfirm'>
 }
@@ -70,11 +71,13 @@ SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 
 export interface CodeSnippetProps {
-    children: string
+    children?: string
     language?: Language
     wrap?: boolean
     actions?: Action[]
     style?: React.CSSProperties
+    copyDescription?: string
+    hideCopyButton?: boolean
 }
 
 export function CodeSnippet({
@@ -83,26 +86,36 @@ export function CodeSnippet({
     wrap = false,
     style = {},
     actions,
+    copyDescription = 'code snippet',
+    hideCopyButton = false,
 }: CodeSnippetProps): JSX.Element {
     return (
         <div className="code-container" style={style}>
             <div className="action-icon-container">
                 {actions &&
-                    actions.map(({ Icon, callback, popconfirmProps }, index) =>
+                    actions.map(({ Icon, callback, popconfirmProps, title }, index) =>
                         !popconfirmProps ? (
-                            <Icon key={`snippet-action-${index}`} className="action-icon" onClick={callback} />
+                            <Icon
+                                key={`snippet-action-${index}`}
+                                className="action-icon"
+                                onClick={callback}
+                                title={title}
+                            />
                         ) : (
                             <Popconfirm key={`snippet-action-${index}`} {...popconfirmProps} onConfirm={callback}>
-                                <Icon className="action-icon" />
+                                <Icon className="action-icon" title={title} />
                             </Popconfirm>
                         )
                     )}
-                <CopyOutlined
-                    className="action-icon"
-                    onClick={() => {
-                        copyToClipboard(children, 'code snippet')
-                    }}
-                />
+                {!hideCopyButton && (
+                    <CopyOutlined
+                        className="action-icon"
+                        onClick={() => {
+                            children && copyToClipboard(children, copyDescription)
+                        }}
+                        title="Copy"
+                    />
+                )}
             </div>
             <SyntaxHighlighter
                 style={okaidia}

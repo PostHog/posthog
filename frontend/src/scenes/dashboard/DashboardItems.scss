@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .dashboard-item {
     display: block;
     background: white;
@@ -43,15 +45,6 @@
         }
         .dashboard-item-settings {
             white-space: nowrap;
-            .anticon {
-                margin-left: 10px;
-                background: hsl(210, 8%, 95%);
-                border-radius: 100%;
-                padding: 4px;
-                &:hover {
-                    background: hsl(210, 8%, 90%);
-                }
-            }
         }
     }
     .dashboard-item-content {
@@ -64,6 +57,11 @@
             padding-bottom: 10px;
             width: 100%;
             height: 100%;
+        }
+
+        &.FunnelViz {
+            // Funnels can exceed container's dimensions and must support scrolling
+            overflow: auto;
         }
     }
     .dashboard-item-container.table .dashboard-item-content {
@@ -81,6 +79,7 @@
         --item-darker: hsl(212, 63%, 35%);
         --item-darkest: hsl(212, 63%, 30%);
         --item-lighter: hsl(212, 63%, 60%);
+        --item-primary: hsl(202, 100%, 83%);
     }
 
     &.purple {
@@ -88,6 +87,7 @@
         --item-darker: hsl(249, 46%, 46%);
         --item-darkest: hsl(249, 46%, 41%);
         --item-lighter: hsl(249, 46%, 65%);
+        --item-primary: hsl(284, 84%, 83%);
     }
 
     &.green {
@@ -95,6 +95,7 @@
         --item-darker: hsl(145, 60%, 29%);
         --item-darkest: hsl(145, 60%, 24%);
         --item-lighter: hsl(145, 60%, 50%);
+        --item-primary: hsl(112, 87%, 81%);
     }
 
     &.black {
@@ -102,6 +103,7 @@
         --item-darker: hsl(0, 0%, 9%);
         --item-darkest: hsl(0, 0%, 4%);
         --item-lighter: hsl(0, 0%, 40%);
+        --item-primary: hsl(228, 100%, 77%);
     }
 
     &.blue,
@@ -116,26 +118,18 @@
         .dashboard-item-header .dashboard-item-title a {
             color: white;
         }
-        .dashboard-item-header .dashboard-item-settings .anticon {
+        .dashboard-item-header .dashboard-item-settings *:not(a) .anticon {
             color: rgba(255, 255, 255, 0.8);
             background: var(--item-darker);
             &:hover {
                 background: var(--item-darkest);
             }
         }
-        .svg-funnel-js__label .label__title {
-            opacity: 0.8;
-        }
-        .svg-funnel-js:not(.svg-funnel-js--vertical) .svg-funnel-js__label:not(:first-child) {
-            border-left: 1px solid rgba(255, 255, 255, 0.4);
-        }
-        .svg-funnel-js__container path {
-            fill: var(--item-lighter);
-            stroke: var(--item-lighter);
-        }
+
         h1 {
             color: rgba(255, 255, 255, 0.9);
         }
+
         .ant-table {
             background: none;
             table {
@@ -154,21 +148,26 @@
         }
     }
 
-    .sample-dasbhoard-overlay {
-        background-color: rgba(0, 0, 0, 0.7);
-        position: absolute;
-        padding: 32px;
-        right: 0;
-        bottom: 0;
-        left: 0;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 100;
-    }
-
-    &:hover .sample-dasbhoard-overlay {
+    .insight-empty-state {
         display: flex;
+        height: 100%;
+        align-items: center;
+
+        .illustration-main,
+        .ant-btn {
+            display: none;
+        }
+
+        h2 {
+            font-size: 1.1rem !important;
+        }
+
+        span,
+        p,
+        a {
+            font-size: 0.9rem !important;
+            line-height: 1.2rem;
+        }
     }
 }
 
@@ -176,6 +175,11 @@
     position: relative;
     transition: height 200ms ease;
     margin-bottom: 50px;
+
+    /* remove initial loading animation, animations are only needed in edit mode */
+    &.dashboard-view-mode .react-grid-item {
+        transition: none;
+    }
 }
 .react-grid-item {
     transition: all 200ms ease;
@@ -238,7 +242,7 @@
         cursor: ns-resize;
     }
 }
-.react-grid-layout.layout.dragging-items.wobbly .react-grid-item {
+.react-grid-layout.layout.dashboard-edit-mode.wobbly .react-grid-item {
     & > .react-resizable-handle {
         width: 40px;
         height: 40px;
@@ -254,12 +258,12 @@
         width: auto;
     }
 }
-.react-grid-layout.layout.dragging-items .dashboard-item {
+.react-grid-layout.layout.dashboard-edit-mode .dashboard-item {
     table {
         cursor: auto;
     }
 }
-.react-grid-layout.layout.dragging-items.wobbly {
+.react-grid-layout.layout.dashboard-edit-mode.wobbly {
     margin-bottom: 200px;
     will-change: transform;
 
@@ -322,53 +326,50 @@
 
     @keyframes keyframes1 {
         0% {
-            transform: rotate(-0.5deg);
+            transform: rotate(-0.2deg);
             animation-timing-function: ease-in;
         }
 
         50% {
-            transform: rotate(0.75deg);
+            transform: rotate(0.2deg);
             animation-timing-function: ease-out;
         }
     }
 
     @keyframes keyframes2 {
         0% {
-            transform: rotate(0.5deg);
+            transform: rotate(0.2deg);
             animation-timing-function: ease-in;
         }
 
         50% {
-            transform: rotate(-0.75deg);
+            transform: rotate(-0.2deg);
             animation-timing-function: ease-out;
         }
     }
 }
 
 .Toastify .drag-items-toast {
-    background: hsla(210, 10%, 12%, 1);
-    color: hsla(220, 9%, 92%, 1);
-    padding: 15px 30px;
-    text-align: center;
-    border-radius: 5px;
     @media (max-width: 480px) {
         border-radius: 0;
     }
-    p {
-        margin-bottom: 10px;
-    }
-    p:last-child {
-        margin-bottom: 0;
-    }
-    .headline {
-        font-size: 150%;
-    }
-    a {
-        color: white;
-        text-decoration: underline;
-        white-space: nowrap;
-    }
-    u {
-        white-space: nowrap;
+}
+
+// All dropdowns must be below top navigation
+.ant-dropdown {
+    z-index: 700;
+}
+
+.dive-btn {
+    margin-right: 0.5rem;
+
+    &.dive-btn-dive {
+        border-color: $primary;
+        color: $primary;
+
+        &:hover {
+            border-color: darken($primary, 30%);
+            color: darken($primary, 30%);
+        }
     }
 }

@@ -10,7 +10,6 @@
     background: white;
     color: black;
     font-size: 14px;
-    padding: 20px;
     &.no-padding {
         padding: 0;
     }
@@ -20,8 +19,12 @@
 .ant-modal-wrap {
     z-index: 2147483030 !important;
 }
-.ant-tooltip {
+.ant-select-dropdown,
+.ant-picker-dropdown {
     z-index: 2147483031 !important;
+}
+.ant-tooltip {
+    z-index: 2147483032 !important;
 }
 .ant-list-item {
     &:hover {

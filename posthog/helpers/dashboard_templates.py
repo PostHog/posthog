@@ -8,30 +8,30 @@ from posthog.constants import (
     BREAKDOWN_TYPE,
     DATE_FROM,
     DISPLAY,
+    ENTITY_ID,
+    ENTITY_TYPE,
     INSIGHT,
+    INSIGHT_TRENDS,
     INTERVAL,
     PROPERTIES,
     SHOWN_AS,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_CUMULATIVE,
-    TRENDS_FUNNEL,
-    TRENDS_LINEAR,
     TRENDS_PIE,
     TRENDS_STICKINESS,
 )
 from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_item import DashboardItem
+from posthog.models.insight import Insight
 
 DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
 
-    DashboardItem.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Daily Active Users (DAUs)",
-        type=TRENDS_LINEAR,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",
@@ -40,11 +40,10 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         description="Shows the number of unique users that use your app everyday.",
     )
 
-    DashboardItem.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Weekly revenue (from Order Completed)",
-        type=TRENDS_LINEAR,
         filters={
             TREND_FILTER_TYPE_EVENTS: [
                 {"id": "Order Completed", "math": "sum", "type": TREND_FILTER_TYPE_EVENTS, "math_property": "revenue"}
@@ -58,11 +57,10 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         'Sales should be registered with an "Order Completed" event.',
     )
 
-    DashboardItem.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Cumulative DAUs",
-        type=TRENDS_CUMULATIVE,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",
@@ -74,15 +72,17 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         description="Shows the total cumulative number of unique users that have been using your app.",
     )
 
-    DashboardItem.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Repeat users over time",
-        type=TRENDS_LINEAR,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
+            ENTITY_ID: "$pageview",
+            ENTITY_TYPE: TREND_FILTER_TYPE_EVENTS,
             INTERVAL: "day",
             SHOWN_AS: TRENDS_STICKINESS,
+            INSIGHT: INSIGHT_TRENDS,
         },
         last_refresh=now(),
         color=random.choice(DASHBOARD_COLORS),
@@ -90,11 +90,10 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         '(e.g. a user that visited your app twice in the time period will be shown under "2 days").',
     )
 
-    DashboardItem.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Sample - Purchase conversion funnel",
-        type=TRENDS_FUNNEL,
         filters={
             TREND_FILTER_TYPE_EVENTS: [
                 {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 0},
@@ -129,11 +128,10 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         "a specific action at each step.",
     )
 
-    DashboardItem.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Users by browser (last 2 weeks)",
-        type=TRENDS_PIE,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             DATE_FROM: "-14d",
@@ -146,11 +144,10 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         description="Shows a breakdown of browsers used to visit your app per unique users in the last 14 days.",
     )
 
-    DashboardItem.objects.create(
+    Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Users by traffic source",
-        type=TRENDS_LINEAR,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",

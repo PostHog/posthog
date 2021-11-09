@@ -1,0 +1,45 @@
+@import '~/vars';
+
+$inter_items_padding: 0.3rem;
+
+.insights-label {
+    margin-bottom: 0.1rem;
+    max-width: 100%;
+
+    .property-key-info {
+        display: inline;
+    }
+
+    .protect-width {
+        @extend .text-ellipsis;
+    }
+
+    .value {
+        margin-left: $inter_items_padding;
+        font-size: 1.176em;
+        font-weight: bold;
+        padding-right: 4px;
+    }
+
+    .ant-tag {
+        margin-right: 0;
+        margin-left: $inter_items_padding;
+        background-color: $border_light;
+        border: 0;
+        color: $primary_alt;
+    }
+
+    .graph-series-glyph {
+        padding: 0 6px;
+        margin-right: 4px;
+        margin-left: 2px;
+    }
+
+    .color-icon {
+        border-radius: 50%;
+        margin-left: 2px;
+        margin-right: 6px;
+        border: 2px solid #ffffff;
+        box-sizing: border-box;
+    }
+}

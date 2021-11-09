@@ -1,0 +1,25 @@
+@import '~/vars';
+
+.description {
+    margin-bottom: $default_spacing;
+
+    .ant-card-body {
+        padding: 0;
+    }
+
+    div:hover {
+        cursor: text;
+    }
+
+    .edit-box {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        column-gap: $default_spacing / 2;
+        padding: $default_spacing / 2 $default_spacing;
+    }
+
+    .add-description {
+        color: #9c9797;
+    }
+}

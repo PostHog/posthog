@@ -3,21 +3,24 @@ import { inBounds } from '~/toolbar/utils'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { toolbarButtonLogicType } from 'types/toolbar/button/toolbarButtonLogicType'
+import { toolbarButtonLogicType } from './toolbarButtonLogicType'
+import { posthog } from '~/toolbar/posthog'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
+    path: ['toolbar', 'button', 'toolbarButtonLogic'],
     actions: () => ({
         showHeatmapInfo: true,
         hideHeatmapInfo: true,
         showActionsInfo: true,
         hideActionsInfo: true,
-        showStats: true,
-        hideStats: true,
+        showFlags: true,
+        hideFlags: true,
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
+        setDragPosition: (x: number, y: number) => ({ x, y }),
         saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
-        saveStatsPosition: (x: number, y: number) => ({ x, y }),
+        saveFlagsPosition: (x: number, y: number) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -44,11 +47,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 [actionsTabLogic.actionTypes.hideButtonActions]: () => false,
             },
         ],
-        statsVisible: [
+        flagsVisible: [
             false,
             {
-                showStats: () => true,
-                hideStats: () => false,
+                showFlags: () => true,
+                hideFlags: () => false,
             },
         ],
         extensionPercentage: [
@@ -58,10 +61,13 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             },
         ],
         lastDragPosition: [
-            null as null | { x: number; y: number },
+            null as null | {
+                x: number
+                y: number
+            },
             { persist: true },
             {
-                saveDragPosition: (_, { x, y }) => ({ x, y }),
+                setDragPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
         heatmapPosition: [
@@ -71,15 +77,18 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             },
         ],
         actionsPosition: [
-            { x: 120, y: 100 } as { x: number; y: number },
+            { x: 120, y: 100 } as {
+                x: number
+                y: number
+            },
             {
                 saveActionsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
-        statsPosition: [
+        flagsPosition: [
             { x: 140, y: 100 } as { x: number; y: number },
             {
-                saveStatsPosition: (_, { x, y }) => ({ x, y }),
+                saveFlagsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
     }),
@@ -90,17 +99,17 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             (lastDragPosition, windowWidth, windowHeight) => {
                 const widthPadding = 35
                 const heightPadding = 30
+
+                const { x, y } = lastDragPosition || {
+                    x: -widthPadding,
+                    y: 60,
+                }
+                const dragX = x < 0 ? windowWidth + x : x
+                const dragY = y < 0 ? windowHeight + y : y
+
                 return {
-                    x: inBounds(
-                        widthPadding,
-                        !lastDragPosition ? windowWidth - widthPadding : lastDragPosition.x,
-                        windowWidth - widthPadding
-                    ),
-                    y: inBounds(
-                        heightPadding,
-                        !lastDragPosition ? 60 : lastDragPosition.y,
-                        windowHeight - heightPadding
-                    ),
+                    x: inBounds(widthPadding, dragX, windowWidth - widthPadding),
+                    y: inBounds(heightPadding, dragY, windowHeight - heightPadding),
                 }
             },
         ],
@@ -151,16 +160,29 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             (s) => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
             (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
         ],
-        statsExtensionPercentage: [
-            (s) => [s.statsVisible, s.extensionPercentage],
-            (statsVisible, extensionPercentage) =>
-                statsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+        featureFlagsExtensionPercentage: [
+            (s) => [s.flagsVisible, s.extensionPercentage],
+            (flagsVisible, extensionPercentage) =>
+                flagsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
     },
 
-    listeners: () => ({
+    listeners: ({ actions, values }) => ({
         hideActionsInfo: () => {
             actionsTabLogic.actions.selectAction(null)
+        },
+        showFlags: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
+        },
+        hideFlags: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: false })
+        },
+        saveDragPosition: ({ x, y }) => {
+            const { windowWidth, windowHeight } = values
+            actions.setDragPosition(
+                x > windowWidth / 2 ? -(windowWidth - x) : x,
+                y > windowHeight / 2 ? -(windowHeight - y) : y
+            )
         },
     }),
 })

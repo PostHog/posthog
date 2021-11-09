@@ -1,8 +1,10 @@
-import Simmer from '@mariusandra/simmerjs'
+import Simmer, { Simmer as SimmerType } from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
-import { ActionStepType, ElementType } from '~/types'
+import { ActionStepType, ActionStepUrlMatching, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
-import { querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
+import { querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { combineUrl, encodeParams } from 'kea-router'
 
 // these plus any element with cursor:pointer will be click targets
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
@@ -10,13 +12,17 @@ const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
 // always ignore the following
 const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
 
-const simmer = new Simmer(window, { depth: 8 })
+let simmer: SimmerType
 
 export function getSafeText(el: HTMLElement): string {
-    if (!el.childNodes || !el.childNodes.length) return ''
+    if (!el.childNodes || !el.childNodes.length) {
+        return ''
+    }
     let elText = ''
     el.childNodes.forEach((child) => {
-        if (child.nodeType !== 3 || !child.textContent) return
+        if (child.nodeType !== 3 || !child.textContent) {
+            return
+        }
         elText += child.textContent
             .trim()
             .replace(/[\r\n]/g, ' ')
@@ -26,17 +32,20 @@ export function getSafeText(el: HTMLElement): string {
     return elText
 }
 
-export function elementToQuery(element: HTMLElement): string | undefined {
+export function elementToQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
     if (!element) {
         return
+    }
+    if (!simmer) {
+        simmer = new Simmer(window, { depth: 8, dataAttributes })
     }
 
     // Turn tags into lower cases
     return simmer(element)?.replace(/(^[A-Z\-]+| [A-Z\-]+)/g, (d: string) => d.toLowerCase())
 }
 
-export function elementToActionStep(element: HTMLElement): ActionStepType {
-    const query = elementToQuery(element)
+export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
+    const query = elementToQuery(element, dataAttributes)
     const tagName = element.tagName.toLowerCase()
 
     return {
@@ -47,7 +56,7 @@ export function elementToActionStep(element: HTMLElement): ActionStepType {
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        url_matching: 'exact',
+        url_matching: ActionStepUrlMatching.Exact,
     }
 }
 
@@ -91,7 +100,7 @@ export function getShadowRoot(): ShadowRoot | null {
 }
 
 export function getShadowRootPopupContainer(): HTMLElement {
-    return (getShadowRoot() as unknown) as HTMLElement
+    return getShadowRoot() as unknown as HTMLElement
 }
 
 export function hasCursorPointer(element: HTMLElement): boolean {
@@ -161,9 +170,9 @@ export function inBounds(min: number, value: number, max: number): number {
 }
 
 export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoot = document): HTMLElement[] {
-    const elements = (startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown) as HTMLElement[]
+    const elements = startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown as HTMLElement[]
 
-    const allElements = [...((startNode.querySelectorAll('*') as unknown) as HTMLElement[])]
+    const allElements = [...(startNode.querySelectorAll('*') as unknown as HTMLElement[])]
     const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
 
     // loop through all elements and getComputedStyle
@@ -201,7 +210,7 @@ export function stepMatchesHref(step: ActionStepType, href: string): boolean {
 }
 
 function matchRuleShort(str: string, rule: string): boolean {
-    const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
+    const escapeRegex = (strng: string): string => strng.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
     return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
 }
 
@@ -239,10 +248,10 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
 
     let elements = [] as HTMLElement[]
     try {
-        elements = [...((querySelectorAllDeep(selector || '*', document, allElements) as unknown) as HTMLElement[])]
+        elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
     } catch (e) {
         console.error('Can not use selector:', selector)
-        throw e
+        return null
     }
 
     if (hasText && step?.text) {
@@ -329,12 +338,13 @@ export function actionStepToAntdForm(step: ActionStepType, isNew = false): Actio
 
     const newStep = {
         ...step,
-        url_matching: step.url_matching || 'exact',
+        url_matching: step.url_matching || ActionStepUrlMatching.Exact,
         href_selected: typeof step.href !== 'undefined' && step.href !== null,
         text_selected: typeof step.text !== 'undefined' && step.text !== null,
         selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,
         url_selected: typeof step.url !== 'undefined' && step.url !== null,
     }
+
     return newStep
 }
 
@@ -342,10 +352,10 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
     const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
     const newStep = {
         ...rest,
-        href: href_selected ? rest.href : undefined,
-        text: text_selected ? rest.text : undefined,
-        selector: selector_selected ? rest.selector : undefined,
-        url: url_selected ? rest.url : undefined,
+        href: href_selected ? rest.href || null : null,
+        text: text_selected ? rest.text || null : null,
+        selector: selector_selected ? rest.selector || null : null,
+        url: url_selected ? rest.url || null : null,
     }
     return newStep
 }
@@ -391,4 +401,36 @@ export function getHeatMapHue(count: number, maxCount: number): number {
         return 60
     }
     return 60 - (count / maxCount) * 40
+}
+
+export async function toolbarFetch(
+    url: string,
+    method: string = 'GET',
+    payload?: Record<string, any>
+): Promise<Response> {
+    const { pathname, searchParams } = combineUrl(url)
+    const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
+    const fullUrl = `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
+
+    const payloadData = payload
+        ? {
+              body: JSON.stringify(payload),
+              headers: {
+                  'Content-Type': 'application/json',
+              },
+          }
+        : {}
+
+    const response = await fetch(fullUrl, {
+        method,
+        ...payloadData,
+    })
+    if (response.status === 403) {
+        const responseData = await response.json()
+        // Do not try to authenticate if the user has no project access altogether
+        if (responseData.detail !== "You don't have access to the project.") {
+            toolbarLogic.actions.authenticate()
+        }
+    }
+    return response
 }
