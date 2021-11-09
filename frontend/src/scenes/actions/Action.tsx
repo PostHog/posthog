@@ -78,7 +78,7 @@ export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
-    const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters, sceneUrl: urls.action(':id') }))
+    const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters, sceneUrl: urls.action(id) }))
     const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
     const { preflight } = useValues(preflightLogic)
@@ -127,7 +127,7 @@ export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
                         </>
                     ) : null}
                     {id && (
-                        <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} sceneUrl={urls.action(':id')} />
+                        <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} sceneUrl={urls.action(id)} />
                     )}
                 </div>
             )}

@@ -318,6 +318,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             if (values.orderBy !== '-timestamp') {
                 return
             }
+            // Do not poll if the scene is in the background
+            if (props.sceneUrl !== router.values.location.pathname) {
+                return
+            }
 
             const params: Record<string, unknown> = {
                 properties: values.properties,

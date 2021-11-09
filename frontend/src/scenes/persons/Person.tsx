@@ -34,7 +34,7 @@ export const scene: SceneExport = {
     logic: personsLogic,
 }
 
-export function Person(): JSX.Element {
+export function Person({ id: urlId }: { id?: string } = {}): JSX.Element {
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const {
         person,
@@ -119,7 +119,7 @@ export function Person(): JSX.Element {
                                     pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                     fixedFilters={{ person_id: person.id }}
                                     hidePersonColumn
-                                    sceneUrl={urls.person(':id')}
+                                    sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
                                 />
                             )}
                         </div>
