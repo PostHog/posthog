@@ -1403,8 +1403,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
                 self._get_people_at_step(filter, 2), [person1.uuid],
             )
 
-    @snapshot_clickhouse_queries
-    def test_funnel_aggregation_with_groups(self):
+    def _create_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
@@ -1414,16 +1413,9 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0},
-                {"id": "paid", "type": "events", "order": 1},
-            ],
-            "insight": INSIGHT_FUNNELS,
-            "aggregation_group_type_index": 0,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-        }
+    @snapshot_clickhouse_queries
+    def test_funnel_aggregation_with_groups(self):
+        self._create_groups()
 
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
         _create_event(
@@ -1453,6 +1445,16 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:6"},
         )
 
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "aggregation_group_type_index": 0,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
         result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
@@ -1466,25 +1468,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
     @snapshot_clickhouse_queries
     def test_funnel_group_aggregation_with_groups_entity_filtering(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
-
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0, "properties": {"$group_0": "org:5"}},
-                {"id": "paid", "type": "events", "order": 1},
-            ],
-            "insight": INSIGHT_FUNNELS,
-            "aggregation_group_type_index": 0,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-        }
+        self._create_groups()
 
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
         _create_event(
@@ -1515,6 +1499,16 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:6"},
         )
 
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0, "properties": {"$group_0": "org:5"}},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "aggregation_group_type_index": 0,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
         result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
@@ -1528,24 +1522,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_entity_filtering(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
-
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0, "properties": {"$group_0": "org:5"}},
-                {"id": "paid", "type": "events", "order": 1},
-            ],
-            "insight": INSIGHT_FUNNELS,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-        }
+        self._create_groups()
 
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
         _create_event(
@@ -1580,6 +1557,15 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:6"},
         )
 
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0, "properties": {"$group_0": "org:5"}},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
         result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
@@ -1592,25 +1578,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_global_filtering(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
-
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0},
-                {"id": "paid", "type": "events", "order": 1},
-            ],
-            "insight": INSIGHT_FUNNELS,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-            "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
-        }
+        self._create_groups()
 
         person1 = _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
         _create_event(
@@ -1646,6 +1614,16 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:5"},  # same group, but different person, so not in funnel
         )
 
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+        }
         result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
