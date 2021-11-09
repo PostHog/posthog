@@ -99,7 +99,10 @@ const MenuItem = ({
         true
     )
     const menuItem = (
-        <div className={`menu-item${isActive ? ' menu-item-active' : ''}`} data-attr={`menu-item-${identifier}`}>
+        <div
+            className={`menu-item${isActive ? ' menu-item-active' : ''}`}
+            data-attr={`menu-item-${identifier.toLowerCase()}`}
+        >
             {icon}
             <span className="menu-title text-center">{title}</span>
             {hotkey && (
