@@ -202,7 +202,7 @@ describe('eventsTableLogic', () => {
             it('can check if scene is loaded when it is', async () => {
                 await expectLogic(logic, () => {
                     router.actions.push(urls.events())
-                }).toMatchValues({ sceneIsLoaded: true })
+                }).toMatchValues({ sceneIsEventsPage: true })
             })
 
             it('can flip the sorting order', async () => {
