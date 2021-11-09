@@ -1381,7 +1381,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             create_group(
                 team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
             )
-            # create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
             create_group(team_id=self.team.pk, group_type_index=1, group_key="org:5", properties={"industry": "random"})
             filters = {
                 "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
@@ -1556,7 +1555,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             create_group(
                 team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
             )
-            # create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
             create_group(team_id=self.team.pk, group_type_index=1, group_key="org:5", properties={"industry": "random"})
             filters = {
                 "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
