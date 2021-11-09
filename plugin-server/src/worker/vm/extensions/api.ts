@@ -1,10 +1,11 @@
-import fetch, { Response } from 'node-fetch'
+import fetch, { Headers, Response } from 'node-fetch'
 
 import { Hub, PluginConfig } from '../../../types'
 
 const DEFAULT_API_HOST = 'https://app.posthog.com'
 
 interface ApiMethodOptions {
+    headers: Headers
     data: Record<string, any>
     host: string
     projectApiKey: string
@@ -63,7 +64,11 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
                 : tokenParam
         )
         const url = `${host}/${path}${path.includes('?') ? '&' : '?'}${urlParams.toString()}`
-        const headers = { Authorization: `Bearer ${apiKey}` }
+        const headers = {
+            Authorization: `Bearer ${apiKey}`,
+            ...(method === ApiMethod.Post ? { 'Content-Type': 'application/json' } : {}),
+            ...options.headers,
+        }
 
         if (method === ApiMethod.Delete || method === ApiMethod.Get) {
             return await fetch(url, { headers, method })
