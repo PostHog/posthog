@@ -6,6 +6,7 @@ import { APIErrorType, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/logic'
 
 export const licenseLogic = kea<licenseLogicType>({
+    path: ['scenes', 'instance', 'Licenses', 'licenseLogic'],
     connect: {
         values: [preflightLogic, ['preflight']],
     },

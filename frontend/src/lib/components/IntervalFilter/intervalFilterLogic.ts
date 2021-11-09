@@ -5,6 +5,7 @@ import { intervalFilterLogicType } from './intervalFilterLogicType'
 import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
+    path: ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic'],
     actions: () => ({
         setIntervalFilter: (filter: IntervalKeyType) => ({ filter }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),

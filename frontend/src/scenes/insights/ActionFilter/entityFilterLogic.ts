@@ -45,6 +45,7 @@ export interface EntityFilterProps {
 export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
     props: {} as EntityFilterProps,
     key: (props) => props.typeKey,
+    path: (key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key],
     connect: {
         values: [actionsModel, ['actions']],
     },

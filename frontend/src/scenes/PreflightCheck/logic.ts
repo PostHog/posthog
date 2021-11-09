@@ -8,6 +8,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 type PreflightMode = 'experimentation' | 'live'
 
 export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
+    path: ['scenes', 'PreflightCheck', 'preflightLogic'],
     loaders: {
         preflight: [
             null as PreflightStatus | null,

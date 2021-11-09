@@ -2,6 +2,7 @@ import { kea } from 'kea'
 
 import { visibilitySensorLogicType } from './visibilitySensorLogicType'
 export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
+    path: (key) => ['lib', 'components', 'VisibilitySensor', 'visibilitySensorLogic', key],
     props: {} as {
         id: string
         offset?: number

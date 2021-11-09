@@ -7,6 +7,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 export const personalizationLogic = kea<personalizationLogicType>({
+    path: ['scenes', 'onboarding', 'personalizationLogic'],
     connect: {
         actions: [organizationLogic, ['updateOrganizationSuccess', 'loadCurrentOrganizationSuccess']],
     },

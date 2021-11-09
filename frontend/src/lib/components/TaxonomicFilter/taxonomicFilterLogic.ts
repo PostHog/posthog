@@ -18,6 +18,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
+    path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
     connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']] },
