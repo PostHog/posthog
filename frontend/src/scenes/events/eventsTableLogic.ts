@@ -54,6 +54,7 @@ export interface ApiError {
 }
 
 export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
+    path: (key) => ['scenes', 'events', 'eventsTableLogic', key],
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
@@ -65,7 +66,11 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         values: [teamLogic, ['currentTeamId']],
     },
     actions: {
-        setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter): { properties: AnyPropertyFilter[] } => {
+        setProperties: (
+            properties: AnyPropertyFilter[] | AnyPropertyFilter
+        ): {
+            properties: AnyPropertyFilter[]
+        } => {
             // there seem to be multiple representations of "empty" properties
             // the page does not work with some of those representations
             // this action normalises them

@@ -16,6 +16,7 @@ type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
 export const elementsLogic = kea<elementsLogicType<ActionElementMap, ElementMap>>({
+    path: ['toolbar', 'elements', 'elementsLogic'],
     actions: {
         enableInspect: true,
         disableInspect: true,

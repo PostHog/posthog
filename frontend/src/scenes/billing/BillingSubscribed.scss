@@ -1,0 +1,21 @@
+@import '~/vars';
+@import '../authentication/bridgePagesShared';
+
+.billing-subscribed {
+    // bridgePagesShared overrides
+    .auth-main-content {
+        flex-direction: row !important;
+    }
+
+    .support-footer {
+        margin-top: $default_spacing * 1.5;
+        padding-top: $default_spacing * 1.5;
+        border-top: 1.5px dashed $border;
+        text-align: center;
+    }
+
+    .title-icon {
+        padding-top: $default_spacing;
+        font-size: 2rem;
+    }
+}

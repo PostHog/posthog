@@ -6,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from './groupsModel'
 
 export const groupPropertiesModel = kea<groupPropertiesModelType>({
+    path: ['models', 'groupPropertiesModel'],
     connect: {
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled']],
     },

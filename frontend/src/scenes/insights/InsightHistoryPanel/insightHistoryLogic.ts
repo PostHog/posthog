@@ -40,6 +40,7 @@ const updateInsightState = (
 
 /* insightHistoryLogic - Handles all logic for saved insights and recent history */
 export const insightHistoryLogic = kea<insightHistoryLogicType>({
+    path: ['scenes', 'insights', 'InsightHistoryPanel', 'insightHistoryLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
     },

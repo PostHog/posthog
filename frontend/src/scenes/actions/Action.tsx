@@ -18,6 +18,7 @@ interface ActionLogicProps {
 }
 
 const actionLogic = kea<actionLogicType<ActionLogicProps>>({
+    path: (key) => ['scenes', 'actions', 'actionLogic', key],
     props: {} as ActionLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({
