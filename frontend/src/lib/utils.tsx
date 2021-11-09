@@ -1137,3 +1137,9 @@ export function ensureStringIsNotBlank(s?: string | null): string | null {
 export function setPageTitle(title: string): void {
     document.title = title ? `${title} • PostHog` : 'PostHog'
 }
+
+export function isSingleSeries(formula?: string): boolean {
+    if (!formula) return false
+    const count = (formula.match(/[a-zA-Z]/g) || []).length
+    return count === 1
+}
