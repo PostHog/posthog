@@ -7,6 +7,7 @@ from typing import (
     Dict,
     List,
     Literal,
+    NoReturn,
     Optional,
     Tuple,
     TypedDict,
@@ -538,67 +539,55 @@ class FunnelCorrelation:
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
         return events, skewed_totals
 
-    def construct_people_url(self, success: bool, event_definition: EventDefinition) -> Optional[str]:
-        #  NOTE: initially only supporting events type, and there is an implicit
-        #  events type when correlation_type is not set.
+    def construct_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+        """
+        Given an event_definition and success/failure flag, returns a url that
+        get be used to GET the associated people for the event/sucess pair. The
+        primary purpose of this is to reduce the risk of clients of the API
+        fetching incorrect people, given an event definition.
+        """
         if not self._filter.correlation_type or self._filter.correlation_type == FunnelCorrelationType.EVENTS:
-            # NOTE: we need to convert certain params to strings. I don't think this
-            # class should need to know these details, but with_data is
-            # expecting the values as they are serialized in the url
-            # TODO: remove url serialization details from this class, it likely
-            # belongs in the application layer, or perhaps `FunnelCorrelationPeople`
-            params = self._filter.with_data(
-                {
-                    "funnel_correlation_person_converted": "true" if success else "false",
-                    "funnel_correlation_person_entity": json.dumps(
-                        {
-                            "id": event_definition["event"],
-                            "type": "events",
-                            "properties": event_definition["properties"],
-                        }
-                    ),
-                }
-            ).to_params()
-            return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+            return self.construct_event_correlation_people_url(success=success, event_definition=event_definition)
 
-        if self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
-            if self.support_autocapture_elements():
-                # If we have an $autocapture event, we need to special case the
-                # url by converting the `elements` chain into an `Action`
-                event_name, _, _ = event_definition["event"].split("::")
-                elements = event_definition["elements"]
-                first_element = elements[0]
-                elements_as_action = {
-                    "tag_name": first_element["tag_name"],
-                    "href": first_element["href"],
-                    "text": first_element["text"],
-                    "selector": build_selector(elements),
-                }
-                params = self._filter.with_data(
-                    {
-                        "funnel_correlation_person_converted": "true" if success else "false",
-                        "funnel_correlation_person_entity": json.dumps(
-                            {
-                                "id": event_name,
-                                "type": "events",
-                                "properties": [
-                                    {
-                                        "key": property_key,
-                                        "value": [property_value],
-                                        "type": "element",
-                                        "operator": "exact",
-                                    }
-                                    for property_key, property_value in elements_as_action.items()
-                                    if property_value
-                                    if not None
-                                ],
-                            }
-                        ),
-                    }
-                ).to_params()
-                return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+        elif self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
+            return self.construct_event_with_properties_people_url(success=success, event_definition=event_definition)
 
-            event_name, property_name, property_value = event_definition["event"].split("::")
+        elif self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
+            return self.construct_person_properties_people_url(success=success, event_definition=event_definition)
+
+        else:
+            # Ensure we have exhausted all values of self._filter.correlation_type
+            _assert_never(self._filter.correlation_type)
+
+    def construct_event_correlation_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+        # NOTE: we need to convert certain params to strings. I don't think this
+        # class should need to know these details, but with_data is
+        # expecting the values as they are serialized in the url
+        # TODO: remove url serialization details from this class, it likely
+        # belongs in the application layer, or perhaps `FunnelCorrelationPeople`
+        params = self._filter.with_data(
+            {
+                "funnel_correlation_person_converted": "true" if success else "false",
+                "funnel_correlation_person_entity": json.dumps(
+                    {"id": event_definition["event"], "type": "events", "properties": event_definition["properties"],}
+                ),
+            }
+        ).to_params()
+        return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+
+    def construct_event_with_properties_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+        if self.support_autocapture_elements():
+            # If we have an $autocapture event, we need to special case the
+            # url by converting the `elements` chain into an `Action`
+            event_name, _, _ = event_definition["event"].split("::")
+            elements = event_definition["elements"]
+            first_element = elements[0]
+            elements_as_action = {
+                "tag_name": first_element["tag_name"],
+                "href": first_element["href"],
+                "text": first_element["text"],
+                "selector": build_selector(elements),
+            }
             params = self._filter.with_data(
                 {
                     "funnel_correlation_person_converted": "true" if success else "false",
@@ -607,7 +596,15 @@ class FunnelCorrelation:
                             "id": event_name,
                             "type": "events",
                             "properties": [
-                                {"key": property_name, "value": property_value, "type": "event", "operator": "exact"}
+                                {
+                                    "key": property_key,
+                                    "value": [property_value],
+                                    "type": "element",
+                                    "operator": "exact",
+                                }
+                                for property_key, property_value in elements_as_action.items()
+                                if property_value
+                                if not None
                             ],
                         }
                     ),
@@ -615,35 +612,49 @@ class FunnelCorrelation:
             ).to_params()
             return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
-        if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            # NOTE: for property correlations, we just use the regular funnel
-            # persons endpoint, with the breakdown value set, and we assume that
-            # event.event will be of the format "{property_name}::{property_value}"
-            property_name, property_value = event_definition["event"].split("::")
-            params = self._filter.with_data(
-                {
-                    "breakdown": property_name,
-                    "funnel_step_breakdown": property_value,
-                    "breakdown_type": "person",
-                    "display": "FunnelViz",
-                    "funnel_custom_steps": json.dumps(
-                        [len(self._filter.events)] if success else list(range(1, len(self._filter.events)))
-                    ),
-                    "name": property_name,
-                }
-            ).to_params()
-            params_without_correlation_keys = {
-                key: value
-                for key, value in params.items()
-                # NOTE: we want to filter anything about correlation, as the
-                # funnel persons endpoint does not understand or need these
-                # params.
-                if not key.startswith("funnel_correlation_")
+        event_name, property_name, property_value = event_definition["event"].split("::")
+        params = self._filter.with_data(
+            {
+                "funnel_correlation_person_converted": "true" if success else "false",
+                "funnel_correlation_person_entity": json.dumps(
+                    {
+                        "id": event_name,
+                        "type": "events",
+                        "properties": [
+                            {"key": property_name, "value": property_value, "type": "event", "operator": "exact"}
+                        ],
+                    }
+                ),
             }
-            return f"/api/person/funnel/?{urllib.parse.urlencode(params_without_correlation_keys)}"
+        ).to_params()
+        return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
-        else:
-            return None
+    def construct_person_properties_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+        # NOTE: for property correlations, we just use the regular funnel
+        # persons endpoint, with the breakdown value set, and we assume that
+        # event.event will be of the format "{property_name}::{property_value}"
+        property_name, property_value = event_definition["event"].split("::")
+        params = self._filter.with_data(
+            {
+                "breakdown": property_name,
+                "funnel_step_breakdown": property_value,
+                "breakdown_type": "person",
+                "display": "FunnelViz",
+                "funnel_custom_steps": json.dumps(
+                    [len(self._filter.events)] if success else list(range(1, len(self._filter.events)))
+                ),
+                "name": property_name,
+            }
+        ).to_params()
+        params_without_correlation_keys = {
+            key: value
+            for key, value in params.items()
+            # NOTE: we want to filter anything about correlation, as the
+            # funnel persons endpoint does not understand or need these
+            # params.
+            if not key.startswith("funnel_correlation_")
+        }
+        return f"/api/person/funnel/?{urllib.parse.urlencode(params_without_correlation_keys)}"
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         odds_ratios, skewed_totals = results
@@ -780,3 +791,13 @@ def build_selector(elements: List[Dict[str, Any]]) -> str:
         return element["tag_name"]
 
     return " > ".join([element_to_selector(element) for element in elements])
+
+
+def _assert_never(x: NoReturn) -> NoReturn:
+    """
+    This is a helper function to make sure that we never get to this point. It's
+    a way of ensuring that the possible values of x are exhausted. Simply call
+    this at the end of a function passing in the value you think you've covered
+    all cases for and you should get a type error if you haven't.
+    """
+    assert False, "Unhandled type: {}".format(type(x).__name__)
