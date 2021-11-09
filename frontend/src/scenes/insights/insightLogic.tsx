@@ -31,6 +31,7 @@ import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -586,12 +587,13 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
+                if (searchParams.insight === 'HISTORY') {
+                    // Legacy redirect because the insight history scene was toggled via the insight type.
+                    router.actions.replace(urls.savedInsights())
+                    return
+                }
                 let loadedFromAnotherLogic = false
-                if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
-                    if (values.insightMode !== ItemMode.Edit) {
-                        actions.setInsightMode(ItemMode.Edit, null)
-                    }
-                } else if (hashParams.fromItem) {
+                if (hashParams.fromItem) {
                     const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
 
                     if (
@@ -616,6 +618,9 @@ export const insightLogic = kea<insightLogicType>({
                     if (insightModeFromUrl !== values.insightMode) {
                         actions.setInsightMode(insightModeFromUrl, null)
                     }
+                } else if (values.insightMode !== ItemMode.Edit) {
+                    // Always stay in edit mode if there's no insight ID in the URL
+                    actions.setInsightMode(ItemMode.Edit, null)
                 }
 
                 const cleanSearchParams = cleanFilters(searchParams, values.filters)
