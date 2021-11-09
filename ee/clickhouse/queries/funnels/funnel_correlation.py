@@ -607,7 +607,6 @@ class FunnelCorrelation:
                 "breakdown": property_name,
                 "funnel_step_breakdown": property_value,
                 "breakdown_type": "person",
-                "funnel_steps": len(params["events"]) if success else -2,
                 "display": "FunnelViz",
                 "funnel_custom_steps": json.dumps(
                     [len(params["events"])] if success else list(range(1, len(params["events"])))
