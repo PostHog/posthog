@@ -68,7 +68,7 @@ export function EditableField({
                 </div>
             ) : (
                 <div className="view-container">
-                    <span className="field">{value || placeholder}</span>
+                    <span className="field">{value || <i>{placeholder}</i>}</span>
                     {metadataEditable && (
                         <Button
                             type="link"

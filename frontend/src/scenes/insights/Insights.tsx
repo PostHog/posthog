@@ -25,6 +25,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags'
+import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 
 dayjs.extend(relativeTime)
 
@@ -121,6 +122,7 @@ export function Insights(): JSX.Element {
                         <EditableField
                             name="name"
                             value={insight.name || ''}
+                            placeholder={UNNAMED_INSIGHT_NAME}
                             onChange={(value) => setInsightMetadata({ name: value })}
                             className="insight-metadata-name"
                             dataAttr="insight-name"
