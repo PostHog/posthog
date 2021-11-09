@@ -19,6 +19,7 @@ class SessionRecordingEvent(models.Model):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     distinct_id: models.CharField = models.CharField(max_length=200)
     session_id: models.CharField = models.CharField(max_length=200)
+    window_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     snapshot_data: models.JSONField = models.JSONField(default=dict)
 
 

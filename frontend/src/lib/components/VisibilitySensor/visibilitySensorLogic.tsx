@@ -39,11 +39,10 @@ export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
         },
     }),
 
-    selectors: ({ props }) => ({
+    selectors: () => ({
         checkIsVisible: [
-            (selectors) => [selectors.innerHeight],
-            (windowHeight) => (element: HTMLElement) => {
-                const offset = props.offset || 0
+            (selectors) => [selectors.innerHeight, (_, props) => props.offset || 0],
+            (windowHeight, offset) => (element: HTMLElement) => {
                 if (!element) {
                     return false
                 }

@@ -43,7 +43,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         cols: List[str] = []
 
         for i in range(max_steps):
-            cols.append(f"groupArrayIf(100)(DISTINCT person_id, steps = {i + 1}) step_people_{i + 1}")
+            cols.append(f"groupArrayIf(100)(DISTINCT aggregation_target, steps = {i + 1}) step_people_{i + 1}")
 
         formatted = ", ".join(cols)
         return f", {formatted}" if formatted else ""
@@ -55,11 +55,11 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
-                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
                         {steps_per_person_query}
                 )
-            ) GROUP BY person_id, steps {breakdown_clause}
+            ) GROUP BY aggregation_target, steps {breakdown_clause}
             HAVING steps = max_steps
             SETTINGS allow_experimental_window_functions = 1
         """
@@ -173,7 +173,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         if level_index >= max_steps:
             return f"""
             SELECT
-            person_id,
+            aggregation_target,
             timestamp,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
@@ -182,13 +182,13 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         else:
             return f"""
             SELECT
-            person_id,
+            aggregation_target,
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
             FROM (
                 SELECT
-                person_id,
+                aggregation_target,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
                 {self._get_breakdown_prop()}

@@ -646,6 +646,7 @@ export const eventUsageLogic = kea<
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
         reportRecording: ({ recordingData, source, loadTime, type }) => {
+            // @ts-ignore
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
@@ -690,7 +691,6 @@ export const eventUsageLogic = kea<
             posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
         },
         reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
-            // TODO: This event is still buggy (see relevant PR #6788 for details)
             if (delay === 0) {
                 posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
             } else {

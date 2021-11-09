@@ -38,7 +38,7 @@ def factory_session_recordings_list_test(
                 team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties,
             )
 
-        def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None):
+        def create_snapshot(self, distinct_id, session_id, timestamp, window_id="", type=2, team_id=None):
             if team_id == None:
                 team_id = self.team.pk
             session_recording_event_factory(
@@ -46,6 +46,7 @@ def factory_session_recordings_list_test(
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
+                window_id=window_id,
                 snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
             )
 

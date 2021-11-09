@@ -149,6 +149,7 @@ PATH_DROPOFF_KEY = "path_dropoff_key"
 PATH_EDGE_LIMIT = "edge_limit"
 PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
+AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 
 
 class FunnelOrderType(str, Enum):
