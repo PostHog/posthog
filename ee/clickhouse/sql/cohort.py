@@ -38,11 +38,14 @@ AND
 """
 
 GET_COHORT_SIZE_SQL = """
-SELECT count(1)
-FROM cohortpeople
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
-GROUP BY person_id, cohort_id, team_id
-HAVING sum(sign) > 0
+SELECT count(*)
+FROM (
+    SELECT 1
+    FROM cohortpeople
+    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+    GROUP BY person_id, cohort_id, team_id
+    HAVING sum(sign) > 0
+)
 """
 
 INSERT_PEOPLE_MATCHING_COHORT_ID_SQL = """
