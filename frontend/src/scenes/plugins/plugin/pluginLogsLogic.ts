@@ -14,6 +14,7 @@ export const LOGS_PORTION_LIMIT = 50
 export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
     props: {} as PluginLogsProps,
     key: ({ pluginConfigId }: PluginLogsProps) => pluginConfigId,
+    path: (key) => ['scenes', 'plugins', 'plugin', 'pluginLogsLogic', key],
     connect: {
         values: [teamLogic, ['currentTeamId']],
     },

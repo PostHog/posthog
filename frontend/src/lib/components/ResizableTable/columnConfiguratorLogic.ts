@@ -19,6 +19,7 @@ const filterColumns = (columnFilter: string, columns: string[]): string[] =>
         : columns
 
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType<ColumnConfiguratorLogicProps>>({
+    path: ['lib', 'components', 'ResizableTable', 'columnConfiguratorLogic'],
     props: { availableColumns: [], selectedColumns: [] } as ColumnConfiguratorLogicProps,
     actions: {
         selectColumn: (column: string) => ({ column }),

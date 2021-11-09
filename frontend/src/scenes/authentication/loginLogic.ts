@@ -14,6 +14,7 @@ export function afterLoginRedirect(): string {
 }
 
 export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
+    path: ['scenes', 'authentication', 'loginLogic'],
     loaders: {
         authenticateResponse: [
             null as AuthenticateResponseType | null,

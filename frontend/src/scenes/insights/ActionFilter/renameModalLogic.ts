@@ -12,6 +12,7 @@ export interface RenameModalProps {
 export const renameModalLogic = kea<renameModalLogicType<RenameModalProps>>({
     props: {} as RenameModalProps,
     key: (props) => props.typeKey,
+    path: (key) => ['scenes', 'insights', 'ActionFilter', 'renameModalLogic', key],
     connect: {
         actions: [entityFilterLogic, ['selectFilter']],
     },

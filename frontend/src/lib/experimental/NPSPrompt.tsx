@@ -24,6 +24,7 @@ interface NPSPayload {
 }
 
 const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
+    path: ['lib', 'experimental', 'NPSPrompt'],
     selectors: {
         featureFlagEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],

@@ -6,6 +6,7 @@ import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogic
 import { cohortsModel } from '~/models/cohortsModel'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
+    path: (key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key],
     props: {} as TaxonomicPropertyFilterLogicProps,
     key: (props) => `${props.pageKey}-${props.filterIndex}`,
 

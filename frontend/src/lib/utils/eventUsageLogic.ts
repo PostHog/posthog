@@ -146,6 +146,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 export const eventUsageLogic = kea<
     eventUsageLogicType<DashboardEventSource, GraphSeriesAddedSource, RecordingWatchedSource>
 >({
+    path: ['lib', 'utils', 'eventUsageLogic'],
     connect: () => [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),

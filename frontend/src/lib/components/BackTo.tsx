@@ -11,6 +11,7 @@ interface IBackTo {
 }
 
 const backToLogic = kea<backToLogicType<IBackTo>>({
+    path: ['lib', 'components', 'BackTo'],
     actions: {
         setBackTo: (payload) => ({ payload }),
     },
