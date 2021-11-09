@@ -568,9 +568,7 @@ class FunnelCorrelation:
         params = self._filter.with_data(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
-                "funnel_correlation_person_entity": json.dumps(
-                    {"id": event_definition["event"], "type": "events", "properties": event_definition["properties"],}
-                ),
+                "funnel_correlation_person_entity": json.dumps({"id": event_definition["event"], "type": "events"}),
             }
         ).to_params()
         return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
