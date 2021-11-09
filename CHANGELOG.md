@@ -6,6 +6,10 @@
 
 ### 1.29.0 - Thursday 21 October 2021
 
+
+
+
+
 -   Explore and deep dive with Paths. We fully revamped our Paths feature to help you explore the actions your users are taking. From jumping from a conversion drop-off in a funnel to identifying Paths ending in a desired action, you will be able to fully understand the paths of your users. We're introducing a lot of additional features such as: select up to 20 steps, fined-grained controls on what paths to show, and grouping paths through wildcards.
 -   Multivariate support in feature flags. You will now be able to create feature flags with multiple variants to allow for more comprehensive testing and feature releasing.
 -   Private projects. Extra concerns on privacy or compliance? Private projects now lets you have projects to which only certain members of your team have access.
