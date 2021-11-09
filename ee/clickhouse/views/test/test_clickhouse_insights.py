@@ -52,6 +52,34 @@ class ClickhouseTestInsights(
 
         self.assertEqual(len(response["results"][0]["people"]), 2)
 
+    def test_insight_trends_aggregate(self):
+
+        with freeze_time("2012-01-13T03:21:34.000Z"):
+            _create_person(distinct_ids=["1"], team=self.team)
+            _create_event(team=self.team, event="$pageview", distinct_id="1")
+
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_person(distinct_ids=["2"], team=self.team)
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+
+        data = deep_dump_object(
+            {
+                "date_from": "-14d",
+                "display": "ActionsPie",
+                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
+            }
+        )
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
+
+        self.assertEqual(response["result"][0]["aggregated_value"], 2)
+        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
+
+        self.assertEqual(len(response["results"][0]["people"]), 2)
+
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
