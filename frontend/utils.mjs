@@ -49,7 +49,7 @@ export function copyPublicFolder() {
     })
 }
 export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', entry = 'index', chunks = {}) {
-    const timestamp = new Date().valueOf()
+    const buildId = new Date().valueOf()
 
     fse.writeFileSync(
         path.resolve(__dirname, to),
@@ -76,7 +76,7 @@ export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', e
                     window.ESBUILD_LOAD_SCRIPT("${entry}.js?t=" + new Date().valueOf())
                     window.ESBUILD_LOAD_CHUNKS('index');
                 </script>
-                <link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css?${timestamp}'>
+                <link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css?_=${buildId}'>
             </head>`
         )
     )
