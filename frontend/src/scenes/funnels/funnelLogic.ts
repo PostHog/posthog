@@ -263,7 +263,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
     }),
 
-    reducers: ({ props }) => ({
+    reducers: ({ props, values }) => ({
         people: {
             clearFunnel: () => [],
         },
@@ -1048,7 +1048,7 @@ export const funnelLogic = kea<funnelLogicType>({
             // load correlation table after funnel. Maybe parallel?
             if (values.correlationAnalysisAvailable) {
                 actions.loadCorrelations()
-                actions.loadPropertyCorrelations()
+                actions.setPropertyNames(values.allProperties) // select all properties by default
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
