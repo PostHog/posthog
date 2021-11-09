@@ -1,6 +1,12 @@
 # pip-compile requirements-dev.in
 
-flake8
+# Make sure we use production deps for constraining installed dev packages. This
+# is important as otherwise we could be running tests with different versions
+# than production.
+
+-c requirements.txt
+
+flake8>=3.8 # match minimum version to oldest Python version that PostHog currently supports
 flake8-bugbear
 flake8-colors
 flake8-commas
@@ -9,7 +15,6 @@ flake8-import-order
 flake8-logging-format
 flake8-print
 pip-tools
-django-debug-toolbar
 mypy
 mypy-extensions
 djangorestframework-stubs
@@ -19,3 +24,9 @@ freezegun
 packaging
 black
 isort
+pytest
+pytest-django
+pytest-mock
+pytest-cov
+pytest-split
+syrupy

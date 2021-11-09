@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
+import { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
@@ -32,14 +32,19 @@ import {
     LogoutOutlined,
     PlusOutlined,
     LineChartOutlined,
+    ApiOutlined,
+    DatabaseOutlined,
 } from '@ant-design/icons'
-import { DashboardType } from '~/types'
+import { DashboardType, ViewType } from '~/types'
 import api from 'lib/api'
 import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
+import { debugCHQueries } from './DebugCHQueries'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { urls } from 'scenes/urls'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -94,8 +99,12 @@ const GLOBAL_COMMAND_SCOPE = 'global'
 function resolveCommand(source: Command | CommandFlow, argument?: string, prefixApplied?: string): CommandResult[] {
     // run resolver or use ready-made results
     let results = source.resolver instanceof Function ? source.resolver(argument, prefixApplied) : source.resolver
-    if (!results) return [] // skip if no result
-    if (!Array.isArray(results)) results = [results] // work with a single result and with an array of results
+    if (!results) {
+        return []
+    } // skip if no result
+    if (!Array.isArray(results)) {
+        results = [results]
+    } // work with a single result and with an array of results
     const resultsWithCommand: CommandResult[] = results.map((result) => {
         return { ...result, source }
     })
@@ -105,16 +114,18 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<
     commandPaletteLogicType<
         Command,
+        CommandFlow,
         CommandRegistrations,
         CommandResult,
-        CommandFlow,
-        RegExpCommandPairs,
-        CommandResultDisplayable
+        CommandResultDisplayable,
+        RegExpCommandPairs
     >
 >({
+    path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], userLogic, ['user']],
+        logic: [preflightLogic], // used in afterMount, which does not auto-connect
     },
     actions: {
         hidePalette: true,
@@ -200,7 +211,9 @@ export const commandPaletteLogic = kea<
             posthog.capture('palette shown', { isMobile: isMobile() })
         },
         togglePalette: () => {
-            if (values.isPaletteShown) posthog.capture('palette shown', { isMobile: isMobile() })
+            if (values.isPaletteShown) {
+                posthog.capture('palette shown', { isMobile: isMobile() })
+            }
         },
         executeResult: ({ result }: { result: CommandResult }) => {
             if (result.executor === true) {
@@ -209,7 +222,9 @@ export const commandPaletteLogic = kea<
             } else {
                 const possibleFlow = result.executor?.() || null
                 actions.activateFlow(possibleFlow)
-                if (!possibleFlow) actions.hidePalette()
+                if (!possibleFlow) {
+                    actions.hidePalette()
+                }
             }
             // Capture command execution, without useless data
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -222,7 +237,9 @@ export const commandPaletteLogic = kea<
         },
         deregisterScope: ({ scope }) => {
             for (const command of Object.values(values.commandRegistrations)) {
-                if (command.scope === scope) actions.deregisterCommand(command.key)
+                if (command.scope === scope) {
+                    actions.deregisterCommand(command.key)
+                }
             }
         },
         setInput: async ({ input }, breakpoint) => {
@@ -239,7 +256,7 @@ export const commandPaletteLogic = kea<
                                 display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
-                                    push(`/person/${person.distinct_ids[0]}`)
+                                    push(urls.person(person.distinct_ids[0]))
                                 },
                             },
                         ],
@@ -265,7 +282,7 @@ export const commandPaletteLogic = kea<
         commandRegistrations: [
             (selectors) => [
                 selectors.rawCommandRegistrations,
-                dashboardsModel.selectors.dashboards,
+                dashboardsModel.selectors.nameSortedDashboards,
                 teamLogic.selectors.currentTeam,
             ],
             (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
@@ -275,10 +292,10 @@ export const commandPaletteLogic = kea<
                     resolver: dashboards.map((dashboard: DashboardType) => ({
                         key: `dashboard_${dashboard.id}`,
                         icon: LineChartOutlined,
-                        display: `Go to Dashboard ${dashboard.name}`,
+                        display: `Go to Dashboard: ${dashboard.name}`,
                         executor: () => {
                             const { push } = router.actions
-                            push(`/dashboard/${dashboard.id}`)
+                            push(urls.dashboard(dashboard.id))
                         },
                     })),
                     scope: GLOBAL_COMMAND_SCOPE,
@@ -290,9 +307,11 @@ export const commandPaletteLogic = kea<
             (commandRegistrations: CommandRegistrations) => {
                 const array: RegExpCommandPairs = []
                 for (const command of Object.values(commandRegistrations)) {
-                    if (command.prefixes)
+                    if (command.prefixes) {
                         array.push([new RegExp(`^\\s*(${command.prefixes.join('|')})(?:\\s+(.*)|$)`, 'i'), command])
-                    else array.push([null, command])
+                    } else {
+                        array.push([null, command])
+                    }
                 }
                 return array
             },
@@ -312,8 +331,12 @@ export const commandPaletteLogic = kea<
                 activeFlow: CommandFlow | null,
                 isSqueak: boolean
             ) => {
-                if (!isPaletteShown || isSqueak) return []
-                if (activeFlow) return resolveCommand(activeFlow, argument)
+                if (!isPaletteShown || isSqueak) {
+                    return []
+                }
+                if (activeFlow) {
+                    return resolveCommand(activeFlow, argument)
+                }
                 let directResults: CommandResult[] = []
                 let prefixedResults: CommandResult[] = []
                 for (const [regexp, command] of regexpCommandPairs) {
@@ -329,8 +352,11 @@ export const commandPaletteLogic = kea<
                 let fusableResults: CommandResult[] = []
                 let guaranteedResults: CommandResult[] = []
                 for (const result of allResults) {
-                    if (result.guarantee) guaranteedResults.push(result)
-                    else fusableResults.push(result)
+                    if (result.guarantee) {
+                        guaranteedResults.push(result)
+                    } else {
+                        fusableResults.push(result)
+                    }
                 }
                 fusableResults = uniqueBy(fusableResults, (result) => result.display)
                 guaranteedResults = uniqueBy(guaranteedResults, (result) => result.display)
@@ -348,11 +374,17 @@ export const commandPaletteLogic = kea<
         commandSearchResultsGrouped: [
             (selectors) => [selectors.commandSearchResults, selectors.activeFlow],
             (commandSearchResults: CommandResult[], activeFlow: CommandFlow | null) => {
-                const resultsGrouped: { [scope: string]: CommandResult[] } = {}
-                if (activeFlow) resultsGrouped[activeFlow.scope ?? '?'] = []
+                const resultsGrouped: {
+                    [scope: string]: CommandResult[]
+                } = {}
+                if (activeFlow) {
+                    resultsGrouped[activeFlow.scope ?? '?'] = []
+                }
                 for (const result of commandSearchResults) {
                     const scope: string = result.source.scope ?? '?'
-                    if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
+                    if (!(scope in resultsGrouped)) {
+                        resultsGrouped[scope] = []
+                    } // Ensure there's an array to push to
                     resultsGrouped[scope].push({ ...result })
                 }
                 let rollingGroupIndex = 0
@@ -383,75 +415,75 @@ export const commandPaletteLogic = kea<
                         icon: FundOutlined,
                         display: 'Go to Dashboards',
                         executor: () => {
-                            push('/dashboard')
+                            push(urls.dashboards())
                         },
                     },
                     {
                         icon: RiseOutlined,
                         display: 'Go to Insights',
                         executor: () => {
-                            push('/insights')
+                            push(urls.insights())
                         },
                     },
                     {
                         icon: RiseOutlined,
                         display: 'Go to Trends',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=TRENDS')
+                            // TODO: Don't reset insight on change
+                            push(urls.newInsight(ViewType.TRENDS))
                         },
                     },
                     {
                         icon: ClockCircleOutlined,
                         display: 'Go to Sessions',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=SESSIONS')
+                            // TODO: Don't reset insight on change
+                            push(urls.newInsight(ViewType.SESSIONS))
                         },
                     },
                     {
                         icon: FunnelPlotOutlined,
                         display: 'Go to Funnels',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=FUNNELS')
+                            // TODO: Don't reset insight on change
+                            push(urls.newInsight(ViewType.FUNNELS))
                         },
                     },
                     {
                         icon: GatewayOutlined,
                         display: 'Go to Retention',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=RETENTION')
+                            // TODO: Don't reset insight on change
+                            push(urls.newInsight(ViewType.RETENTION))
                         },
                     },
                     {
                         icon: InteractionOutlined,
                         display: 'Go to User Paths',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=PATHS')
+                            // TODO: Don't reset insight on change
+                            push(urls.newInsight(ViewType.PATHS))
                         },
                     },
                     {
                         icon: ContainerOutlined,
                         display: 'Go to Events',
                         executor: () => {
-                            push('/events')
+                            push(urls.events())
                         },
                     },
                     {
                         icon: AimOutlined,
                         display: 'Go to Actions',
                         executor: () => {
-                            push('/actions')
+                            push(urls.actions())
                         },
                     },
                     {
                         icon: ClockCircleOutlined,
                         display: 'Go to Live Sessions',
                         executor: () => {
-                            push('/sessions')
+                            push(urls.sessions())
                         },
                     },
                     {
@@ -459,14 +491,14 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Persons',
                         synonyms: ['people'],
                         executor: () => {
-                            push('/persons')
+                            push(urls.persons())
                         },
                     },
                     {
                         icon: UsergroupAddOutlined,
                         display: 'Go to Cohorts',
                         executor: () => {
-                            push('/cohorts')
+                            push(urls.cohorts())
                         },
                     },
                     {
@@ -474,36 +506,29 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Feature Flags',
                         synonyms: ['feature flags', 'a/b tests'],
                         executor: () => {
-                            push('/feature_flags')
+                            push(urls.featureFlags())
                         },
                     },
                     {
                         icon: MessageOutlined,
                         display: 'Go to Annotations',
                         executor: () => {
-                            push('/annotations')
+                            push(urls.annotations())
                         },
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Organization Members',
-                        synonyms: ['teammates'],
+                        display: 'Go to Team Members',
+                        synonyms: ['organization', 'members', 'invites', 'teammates'],
                         executor: () => {
-                            push('/organization/members')
-                        },
-                    },
-                    {
-                        icon: SendOutlined,
-                        display: 'Go to Organization Invites',
-                        executor: () => {
-                            push('/organization/invites')
+                            push(urls.organizationSettings())
                         },
                     },
                     {
                         icon: ProjectOutlined,
                         display: 'Go to Project Settings',
                         executor: () => {
-                            push('/project/settings')
+                            push(urls.projectSettings())
                         },
                     },
                     {
@@ -511,14 +536,30 @@ export const commandPaletteLogic = kea<
                         display: 'Go to My Settings',
                         synonyms: ['account'],
                         executor: () => {
-                            push('/me/settings')
+                            push(urls.mySettings())
+                        },
+                    },
+                    {
+                        icon: ApiOutlined,
+                        display: 'Go to Plugins',
+                        synonyms: ['integrations'],
+                        executor: () => {
+                            push(urls.plugins())
+                        },
+                    },
+                    {
+                        icon: DatabaseOutlined,
+                        display: 'Go to System Status Page',
+                        synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
+                        executor: () => {
+                            push(urls.systemStatus())
                         },
                     },
                     {
                         icon: PlusOutlined,
                         display: 'Create Action',
                         executor: () => {
-                            push('/action')
+                            push(urls.createAction())
                         },
                     },
                     {
@@ -531,12 +572,32 @@ export const commandPaletteLogic = kea<
                 ],
             }
 
+            const debugClickhouseQueries: Command = {
+                key: 'debug-clickhouse-queries',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver:
+                    userLogic.values.user?.is_staff ||
+                    userLogic.values.user?.is_impersonated ||
+                    preflightLogic.values.preflight?.is_debug ||
+                    preflightLogic.values.preflight?.instance_preferences?.debug_queries
+                        ? {
+                              icon: PlusOutlined,
+                              display: 'Debug queries (ClickHouse)',
+                              executor: () => {
+                                  debugCHQueries()
+                              },
+                          }
+                        : [],
+            }
+
             const calculator: Command = {
                 key: 'calculator',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: (argument) => {
                     // don't try evaluating if there's no argument or if it's a plain number already
-                    if (!argument || !isNaN(+argument)) return null
+                    if (!argument || !isNaN(+argument)) {
+                        return null
+                    }
                     try {
                         const result = +Parser.evaluate(argument)
                         return isNaN(result)
@@ -570,7 +631,7 @@ export const commandPaletteLogic = kea<
                             },
                         })
                     )
-                    if (argument && isURL(argument))
+                    if (argument && isURL(argument)) {
                         results.push({
                             icon: LinkOutlined,
                             display: `Open ${argument}`,
@@ -579,6 +640,7 @@ export const commandPaletteLogic = kea<
                                 open(argument)
                             },
                         })
+                    }
                     results.push({
                         icon: LinkOutlined,
                         display: 'Open PostHog Docs',
@@ -602,15 +664,16 @@ export const commandPaletteLogic = kea<
                         icon: TagOutlined,
                         scope: 'Creating Personal API Key',
                         resolver: (argument) => {
-                            if (argument?.length)
+                            if (argument?.length) {
                                 return {
                                     icon: KeyOutlined,
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/my/settings', {}, 'personal-api-keys')
+                                        push(urls.mySettings(), {}, 'personal-api-keys')
                                     },
                                 }
+                            }
                             return null
                         },
                     }),
@@ -628,14 +691,15 @@ export const commandPaletteLogic = kea<
                         icon: TagOutlined,
                         scope: 'Creating Dashboard',
                         resolver: (argument) => {
-                            if (argument?.length)
+                            if (argument?.length) {
                                 return {
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, push: true })
+                                        dashboardsModel.actions.addDashboard({ name: argument, show: true })
                                     },
                                 }
+                            }
                             return null
                         },
                     }),
@@ -697,6 +761,7 @@ export const commandPaletteLogic = kea<
 
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
+            actions.registerCommand(debugClickhouseQueries)
             actions.registerCommand(calculator)
             actions.registerCommand(createPersonalApiKey)
             actions.registerCommand(createDashboard)
@@ -705,6 +770,7 @@ export const commandPaletteLogic = kea<
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
             actions.deregisterCommand('open-urls')
+            actions.deregisterCommand('debug-clickhouse-queries')
             actions.deregisterCommand('calculator')
             actions.deregisterCommand('create-personal-api-key')
             actions.deregisterCommand('create-dashboard')

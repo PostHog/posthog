@@ -1,0 +1,32 @@
+@import '~/vars';
+
+.column-configurator-modal {
+    .text-blue {
+        color: $primary;
+    }
+
+    .column-display-item {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: $default_spacing / 2;
+        overflow: hidden;
+        border-radius: $radius;
+        margin: $radius/2 0;
+
+        &:hover {
+            background-color: $bg_mid;
+        }
+
+        &.disabled {
+            cursor: not-allowed;
+            color: $text_muted;
+            background-color: $bg_mid;
+        }
+
+        &.selected {
+            background-color: #eef2ff;
+        }
+    }
+}

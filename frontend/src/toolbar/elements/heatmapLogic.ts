@@ -1,20 +1,21 @@
-// /api/event/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
-
+// /api/projects/@current/events/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, elementToSelector, trimElement } from '~/toolbar/utils'
+import { elementToActionStep, elementToSelector, toolbarFetch, trimElement } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { heatmapLogicType } from 'types/toolbar/elements/heatmapLogicType'
+import { heatmapLogicType } from './heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { ActionStepType } from '~/types'
-import { collectAllElementsDeep, querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
+import { posthog } from '~/toolbar/posthog'
+import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
-export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType>>({
+export const heatmapLogic = kea<heatmapLogicType>({
+    path: ['toolbar', 'elements', 'heatmapLogic'],
     actions: {
         enableHeatmap: true,
         disableHeatmap: true,
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
+        setHeatmapFilter: (filter: Record<string, any>) => ({ filter }),
     },
 
     reducers: {
@@ -41,20 +42,32 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 setShowHeatmapTooltip: (_, { showHeatmapTooltip }) => showHeatmapTooltip,
             },
         ],
+        heatmapFilter: [
+            {} as Record<string, any>,
+            {
+                setHeatmapFilter: (_, { filter }) => filter,
+            },
+        ],
     },
 
-    loaders: {
+    loaders: ({ values }) => ({
         events: [
             [] as ElementsEventType[],
             {
                 resetEvents: () => [],
-                getEvents: async ({ $current_url }: { $current_url: string }, breakpoint) => {
-                    const params = {
+                getEvents: async (
+                    {
+                        $current_url,
+                    }: {
+                        $current_url: string
+                    },
+                    breakpoint
+                ) => {
+                    const params: Record<string, any> = {
                         properties: [{ key: '$current_url', value: $current_url }],
-                        temporary_token: toolbarLogic.values.temporaryToken,
+                        ...values.heatmapFilter,
                     }
-                    const url = `${toolbarLogic.values.apiURL}api/element/stats/${encodeParams(params, '?')}`
-                    const response = await fetch(url)
+                    const response = await toolbarFetch(`/api/element/stats/${encodeParams(params, '?')}`)
                     const results = await response.json()
 
                     if (response.status === 403) {
@@ -72,14 +85,14 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 },
             },
         ],
-    },
+    }),
 
     selectors: {
         elements: [
             (selectors) => [selectors.events],
             (events) => {
                 // cache all elements in shadow roots
-                const allElements = collectAllElementsDeep('', document, null)
+                const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
                 events.forEach((event) => {
                     let combinedSelector
@@ -148,8 +161,8 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
             },
         ],
         countedElements: [
-            (selectors) => [selectors.elements],
-            (elements) => {
+            (selectors) => [selectors.elements, toolbarLogic.selectors.dataAttributes],
+            (elements, dataAttributes) => {
                 const elementCounter = new Map<HTMLElement, number>()
                 const elementSelector = new Map<HTMLElement, string>()
 
@@ -171,7 +184,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                         count,
                         element,
                         selector,
-                        actionStep: elementToActionStep(element),
+                        actionStep: elementToActionStep(element, dataAttributes),
                     } as CountedHTMLElement)
                 })
 
@@ -209,10 +222,12 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
         },
         enableHeatmap: () => {
             actions.getEvents({ $current_url: currentPageLogic.values.href })
+            posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
         disableHeatmap: () => {
             actions.resetEvents()
             actions.setShowHeatmapTooltip(false)
+            posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
         getEventsSuccess: () => {
             actions.setShowHeatmapTooltip(true)
@@ -222,6 +237,9 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 await breakpoint(1000)
                 actions.setShowHeatmapTooltip(false)
             }
+        },
+        setHeatmapFilter: () => {
+            actions.getEvents({ $current_url: currentPageLogic.values.href })
         },
     }),
 })

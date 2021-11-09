@@ -4,13 +4,10 @@ from django.db import migrations
 
 
 def migrate_calculate_cohorts(apps, schema_editor):
-    from posthog.models import Cohort
-
-    for cohort in Cohort.objects.all():
-        cohort.calculate_people()
-        if cohort.team.users.count() == 1:
-            cohort.created_by = cohort.team.users.get()
-            cohort.save()
+    # We used to call `calculate_people` here, which caused issues when changing that function
+    # Enough time has passed since 2020-05-08 that most people will have updated and run this migration
+    # If not, the cohort will calculate automatically anyway
+    pass
 
 
 def backwards(apps, schema_editor):

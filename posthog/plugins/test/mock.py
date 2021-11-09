@@ -1,14 +1,18 @@
 import base64
 import json
 
+# This method will be used by the mock to replace requests.get
+from posthog.plugins.utils import get_json_from_zip_archive, put_json_into_zip_archive
+
 from .plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
+    HELLO_WORLD_PLUGIN_GITLAB_ZIP,
     HELLO_WORLD_PLUGIN_NPM_TGZ,
+    HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
 )
 
 
-# This method will be used by the mock to replace requests.get
 def mocked_plugin_requests_get(*args, **kwargs):
     class MockJSONResponse:
         def __init__(self, json_data, status_code):
@@ -38,15 +42,41 @@ def mocked_plugin_requests_get(*args, **kwargs):
             return self.status_code < 300
 
     if args[0] == "https://api.github.com/repos/PostHog/posthog/commits":
-        return MockJSONResponse([{"html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}], 200)
+        return MockJSONResponse(
+            [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
+            200,
+        )
 
     if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits":
         return MockJSONResponse(
             [
                 {
+                    "sha": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "html_url": "https://www.github.com/PostHog/helloworldplugin/commit/{}".format(
                         HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]
-                    )
+                    ),
+                }
+            ],
+            200,
+        )
+
+    if args[0].startswith("https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits"):
+        return MockJSONResponse(
+            [
+                {
+                    "id": "ff78cbe1d70316055c610a962a8355a4616d874b",
+                    "web_url": "https://gitlab.com/mariusandra/helloworldplugin/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b",
+                }
+            ],
+            200,
+        )
+
+    if args[0].startswith("https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin-other/repository/commits"):
+        return MockJSONResponse(
+            [
+                {
+                    "id": "ff78cbe1d70316055c610a962a8355a4616d874b",
+                    "web_url": "https://gitlab.com/mariusandra/helloworldplugin-other/-/commit/ff78cbe1d70316055c610a962a8355a4616d874b",
                 }
             ],
             200,
@@ -54,6 +84,9 @@ def mocked_plugin_requests_get(*args, **kwargs):
 
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/latest":
         return MockJSONResponse({"pkg": "posthog-helloworld-plugin", "version": "MOCK"}, 200)
+
+    if args[0] == "https://registry.npmjs.org/@posthog/helloworldplugin/latest":
+        return MockJSONResponse({"pkg": "@posthog/helloworldplugin", "version": "MOCK"}, 200)
 
     if args[0] == "https://github.com/PostHog/helloworldplugin/archive/{}.zip".format(HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1], 200)
@@ -63,10 +96,49 @@ def mocked_plugin_requests_get(*args, **kwargs):
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[1], 200)
 
+    if args[0] == "https://github.com/PostHog/helloworldplugin/archive/{}.zip".format(
+        HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP[0]
+    ):
+        return MockBase64Response(HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP[1], 200)
+
+    # https://github.com/posthog-plugin/version-equals/commit/{vesrion}
+    # https://github.com/posthog-plugin/version-greater-than/commit/{vesrion}
+    # https://github.com/posthog-plugin/version-less-than/commit/{vesrion}
+    if args[0].startswith(f"https://github.com/posthog-plugin/version-"):
+        url_repo = args[0].split("/")[4]
+        url_version = args[0].split("/")[6].split(".zip")[0]
+
+        archive = base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
+        plugin_json = get_json_from_zip_archive(archive, "plugin.json")
+        plugin_json["posthogVersion"] = url_version
+
+        if url_repo == "version-greater-than":
+            plugin_json["posthogVersion"] = f">= {plugin_json['posthogVersion']}"
+
+        if url_repo == "version-less-than":
+            plugin_json["posthogVersion"] = f"< {plugin_json['posthogVersion']}"
+
+        archive = put_json_into_zip_archive(archive, plugin_json, "plugin.json")
+        return MockBase64Response(base64.b64encode(archive), 200)
+
+    if args[0].startswith(
+        "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/archive.zip?sha={}".format(
+            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+        )
+    ) or args[0].startswith(
+        "https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin-other/repository/archive.zip?sha={}".format(
+            HELLO_WORLD_PLUGIN_GITLAB_ZIP[0]
+        )
+    ):
+        return MockBase64Response(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1], 200)
+
+    if args[0] == "https://registry.npmjs.org/@posthog/helloworldplugin/-/helloworldplugin-0.0.0.tgz":
+        return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
+
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
         return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
 
-    if args[0] == "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json":
+    if args[0] == "https://raw.githubusercontent.com/PostHog/plugin-repository/main/repository.json":
         return MockTextResponse(
             json.dumps(
                 [

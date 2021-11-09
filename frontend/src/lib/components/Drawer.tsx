@@ -1,18 +1,8 @@
-import React, { useEffect } from 'react'
+import React, { PropsWithChildren } from 'react'
 import { Drawer as AntDrawer } from 'antd'
+import { DrawerProps } from 'antd/lib/drawer'
+import { styles } from '../../vars'
 
-export function Drawer(props: Record<string, any>): JSX.Element {
-    /* Extends Ant's Drawer component to add a class to the HTML body knowing when a drawer is open,
-    used to alter global stylying (e.g. move Papercups widget) */
-    const { visible } = props
-
-    useEffect(() => {
-        if (visible) {
-            document.body.classList.add('drawer-open')
-        } else {
-            document.body.classList.remove('drawer-open')
-        }
-    }, [visible])
-
-    return <AntDrawer {...props} />
+export function Drawer(props: PropsWithChildren<DrawerProps>): JSX.Element {
+    return <AntDrawer {...props} zIndex={styles.zDrawer} />
 }

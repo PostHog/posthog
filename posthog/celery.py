@@ -1,15 +1,17 @@
 import os
 import time
+from random import randrange
 
-import statsd
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+from sentry_sdk.api import capture_exception
 
-from posthog.ee import is_ee_enabled
 from posthog.redis import get_client
+from posthog.utils import is_clickhouse_enabled
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -30,54 +32,126 @@ app.autodiscover_tasks()
 app.conf.broker_pool_limit = 0
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
-ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
+ACTION_EVENT_MAPPING_INTERVAL_SECONDS = settings.ACTION_EVENT_MAPPING_INTERVAL_SECONDS
 
-if settings.STATSD_HOST is not None:
-    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+# How frequently do we want to calculate event property stats if async is enabled
+EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS
+
+# How frequently do we want to check if dashboard items need to be recalculated
+UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
 
 
 @app.on_after_configure.connect
-def setup_periodic_tasks(sender, **kwargs):
+def setup_periodic_tasks(sender: Celery, **kwargs):
     if not settings.DEBUG:
         sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
-
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
 
-    # update events table partitions twice a week
+    # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
-    if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
-
+    if getattr(settings, "MULTI_TENANCY", False) and not is_clickhouse_enabled():
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
 
-    # send weekly status report on non-PostHog Cloud instances
+    # Send weekly status report on self-hosted instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
-    # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
+    # Cloud (posthog-cloud) cron jobs
+    if getattr(settings, "MULTI_TENANCY", False):
+        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+
+    # Send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
     sender.add_periodic_task(crontab(day_of_week="mon", hour=15, minute=0), send_weekly_email_report.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    if not is_ee_enabled():
-        sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
-    else:
-        # ee enabled scheduled tasks
+    # delete old plugin logs every 4 hours
+    sender.add_periodic_task(crontab(minute=0, hour="*/4"), delete_old_plugin_logs.s())
+
+    # sync all Organization.available_features every hour
+    sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
+
+    sender.add_periodic_task(
+        UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
+    )
+
+    sender.add_periodic_task(
+        crontab(
+            hour=0, minute=randrange(0, 40)
+        ),  # every day at a random minute past midnight. Sends data from the preceding whole day.
+        send_org_usage_report.s(),
+        name="send event usage report",
+    )
+
+    if is_clickhouse_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
+        sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
 
-    sender.add_periodic_task(60, calculate_cohort.s(), name="recalculate cohorts")
-
-    if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
-            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
-            calculate_event_action_mappings.s(),
-            name="calculate event action mappings",
-            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+        )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
+        try:
+            from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON, MATERIALIZED_COLUMNS_ENABLED
+
+            if not MATERIALIZED_COLUMNS_ENABLED:
+                return
+
+            minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(
+                " "
+            )
+
+            sender.add_periodic_task(
+                crontab(
+                    minute=minute,
+                    hour=hour,
+                    day_of_month=day_of_month,
+                    month_of_year=month_of_year,
+                    day_of_week=day_of_week,
+                ),
+                clickhouse_materialize_columns.s(),
+                name="clickhouse materialize columns",
+            )
+
+            sender.add_periodic_task(
+                crontab(hour="*/4", minute=0),
+                clickhouse_mark_all_materialized.s(),
+                name="clickhouse mark all columns as materialized",
+            )
+        except Exception as err:
+            capture_exception(err)
+            print(f"Scheduling materialized column task failed: {err}")
+
+    sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
+
+    if settings.ASYNC_EVENT_PROPERTY_USAGE:
+        sender.add_periodic_task(
+            EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
+            calculate_event_property_usage.s(),
+            name="calculate event property usage",
         )
+
+
+# Set up clickhouse query instrumentation
+@task_prerun.connect
+def set_up_instrumentation(task_id, task, **kwargs):
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse import client
+
+        client._request_information = {"kind": "celery", "id": task.name}
+
+
+@task_postrun.connect
+def teardown_instrumentation(task_id, task, **kwargs):
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse import client
+
+        client._request_information = None
 
 
 @app.task(ignore_result=True)
@@ -85,45 +159,141 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "session_recording_events"]
+CLICKHOUSE_TABLES = [
+    "events",
+    "person",
+    "person_distinct_id",
+    "session_recording_events",
+]
+
+if settings.CLICKHOUSE_REPLICATION:
+    CLICKHOUSE_TABLES.extend(
+        ["sharded_events", "sharded_person", "sharded_person_distinct_id", "sharded_session_recording_events",]
+    )
 
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    if is_ee_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
+        from posthog.internal_metrics import gauge
 
         for table in CLICKHOUSE_TABLES:
-            QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-            query = QUERY.format(table=table)
-            lag = sync_execute(query)[0][2]
-            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-            g.send("clickhouse_{table}_table_lag_seconds".format(table=table), lag)
+            try:
+                QUERY = (
+                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
+                )
+                query = QUERY.format(table=table)
+                lag = sync_execute(query)[0][2]
+                gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
+            except:
+                pass
     else:
         pass
 
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    if is_ee_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
+        from posthog.internal_metrics import gauge
 
         for table in CLICKHOUSE_TABLES:
-            QUERY = """select count(1) freq from {table};"""
-            query = QUERY.format(table=table)
-            rows = sync_execute(query)[0][0]
-            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-            g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+            try:
+                QUERY = """select count(1) freq from {table};"""
+                query = QUERY.format(table=table)
+                rows = sync_execute(query)[0][0]
+                gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
+            except:
+                pass
     else:
         pass
 
 
 @app.task(ignore_result=True)
+def clickhouse_part_count():
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+        from posthog.internal_metrics import gauge
+
+        QUERY = """
+            select table, count(1) freq
+            from system.parts
+            group by table
+            order by freq desc;
+        """
+        rows = sync_execute(QUERY)
+        for (table, parts) in rows:
+            gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
+    else:
+        pass
+
+
+@app.task(ignore_result=True)
+def clickhouse_mutation_count():
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+        from posthog.internal_metrics import gauge
+
+        QUERY = """
+            SELECT
+                table,
+                count(1) AS freq
+            FROM system.mutations
+            WHERE is_done = 0
+            GROUP BY table
+            ORDER BY freq DESC
+        """
+        rows = sync_execute(QUERY)
+        for (table, muts) in rows:
+            gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
+    else:
+        pass
+
+
+@app.task(ignore_result=True)
+def clickhouse_materialize_columns():
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+
+        materialize_properties_task()
+
+
+@app.task(ignore_result=True)
+def clickhouse_mark_all_materialized():
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.tasks.materialized_columns import mark_all_materialized
+
+        mark_all_materialized()
+
+
+@app.task(ignore_result=True)
+def clickhouse_send_license_usage():
+    if is_clickhouse_enabled() and not settings.MULTI_TENANCY:
+        from ee.tasks.send_license_usage import send_license_usage
+
+        send_license_usage()
+
+
+@app.task(ignore_result=True)
+def send_org_usage_report():
+    if is_clickhouse_enabled():
+        from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
+
+        send_reports_clickhouse()
+    else:
+        from posthog.tasks.org_usage_report import send_all_org_usage_reports as send_reports_postgres
+
+        send_reports_postgres()
+
+
+@app.task(ignore_result=True)
 def redis_celery_queue_depth():
+    from posthog.internal_metrics import gauge
+
     try:
-        g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
         llen = get_client().llen("celery")
-        g.send("queue_depth", llen)
+        gauge(f"posthog_celery_queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.
         # not every installation will have statsd available
@@ -182,7 +352,7 @@ def check_cached_items():
 
 
 @app.task(ignore_result=True)
-def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
+def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)
@@ -206,3 +376,27 @@ def calculate_event_property_usage():
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
 
     calculate_event_property_usage()
+
+
+@app.task(ignore_result=True)
+def calculate_billing_daily_usage():
+    try:
+        from multi_tenancy.tasks import compute_daily_usage_for_organizations  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        compute_daily_usage_for_organizations()
+
+
+@app.task(ignore_result=True)
+def delete_old_plugin_logs():
+    from posthog.tasks.delete_old_plugin_logs import delete_old_plugin_logs
+
+    delete_old_plugin_logs()
+
+
+@app.task(ignore_result=True)
+def sync_all_organization_available_features():
+    from posthog.tasks.sync_all_organization_available_features import sync_all_organization_available_features
+
+    sync_all_organization_available_features()

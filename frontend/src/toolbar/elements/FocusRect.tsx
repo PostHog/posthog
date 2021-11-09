@@ -34,17 +34,17 @@ export function FocusRect({ rect }: { rect: DOMRect }): JSX.Element {
 
     return (
         <>
-            {rects.map((rect) => (
+            {rects.map((r) => (
                 <div
-                    key={rect.id}
+                    key={r.id}
                     style={{
                         position: 'absolute',
-                        top: rect.y,
-                        left: rect.x,
-                        width: rect.w,
-                        height: rect.h,
+                        top: r.y,
+                        left: r.x,
+                        width: r.w,
+                        height: r.h,
                         zIndex: 10,
-                        background: rect.bg,
+                        background: r.bg,
                         backgroundBlendMode: 'multiply',
                         transition: 'opacity 0.3s',
                     }}

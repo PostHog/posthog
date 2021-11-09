@@ -1,21 +1,30 @@
 import { kea } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { encodeParams } from 'kea-router'
-import { actionsLogicType } from 'types/toolbar/actions/actionsLogicType'
+import { actionsLogicType } from './actionsLogicType'
 import { ActionType } from '~/types'
+import Fuse from 'fuse.js'
+import { toolbarFetch } from '~/toolbar/utils'
 
-export const actionsLogic = kea<actionsLogicType<ActionType>>({
+export const actionsLogic = kea<actionsLogicType>({
+    path: ['toolbar', 'actions', 'actionsLogic'],
+    actions: {
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+    },
+    reducers: {
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+    },
     loaders: ({ values }) => ({
         allActions: [
             [] as ActionType[],
             {
                 // eslint-disable-next-line
                 getActions: async (_ = null, breakpoint: () => void) => {
-                    const params = {
-                        temporary_token: toolbarLogic.values.temporaryToken,
-                    }
-                    const url = `${toolbarLogic.values.apiURL}api/action/${encodeParams(params, '?')}`
-                    const response = await fetch(url)
+                    const response = await toolbarFetch('/api/projects/@current/actions/')
                     const results = await response.json()
 
                     if (response.status === 403) {
@@ -43,12 +52,21 @@ export const actionsLogic = kea<actionsLogicType<ActionType>>({
 
     selectors: {
         sortedActions: [
-            (s) => [s.allActions],
-            (allActions) =>
-                [...allActions].sort((a, b) =>
+            (s) => [s.allActions, s.searchTerm],
+            (allActions, searchTerm) => {
+                const filteredActions = searchTerm
+                    ? new Fuse(allActions, {
+                          threshold: 0.3,
+                          keys: ['name'],
+                      })
+                          .search(searchTerm)
+                          .map(({ item }) => item)
+                    : allActions
+                return [...filteredActions].sort((a, b) =>
                     (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
-                ) as ActionType[],
+                ) as ActionType[]
+            },
         ],
-        actionCount: [(s) => [s.sortedActions], (sortedActions) => sortedActions.length],
+        actionCount: [(s) => [s.allActions], (allActions) => allActions.length],
     },
 })

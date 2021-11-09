@@ -1,49 +1,86 @@
-FROM python:3.8-slim
+#
+# This Dockerfile is used for self-hosted development builds.
+#
+# Note: for 'posthog/posthog-cloud' remember to update 'dev.Dockerfile' as appropriate
+#
+FROM python:3.8-alpine3.14
+
 ENV PYTHONUNBUFFERED 1
-RUN mkdir /code
+ENV DEBUG 1
+
 WORKDIR /code
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl git \
-    && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g yarn@1 \
-    && yarn config set network-timeout 300000 \
-    && yarn --frozen-lockfile
+# Install OS dependencies needed to run PostHog
+#
+# Note: please add in this section runtime dependences only.
+# If you temporary need a package to build a Python or npm
+# dependency take a look at the sections below.
+RUN apk --update --no-cache add \
+    "bash~=5.1" \
+    "g++~=10.3" \
+    "gcc~=10.3" \
+    "libpq~=13.4" \
+    "libxml2-dev~=2.9" \
+    "libxslt~=1.1" \
+    "libxslt-dev~=1.1" \
+    "make~=4.3" \
+    "nodejs~=14" \
+    "npm~=7" \
+    && npm install -g yarn@1
 
-COPY requirements.txt /code/
-COPY requirements-dev.txt /code/
-# install dependencies but ignore any we don't need for dev environment
-RUN pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --compile\
-    && pip install psycopg2-binary
+# Compile and install Python dependencies.
+#
+# Notes:
+#
+# - we explicitly COPY the files so that we don't need to rebuild
+#   the container every time a dependency changes
+#
+# - we need few additional OS packages for this. Let's install
+#   and then uninstall them when the compilation is completed.
+COPY requirements.txt requirements-dev.txt ./
+RUN apk --update --no-cache --virtual .build-deps add \
+    "cargo~=1.52" \
+    "git~=2" \
+    "libffi-dev~=3.3" \
+    "linux-headers~=5.10" \
+    "musl-dev~=1.2" \
+    "openssl-dev~=1.1" \
+    "postgresql-dev~=13" \
+    && \
+    pip install -r requirements-dev.txt --compile --no-cache-dir && \
+    pip install -r requirements.txt --compile --no-cache-dir \
+    && \
+    apk del .build-deps
 
-# install dev dependencies
-RUN mkdir /code/requirements/
-COPY requirements-dev.txt /code/requirements/
-RUN pip install -r requirements-dev.txt --compile
+# Compile and install Yarn dependencies.
+#
+# Notes:
+#
+# - we explicitly COPY the files so that we don't need to rebuild
+#   the container every time a dependency changes
+#
+# - we need few additional OS packages for this. Let's install
+#   and then uninstall them when the compilation is completed.
+COPY package.json yarn.lock ./
+COPY plugins/package.json plugins/yarn.lock ./plugins/
+RUN apk --update --no-cache --virtual .build-deps add \
+    "gcc~=10.3" \
+    && \
+    yarn config set network-timeout 300000 && \
+    yarn install --frozen-lockfile && \
+    yarn install --frozen-lockfile --cwd plugins && \
+    yarn cache clean \
+    && \
+    apk del .build-deps
 
-COPY package.json /code/
-COPY yarn.lock /code/
-COPY webpack.config.js /code/
-COPY postcss.config.js /code/
-COPY babel.config.js /code/
-COPY tsconfig.json /code/
-COPY .kearc /code/
-COPY frontend/ /code/frontend
+# Copy everything else
+COPY . .
 
-RUN mkdir /code/plugins
-COPY plugins/package.json /code/plugins/
-COPY plugins/yarn.lock /code/plugins/
+# Generate Django's static files
+RUN mkdir -p frontend/dist && \
+    DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
-RUN mkdir /code/frontend/dist
-
-COPY . /code/
-
-RUN DEBUG=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
-
+# Expose container port and run entry point script
 EXPOSE 8000
 EXPOSE 8234
-RUN yarn install
-RUN cd plugins && yarn install
-ENV DEBUG 1
 CMD ["./bin/docker-dev"]

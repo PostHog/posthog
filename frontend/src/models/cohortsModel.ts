@@ -5,35 +5,65 @@ import { CohortType } from '~/types'
 
 const POLL_TIMEOUT = 5000
 
-export const cohortsModel = kea<cohortsModelType<CohortType>>({
+export const cohortsModel = kea<cohortsModelType>({
+    path: ['models', 'cohortsModel'],
     actions: () => ({
-        setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
+        setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
+        updateCohort: (cohort: CohortType) => ({ cohort }),
+        cohortCreated: (cohort: CohortType) => ({ cohort }),
     }),
 
     loaders: () => ({
         cohorts: {
             __default: [] as CohortType[],
             loadCohorts: async () => {
-                const response = await api.get('api/cohort')
+                const response = await api.cohorts.list()
                 return response.results
             },
         },
     }),
 
-    reducers: () => ({
+    reducers: {
         pollTimeout: [
-            null,
+            null as number | null,
             {
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
-    }),
+        cohorts: {
+            updateCohort: (state, { cohort }) => {
+                if (!cohort) {
+                    return state
+                }
+                return [...state].map((flag) => (flag.id === cohort.id ? cohort : flag))
+            },
+            cohortCreated: (state = [], { cohort }) => {
+                if (!cohort) {
+                    return state
+                }
+                return [cohort, ...state]
+            },
+            deleteCohort: (state, cohort) => {
+                if (!cohort) {
+                    return state
+                }
+                return [...state].filter((flag) => flag.id !== cohort.id)
+            },
+            deleteCohortSuccess: (state) => state,
+        },
+    },
+
+    selectors: {
+        cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts]],
+    },
 
     listeners: ({ actions }) => ({
-        loadCohortsSuccess: async ({ cohorts }) => {
+        loadCohortsSuccess: async ({ cohorts }: { cohorts: CohortType[] }) => {
             const is_calculating = cohorts.filter((cohort) => cohort.is_calculating).length > 0
-            if (!is_calculating) return
-            actions.setPollTimeout(setTimeout(actions.loadCohorts, POLL_TIMEOUT))
+            if (!is_calculating) {
+                return
+            }
+            actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
     }),
 

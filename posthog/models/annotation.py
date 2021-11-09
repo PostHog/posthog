@@ -16,7 +16,7 @@ class Annotation(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, null=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     dashboard_item: models.ForeignKey = models.ForeignKey(
-        "posthog.DashboardItem", on_delete=models.SET_NULL, null=True, blank=True
+        "posthog.Insight", on_delete=models.SET_NULL, null=True, blank=True
     )
     team: models.ForeignKey = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     organization: models.ForeignKey = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True)

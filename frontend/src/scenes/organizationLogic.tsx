@@ -1,10 +1,47 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { organizationLogicType } from 'types/scenes/organizationLogicType'
-import { OrganizationType } from '~/types'
+import { organizationLogicType } from './organizationLogicType'
+import { AvailableFeature, OrganizationType } from '~/types'
+import { toast } from 'react-toastify'
+import { userLogic } from './userLogic'
+import { getAppContext } from '../lib/utils/getAppContext'
+import { OrganizationMembershipLevel } from '../lib/constants'
 
-export const organizationLogic = kea<organizationLogicType<OrganizationType>>({
-    loaders: {
+export type OrganizationUpdatePayload = Partial<
+    Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
+>
+
+export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
+    path: ['scenes', 'organizationLogic'],
+    actions: {
+        deleteOrganization: (organization: OrganizationType) => ({ organization }),
+        deleteOrganizationSuccess: true,
+        deleteOrganizationFailure: true,
+    },
+    reducers: {
+        organizationBeingDeleted: [
+            null as OrganizationType | null,
+            {
+                deleteOrganization: (_, { organization }) => organization,
+                deleteOrganizationSuccess: () => null,
+                deleteOrganizationFailure: () => null,
+            },
+        ],
+    },
+    selectors: {
+        hasDashboardCollaboration: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) =>
+                currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
+        ],
+        isProjectCreationForbidden: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) =>
+                !currentOrganization?.membership_level ||
+                currentOrganization.membership_level < OrganizationMembershipLevel.Admin,
+        ],
+    },
+    loaders: ({ values }) => ({
         currentOrganization: [
             null as OrganizationType | null,
             {
@@ -16,15 +53,52 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType>>({
                     }
                 },
                 createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
+                updateOrganization: async (payload: OrganizationUpdatePayload) => {
+                    if (!values.currentOrganization) {
+                        throw new Error('Current organization has not been loaded yet.')
+                    }
+                    const updatedOrganization = await api.update(
+                        `api/organizations/${values.currentOrganization.id}`,
+                        payload
+                    )
+                    userLogic.actions.loadUser()
+                    return updatedOrganization
+                },
+                completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
             },
         ],
-    },
-    listeners: {
+    }),
+    listeners: ({ actions }) => ({
         createOrganizationSuccess: () => {
             window.location.href = '/organization/members'
         },
-    },
+        updateOrganizationSuccess: () => {
+            toast.success('Your configuration has been saved!')
+        },
+        deleteOrganization: async ({ organization }) => {
+            try {
+                await api.delete(`api/organizations/${organization.id}`)
+                location.reload()
+                actions.deleteOrganizationSuccess()
+            } catch {
+                actions.deleteOrganizationFailure()
+            }
+        },
+        deleteOrganizationSuccess: () => {
+            toast.success('Organization has been deleted')
+        },
+    }),
     events: ({ actions }) => ({
-        afterMount: [actions.loadCurrentOrganization],
+        afterMount: () => {
+            const appContext = getAppContext()
+            const contextualOrganization = appContext?.current_user?.organization
+            if (contextualOrganization) {
+                // If app context is available (it should be practically always) we can immediately know currentOrganization
+                actions.loadCurrentOrganizationSuccess(contextualOrganization)
+            } else {
+                // If app context is not available, a traditional request is needed
+                actions.loadCurrentOrganization()
+            }
+        },
     }),
 })

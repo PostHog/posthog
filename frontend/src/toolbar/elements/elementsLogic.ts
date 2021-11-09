@@ -5,27 +5,18 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
-import { ActionStepType, ActionType } from '~/types'
-import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
+import { elementsLogicType } from './elementsLogicType'
+import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { collectAllElementsDeep } from '@mariusandra/query-selector-shadow-dom'
+import { posthog } from '~/toolbar/posthog'
+import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
-export const elementsLogic = kea<
-    elementsLogicType<
-        ActionStepType,
-        ActionForm,
-        ActionType,
-        ElementWithMetadata,
-        ActionElementWithMetadata,
-        ActionElementMap,
-        ElementMap
-    >
->({
+export const elementsLogic = kea<elementsLogicType<ActionElementMap, ElementMap>>({
+    path: ['toolbar', 'elements', 'elementsLogic'],
     actions: {
         enableInspect: true,
         disableInspect: true,
@@ -134,7 +125,7 @@ export const elementsLogic = kea<
             (s) => [s.displayActionElements, actionsTabLogic.selectors.selectedEditedAction],
             (displayActionElements, selectedEditedAction): ElementWithMetadata[] => {
                 if (displayActionElements && selectedEditedAction?.steps) {
-                    const allElements = collectAllElementsDeep('', document, null)
+                    const allElements = collectAllElementsDeep('*', document)
                     const steps: ElementWithMetadata[] = []
                     selectedEditedAction.steps.forEach((step, index) => {
                         const element = getElementForStep(step, allElements)
@@ -187,7 +178,7 @@ export const elementsLogic = kea<
         actionsForElementMap: [
             (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
             (sortedActions): ActionElementMap => {
-                const allElements = collectAllElementsDeep('', document, null)
+                const allElements = collectAllElementsDeep('*', document)
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
                 sortedActions.forEach((action, index) => {
                     action.steps
@@ -211,13 +202,13 @@ export const elementsLogic = kea<
 
         elementsWithActions: [
             (s) => [s.actionsForElementMap],
-            (actionsForElementMap) => [...((actionsForElementMap.keys() as unknown) as HTMLElement[])],
+            (actionsForElementMap) => [...(actionsForElementMap.keys() as unknown as HTMLElement[])],
         ],
 
         actionsListElements: [
             (s) => [s.actionsForElementMap],
             (actionsForElementMap) =>
-                [...((actionsForElementMap.values() as unknown) as ActionElementWithMetadata[][])].map((a) => a[0]),
+                [...(actionsForElementMap.values() as unknown as ActionElementWithMetadata[][])].map((a) => a[0]),
         ],
 
         elementsToDisplayRaw: [
@@ -268,15 +259,15 @@ export const elementsLogic = kea<
         ],
 
         selectedElementMeta: [
-            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap],
-            (selectedElement, elementMap, actionsForElementMap) => {
+            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (selectedElement) {
                     const meta = elementMap.get(selectedElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(selectedElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -286,15 +277,15 @@ export const elementsLogic = kea<
         ],
 
         hoverElementMeta: [
-            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap],
-            (hoverElement, elementMap, actionsForElementMap) => {
+            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (hoverElement) {
                     const meta = elementMap.get(hoverElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(hoverElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -304,15 +295,15 @@ export const elementsLogic = kea<
         ],
 
         highlightElementMeta: [
-            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap],
-            (highlightElement, elementMap, actionsForElementMap) => {
+            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (highlightElement) {
                     const meta = elementMap.get(highlightElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(highlightElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -367,9 +358,13 @@ export const elementsLogic = kea<
         },
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         enableInspect: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
+        },
+        disableInspect: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: false })
         },
         selectElement: ({ element }) => {
             const inpsectForAction =
@@ -383,6 +378,38 @@ export const elementsLogic = kea<
             } else {
                 actions.setSelectedElement(element)
             }
+
+            const { inspectEnabled, heatmapEnabled, enabledLast, selectedElementMeta } = values
+            const { buttonActionsVisible: actionsEnabled } = actionsTabLogic.values
+
+            // Get list of data-* attributes in the element
+            const data_attributes = []
+            if (element?.attributes) {
+                for (let i = 0; i < element.attributes.length; i++) {
+                    const name = element.attributes.item(i)?.nodeName
+                    if (name && name.indexOf('data-') > -1) {
+                        data_attributes.push(name)
+                    }
+                }
+            }
+
+            posthog.capture('toolbar selected HTML element', {
+                element_tag: element?.tagName.toLowerCase(),
+                element_type: (element as HTMLInputElement)?.type,
+                has_href: !!(element as HTMLAnchorElement)?.href,
+                has_class: !!element?.className,
+                has_id: !!element?.id,
+                has_name: !!(element as HTMLInputElement)?.name,
+                has_data_attr: data_attributes.includes('data-attr'),
+                data_attributes: data_attributes,
+                attribute_length: element?.attributes.length,
+                inspect_enabled: inspectEnabled,
+                heatmap_enabled: heatmapEnabled,
+                actions_enabled: actionsEnabled,
+                enabled_last: enabledLast,
+                heatmap_count: heatmapEnabled ? selectedElementMeta?.count || 0 : undefined,
+                actions_count: actionsEnabled ? selectedElementMeta?.actions.length : undefined,
+            })
         },
         createAction: ({ element }) => {
             actionsTabLogic.actions.showButtonActions()

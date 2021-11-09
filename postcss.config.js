@@ -3,7 +3,9 @@
 
 const plugins = [require('autoprefixer')] // postCSS modules here
 
-if (process.env.NODE_ENV === 'production') plugins.push(require('cssnano'))
+if (process.env.NODE_ENV === 'production') {
+    plugins.push(require('cssnano'))
+}
 
 module.exports = {
     plugins,

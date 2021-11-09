@@ -1,0 +1,29 @@
+@import '~/vars';
+
+.insights-graph-header {
+    &.funnels {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding: 8px 24px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .funnel-canvas-label {
+        .ant-btn-link {
+            padding: 0;
+            &:disabled {
+                cursor: default;
+                color: $text_default;
+            }
+        }
+
+        .funnel-options-label {
+            padding: 4px;
+        }
+
+        .funnel-options-inputs {
+            align-items: center;
+            padding: 4px;
+        }
+    }
+}

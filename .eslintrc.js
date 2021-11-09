@@ -2,6 +2,7 @@
 /* global module */
 
 module.exports = {
+    ignorePatterns: ['node_modules', 'plugin-server'],
     env: {
         browser: true,
         es6: true,
@@ -12,7 +13,7 @@ module.exports = {
             version: 'detect',
         },
     },
-    extends: ['plugin:@typescript-eslint/recommended', 'plugin:react/recommended', 'prettier/@typescript-eslint'],
+    extends: ['plugin:@typescript-eslint/recommended', 'plugin:react/recommended', 'prettier'],
     globals: {
         Atomics: 'readonly',
         SharedArrayBuffer: 'readonly',
@@ -42,6 +43,10 @@ module.exports = {
         '@typescript-eslint/explicit-module-boundary-types': 'off',
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-inferrable-types': 'off',
+        '@typescript-eslint/ban-ts-comment': 'off',
+        'no-shadow': 'error',
+        '@typescript-eslint/no-non-null-assertion': 'error',
+        curly: 'error',
     },
     overrides: [
         {
@@ -74,7 +79,7 @@ module.exports = {
         {
             files: ['*.js'],
             rules: {
-                'typescript/no-var-requires': 'off',
+                '@typescript-eslint/no-var-requires': 'off',
             },
         },
     ],

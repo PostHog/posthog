@@ -1,19 +1,11 @@
-import json
-import urllib
-from typing import Dict
-
 from django.conf import settings
-from django.test import Client, TestCase
 from rest_framework import status
 
-from posthog.api.test.base import BaseTest
-from posthog.models import Team, User
+from posthog.test.base import APIBaseTest
 
 
-class TestSignup(TestCase):
-    def setUp(self):
-        super().setUp()
-        self.client = Client()
+class TestAccessMiddleware(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
 
     def test_ip_range(self):
         """
@@ -94,9 +86,8 @@ class TestSignup(TestCase):
                 self.assertNotIn(b"IP is not allowed", response.content)
 
 
-class TestToolbarCookieMiddleware(BaseTest):
-    TESTS_API = True
-    TESTS_FORCE_LOGIN = False
+class TestToolbarCookieMiddleware(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
 
     def test_logged_out_client(self):
         response = self.client.get("/")

@@ -1,7 +1,7 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function NodeInstallSnippet(): JSX.Element {
     return (
@@ -14,13 +14,14 @@ yarn add posthog-node`}
 }
 
 function NodeSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`import PostHog from 'posthog-node'
 
 const client = new PostHog(
-    '${user?.team?.api_token}',
+    '${currentTeam?.api_token}',
     { host: '${window.location.origin}' }
 )`}
         </CodeSnippet>

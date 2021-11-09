@@ -1,53 +1,123 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
-import { Spin } from 'antd'
-import moment from 'moment'
-import { EventType } from '~/types'
+import { Button, Spin } from 'antd'
+import dayjs from 'dayjs'
+import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
+import { tagColors } from 'lib/colors'
+import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { WEBHOOK_SERVICES } from 'lib/constants'
+import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
+import { AlignType } from 'rc-trigger/lib/interface'
+import { DashboardEventSource } from './utils/eventUsageLogic'
+import { helpButtonLogic } from './components/HelpButton/HelpButton'
 
-const SI_PREFIXES: { value: number; symbol: string }[] = [
-    { value: 1e18, symbol: 'E' },
-    { value: 1e15, symbol: 'P' },
-    { value: 1e12, symbol: 'T' },
-    { value: 1e9, symbol: 'G' },
-    { value: 1e6, symbol: 'M' },
-    { value: 1e3, symbol: 'k' },
-    { value: 1, symbol: '' },
-]
-const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
+export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
+    // `@yiminghe/dom-align` objects
+    // https://github.com/react-component/select/blob/dade915d81069b8d3b3b5679bb9daee7e992faba/src/SelectTrigger.jsx#L11-L28
+    bottomLeft: {
+        points: ['tl', 'bl'],
+        offset: [0, 4],
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
+    bottomRight: {
+        points: ['tr', 'br'],
+        offset: [0, 4],
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
+    topLeft: {
+        points: ['bl', 'tl'],
+        offset: [0, -4],
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
+    horizontalPreferRight: {
+        points: ['cl', 'cr'],
+        offset: [4, 0],
+        overflow: {
+            adjustX: true,
+            adjustY: false,
+        },
+    },
+}
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
-        (parseInt(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (parseInt(c) / 4)))).toString(16)
+        (
+            parseInt(c) ^
+            ((typeof window?.crypto !== 'undefined' // in node tests, jsdom doesn't implement window.crypto
+                ? window.crypto.getRandomValues(new Uint8Array(1))[0]
+                : Math.floor(Math.random() * 256)) &
+                (15 >> (parseInt(c) / 4)))
+        ).toString(16)
     )
 }
 
-export function toParams(obj: Record<string, any>): string {
+export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
+    return (
+        !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
+    )
+}
+
+export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
+    if (!obj) {
+        return ''
+    }
+
     function handleVal(val: any): string {
-        if (val._isAMomentObject) return encodeURIComponent(val.format('YYYY-MM-DD'))
+        if (dayjs.isDayjs(val)) {
+            return encodeURIComponent(val.format('YYYY-MM-DD'))
+        }
         val = typeof val === 'object' ? JSON.stringify(val) : val
         return encodeURIComponent(val)
     }
+
     return Object.entries(obj)
         .filter((item) => item[1] != undefined && item[1] != null)
+        .reduce((acc, [key, val]) => {
+            /**
+             *  query parameter arrays can be handled in two ways
+             *  either they are encoded as a single query parameter
+             *    a=[1, 2] => a=%5B1%2C2%5D
+             *  or they are "exploded" so each item in the array is sent separately
+             *    a=[1, 2] => a=1&a=2
+             **/
+            if (explodeArrays && Array.isArray(val)) {
+                val.forEach((v) => acc.push([key, v]))
+            } else {
+                acc.push([key, val])
+            }
+
+            return acc
+        }, [] as [string, any][])
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
 
-export function fromParams(): Record<string, any> {
-    return window.location.search === ''
+export function fromParamsGivenUrl(url: string): Record<string, any> {
+    return !url
         ? {}
-        : window.location.search
+        : url
               .slice(1)
               .split('&')
-              .reduce((a, b) => {
-                  b = b.split('=')
-                  a[b[0]] = decodeURIComponent(b[1])
-                  return a
-              }, {})
+              .reduce((paramsObject, paramString) => {
+                  const [key, value] = paramString.split('=')
+                  paramsObject[key] = decodeURIComponent(value)
+                  return paramsObject
+              }, {} as Record<string, any>)
 }
 
-export const colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
+export function fromParams(): Record<string, any> {
+    return fromParamsGivenUrl(window.location.search)
+}
 
 export function percentage(division: number): string {
     return division
@@ -56,6 +126,100 @@ export function percentage(division: number): string {
               maximumFractionDigits: 2,
           })
         : ''
+}
+
+export function editingToast(
+    item: string,
+    setItemMode:
+        | ((mode: DashboardMode | null, source: DashboardEventSource) => void)
+        | ((mode: ItemMode | null, source: DashboardEventSource) => void)
+): any {
+    return toast(
+        <>
+            <h1>{item} edit mode</h1>
+            <p>Tap below when finished.</p>
+            <div className="text-right">
+                <Button>Finish editing</Button>
+            </div>
+        </>,
+        {
+            type: 'info',
+            autoClose: false,
+            onClick: () => setItemMode(null, DashboardEventSource.Toast),
+            closeButton: false,
+            className: 'drag-items-toast accent-border',
+        }
+    )
+}
+
+export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {
+    /**
+     * Shows a standardized error toast when something goes wrong. Automated for any loader usage.
+     * @param title Title message of the toast
+     * @param message Body message on the toast
+     * @param errorDetail Error response returned from the server, or any other more specific error detail.
+     * @param errorCode Error code from the server that can help track the error.
+     */
+
+    const handleHelp = (): void => {
+        if (helpButtonLogic.isMounted()) {
+            helpButtonLogic.actions.showHelp()
+        } else {
+            window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
+        }
+    }
+
+    toast.dismiss('error') // This will ensure only the last error is shown
+
+    setTimeout(
+        () =>
+            toast.error(
+                <div>
+                    <h1>
+                        <ExclamationCircleOutlined /> {title || 'Something went wrong'}
+                    </h1>
+                    <p>
+                        {message || 'We could not complete your action. Detailed error:'}{' '}
+                        <span className="error-details">{errorDetail || 'Unknown exception.'}</span>
+                    </p>
+                    <p className="mt-05">
+                        Please <b>try again or contact us</b> if the error persists.
+                    </p>
+                    <div className="action-bar">
+                        {errorCode && <span>Code: {errorCode}</span>}
+                        <span className="help-button">
+                            <Button type="link" onClick={handleHelp}>
+                                <CustomerServiceOutlined /> Need help?
+                            </Button>
+                        </span>
+                    </div>
+                </div>,
+                {
+                    toastId: 'error', // will ensure only one error is displayed at a time
+                }
+            ),
+        100
+    )
+}
+
+export function successToast(title?: string, message?: string): void {
+    /**
+     * Shows a standardized success message.
+     * @param title Title message of the toast
+     * @param message Body message on the toast
+     */
+    setTimeout(
+        () =>
+            toast.success(
+                <div data-attr="success-toast">
+                    <h1>
+                        <ExclamationCircleOutlined /> {title || 'Success!'}
+                    </h1>
+                    <p>{message || 'Your action was completed successfully.'}</p>
+                </div>
+            ),
+        100
+    )
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -91,7 +255,7 @@ export function SceneLoading(): JSX.Element {
 }
 
 export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
-    api.update('api/' + props.endpoint + '/' + props.object.id, {
+    api.update(`api/${props.endpoint}/${props.object.id}`, {
         ...props.object,
         deleted: !undo,
     }).then(() => {
@@ -115,11 +279,12 @@ export function DeleteWithUndo(
     props: PropsWithChildren<{
         endpoint: string
         object: {
-            name: string
+            name?: string
             id: number
         }
         className: string
         style: CSSProperties
+        callback: () => void
     }>
 ): JSX.Element {
     const { className, style, children } = props
@@ -167,21 +332,6 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
     }),
 }
 
-export function debounce(func: (...args: any) => void, wait: number, immediate: boolean, ...args: any): () => void {
-    let timeout: NodeJS.Timeout | undefined
-    return function () {
-        const context = this // eslint-disable-line
-        function later(): void {
-            timeout = undefined
-            if (!immediate) func.apply(context, args)
-        }
-        const callNow = immediate && !timeout
-        clearTimeout(timeout)
-        timeout = setTimeout(later, wait)
-        if (callNow) func.apply(context, args)
-    }
-}
-
 export function capitalizeFirstLetter(string: string): string {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
@@ -199,15 +349,23 @@ export const operatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export function isOperatorMulti(operator: string): boolean {
+    return ['exact', 'is_not'].includes(operator)
+}
+
 export function isOperatorFlag(operator: string): boolean {
     // these filter operators can only be just set, no additional parameter
     return ['is_set', 'is_not_set'].includes(operator)
 }
 
+export function isOperatorRegex(operator: string): boolean {
+    return ['regex', 'not_regex'].includes(operator)
+}
+
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
-    keyMapping: Record<string, Record<string, any>>
+    keyMapping: KeyMappingInterface
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
@@ -215,7 +373,9 @@ export function formatPropertyLabel(
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${operatorMap[operator]}`
-                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : value || ''
+                    } `)
 }
 
 export function formatProperty(property: Record<string, any>): string {
@@ -223,38 +383,45 @@ export function formatProperty(property: Record<string, any>): string {
 }
 
 // Format a label that gets returned from the /insights api
-export function formatLabel(label: string, action: Record<string, any>): string {
-    const math = 'Total'
-    if (action.math === 'dau') label += ` (${action.math.toUpperCase()}) `
-    else label += ` (${math}) `
-    if (action?.properties?.length) {
+export function formatLabel(label: string, action: ActionFilter): string {
+    if (action.math === 'dau') {
+        label += ` (Unique users) `
+    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
+        label += ` (${action.math} of ${action.math_property}) `
+    }
+    if (action.properties?.length) {
         label += ` (${action.properties
-            .map((property) => operatorMap[property.operator || 'exact'].split(' ')[0] + ' ' + property.value)
+            .map(
+                (property) =>
+                    `${property.key ? `${property.key} ` : ''}${
+                        operatorMap[property.operator || 'exact'].split(' ')[0]
+                    } ${property.value}`
+            )
             .join(', ')})`
     }
-    return label
-}
-
-export function deletePersonData(person: Record<string, any>, callback: () => void): void {
-    if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
-        api.delete('api/person/' + person.id).then(() => {
-            toast('Person succesfully deleted.')
-            if (callback) callback()
-        })
-    }
-}
-
-export function savePersonData(person: Record<string, any>): void {
-    api.update('api/person/' + person.id, person).then(() => {
-        toast('Person Updated')
-    })
+    return label.trim()
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
 }
 
-export function idToKey(array: Record<string, any>[], keyField: string = 'id'): any {
+/** Returns "response" from: obj2 = { ...obj1, ...response }  */
+export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
+    const response: Record<string, any> = { ...obj2 }
+    for (const key of Object.keys(obj1)) {
+        if (key in response) {
+            if (obj1[key] === response[key]) {
+                delete response[key]
+            }
+        } else {
+            response[key] = undefined
+        }
+    }
+    return response
+}
+
+export function idToKey(array: Record<string, any>[], keyField: string = 'id'): Record<string, any> {
     const object: Record<string, any> = {}
     for (const element of array) {
         object[element[keyField]] = element
@@ -283,8 +450,8 @@ export function triggerResize(): void {
  * change when the sidebar's expansion is animating.
  */
 export function triggerResizeAfterADelay(): void {
-    for (const delay of [10, 100, 500, 750, 1000, 2000]) {
-        window.setTimeout(triggerResize, delay)
+    for (const duration of [10, 100, 500, 750, 1000, 2000]) {
+        window.setTimeout(triggerResize, duration)
     }
 }
 
@@ -320,39 +487,110 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-export function humanFriendlyDuration(d: string | number): string {
+// Number to number with commas (e.g. 1234 -> 1,234)
+export function humanFriendlyNumber(d: number): string {
+    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
+    // Convert `d` (seconds) to a human-readable duration string.
+    // Example: `1d 10hrs 9mins 8s`
+    if (d === '' || d === null || d === undefined) {
+        return ''
+    }
     d = Number(d)
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    const s = Math.floor((d % 3600) % 60)
+    const s = Math.round((d % 3600) % 60)
 
-    const dayDisplay = days > 0 ? days + 'd ' : ''
-    const hDisplay = h > 0 ? h + (h == 1 ? 'hr ' : 'hrs ') : ''
-    const mDisplay = m > 0 ? m + (m == 1 ? 'min ' : 'mins ') : ''
+    const dayDisplay = days > 0 ? days + 'd' : ''
+    const hDisplay = h > 0 ? h + 'h' : ''
+    const mDisplay = m > 0 ? m + 'min' : ''
     const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
-    return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
+
+    let units: string[] = []
+    if (days > 0) {
+        units = [dayDisplay, hDisplay].filter(Boolean)
+    } else {
+        units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
+    }
+    return units.slice(0, maxUnits).join(' ')
 }
 
-export function humanFriendlyDiff(from: moment.MomentInput, to: moment.MomentInput): string {
-    const diff = moment(to).diff(moment(from), 'seconds')
+export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
+    const diff = dayjs(to).diff(dayjs(from), 'seconds')
     return humanFriendlyDuration(diff)
 }
 
-export function humanFriendlyDetailedTime(date: moment.MomentInput | null, withSeconds: boolean = false): string {
-    if (!date) return 'Never'
+export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, withSeconds: boolean = false): string {
+    if (!date) {
+        return 'Never'
+    }
+    const parsedDate = dayjs(date)
     let formatString = 'MMMM Do YYYY h:mm'
-    const today = moment().startOf('day')
+    const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
-    if (moment(date).isSame(moment(), 'm')) return 'Just now'
-    if (moment(date).isSame(today, 'd')) {
+    if (parsedDate.isSame(dayjs(), 'm')) {
+        return 'Just now'
+    }
+    if (parsedDate.isSame(today, 'd')) {
         formatString = '[Today] h:mm'
-    } else if (moment(date).isSame(yesterday, 'd')) {
+    } else if (parsedDate.isSame(yesterday, 'd')) {
         formatString = '[Yesterday] h:mm'
     }
-    if (withSeconds) formatString += ':ss a'
-    else formatString += ' a'
-    return moment(date).format(formatString)
+    if (withSeconds) {
+        formatString += ':ss A'
+    } else {
+        formatString += ' A'
+    }
+    return parsedDate.format(formatString)
+}
+
+// Pad numbers with leading zeros
+export const zeroPad = (num: number, places: number): string => String(num).padStart(places, '0')
+
+export function colonDelimitedDuration(d: string | number | null | undefined, numUnits: number = 3): string {
+    // Convert `d` (seconds) to a colon delimited duration. includes `numUnits` no. of units starting from right
+    // Example: `01:10:09:08 = 1d 10hrs 9mins 8s`
+    if (d === '' || d === null || d === undefined) {
+        return ''
+    }
+    d = Number(d)
+
+    let s = d
+    let weeks = 0,
+        days = 0,
+        h = 0,
+        m = 0
+
+    if (numUnits >= 5) {
+        weeks = Math.floor(s / 604800)
+        s -= weeks * 604800
+    }
+    if (numUnits >= 4) {
+        days = Math.floor(s / 86400)
+        s -= days * 86400
+    }
+    if (numUnits >= 3) {
+        h = Math.floor(s / 3600)
+        s -= h * 3600
+    }
+    if (numUnits >= 2) {
+        m = Math.floor(s / 60)
+        s -= m * 60
+    }
+    s = Math.round(s)
+
+    const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
+
+    // get the last `numUnits` elements
+    return units.slice(0).slice(-Math.min(numUnits, 5)).join(':')
+}
+
+export function colonDelimitedDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string, maxUnits?: number): string {
+    const diff = dayjs(to).diff(dayjs(from), 'seconds')
+    return colonDelimitedDuration(diff, maxUnits)
 }
 
 export function stripHTTP(url: string): string {
@@ -361,26 +599,40 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isURL(string: string): boolean {
-    if (!string) return false
+export function isURL(input: any): boolean {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
-    const regexp = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
-    return !!string.match?.(regexp)
+    const regexp =
+        /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
+    return !!input.match?.(regexp)
 }
 
 export function isEmail(string: string): boolean {
-    if (!string) return false
+    if (!string) {
+        return false
+    }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
-    const regexp = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+    const regexp =
+        /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
-export function eventToName(event: EventType): string {
-    if (event.event !== '$autocapture') return event.event
+export function eventToName(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
+    if (event.event !== '$autocapture') {
+        return event.event
+    }
     let name = ''
-    if (event.properties.$event_type === 'click') name += 'clicked '
-    if (event.properties.$event_type === 'change') name += 'typed something into '
-    if (event.properties.$event_type === 'submit') name += 'submitted '
+    if (event.properties.$event_type === 'click') {
+        name += 'clicked '
+    }
+    if (event.properties.$event_type === 'change') {
+        name += 'typed something into '
+    }
+    if (event.properties.$event_type === 'submit') {
+        name += 'submitted '
+    }
 
     if (event.elements.length > 0) {
         if (event.elements[0].tag_name === 'a') {
@@ -390,70 +642,106 @@ export function eventToName(event: EventType): string {
         } else {
             name += event.elements[0].tag_name
         }
-        if (event.elements[0].text) name += ' with text "' + event.elements[0].text + '"'
+        if (event.elements[0].text) {
+            name += ' with text "' + event.elements[0].text + '"'
+        } else if (event.elements[0].attributes['attr__aria-label']) {
+            name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
+        }
     }
     return name
 }
 
 export function determineDifferenceType(
-    firstDate: moment.MomentInput,
-    secondDate: moment.MomentInput
+    firstDate: dayjs.Dayjs | string,
+    secondDate: dayjs.Dayjs | string
 ): 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second' {
-    const first = moment(firstDate)
-    const second = moment(secondDate)
-    if (first.diff(second, 'years') !== 0) return 'year'
-    else if (first.diff(second, 'months') !== 0) return 'month'
-    else if (first.diff(second, 'weeks') !== 0) return 'week'
-    else if (first.diff(second, 'days') !== 0) return 'day'
-    else if (first.diff(second, 'hours') !== 0) return 'hour'
-    else return 'minute'
+    const first = dayjs(firstDate)
+    const second = dayjs(secondDate)
+    if (first.diff(second, 'years') !== 0) {
+        return 'year'
+    } else if (first.diff(second, 'months') !== 0) {
+        return 'month'
+    } else if (first.diff(second, 'weeks') !== 0) {
+        return 'week'
+    } else if (first.diff(second, 'days') !== 0) {
+        return 'day'
+    } else if (first.diff(second, 'hours') !== 0) {
+        return 'hour'
+    } else {
+        return 'minute'
+    }
 }
 
-export const dateMapping: Record<string, string[]> = {
-    Today: ['dStart'],
-    Yesterday: ['-1d', 'dStart'],
-    'Last 24 hours': ['-24h'],
-    'Last 48 hours': ['-48h'],
-    'Last 7 days': ['-7d'],
-    'Last 14 days': ['-14d'],
-    'Last 30 days': ['-30d'],
-    'Last 90 days': ['-90d'],
-    'This month': ['mStart'],
-    'Previous month': ['-1mStart', '-1mEnd'],
-    'Year to date': ['yStart'],
-    'All time': ['all'],
+interface dateMappingOption {
+    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
+    values: string[]
+}
+
+export const dateMapping: Record<string, dateMappingOption> = {
+    Custom: { values: [] },
+    Today: { values: ['dStart'] },
+    Yesterday: { values: ['-1d', 'dStart'] },
+    'Last 24 hours': { values: ['-24h'] },
+    'Last 48 hours': { values: ['-48h'], inactive: true },
+    'Last 7 days': { values: ['-7d'] },
+    'Last 14 days': { values: ['-14d'] },
+    'Last 30 days': { values: ['-30d'] },
+    'Last 90 days': { values: ['-90d'] },
+    'This month': { values: ['mStart'], inactive: true },
+    'Previous month': { values: ['-1mStart', '-1mEnd'], inactive: true },
+    'Year to date': { values: ['yStart'] },
+    'All time': { values: ['all'] },
 }
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: string | moment.Moment): string {
-    if (moment.isMoment(dateFrom) && moment.isMoment(dateTo))
+export function dateFilterToText(
+    dateFrom: string | dayjs.Dayjs | null | undefined,
+    dateTo: string | dayjs.Dayjs | null | undefined,
+    defaultValue: string
+): string {
+    if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
-    dateFrom = dateFrom as string
-    dateTo = dateTo as string
-    if (isDate.test(dateFrom) && isDate.test(dateTo)) return `${dateFrom} - ${dateTo}`
-    if (dateFrom === 'dStart') return 'Today' // Changed to "last 24 hours" but this is backwards compatibility
-    let name = 'Last 7 days'
-    Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === dateFrom && value[1] === dateTo) name = key
+    }
+    dateFrom = (dateFrom || undefined) as string | undefined
+    dateTo = (dateTo || undefined) as string | undefined
+
+    if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
+        return `${dateFrom} - ${dateTo}`
+    }
+
+    if (dateFrom === 'dStart') {
+        // Changed to "last 24 hours" but this is backwards compatibility
+        return 'Today'
+    }
+
+    if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
+        const days = dayjs().diff(dayjs(dateFrom), 'days')
+        if (days > 366) {
+            return `${dateFrom} - Today`
+        } else if (days > 0) {
+            return `Last ${days} days`
+        } else if (days === 0) {
+            return `Today`
+        } else {
+            return `Starting from ${dateFrom}`
+        }
+    }
+
+    let name = defaultValue
+    Object.entries(dateMapping).map(([key, { values }]) => {
+        if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
+            name = key
+        }
     })[0]
     return name
 }
 
-export function humanizeNumber(number: number, digits: number = 1): string {
-    if (number === null) return '-'
-    // adapted from https://stackoverflow.com/a/9462382/624476
-    let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
-    for (const currentPrefix of SI_PREFIXES) {
-        if (number >= currentPrefix.value) {
-            matchingPrefix = currentPrefix
-            break
-        }
-    }
-    return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
-}
-
 export function copyToClipboard(value: string, description?: string): boolean {
+    if (!navigator.clipboard) {
+        toast.info('Oops! Clipboard capabilities are only available over HTTPS or localhost.')
+        return false
+    }
     const descriptionAdjusted = description
         ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
         : ''
@@ -492,7 +780,9 @@ export function groupBy<T>(items: T[], groupResolver: (item: T) => string | numb
     const itemsGrouped: Record<string | number, T[]> = {}
     for (const item of items) {
         const group = groupResolver(item)
-        if (!(group in itemsGrouped)) itemsGrouped[group] = [] // Ensure there's an array to push to
+        if (!(group in itemsGrouped)) {
+            itemsGrouped[group] = []
+        } // Ensure there's an array to push to
         itemsGrouped[group].push(item)
     }
     return itemsGrouped
@@ -512,10 +802,17 @@ export function uniqueBy<T>(items: T[], uniqueResolver: (item: T) => any): T[] {
 }
 
 export function sample<T>(items: T[], size: number): T[] {
-    if (size > items.length) throw Error('Sample size cannot exceed items array length!')
+    if (!items.length) {
+        throw Error('Items array is empty!')
+    }
+    if (size > items.length) {
+        throw Error('Sample size cannot exceed items array length!')
+    }
     const results: T[] = []
     const internalItems = [...items]
-    if (size === items.length) return internalItems
+    if (size === items.length) {
+        return internalItems
+    }
     for (let i = 0; i < size; i++) {
         const index = Math.floor(Math.random() * internalItems.length)
         results.push(internalItems[index])
@@ -524,22 +821,43 @@ export function sample<T>(items: T[], size: number): T[] {
     return results
 }
 
-export function sampleSingle<T>(items: T[]): T[] {
-    if (!items.length) throw Error('Items array is empty!')
-    return [items[Math.floor(Math.random() * items.length)]]
+export function sampleOne<T>(items: T[]): T {
+    if (!items.length) {
+        throw Error('Items array is empty!')
+    }
+    return items[Math.floor(Math.random() * items.length)]
 }
 
-export function identifierToHuman(input: string, capitalize: boolean = true): string | null {
-    /* Converts a camelCase, PascalCase or snake_case string to a human-friendly string.
-    (e.g. `feature_flags` or `featureFlags` becomes "Feature Flags") */
-    const match = input.match(/[A-Za-z][a-z]*/g)
-    if (!match) return null
-
-    return match
-        .map((group) => {
-            return capitalize ? group[0].toUpperCase() + group.substr(1).toLowerCase() : group.toLowerCase()
+/** Convert camelCase, PascalCase or snake_case to Sentence case. */
+export function identifierToHuman(identifier: string | number): string {
+    const words: string[] = []
+    let currentWord: string = ''
+    String(identifier)
+        .trim()
+        .split('')
+        .forEach((character) => {
+            if (character === '_' || character === '-') {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = ''
+            } else if (
+                character === character.toLowerCase() &&
+                (!'0123456789'.includes(character) ||
+                    (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
+            ) {
+                currentWord += character
+            } else {
+                if (currentWord) {
+                    words.push(currentWord)
+                }
+                currentWord = character.toLowerCase()
+            }
         })
-        .join(' ')
+    if (currentWord) {
+        words.push(currentWord)
+    }
+    return capitalizeFirstLetter(words.join(' '))
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
@@ -558,18 +876,264 @@ export function someParentMatchesSelector(element: HTMLElement, selector: string
     return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
 }
 
-/** Convert camelCase to Title Case. Useful for generating page title from internal scene name. */
-export function camelCaseToTitle(camelCase: string): string {
-    const words: string[] = []
-    let currentWord: string = ''
-    for (const character of camelCase.trim()) {
-        if (character == character.toLowerCase() && character != character.toUpperCase()) {
-            currentWord += character
-        } else {
-            words.push(currentWord)
-            currentWord = character.toLowerCase()
+export function hashCodeForString(s: string): number {
+    /* Hash function that returns a number for a given string. Useful for using the same colors for tags or avatars.
+    Forked from https://github.com/segmentio/evergreen/
+    */
+    let hash = 0
+    if (s.trim().length === 0) {
+        return hash
+    }
+    for (let i = 0; i < s.length; i++) {
+        const char = s.charCodeAt(i)
+        hash = (hash << 5) - hash + char
+        hash &= hash // Convert to 32bit integer
+    }
+    return Math.abs(hash)
+}
+
+export function colorForString(s: string): string {
+    /*
+    Returns a color name for a given string, where the color will always be the same for the same string.
+    */
+    return tagColors[hashCodeForString(s) % tagColors.length]
+}
+
+export function midEllipsis(input: string, maxLength: number): string {
+    /* Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output string
+     excluding the ... */
+    if (input.length <= maxLength) {
+        return input
+    }
+
+    const middle = Math.ceil(input.length / 2)
+    const excess = Math.ceil((input.length - maxLength) / 2)
+    return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
+}
+
+export const disableMinuteFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': true,
+    '-14d': true,
+    '-30d': true,
+    '-90d': true,
+    mStart: true,
+    '-1mStart': true,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export const disableHourFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export function autocorrectInterval(filters: Partial<FilterType>): IntervalType {
+    if (!filters.interval) {
+        return 'day'
+    } // undefined/uninitialized
+
+    const minute_disabled = disableMinuteFor[filters.date_from || 'other'] && filters.interval === 'minute'
+    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return filters.interval
+    }
+}
+
+export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
+    if (!plural) {
+        plural = singular + 's'
+    }
+    const form = count === 1 ? singular : plural
+    return includeNumber ? `${count} ${form}` : form
+}
+
+/** Return a number in a compact format, with a SI suffix if applicable.
+ *  Server-side equivalent: utils.py#compact_number.
+ */
+export function compactNumber(value: number | null): string {
+    if (value === null) {
+        return '-'
+    }
+
+    value = parseFloat(value.toPrecision(3))
+    let magnitude = 0
+    while (Math.abs(value) >= 1000) {
+        magnitude++
+        value /= 1000
+    }
+    return value.toString() + ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y'][magnitude]
+}
+
+export function sortedKeys(object: Record<string, any>): Record<string, any> {
+    const newObject: Record<string, any> = {}
+    for (const key of Object.keys(object).sort()) {
+        newObject[key] = object[key]
+    }
+    return newObject
+}
+
+export const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+
+export function endWithPunctation(text?: string | null): string {
+    let trimmedText = text?.trim()
+    if (!trimmedText) {
+        return ''
+    }
+    if (!/[.!?]$/.test(trimmedText)) {
+        trimmedText += '.'
+    }
+    return trimmedText
+}
+
+export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+    /**
+     * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+     * @param timeZone E.g. 'America/New_York'
+     * @param atDate
+     */
+    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    return localeTimeString.split(' ')[2]
+}
+
+export function humanTzOffset(timezone?: string): string {
+    const offset = dayjs().tz(timezone).utcOffset() / 60
+    if (!offset) {
+        return 'no offset'
+    }
+    const absoluteOffset = Math.abs(offset)
+    const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
+    const direction = offset > 0 ? 'ahead' : 'behind'
+    return `${absoluteOffset} ${hourForm} ${direction}`
+}
+
+export function resolveWebhookService(webhookUrl: string): string {
+    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
+        if (webhookUrl.includes(domain + '/')) {
+            return service
         }
     }
-    if (currentWord) words.push(currentWord)
-    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
+    return 'your webhook service'
+}
+
+export function maybeAddCommasToInteger(value: any): any {
+    const isNumber = !isNaN(value)
+    if (!isNumber) {
+        return value
+    }
+    const internationalNumberFormat = new Intl.NumberFormat('en-US')
+    return internationalNumberFormat.format(value)
+}
+
+function hexToRGB(hex: string): { r: number; g: number; b: number } {
+    const originalString = hex.trim()
+    const hasPoundSign = originalString[0] === '#'
+    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
+
+    if (originalColor.length !== 6) {
+        console.warn(`Incorrectly formatted color string: ${hex}.`)
+        return { r: 0, g: 0, b: 0 }
+    }
+
+    const originalBase16 = parseInt(originalColor, 16)
+    const r = originalBase16 >> 16
+    const g = (originalBase16 >> 8) & 0x00ff
+    const b = originalBase16 & 0x0000ff
+    return { r, g, b }
+}
+
+export function hexToRGBA(hex: string, alpha = 1): string {
+    /**
+     * Returns an RGBA string with specified alpha if the hex string is valid.
+     * @param hex e.g. '#FF0000'
+     * @param alpha e.g. 0.5
+     */
+
+    const { r, g, b } = hexToRGB(hex)
+    const a = alpha
+    return `rgba(${[r, g, b, a].join(',')})`
+}
+
+export function lightenDarkenColor(hex: string, pct: number): string {
+    /**
+     * Returns a lightened or darkened color, similar to SCSS darken()
+     * @param hex e.g. '#FF0000'
+     * @param pct percentage amount to lighten or darken, e.g. -20
+     */
+
+    function output(val: number): number {
+        return Math.max(0, Math.min(255, val))
+    }
+
+    const amt = Math.round(2.55 * pct)
+    let { r, g, b } = hexToRGB(hex)
+
+    r = output(r + amt)
+    g = output(g + amt)
+    b = output(b + amt)
+
+    return `rgb(${[r, g, b].join(',')})`
+}
+
+export function toString(input?: any | null): string {
+    return input?.toString() || ''
+}
+
+export function average(input: number[]): number {
+    /**
+     * Returns the average of an array
+     * @param input e.g. [100,50, 75]
+     */
+    return Math.round((input.reduce((acc, val) => acc + val, 0) / input.length) * 10) / 10
+}
+
+export function median(input: number[]): number {
+    /**
+     * Returns the median of an array
+     * @param input e.g. [3,7,10]
+     */
+    const sorted = [...input].sort((a, b) => a - b)
+    const half = Math.floor(sorted.length / 2)
+
+    if (sorted.length % 2) {
+        return sorted[half]
+    }
+    return average([sorted[half - 1], sorted[half]])
+}
+
+export function sum(input: number[]): number {
+    return input.reduce((a, b) => a + b, 0)
+}
+
+export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+    try {
+        JSON.parse(value)
+        return Promise.resolve()
+    } catch (error) {
+        return Promise.reject('Not valid JSON!')
+    }
+}
+
+export function ensureStringIsNotBlank(s?: string | null): string | null {
+    return typeof s === 'string' && s.trim() !== '' ? s : null
+}
+
+export function setPageTitle(title: string): void {
+    document.title = title ? `${title} • PostHog` : 'PostHog'
 }

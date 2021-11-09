@@ -1,22 +1,98 @@
+import json
 import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-import statsd
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from rest_framework import status
+from sentry_sdk import capture_exception, configure_scope, push_scope
+from sentry_sdk.api import capture_exception
+from statshog.defaults.django import statsd
 
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.api.utils import get_data, get_team, get_token
 from posthog.celery import app as celery_app
-from posthog.ee import is_ee_enabled
+from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team
-from posthog.utils import cors_response, get_ip_address, load_data_from_request
+from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.utils import UUIDT
+from posthog.settings import EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC
+from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled
 
-if settings.EE_AVAILABLE:
-    from ee.clickhouse.process_event import log_event, process_event_ee
+if is_clickhouse_enabled():
+    from ee.kafka_client.client import KafkaProducer
+    from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_EVENTS_PLUGIN_INGESTION
+
+    def parse_kafka_event_data(
+        distinct_id: str,
+        ip: Optional[str],
+        site_url: str,
+        data: Dict,
+        team_id: Optional[int],
+        now: datetime,
+        sent_at: Optional[datetime],
+        event_uuid: UUIDT,
+    ) -> Dict:
+        return {
+            "uuid": str(event_uuid),
+            "distinct_id": distinct_id,
+            "ip": ip,
+            "site_url": site_url,
+            "data": json.dumps(data),
+            "team_id": team_id,
+            "now": now.isoformat(),
+            "sent_at": sent_at.isoformat() if sent_at else "",
+        }
+
+    def log_event(data: Dict, event_name: str, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
+        if settings.DEBUG:
+            print(f"Logging event {event_name} to Kafka topic {topic}")
+
+        # TODO: Handle Kafka being unavailable with exponential backoff retries
+        try:
+            KafkaProducer().produce(topic=topic, data=data)
+        except Exception as e:
+            capture_exception(e, {"data": data})
+            statsd.incr("capture_endpoint_log_event_error")
+
+            if settings.DEBUG:
+                print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION} with error:", e)
+
+    def log_event_to_dead_letter_queue(
+        raw_payload: Dict,
+        event_name: str,
+        event: Dict,
+        error_message: str,
+        error_location: str,
+        topic: str = KAFKA_DEAD_LETTER_QUEUE,
+    ):
+        data = event.copy()
+
+        data["failure_timestamp"] = datetime.now().isoformat()
+        data["error_location"] = error_location
+        data["error"] = error_message
+        data["elements_chain"] = ""
+        data["id"] = str(UUIDT())
+        data["event"] = event_name
+        data["raw_payload"] = json.dumps(raw_payload)
+        data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
+
+        data["event_uuid"] = event["uuid"]
+        del data["uuid"]
+
+        try:
+            KafkaProducer().produce(topic=topic, data=data)
+            statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
+        except Exception as e:
+            capture_exception(e)
+            statsd.incr("events_dead_letter_queue_produce_error")
+
+            if settings.DEBUG:
+                print("Failed to produce to events dead letter queue with error:", e)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -44,90 +120,63 @@ def _get_sent_at(data, request) -> Optional[datetime]:
     return parser.isoparse(sent_at)
 
 
-def _get_token(data, request) -> Optional[str]:
-    if request.POST.get("api_key"):
-        return request.POST["api_key"]
-    if isinstance(data, list) and len(data) > 0:
-        return data[0]["properties"]["token"]  # Mixpanel Swift SDK
-    if data.get("$token"):
-        return data["$token"]  # JS identify call
-    if data.get("api_key"):
-        return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
-    if data.get("properties") and data["properties"].get("token"):
-        return data["properties"]["token"]  # JS capture call
-    return None
-
-
 def _get_distinct_id(data: Dict[str, Any]) -> str:
+    raw_value: Any = ""
     try:
-        return str(data["$distinct_id"])[0:200]
+        raw_value = data["$distinct_id"]
     except KeyError:
         try:
-            return str(data["properties"]["distinct_id"])[0:200]
+            raw_value = data["properties"]["distinct_id"]
         except KeyError:
-            return str(data["distinct_id"])[0:200]
+            raw_value = data["distinct_id"]
+    if not raw_value:
+        raise ValueError()
+    return str(raw_value)[0:200]
+
+
+def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
+    """If the event comes from web, ensure that it contains property $active_feature_flags."""
+    if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
+        flags = get_active_feature_flags(team, distinct_id)
+        event["properties"]["$active_feature_flags"] = list(flags.keys())
+        for k, v in flags.items():
+            event["properties"][f"$feature/{k}"] = v
 
 
 @csrf_exempt
 def get_event(request):
-    timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
-    timer.start()
+    timer = statsd.timer("posthog_cloud_event_endpoint").start()
     now = timezone.now()
-    try:
-        data_from_request = load_data_from_request(request)
-        data = data_from_request["data"]
-    except TypeError:
-        return cors_response(
-            request,
-            JsonResponse(
-                {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
-                status=400,
-            ),
-        )
-    if not data:
-        return cors_response(
-            request,
-            JsonResponse(
-                {
-                    "code": "validation",
-                    "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
-                },
-                status=400,
-            ),
-        )
+
+    data, error_response = get_data(request)
+
+    if error_response:
+        return error_response
+
     sent_at = _get_sent_at(data, request)
 
-    token = _get_token(data, request)
-    is_personal_api_key = False
-    if not token:
-        token = PersonalAPIKeyAuthentication.find_key(
-            request, data_from_request["body"], data if isinstance(data, dict) else None
-        )
-        is_personal_api_key = True
+    token = get_token(data, request)
+
     if not token:
         return cors_response(
             request,
-            JsonResponse(
-                {
-                    "code": "validation",
-                    "message": "Neither api_key nor personal_api_key set. You can find your project API key in PostHog project settings.",
-                },
-                status=400,
+            generate_exception_response(
+                "capture",
+                "API key not provided. You can find your project API key in PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
 
-    team = Team.objects.get_team_from_token(token, is_personal_api_key)
-    if team is None:
-        return cors_response(
-            request,
-            JsonResponse(
-                {
-                    "code": "validation",
-                    "message": "Project or personal API key invalid. You can find your project API key in PostHog project settings.",
-                },
-                status=400,
-            ),
-        )
+    team, db_error, error_response = get_team(request, data, token)
+
+    if error_response:
+        return error_response
+
+    send_events_to_dead_letter_queue = False
+    if db_error and is_clickhouse_enabled():
+        send_events_to_dead_letter_queue = True
 
     if isinstance(data, dict):
         if data.get("batch"):  # posthog-python and posthog-ruby
@@ -141,71 +190,106 @@ def get_event(request):
     else:
         events = [data]
 
+    try:
+        events = preprocess_session_recording_events(events)
+    except ValueError as e:
+        return cors_response(
+            request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+        )
+
+    site_url = request.build_absolute_uri("/")[:-1]
+
+    ip = None if not team or team.anonymize_ips else get_ip_address(request)
     for event in events:
-        try:
-            distinct_id = _get_distinct_id(event)
-        except KeyError:
-            return cors_response(
-                request,
-                JsonResponse(
-                    {
-                        "code": "validation",
-                        "message": "You need to set user distinct ID field `distinct_id`.",
-                        "item": event,
-                    },
-                    status=400,
-                ),
-            )
-        if "event" not in event:
-            return cors_response(
-                request,
-                JsonResponse(
-                    {"code": "validation", "message": "You need to set event name field `event`.", "item": event,},
-                    status=400,
-                ),
-            )
+        event_uuid = UUIDT()
+        distinct_id = get_distinct_id(event)
+        if not distinct_id:
+            continue
 
-        if is_ee_enabled():
-            process_event_ee(
+        event = parse_event(event, distinct_id, team)
+        if not event:
+            continue
+
+        if send_events_to_dead_letter_queue:
+            kafka_event = parse_kafka_event_data(
                 distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
+                ip=None,
+                site_url=site_url,
+                team_id=None,
                 now=now,
+                event_uuid=event_uuid,
+                data=event,
                 sent_at=sent_at,
             )
-        else:
-            task_name = "posthog.tasks.process_event.process_event"
-            celery_queue = settings.CELERY_DEFAULT_QUEUE
-            if team.plugins_opt_in:
-                task_name += "_with_plugins"
-                celery_queue = settings.PLUGINS_CELERY_QUEUE
 
-            celery_app.send_task(
-                name=task_name,
-                queue=celery_queue,
-                args=[
-                    distinct_id,
-                    get_ip_address(request),
-                    request.build_absolute_uri("/")[:-1],
-                    event,
-                    team.id,
-                    now.isoformat(),
-                    sent_at,
-                ],
+            log_event_to_dead_letter_queue(
+                data,
+                event["event"],
+                kafka_event,
+                f"Unable to fetch team from Postgres. Error: {db_error}",
+                "django_server_capture_endpoint",
             )
+            continue
 
-        if is_ee_enabled() and settings.LOG_TO_WAL:
-            # log the event to kafka write ahead log for processing
-            log_event(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-            )
-    timer.stop("event_endpoint")
+        statsd.incr("posthog_cloud_plugin_server_ingestion")
+        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
+
+    timer.stop()
+    statsd.incr(
+        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
+    )
     return cors_response(request, JsonResponse({"status": 1}))
+
+
+def parse_event(event, distinct_id, team):
+    if not event.get("event"):
+        statsd.incr("invalid_event", tags={"error": "missing_event_name"})
+        return
+
+    if not event.get("properties"):
+        event["properties"] = {}
+
+    with configure_scope() as scope:
+        scope.set_tag("library", event["properties"].get("$lib", "unknown"))
+        scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
+
+    if team:
+        _ensure_web_feature_flags_in_properties(event, team, distinct_id)
+
+    return event
+
+
+def get_distinct_id(event):
+    try:
+        distinct_id = _get_distinct_id(event)
+    except KeyError:
+        statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
+        return
+    except ValueError:
+        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
+        return
+
+    return distinct_id
+
+
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()) -> None:
+    if is_clickhouse_enabled():
+        parsed_event = parse_kafka_event_data(
+            distinct_id=distinct_id,
+            ip=ip,
+            site_url=site_url,
+            data=event,
+            team_id=team_id,
+            now=now,
+            sent_at=sent_at,
+            event_uuid=event_uuid,
+        )
+        log_event(parsed_event, event["event"])
+    else:
+        task_name = "posthog.tasks.process_event.process_event_with_plugins"
+        celery_queue = settings.PLUGINS_CELERY_QUEUE
+        celery_app.send_task(
+            name=task_name,
+            queue=celery_queue,
+            args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
+        )

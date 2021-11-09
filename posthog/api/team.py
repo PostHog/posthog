@@ -1,26 +1,24 @@
-from typing import Any, Dict, Union
+from typing import Any, Dict, List, Optional, Type, cast
 
-import posthoganalytics
-from django.conf import settings
-from django.contrib.auth import login, password_validation
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from rest_framework import (
-    exceptions,
-    generics,
-    permissions,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
+from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
-from posthog.api.user import UserSerializer
-from posthog.models import Team, User
-from posthog.models.utils import generate_random_token
-from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.api.shared import TeamBasicSerializer
+from posthog.constants import AvailableFeature
+from posthog.mixins import AnalyticsDestroyModelMixin
+from posthog.models import Organization, Team
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+from posthog.models.utils import generate_random_token_project
+from posthog.permissions import (
+    CREATE_METHODS,
+    OrganizationAdminAnyPermissions,
+    OrganizationAdminWritePermissions,
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberLightManagementPermission,
+)
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -29,147 +27,155 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        if (
-            not getattr(settings, "MULTI_TENANCY", False)
-            and request.method in CREATE_METHODS
-            and not request.user.organization.is_feature_available("organizations_projects")
-            and request.user.organizations.count() >= 1
+        user = cast(User, request.user)
+        if request.method in CREATE_METHODS and (
+            (user.organization is None)
+            or (
+                user.organization.teams.exclude(is_demo=True).count() >= 1
+                and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+            )
         ):
             return False
         return True
 
 
 class TeamSerializer(serializers.ModelSerializer):
+    effective_membership_level = serializers.SerializerMethodField()
+
     class Meta:
         model = Team
         fields = (
             "id",
+            "uuid",
             "organization",
             "api_token",
             "app_urls",
             "name",
             "slack_incoming_webhook",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
             "created_at",
             "updated_at",
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",
-            "uuid",
-            "opt_out_capture",
+            "test_account_filters",
+            "path_cleaning_filters",
+            "is_demo",
+            "timezone",
+            "data_attributes",
+            "correlation_config",
+            "session_recording_opt_in",
+            "session_recording_retention_period_days",
+            "effective_membership_level",
+            "access_control",
         )
         read_only_fields = (
             "id",
             "uuid",
             "organization",
             "api_token",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
+            "is_demo",
             "created_at",
             "updated_at",
             "ingested_event",
-            "opt_out_capture",
+            "effective_membership_level",
         )
 
-    def create(self, validated_data: Dict[str, Any]) -> Team:
+    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+        return team.get_effective_membership_level(self.context["request"].user)
+
+    def validate(self, attrs: Any) -> Any:
+        if "access_control" in attrs:
+            # Only organization-wide admins and above should be allowed to switch the project between open and private
+            # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
+            request = self.context["request"]
+            if isinstance(self.instance, Team):
+                organization_id = self.instance.organization_id
+            else:
+                organization_id = self.context["view"].organization
+            org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
+                organization_id=organization_id, user=request.user
+            )
+            if org_membership.level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
+        return super().validate(attrs)
+
+    def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
+        organization = self.context["view"].organization  # Use the org we used to validate permissions
         with transaction.atomic():
-            validated_data.setdefault("completed_snippet_onboarding", True)
-            team = Team.objects.create_with_data(**validated_data, organization=request.user.organization)
+            team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
         return team
 
 
-class TeamViewSet(viewsets.ModelViewSet):
+class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = TeamSerializer
-    queryset = Team.objects.all()
+    queryset = Team.objects.all().select_related("organization")
     permission_classes = [
         permissions.IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
-        OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
     ]
     lookup_field = "id"
     ordering = "-created_by"
+    organization: Optional[Organization] = None
 
     def get_queryset(self):
-        queryset = super().get_queryset().filter(organization__in=self.request.user.organizations.all())
-        return queryset
+        # This is actually what ensures that a user cannot read/update a project for which they don't have permission
+        visible_teams_ids = [
+            team.id
+            for team in super()
+            .get_queryset()
+            .filter(organization__in=cast(User, self.request.user).organizations.all())
+            if team.get_effective_membership_level(self.request.user) is not None
+        ]
+        return super().get_queryset().filter(id__in=visible_teams_ids)
+
+    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+        if self.action == "list":
+            return TeamBasicSerializer
+        return super().get_serializer_class()
+
+    def get_permissions(self) -> List:
+        """
+        Special permissions handling for create requests as the organization is inferred from the current user.
+        """
+        base_permissions = [permission() for permission in self.permission_classes]
+        if self.action:
+            # Return early for non-actions (e.g. OPTIONS)
+            if self.action == "create":
+                organization = getattr(self.request.user, "organization", None)
+                if not organization:
+                    raise exceptions.ValidationError("You need to belong to an organization.")
+                # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+                self.organization = organization
+                base_permissions.append(OrganizationAdminWritePermissions())
+            elif self.action != "list":
+                # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
+                base_permissions.append(TeamMemberLightManagementPermission())
+        return base_permissions
 
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            return self.request.user.team
+            team = getattr(self.request.user, "team", None)
+            if team is None:
+                raise exceptions.NotFound()
+            return team
         queryset = self.filter_queryset(self.get_queryset())
         filter_kwargs = {self.lookup_field: lookup_value}
         try:
-            obj = get_object_or_404(queryset, **filter_kwargs)
+            team = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
             raise exceptions.ValidationError(str(error))
-        self.check_object_permissions(self.request, obj)
-        return obj
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.organization.teams.count() <= 1:
-            raise exceptions.ValidationError(
-                f"Cannot remove project since that would leave organization {instance.name} project-less, which is not supported yet."
-            )
-        self.perform_destroy(instance)
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
+        self.check_object_permissions(self.request, team)
+        return team
 
     @action(methods=["PATCH"], detail=True)
-    def reset_token(self, request: request.Request, id: str) -> response.Response:
+    def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.api_token = generate_random_token()
+        team.api_token = generate_random_token_project()
         team.save()
-        return response.Response(TeamSerializer(team).data)
-
-
-class TeamSignupSerializer(serializers.Serializer):
-    first_name: serializers.Field = serializers.CharField(max_length=128)
-    email: serializers.Field = serializers.EmailField()
-    password: serializers.Field = serializers.CharField()
-    company_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
-    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
-
-    def validate_password(self, value):
-        password_validation.validate_password(value)
-        return value
-
-    def create(self, validated_data):
-        is_first_user: bool = not User.objects.exists()
-        realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
-
-        company_name = validated_data.pop("company_name", validated_data["first_name"])
-        self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
-        user = self._user
-        login(
-            self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
-        )
-
-        posthoganalytics.capture(
-            user.distinct_id,
-            "user signed up",
-            properties={"is_first_user": is_first_user, "is_organization_first_user": True},
-        )
-
-        posthoganalytics.identify(
-            user.distinct_id, properties={"email": user.email, "realm": realm, "ee_available": settings.EE_AVAILABLE},
-        )
-
-        return user
-
-    def to_representation(self, instance):
-        serializer = UserSerializer(instance=instance)
-        return serializer.data
-
-
-class TeamSignupViewset(generics.CreateAPIView):
-    serializer_class = TeamSignupSerializer
-    permission_classes = (permissions.AllowAny,)
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)

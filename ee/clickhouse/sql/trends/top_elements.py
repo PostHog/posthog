@@ -1,15 +1,15 @@
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
 SELECT groupArray(value) FROM (
-    SELECT value, count(*) as count 
-    FROM 
-    events e INNER JOIN
-        (
-            SELECT *
-            FROM events_properties_view AS ep
-            WHERE key = %(key)s AND team_id = %(team_id)s
-        ) ep ON e.uuid = ep.event_id WHERE team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
+    SELECT
+        {value_expression} AS value,
+        {aggregate_operation} as count
+    FROM events e
+    {person_join_clauses}
+    {groups_join_clauses}
+    WHERE
+        team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
     GROUP BY value
     ORDER BY count DESC
-    LIMIT %(limit)s
+    LIMIT %(limit)s OFFSET %(offset)s
 )
 """

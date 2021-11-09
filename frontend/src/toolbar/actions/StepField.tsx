@@ -10,10 +10,11 @@ interface StepFieldProps {
     item: 'href' | 'text' | 'selector' | 'url'
     step: ActionStepForm
     label: string | JSX.Element
+    caption?: string | JSX.Element
     field: { name: number; fieldKey: number; key: number }
 }
 
-export function StepField({ field, step, item, label }: StepFieldProps): JSX.Element {
+export function StepField({ field, step, item, label, caption }: StepFieldProps): JSX.Element {
     const selected = step && ((step as any)[`${item}_selected`] as boolean)
     const fieldStyle = selected ? {} : { opacity: 0.5 }
 
@@ -25,22 +26,23 @@ export function StepField({ field, step, item, label }: StepFieldProps): JSX.Ele
 
                 <Form.Item
                     name={[field.name, `${item}_selected`]}
-                    fieldKey={([field.fieldKey, `${item}_selected`] as unknown) as number}
+                    fieldKey={[field.fieldKey, `${item}_selected`] as unknown as number}
                     valuePropName="checked"
                     noStyle
                 >
                     <Checkbox>{label}</Checkbox>
                 </Form.Item>
+                {caption && <div className="action-field-caption">{caption}</div>}
             </Form.Item>
             {item === 'url' ? (
                 <Form.Item
                     name={[field.name, `${item}_matching`]}
-                    fieldKey={([field.fieldKey, `${item}_matching`] as unknown) as number}
+                    fieldKey={[field.fieldKey, `${item}_matching`] as unknown as number}
                 >
                     <UrlMatchingToggle style={fieldStyle} />
                 </Form.Item>
             ) : null}
-            <Form.Item name={[field.name, item]} fieldKey={([field.fieldKey, item] as unknown) as number}>
+            <Form.Item name={[field.name, item]} fieldKey={[field.fieldKey, item] as unknown as number}>
                 {item === 'selector' ? <Input.TextArea autoSize style={fieldStyle} /> : <Input style={fieldStyle} />}
             </Form.Item>
             {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (

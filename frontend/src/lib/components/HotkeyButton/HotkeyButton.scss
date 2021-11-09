@@ -1,0 +1,9 @@
+@import '~/vars';
+
+.hotkey-button {
+    .ant-btn-primary {
+        .hotkey {
+            border: 0;
+        }
+    }
+}

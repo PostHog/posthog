@@ -1,3 +1,4 @@
+import sys
 from typing import Dict, List, Optional
 
 import lxml
@@ -39,7 +40,13 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
 
 @app.task(ignore_result=True, max_retries=3)
 def _send_email(
-    campaign_key: str, to: List[Dict[str, str]], subject: str, headers: Dict, txt_body: str = "", html_body: str = "",
+    campaign_key: str,
+    to: List[Dict[str, str]],
+    subject: str,
+    headers: Dict,
+    txt_body: str = "",
+    html_body: str = "",
+    reply_to: Optional[str] = None,
 ) -> None:
     """
     Sends built email message asynchronously.
@@ -61,9 +68,14 @@ def _send_email(
                 continue
 
             records.append(record)
+            reply_to = reply_to or settings.EMAIL_REPLY_TO
 
             email_message = mail.EmailMultiAlternatives(
-                subject=subject, body=txt_body, to=[dest["recipient"]], headers=headers,
+                subject=subject,
+                body=txt_body,
+                to=[dest["recipient"]],
+                headers=headers,
+                reply_to=[reply_to] if reply_to else None,
             )
 
             email_message.attach_alternative(html_body, "text/html")
@@ -79,21 +91,28 @@ def _send_email(
                 record.sent_at = timezone.now()
                 record.save()
 
-        except Exception as e:
+        except Exception as err:
             # Handle exceptions gracefully to avoid breaking the entire task for all teams
             # but make sure they're tracked on Sentry.
-            capture_exception(e)
+            print("Could not send email:", err, file=sys.stderr)
+            capture_exception(err)
         finally:
-            # ensure that connection has been closed
+            # Ensure that connection has been closed
             try:
                 connection.close()  # type: ignore
-            except Exception:
-                pass
+            except Exception as err:
+                print("Could not close email connection (this can be ignored):", err, file=sys.stderr)
 
 
 class EmailMessage:
     def __init__(
-        self, campaign_key: str, subject: str, template_name: str, template_context: Optional[Dict] = None,
+        self,
+        campaign_key: str,
+        subject: str,
+        template_name: str,
+        template_context: Optional[Dict] = None,
+        headers: Optional[Dict] = None,
+        reply_to: Optional[str] = None,
     ):
         if not is_email_available():
             raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
@@ -103,14 +122,14 @@ class EmailMessage:
         template = get_template(f"email/{template_name}.html")
         self.html_body = inline_css(template.render(template_context))
         self.txt_body = ""
-        self.headers: Dict = {}
+        self.headers = headers if headers else {}
         self.to: List[Dict[str, str]] = []
+        self.reply_to = reply_to
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
 
     def send(self, send_async: bool = True) -> None:
-
         if not self.to:
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 
@@ -121,6 +140,7 @@ class EmailMessage:
             "headers": self.headers,
             "txt_body": self.txt_body,
             "html_body": self.html_body,
+            "reply_to": self.reply_to,
         }
 
         if send_async:

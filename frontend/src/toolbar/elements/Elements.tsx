@@ -9,7 +9,7 @@ import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
 import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
-import { humanizeNumber } from 'lib/utils'
+import { compactNumber } from 'lib/utils'
 
 export function Elements(): JSX.Element {
     const {
@@ -118,7 +118,7 @@ export function Elements(): JSX.Element {
                                 onMouseOver={() => setHoverElement(element)}
                                 onMouseOut={() => setHoverElement(null)}
                             >
-                                {humanizeNumber(count || 0)}
+                                {compactNumber(count || 0)}
                             </HeatmapLabel>
                         </React.Fragment>
                     )

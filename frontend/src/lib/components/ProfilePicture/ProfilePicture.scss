@@ -1,0 +1,34 @@
+@import '~/vars';
+
+.profile-picture {
+    flex-shrink: 0;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    background-color: $purple_300;
+    color: #5f1903;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 18px; // 2/3 of width/height in the smallest size, 1/2 in the biggest, interpolated in between
+    user-select: none;
+
+    &.xl {
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+    }
+
+    &.md {
+        width: 24px;
+        height: 24px;
+        font-size: 14px;
+    }
+
+    &.sm {
+        width: 18px;
+        height: 18px;
+        font-size: 12px;
+    }
+}

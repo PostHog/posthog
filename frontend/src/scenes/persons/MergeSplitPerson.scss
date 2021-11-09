@@ -1,0 +1,38 @@
+@import '~/vars';
+.merge-split-person {
+    .activity-header {
+        background-color: $bg_mid;
+        border-top: 1px solid $border;
+        border-bottom: 1px solid $border;
+        margin-left: -24px;
+        margin-right: -24px;
+        padding: 8px 0;
+        display: flex;
+        justify-content: center;
+        margin-bottom: $default_spacing;
+    }
+
+    .ant-modal-header {
+        border-bottom: 0;
+    }
+
+    .ant-modal-body {
+        padding-top: 0;
+    }
+
+    .ant-radio-wrapper {
+        margin-right: 2px;
+    }
+
+    .ant-col {
+        margin-right: $default_spacing;
+    }
+
+    // TODO: consider moving this style globally
+    code {
+        background-color: $bg_mid;
+        color: $primary-alt;
+        padding: 4px 8px;
+        border-radius: $radius;
+    }
+}

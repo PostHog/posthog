@@ -4,15 +4,12 @@ from typing import Callable
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
-from posthog.models import Element, ElementGroup, Event, Team
+from posthog.models import Element, ElementGroup, Event, Organization
+from posthog.test.base import APIBaseTest
 
-from .base import BaseTest
 
-
-def test_element_factory(create_event: Callable) -> Callable:
-    class TestElement(BaseTest):
-        TESTS_API = True
-
+def factory_test_element(create_event: Callable) -> Callable:
+    class TestElement(APIBaseTest):
         def test_element_automatic_order(self):
             elements = [
                 Element(tag_name="a", href="https://posthog.com/about", text="click here"),
@@ -32,7 +29,7 @@ def test_element_factory(create_event: Callable) -> Callable:
                 event="$autocapture",
                 elements=[Element(tag_name="a", href="https://posthog.com/about", text="click here")],
             )
-            team2 = Team.objects.create()
+            team2 = Organization.objects.bootstrap(None)[2]
             create_event(team=team2, distinct_id="test", event="$autocapture", elements=[Element(tag_name="bla")])
             response = self.client.get("/api/element/values/?key=tag_name").json()
             self.assertEqual(response[0]["name"], "a")
@@ -79,7 +76,9 @@ def test_element_factory(create_event: Callable) -> Callable:
                 elements=[Element(tag_name="img")],
             )
 
-            with self.assertNumQueries(6):
+            with self.assertNumQueries(7):
+                # Django session, PostHog user, PostHog team, PostHog org membership, PostHog event aggregated,
+                # PostHog element group, PostHog element
                 response = self.client.get("/api/element/stats/").json()
             self.assertEqual(response[0]["count"], 2)
             self.assertEqual(response[0]["hash"], event1.elements_hash)
@@ -95,5 +94,5 @@ def test_element_factory(create_event: Callable) -> Callable:
     return TestElement
 
 
-class TestElement(test_element_factory(Event.objects.create)):  # type: ignore
+class TestElement(factory_test_element(Event.objects.create)):  # type: ignore
     pass

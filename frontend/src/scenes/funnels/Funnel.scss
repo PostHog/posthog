@@ -1,0 +1,94 @@
+@import '~/vars';
+
+.funnels-empty-state {
+    text-align: center;
+    h2.funnels-empty-state__title {
+        font-weight: bold;
+        font-size: 1.5rem;
+        line-height: 1.6rem;
+    }
+
+    .funnels-empty-state__description {
+        font-weight: medium;
+        font-size: 1rem;
+        line-height: 1.7rem;
+        color: $text_muted;
+    }
+
+    button.add-action-event-button {
+        height: 50px;
+    }
+
+    .funnels-empty-state__help {
+        font-size: 0.9rem;
+        margin-top: 1rem;
+    }
+}
+
+.funnel-bin-filter-dropdown {
+    .funnel-bins-custom-picker {
+        width: 43px; // enough to hold two characters
+        margin: 5px 0 5px 13px; // margin left comes from 24px (padding left select option) - 11px (padding inside input)
+
+        .ant-input-number-handler-wrap {
+            display: none;
+        }
+    }
+
+    .select-option-hidden {
+        display: none;
+    }
+}
+
+.funnel-tab {
+    .property-filter-wrapper {
+        display: flex;
+        flex-direction: row;
+
+        .new-prop-filter {
+            padding-left: 16px !important;
+        }
+    }
+
+    .funnel-options-container {
+        margin: 0.25rem 0;
+        padding: 0.25rem 0;
+        display: flex;
+        flex-direction: column;
+
+        .funnel-options-label {
+            padding: 4px 2px;
+
+            .info-indicator {
+                vertical-align: middle;
+            }
+        }
+
+        .funnel-options-inputs {
+            align-items: center;
+            padding: 4px 2px;
+
+            .time-value-input {
+                flex-grow: 1;
+                max-width: 80px;
+                margin-right: $default_spacing / 2;
+            }
+
+            .time-unit-input {
+                min-width: 90px;
+            }
+        }
+    }
+}
+
+.insights-graph-container.funnels {
+    .ant-card-body {
+        padding: 0;
+    }
+
+    .graph-container {
+        // hacky because container not respecting position: relative;
+        width: calc(100% - 48px);
+        height: calc(100% - 48px);
+    }
+}

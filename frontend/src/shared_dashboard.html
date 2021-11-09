@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <script>
+      window.__SHARED_DASHBOARD__ = {
+        id: {{dashboard.id}},
+        share_token: '{{dashboard.share_token}}',
+        name: `{{dashboard.name}}`,
+        description: `{{dashboard.description}}`,
+        team_name: `{{team_name}}`
+      }
+    </script>
+    {% include "head.html" %}
+  </head>
+  <body>
+    <script>
+        if (typeof Object.entries === 'undefined') {
+            var div = document.createElement("div");
+            div.style.color='#fef6f6'; div.style.background='#920c0c'; div.style.padding='5px 10px';
+            div.innerHTML = "You are using a really old browser. Please upgrade to fully enjoy PostHog!"
+            document.body.prepend(div);
+        }
+    </script>
+    <div id="root"></div>
+  </body>
+</html>

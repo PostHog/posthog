@@ -1,6 +1,41 @@
-const lightColors = ['blue', 'purple', 'green', 'salmon', 'yellow', 'indigo', 'cyan', 'pink']
+/* Used for graphs line or background color (as applicable) */
+export const lightColors = [
+    'navy',
+    'blue',
+    'cyan',
+    'orange',
+    'yellow',
+    'olive',
+    'green',
+    'lime',
+    'mint',
+    'maroon',
+    'brown',
+    'apricot',
+    'pink',
+    'salmon',
+    'indigo',
+    'purple',
+]
 
-const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
+export const tagColors = [
+    'blue',
+    'cyan',
+    'orange',
+    'gold',
+    'green',
+    'lime',
+    'volcano',
+    'magenta',
+    'purple',
+    'red',
+    'geekblue',
+]
+
+const getColorVar = (variable: string): string =>
+    getComputedStyle(document.body)
+        .getPropertyValue('--' + variable)
+        .trim()
 
 export const darkWhites = [
     'rgba(255,255,255,0.6)',
@@ -50,7 +85,7 @@ export const dashboardColorHSL = {
     blue: [212, 63, 40],
     purple: [249, 46, 51],
     green: [145, 60, 34],
-    black: [0, 0, 0],
+    black: [0, 0, 18],
 }
 
 export const cssHSL = (h: number, s: number, l: number): string =>
@@ -84,4 +119,30 @@ export function getChartColors(backgroundColor: string): string[] {
     }
 
     return darkWhites
+}
+
+export function getBarColorFromStatus(status: string, hover?: boolean): string {
+    switch (status) {
+        case 'new':
+        case 'returning':
+        case 'resurrecting':
+        case 'dormant':
+            return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
+        default:
+            return 'black'
+    }
+}
+
+export function getGraphColors(isLightTheme: boolean = true): Record<string, string | null> {
+    return {
+        axisLabel: isLightTheme ? '#333' : 'rgba(255,255,255,0.8)',
+        axisLine: isLightTheme ? '#ddd' : 'rgba(255,255,255,0.2)',
+        axis: isLightTheme ? '#999' : 'rgba(255,255,255,0.6)',
+        crosshair: 'rgba(0,0,0,0.2)',
+        tooltipBackground: '#1dc9b7',
+        tooltipTitle: '#fff',
+        tooltipBody: '#fff',
+        annotationColor: isLightTheme ? null : 'white',
+        annotationAccessoryColor: isLightTheme ? null : 'black',
+    }
 }

@@ -1,8 +1,22 @@
 import React from 'react'
-import { SessionsTable } from './SessionsTable'
-import { hot } from 'react-hot-loader/root'
+import { SessionsView } from './SessionsView'
+import { SavedFiltersMenu } from 'scenes/sessions/filters/SavedFiltersMenu'
+import { PageHeader } from 'lib/components/PageHeader'
+import { Divider } from 'antd'
 
-export const Sessions = hot(_Sessions)
-function _Sessions(): JSX.Element {
-    return <SessionsTable />
+export function Sessions(): JSX.Element {
+    return (
+        <div className="sessions-wrapper">
+            <div className="sessions-sidebar">
+                <div>
+                    <PageHeader title="Sessions" />
+                    <SavedFiltersMenu />
+                </div>
+                <Divider type="vertical" className="sessions-divider" />
+            </div>
+            <div className="sessions-with-filters">
+                <SessionsView key="global" />
+            </div>
+        </div>
+    )
 }

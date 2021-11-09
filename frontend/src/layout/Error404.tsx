@@ -1,12 +1,11 @@
 import React from 'react'
-import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function Error404(): JSX.Element {
     return (
         <div>
-            <h2>Error 404</h2>
-            <p>Page not found.</p>
-            <HedgehogOverlay type="sad" />
+            <PageHeader title="Page Not Found" />
+            <p>The page you were looking for is not here. Please use the navigation and try again.</p>
         </div>
     )
 }

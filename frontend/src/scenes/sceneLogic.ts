@@ -1,278 +1,347 @@
-import { BuiltLogic, kea } from 'kea'
+import { kea } from 'kea'
 import { router } from 'kea-router'
-import { camelCaseToTitle, delay } from 'lib/utils'
-import { Error404 } from '~/layout/Error404'
-import { ErrorNetwork } from '~/layout/ErrorNetwork'
+import { identifierToHuman, setPageTitle } from 'lib/utils'
 import posthog from 'posthog-js'
+import { sceneLogicType } from './sceneLogicType'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from './PreflightCheck/logic'
+import { AvailableFeature } from '~/types'
 import { userLogic } from './userLogic'
-import { sceneLogicType } from 'types/scenes/sceneLogicType'
+import { afterLoginRedirect } from './authentication/loginLogic'
+import { teamLogic } from './teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
+import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export enum Scene {
-    // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
-    Dashboards = 'dashboards',
-    Dashboard = 'dashboard',
-    Insights = 'insights',
-    Cohorts = 'cohorts',
-    Events = 'events',
-    Sessions = 'sessions',
-    Person = 'person',
-    Persons = 'persons',
-    Action = 'action',
-    FeatureFlags = 'featureFlags',
-    OrganizationSettings = 'organizationSettings',
-    OrganizationMembers = 'organizationMembers',
-    OrganizationInvites = 'organizationInvites',
-    ProjectSettings = 'projectSettings',
-    InstanceStatus = 'instanceStatus',
-    InstanceLicenses = 'instanceLicenses',
-    MySettings = 'mySettings',
-    Annotations = 'annotations',
-    PreflightCheck = 'preflightCheck',
-    Signup = 'signup',
-    Ingestion = 'ingestion',
-    Billing = 'billing',
-    Plugins = 'plugins',
-}
-
-interface LoadedScene {
-    component: () => JSX.Element
-    logic?: BuiltLogic
-}
-
-interface Params {
-    [param: string]: any
-}
-
-export const scenes: Record<Scene, () => any> = {
-    [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
-    [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
-    [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
-    [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
-    [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
-    [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
-    [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
-    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
-    [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
-    [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
-    [Scene.OrganizationSettings]: () =>
-        import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
-    [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
-    [Scene.OrganizationInvites]: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
-    [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
-    [Scene.InstanceStatus]: () => import(/* webpackChunkName: 'instanceStatus' */ './instance/SystemStatus'),
-    [Scene.InstanceLicenses]: () => import(/* webpackChunkName: 'instanceLicenses' */ './instance/Licenses'),
-    [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
-    [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
-    [Scene.PreflightCheck]: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
-    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './Signup'),
-    [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
-    [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
-    [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
-}
-
-/* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
-export const unauthenticatedRoutes: Scene[] = [Scene.PreflightCheck, Scene.Signup]
-
-export const redirects: Record<string, string | ((params: Params) => any)> = {
-    '/': '/insights',
-    '/plugins': '/project/plugins',
-    '/actions': '/events/actions',
-}
-
-export const routes: Record<string, Scene> = {
-    '/dashboard': Scene.Dashboards,
-    '/dashboard/:id': Scene.Dashboard,
-    '/action/:id': Scene.Action,
-    '/action': Scene.Action,
-    '/insights': Scene.Insights,
-    '/events': Scene.Events,
-    '/events/*': Scene.Events,
-    '/sessions': Scene.Sessions,
-    '/person_by_id/:id': Scene.Person,
-    '/person/*': Scene.Person,
-    '/persons': Scene.Persons,
-    '/cohorts/new': Scene.Persons,
-    '/cohorts': Scene.Cohorts,
-    '/feature_flags': Scene.FeatureFlags,
-    '/annotations': Scene.Annotations,
-    '/project/settings': Scene.ProjectSettings,
-    '/project/plugins': Scene.Plugins,
-    '/organization/settings': Scene.OrganizationSettings,
-    '/organization/members': Scene.OrganizationMembers,
-    '/organization/invites': Scene.OrganizationInvites,
-    '/organization/billing': Scene.Billing,
-    '/instance/licenses': Scene.InstanceLicenses,
-    '/instance/status': Scene.InstanceStatus,
-    '/me/settings': Scene.MySettings,
-    '/preflight': Scene.PreflightCheck,
-    '/signup': Scene.Signup,
-    '/ingestion': Scene.Ingestion,
-    '/ingestion/*': Scene.Ingestion,
+/** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
+const sceneNavAlias: Partial<Record<Scene, Scene>> = {
+    [Scene.Action]: Scene.Events,
+    [Scene.Actions]: Scene.Events,
+    [Scene.EventStats]: Scene.Events,
+    [Scene.EventPropertyStats]: Scene.Events,
+    [Scene.Person]: Scene.Persons,
+    [Scene.Dashboard]: Scene.Dashboards,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
+    props: {} as { scenes?: Record<Scene, () => any> },
+    path: ['scenes', 'sceneLogic'],
     actions: {
-        loadScene: (scene: Scene, params: Params) => ({ scene, params }),
-        setScene: (scene: Scene, params: Params) => ({ scene, params }),
-        setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
-        showUpgradeModal: (featureName: string) => ({ featureName }),
+        /* 1. Prepares to open the scene, as the listener may override and do something
+            else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
+        openScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
+        // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
+        loadScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
+        // 3. Set the `scene` reducer
+        setScene: (scene: Scene, params: SceneParams, scrollToTop: boolean = false) => ({ scene, params, scrollToTop }),
+        setLoadedScene: (loadedScene: LoadedScene) => ({
+            loadedScene,
+        }),
+        showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
+        guardAvailableFeature: (
+            featureKey: AvailableFeature,
+            featureName: string,
+            featureCaption: string,
+            featureAvailableCallback?: () => void,
+            guardOn: {
+                cloud: boolean
+                selfHosted: boolean
+            } = {
+                cloud: true,
+                selfHosted: true,
+            }
+        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
         hideUpgradeModal: true,
         takeToPricing: true,
+        reloadBrowserDueToImportError: true,
     },
-    reducers: ({ actions }) => ({
+    reducers: {
         scene: [
             null as Scene | null,
             {
-                [actions.setScene]: (_, payload) => payload.scene,
-            },
-        ],
-        params: [
-            {} as Params,
-            {
-                [actions.setScene]: (_, payload) => payload.params || {},
+                setScene: (_, payload) => payload.scene,
             },
         ],
         loadedScenes: [
+            preloadedScenes,
             {
-                404: {
-                    component: Error404,
-                },
-                '4xx': {
-                    component: ErrorNetwork,
-                },
-            } as Record<string | number, LoadedScene>,
-            {
-                [actions.setLoadedScene]: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
+                setScene: (state, { scene, params }) =>
+                    scene in state
+                        ? {
+                              ...state,
+                              [scene]: { ...state[scene], sceneParams: params, lastTouch: new Date().valueOf() },
+                          }
+                        : state,
+                setLoadedScene: (state, { loadedScene }) => ({
+                    ...state,
+                    [loadedScene.name]: { ...loadedScene, lastTouch: new Date().valueOf() },
+                }),
             },
         ],
         loadingScene: [
             null as Scene | null,
             {
-                [actions.loadScene]: (_, { scene }) => scene,
-                [actions.setScene]: () => null,
+                loadScene: (_, { scene }) => scene,
+                setScene: () => null,
             },
         ],
-        upgradeModalFeatureName: [
-            null as string | null,
+        upgradeModalFeatureNameAndCaption: [
+            null as [string, string] | null,
             {
-                [actions.showUpgradeModal]: (_, { featureName }) => featureName,
-                [actions.hideUpgradeModal]: () => null,
-                [actions.takeToPricing]: () => null,
+                showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
+                hideUpgradeModal: () => null,
+                takeToPricing: () => null,
             },
         ],
-    }),
+        lastReloadAt: [
+            null as number | null,
+            { persist: true },
+            {
+                reloadBrowserDueToImportError: () => new Date().valueOf(),
+            },
+        ],
+    },
+    selectors: {
+        sceneConfig: [
+            (s) => [s.scene],
+            (scene: Scene): SceneConfig => {
+                return sceneConfigurations[scene] ?? {}
+            },
+        ],
+        activeScene: [
+            (s) => [
+                s.loadingScene,
+                s.scene,
+                teamLogic.selectors.isCurrentTeamUnavailable,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (loadingScene, scene, isCurrentTeamUnavailable, featureFlags) => {
+                const baseActiveScene = featureFlags[FEATURE_FLAGS.TURBO_MODE] ? scene : loadingScene || scene
+                return isCurrentTeamUnavailable && baseActiveScene && sceneConfigurations[baseActiveScene]?.projectBased
+                    ? Scene.ErrorProjectUnavailable
+                    : baseActiveScene
+            },
+        ],
+        aliasedActiveScene: [
+            (s) => [s.activeScene],
+            (activeScene) => (activeScene ? sceneNavAlias[activeScene] || activeScene : null),
+        ],
+        activeLoadedScene: [
+            (s) => [s.activeScene, s.loadedScenes],
+            (activeScene, loadedScenes) => (activeScene ? loadedScenes[activeScene] : null),
+        ],
+        sceneParams: [
+            (s) => [s.activeLoadedScene],
+            (activeLoadedScene): SceneParams =>
+                activeLoadedScene?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
+        ],
+        params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
+        searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
+        hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
+    },
     urlToAction: ({ actions }) => {
-        const mapping: Record<string, (params: Params) => any> = {}
+        const mapping: Record<
+            string,
+            (params: Params, searchParams: Params, hashParams: Params, payload: { method: string }) => any
+        > = {}
 
-        for (const [paths, redirect] of Object.entries(redirects)) {
-            for (const path of paths.split('|')) {
-                mapping[path] = (params) =>
-                    router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
+        for (const path of Object.keys(redirects)) {
+            mapping[path] = (params) => {
+                const redirect = redirects[path]
+                router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
-
-        for (const [paths, scene] of Object.entries(routes)) {
-            for (const path of paths.split('|')) {
-                mapping[path] = (params) => actions.loadScene(scene, params)
-            }
+        for (const [path, scene] of Object.entries(routes)) {
+            mapping[path] = (params, searchParams, hashParams, { method }) =>
+                actions.openScene(scene, { params, searchParams, hashParams }, method)
         }
-        mapping['/*'] = () => actions.loadScene('404', {})
+
+        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
 
         return mapping
     },
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props, selectors }) => ({
         showUpgradeModal: ({ featureName }) => {
-            posthog.capture('upgrade modal shown', { featureName })
+            eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
-        hideUpgradeModal: () => {
-            posthog.capture('upgrade modal cancellation')
+        guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
+            const { preflight } = preflightLogic.values
+            let featureAvailable: boolean
+            if (!preflight) {
+                featureAvailable = false
+            } else if (!guardOn.cloud && preflight.cloud) {
+                featureAvailable = true
+            } else if (!guardOn.selfHosted && !preflight.cloud) {
+                featureAvailable = true
+            } else {
+                featureAvailable = userLogic.values.hasAvailableFeature(featureKey)
+            }
+            if (featureAvailable) {
+                featureAvailableCallback?.()
+            } else {
+                actions.showUpgradeModal(featureName, featureCaption)
+            }
         },
         takeToPricing: () => {
             posthog.capture('upgrade modal pricing interaction')
-            if (userLogic.values.user?.is_multi_tenancy) {
+            if (preflightLogic.values.preflight?.cloud) {
                 return router.actions.push('/organization/billing')
             }
-            window.open(`https://posthog.com/pricing?o=enterprise`)
+            const pricingTab = preflightLogic.values.preflight?.cloud ? 'cloud' : 'vpc'
+            window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
-        setScene: () => {
+        setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
-            document.title = values.scene ? `${camelCaseToTitle(values.scene)} • PostHog` : 'PostHog'
+            setPageTitle(identifierToHuman(scene || ''))
+
+            // if we clicked on a link, scroll to top
+            const previousScene = selectors.scene(previousState)
+            if (scrollToTop && scene !== previousScene) {
+                window.scrollTo(0, 0)
+            }
         },
-        loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
-            if (values.scene === scene) {
-                actions.setScene(scene, params)
+        openScene: ({ scene, params, method }) => {
+            const sceneConfig = sceneConfigurations[scene] || {}
+            const { user } = userLogic.values
+            const { preflight } = preflightLogic.values
+
+            if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
+                // If user is on an already initiated self-hosted instance, redirect away from signup
+                router.actions.replace(urls.login())
                 return
             }
 
-            if (!scenes[scene]) {
-                actions.setScene('404', {})
+            if (user) {
+                // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
+                if (sceneConfig.onlyUnauthenticated) {
+                    if (scene === Scene.Login) {
+                        router.actions.replace(afterLoginRedirect())
+                    } else {
+                        router.actions.replace(urls.default())
+                    }
+                    return
+                }
+
+                // Redirect to org/project creation if there's no org/project respectively, unless using invite
+                if (scene !== Scene.InviteSignup) {
+                    if (!user.organization) {
+                        if (location.pathname !== urls.organizationCreateFirst()) {
+                            router.actions.replace(urls.organizationCreateFirst())
+                            return
+                        }
+                    } else if (teamLogic.values.isCurrentTeamUnavailable) {
+                        if (location.pathname !== urls.projectCreateFirst()) {
+                            router.actions.replace(urls.projectCreateFirst())
+                            return
+                        }
+                    } else if (
+                        teamLogic.values.currentTeam &&
+                        !teamLogic.values.currentTeam.completed_snippet_onboarding &&
+                        !location.pathname.startsWith('/ingestion') &&
+                        !location.pathname.startsWith('/personalization')
+                    ) {
+                        // If ingestion tutorial not completed, redirect to it
+                        router.actions.replace(urls.ingestion())
+                        return
+                    }
+                }
+            }
+
+            actions.loadScene(scene, params, method)
+        },
+        loadScene: async ({ scene, params, method }, breakpoint) => {
+            const clickedLink = method === 'PUSH'
+            if (values.scene === scene) {
+                actions.setScene(scene, params, clickedLink)
+                return
+            }
+
+            if (!props.scenes?.[scene]) {
+                actions.setScene(Scene.Error404, emptySceneParams, clickedLink)
                 return
             }
 
             let loadedScene = values.loadedScenes[scene]
+            const wasNotLoaded = !loadedScene
 
             if (!loadedScene) {
+                // if we can't load the scene in a second, show a spinner
+                const timeout = window.setTimeout(() => actions.setScene(scene, params, true), 500)
                 let importedScene
                 try {
-                    importedScene = await scenes[scene]()
+                    window.ESBUILD_LOAD_CHUNKS?.(scene)
+                    importedScene = await props.scenes[scene]()
                 } catch (error) {
-                    if (error.name === 'ChunkLoadError') {
-                        if (scene !== null) {
-                            // We were on another page (not the first loaded scene)
-                            console.error('App assets regenerated. Reloading this page.')
-                            window.location.reload()
-                        } else {
-                            // First scene, show an error page
+                    if (
+                        error.name === 'ChunkLoadError' || // webpack
+                        error.message?.includes('Failed to fetch dynamically imported module') // esbuild
+                    ) {
+                        // Reloaded once in the last 20 seconds and now reloading again? Show network error
+                        if (
+                            values.lastReloadAt &&
+                            parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
+                        ) {
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene('4xx', {})
+                            actions.setScene(Scene.ErrorNetwork, emptySceneParams, clickedLink)
+                        } else {
+                            console.error('App assets regenerated. Reloading this page.')
+                            actions.reloadBrowserDueToImportError()
                         }
+                        return
                     } else {
                         throw error
                     }
+                } finally {
+                    window.clearTimeout(timeout)
                 }
                 breakpoint()
-                const { default: defaultExport, logic, ...others } = importedScene
+                const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
-                if (defaultExport) {
+                if (_scene) {
+                    loadedScene = { name: scene, ...(_scene as SceneExport), sceneParams: params }
+                } else if (defaultExport) {
+                    console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
+                        name: scene,
                         component: defaultExport,
                         logic: logic,
+                        sceneParams: params,
                     }
                 } else {
+                    console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
+                        name: scene,
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
-                                : values.loadedScenes['404'].component,
+                                : values.loadedScenes[Scene.Error404].component,
                         logic: logic,
+                        sceneParams: params,
+                    }
+                    if (Object.keys(others).length > 1) {
+                        console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
-                actions.setLoadedScene(scene, loadedScene)
-            }
-            const { logic } = loadedScene
+                actions.setLoadedScene(loadedScene)
 
-            let unmount
-
-            if (logic) {
-                // initialize the logic
-                unmount = logic.build(params, false).mount()
-                try {
-                    await breakpoint(100)
-                } catch (e) {
-                    // if we change the scene while waiting these 100ms, unmount
-                    unmount()
-                    throw e
+                if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] && loadedScene.logic) {
+                    // initialize the logic and give it 50ms to load before opening the scene
+                    const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
+                    try {
+                        await breakpoint(50)
+                    } catch (e) {
+                        // if we change the scene while waiting these 50ms, unmount
+                        unmount()
+                        throw e
+                    }
                 }
             }
-
-            actions.setScene(scene, params)
-
-            if (unmount) {
-                // release our hold on this logic after 0.5s as it's by then surely mounted via React
-                // or we are anyway in a new scene and don't need it
-                await delay(500)
-                unmount()
-            }
+            actions.setScene(scene, params, clickedLink || wasNotLoaded)
+        },
+        reloadBrowserDueToImportError: () => {
+            window.location.reload()
         },
     }),
 })

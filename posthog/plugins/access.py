@@ -1,15 +1,55 @@
+from typing import Optional, Union
+from uuid import UUID
+
 from django.conf import settings
 
-
-# We disable all plugins under multi-tenancy. For safety. Eventually we will remove this block.
-# For now, removing this in TEST mode, so that we can be sure plugins actually work in EE if/when needed.
-def not_in_multi_tenancy():
-    return settings.TEST or not getattr(settings, "MULTI_TENANCY", False)
+from posthog.models.organization import Organization
 
 
-def can_install_plugins_via_api():
-    return settings.PLUGINS_INSTALL_VIA_API and not_in_multi_tenancy()
+def can_globally_manage_plugins(organization_or_id: Optional[Union[Organization, str, UUID]],) -> bool:
+    if organization_or_id is None:
+        return False
+    organization: Organization = (
+        organization_or_id
+        if isinstance(organization_or_id, Organization)
+        else Organization.objects.get(id=organization_or_id)
+    )
+    return organization.plugins_access_level >= Organization.PluginsAccessLevel.ROOT
 
 
-def can_configure_plugins_via_api():
-    return settings.PLUGINS_CONFIGURE_VIA_API and not_in_multi_tenancy()
+def can_install_plugins(
+    organization_or_id: Optional[Union[Organization, str, UUID]],
+    specific_organization_id: Optional[Union[str, UUID]] = None,
+) -> bool:
+    if organization_or_id is None:
+        return False
+    organization: Organization = (
+        organization_or_id
+        if isinstance(organization_or_id, Organization)
+        else Organization.objects.get(id=organization_or_id)
+    )
+    if specific_organization_id and str(organization.id) != str(specific_organization_id):
+        return False
+    return organization.plugins_access_level >= Organization.PluginsAccessLevel.INSTALL
+
+
+def can_configure_plugins(organization_or_id: Optional[Union[Organization, str, UUID]],) -> bool:
+    if organization_or_id is None:
+        return False
+    organization: Organization = (
+        organization_or_id
+        if isinstance(organization_or_id, Organization)
+        else Organization.objects.get(id=organization_or_id)
+    )
+    return organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIG
+
+
+def can_view_plugins(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
+    if organization_or_id is None:
+        return False
+    organization: Organization = (
+        organization_or_id
+        if isinstance(organization_or_id, Organization)
+        else Organization.objects.get(id=organization_or_id)
+    )
+    return organization.plugins_access_level > Organization.PluginsAccessLevel.NONE

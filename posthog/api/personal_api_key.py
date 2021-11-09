@@ -1,8 +1,9 @@
-from typing import Type
+from typing import Type, cast
 
-from rest_framework import mixins, response, serializers, status, viewsets
+from rest_framework import mixins, permissions, response, serializers, viewsets
 
 from posthog.models import PersonalAPIKey
+from posthog.models.user import User
 
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
@@ -10,8 +11,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PersonalAPIKey
-        fields = ["id", "label", "created_at", "last_used_at", "team_id", "user_id"]
-        read_only_fields = ["id", "created_at", "last_used_at", "team_id", "user_id"]
+        fields = ["id", "label", "created_at", "last_used_at", "user_id"]
+        read_only_fields = ["id", "created_at", "last_used_at", "user_id"]
 
 
 class PersonalAPIKeySerializerCreateOnly(PersonalAPIKeySerializer):
@@ -19,12 +20,12 @@ class PersonalAPIKeySerializerCreateOnly(PersonalAPIKeySerializer):
 
     class Meta:
         model = PersonalAPIKey
-        fields = ["id", "label", "value", "created_at", "last_used_at", "team_id", "user_id"]
-        read_only_fields = ["id", "value", "created_at", "last_used_at", "team_id", "user_id"]
+        fields = ["id", "label", "value", "created_at", "last_used_at", "user_id"]
+        read_only_fields = ["id", "value", "created_at", "last_used_at", "user_id"]
 
-    def create(self, validated_data: dict) -> PersonalAPIKey:
+    def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
-        personal_api_key = PersonalAPIKey.objects.create(user=user, team=user.team, **validated_data)
+        personal_api_key = PersonalAPIKey.objects.create(user=user, **validated_data)
         return personal_api_key
 
 
@@ -39,7 +40,7 @@ class PersonalAPIKeyViewSet(
     lookup_field = "id"
 
     def get_queryset(self):
-        return PersonalAPIKey.objects.filter(user_id=self.request.user.id).order_by("-created_at")
+        return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

@@ -1,103 +1,132 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTable'
-import { Button, Tabs, Input } from 'antd'
-import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
-import { hot } from 'react-hot-loader/root'
+import { Button, Row, Radio, Alert } from 'antd'
+import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
+import { Link } from 'lib/components/Link'
+import { CohortType } from '~/types'
+import { LinkButton } from 'lib/components/LinkButton'
+import { ClockCircleFilled } from '@ant-design/icons'
+import { toParams } from 'lib/utils'
+import { PersonsSearch } from './PersonsSearch'
+import { IconExternalLink } from 'lib/components/icons'
+import { SceneExport } from 'scenes/sceneTypes'
 
-const { TabPane } = Tabs
+export const scene: SceneExport = {
+    component: Persons,
+    logic: personsLogic,
+}
 
-export const Persons = hot(_Persons)
-function _Persons(): JSX.Element {
+interface PersonsProps {
+    cohort?: CohortType
+}
+
+export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
-    const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
-
-    const exampleEmail =
-        (persons && persons.results.find((person) => person.properties?.email)?.properties?.email) ||
-        'example@gmail.com'
 
     useEffect(() => {
-        setSearchTerm(listFilters.search)
+        if (cohort) {
+            setListFilters({ cohort: cohort.id })
+            loadPersons()
+        }
     }, [])
 
     return (
-        <div>
-            <PageHeader title="Persons" />
-            <Cohort
-                onChange={(cohort: string) => {
-                    setListFilters({ cohort })
-                }}
-            />
-            <Button
-                type="default"
-                icon={<ExportOutlined />}
-                href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
-                style={{ marginBottom: '1rem' }}
-            >
-                Export
-            </Button>
-            <div className="mb">
-                <form
-                    onSubmit={(e) => {
-                        e.preventDefault()
-                        setListFilters({ search: searchTerm })
-                        loadPersons()
-                    }}
-                >
-                    <Input
-                        data-attr="persons-search"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder={persons && 'Try ' + exampleEmail + ' or has:email'}
-                        style={{ maxWidth: 400 }}
-                        autoFocus
+        <div className="persons-list">
+            {!cohort && <PageHeader title="Persons" />}
+            <Row style={{ gap: '0.75rem' }} className="mb">
+                <div style={{ flexGrow: 1, maxWidth: 600 }}>
+                    <PersonsSearch autoFocus={!cohort} />
+                    <div className="text-muted text-small">
+                        You can also filter persons that have a certain property set (e.g. <code>has:email</code> or{' '}
+                        <code>has:name</code>)
+                    </div>
+                </div>
+                <div>
+                    <Radio.Group
+                        buttonStyle="solid"
+                        onChange={(e) => {
+                            const key = e.target.value
+                            setListFilters({ is_identified: key === 'all' ? undefined : key })
+                            loadPersons()
+                        }}
+                        value={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'all'}
+                    >
+                        <Radio.Button data-attr="people-types-tab-all" value="all">
+                            All persons
+                        </Radio.Button>
+                        <Radio.Button data-attr="people-types-tab-identified" value="true">
+                            Identified
+                        </Radio.Button>
+                        <Radio.Button data-attr="people-types-tab-anonymous" value="false">
+                            Unidentified
+                        </Radio.Button>
+                    </Radio.Group>
+                </div>
+            </Row>
+            {listFilters.is_identified === 'false' && (
+                <div className="mb">
+                    {/* TODO: Product suggestion: We'll want to turn these off for advanced users  */}
+                    <Alert
+                        type="info"
+                        closable
+                        message={
+                            <>
+                                Unidentified persons are usually anonymous visitors to your app or website that have not
+                                been identified to you. To mark a person as identified, call{' '}
+                                <code>posthog.identify</code> on your frontend.{' '}
+                                <a
+                                    href="https://posthog.com/docs/integrations/js-integration?utm_medium=in-product&utm_campaign=persons-unidentified#identifying-users"
+                                    target="_blank"
+                                    style={{ display: 'inline-flex', alignItems: 'center' }}
+                                >
+                                    <IconExternalLink /> Learn more
+                                </a>
+                            </>
+                        }
+                        showIcon
                     />
-                </form>
+                </div>
+            )}
+            <div className="mb text-right">
+                {cohort ? (
+                    <LinkButton
+                        to={`/sessions?${toParams({ properties: [{ key: 'id', value: cohort.id, type: 'cohort' }] })}`}
+                        target="_blank"
+                    >
+                        <ClockCircleFilled /> View sessions
+                    </LinkButton>
+                ) : null}
+                <Button
+                    type="default"
+                    icon={<ExportOutlined />}
+                    href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
+                    style={{ marginLeft: 8 }}
+                >
+                    Export
+                </Button>
+                {/* TODO: Hidden until new cohorts UX is defined */}
+                <Link to="/cohorts/new" style={{ display: 'none' }} className="ml">
+                    <Button type="default" icon={<PlusOutlined />}>
+                        New Cohort
+                    </Button>
+                </Link>
             </div>
-            <Tabs
-                activeKey={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'default'}
-                onChange={(key) => {
-                    setListFilters({ is_identified: key === 'default' ? undefined : key })
-                    loadPersons()
-                }}
-            >
-                <TabPane
-                    tab={<span data-attr="people-types-tab">All</span>}
-                    key="default"
-                    data-attr="people-types-tab"
-                />
-                <TabPane
-                    tab={<span data-attr="people-types-tab">Identified</span>}
-                    key="true"
-                    data-attr="people-types-tab"
-                />
-                <TabPane
-                    tab={<span data-attr="people-types-tab">Anonymous</span>}
-                    key="false"
-                    data-attr="people-types-tab"
-                />
-            </Tabs>
 
             <div>
                 <PersonsTable
                     people={persons.results}
                     loading={personsLoading}
-                    actions={true}
-                    onChange={() => loadPersons()}
+                    hasPrevious={!!persons.previous}
+                    hasNext={!!persons.next}
+                    loadPrevious={() => loadPersons(persons.previous)}
+                    loadNext={() => loadPersons(persons.next)}
+                    allColumns
+                    backTo={cohort ? 'Cohort' : 'Persons'}
                 />
-
-                <div style={{ margin: '3rem auto 10rem', width: 200 }}>
-                    <Button type="link" disabled={!persons.previous} onClick={() => loadPersons(persons.previous)}>
-                        <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
-                    </Button>
-                    <Button type="link" disabled={!persons.next} onClick={() => loadPersons(persons.next)}>
-                        Next <RightOutlined style={{ verticalAlign: 'initial' }} />
-                    </Button>
-                </div>
             </div>
         </div>
     )

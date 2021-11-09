@@ -1,50 +1,17 @@
 import json
+from enum import Enum, auto
 from typing import Optional, Union
 
 import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
 
-from posthog.models.property import Property
 
-
-def get_operator(prop: Property, arg: str):
-    operator = prop.operator
-
-    if operator == "is_not":
-        return "(trim(BOTH '\"' FROM ep.value) = %({})s)".format(arg), prop.value
-    elif operator == "icontains" or operator == "not_icontains":
-        value = "%{}%".format(prop.value)
-        return "(trim(BOTH '\"' FROM ep.value) LIKE %({})s)".format(arg), value
-    elif operator == "regex" or operator == "not_regex":
-        return "match(trim(BOTH '\"' FROM ep.value), %({})s)".format(arg), prop.value
-    elif operator == "is_set":
-        return "", prop.value
-    elif operator == "is_not_set":
-        return "", prop.value
-    elif operator == "gt":
-        return (
-            "(toInt64(trim(BOTH '\"' FROM ep.value)) >  %({})s)".format(arg),
-            prop.value,
-        )
-    elif operator == "lt":
-        return (
-            "(toInt64(trim(BOTH '\"' FROM ep.value)) <  %({})s)".format(arg),
-            prop.value,
-        )
-    else:
-        if is_json(prop.value):
-            return (
-                "replaceRegexpAll(trim(BOTH '\"' FROM ep.value),' ', '') = replaceRegexpAll(toString(%({})s),' ', '')".format(
-                    arg
-                ),
-                prop.value,
-            )
-        else:
-            return (
-                "(trim(BOTH '\"' FROM ep.value) = toString(%({})s))".format(arg),
-                prop.value,
-            )
+class PersonPropertiesMode(Enum):
+    USING_SUBQUERY = auto()
+    USING_PERSON_PROPERTIES_COLUMN = auto()
+    # Used when person join handles these filters
+    EXCLUDE = auto()
 
 
 def is_json(val):
@@ -52,19 +19,15 @@ def is_json(val):
         return False
 
     try:
-        json.loads(val)
-    except ValueError:
+        int(val)
         return False
-    return True
-
-
-def is_int(value: Optional[Union[str, int]]) -> bool:
+    except:
+        pass
     try:
-        int(value)  # type: ignore
+        json.loads(val)
     except (ValueError, TypeError):
         return False
-    else:
-        return True
+    return True
 
 
 def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:

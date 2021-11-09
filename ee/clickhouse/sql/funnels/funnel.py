@@ -1,23 +1,27 @@
-FUNNEL_SQL = """
-SELECT max_step, count(1), groupArray(100)(id) FROM (
-    SELECT
-        pid.person_id as id,
-        windowFunnel(6048000000000000)(toUInt64(toUnixTimestamp64Micro(timestamp)),
-            {steps}
-        ) as max_step
-    FROM 
-        events
-    JOIN (
-        SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s
-    ) as pid
-    ON pid.distinct_id = events.distinct_id
-    WHERE
-        team_id = %(team_id)s {filters} {parsed_date_from} {parsed_date_to}
-        AND event IN %(events)s
-    GROUP BY pid.person_id
+FUNNEL_PERSONS_BY_STEP_SQL = """
+SELECT aggregation_target as person_id {extra_fields}
+FROM (
+    {steps_per_person_query}
 )
-WHERE max_step > 0
-GROUP BY max_step
-ORDER BY max_step ASC
-;
+WHERE {persons_steps}
+ORDER BY aggregation_target
+{limit}
+OFFSET {offset}
+SETTINGS allow_experimental_window_functions = 1
+"""
+
+FUNNEL_INNER_EVENT_STEPS_QUERY = """
+SELECT 
+aggregation_target,
+timestamp,
+{steps}
+{select_prop}
+FROM (
+    {event_query}
+) events
+{extra_join}
+WHERE (
+    {steps_condition}
+)
+{extra_conditions}
 """

@@ -1,0 +1,64 @@
+@import '~/vars';
+
+.session-recordings-table {
+    .filter-row {
+        width: 100%;
+        justify-content: space-between;
+        margin-bottom: $default_spacing;
+        align-items: flex-end;
+    }
+    .action-filter-container {
+        max-width: 700px;
+        padding: $default_spacing;
+        border: $border solid 1px;
+        flex: 1;
+        border-radius: $radius;
+    }
+    .session-recording-action-property-filter {
+        margin: 0 0 0 68px;
+        background-color: $antd_table_background_dark;
+        border: $border solid 1px;
+        border-top-width: 0;
+        padding: 0.25rem $default_spacing;
+    }
+    .time-filter-row {
+        margin-top: $default_spacing;
+        justify-content: flex-end;
+        align-items: flex-end;
+        .time-filter {
+            align-items: center;
+            margin-left: $default_spacing;
+            .filter-label {
+                margin-right: 4px;
+            }
+        }
+    }
+    .pagination-control {
+        margin: $default_spacing;
+        justify-content: center;
+    }
+    .entity-filter-row {
+        width: 100%;
+        padding: $default_spacing;
+        border: $border solid 1px;
+        margin-top: $default_spacing;
+        border-radius: $radius;
+    }
+    .play-button-container {
+        display: flex;
+        justify-content: flex-end;
+        .play-button {
+            .anticon-play-circle {
+                color: $primary;
+            }
+            &.viewed {
+                .anticon-play-circle {
+                    color: $text-muted;
+                }
+            }
+        }
+    }
+    .info-icon {
+        color: $primary;
+    }
+}

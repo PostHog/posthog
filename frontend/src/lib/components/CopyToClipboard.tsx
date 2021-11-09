@@ -1,14 +1,18 @@
-import React from 'react'
-import { Tooltip, Input } from 'antd'
+import React, { HTMLProps } from 'react'
+import { Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import { copyToClipboard } from 'lib/utils'
-import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { Tooltip } from 'lib/components/Tooltip'
 
-interface InlineProps {
-    children: JSX.Element | string
+interface InlineProps extends HTMLProps<HTMLSpanElement> {
+    children?: JSX.Element | string
     explicitValue?: string
     description?: string
     isValueSensitive?: boolean
+    tooltipMessage?: string | null
+    iconStyle?: Record<string, string | number>
+    iconPosition?: 'end' | 'start'
+    style?: React.CSSProperties
 }
 
 interface InputProps {
@@ -23,23 +27,35 @@ export function CopyToClipboardInline({
     explicitValue,
     description,
     isValueSensitive = false,
+    tooltipMessage = 'Click to copy',
+    iconStyle = {},
+    iconPosition = 'end',
+    style,
     ...props
 }: InlineProps): JSX.Element {
-    return (
-        <Tooltip title="Click to copy">
-            <span
-                className={isValueSensitive ? 'ph-no-capture ' + rrwebBlockClass : ''}
-                style={{ cursor: 'pointer' }}
-                onClick={() => {
-                    copyToClipboard(explicitValue ?? children.toString(), description)
-                }}
-                {...props}
-            >
-                {children}
-                <CopyOutlined style={{ marginLeft: 4 }} />
-            </span>
-        </Tooltip>
+    const content = (
+        <span
+            className={isValueSensitive ? 'ph-no-capture' : ''}
+            style={{
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
+                flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
+                ...style,
+            }}
+            onClick={() => {
+                copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
+            }}
+            {...props}
+        >
+            <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
+            <CopyOutlined
+                style={iconPosition === 'end' ? { marginLeft: 4, ...iconStyle } : { marginRight: 4, ...iconStyle }}
+            />
+        </span>
     )
+    return tooltipMessage ? <Tooltip title={tooltipMessage}>{content}</Tooltip> : <>{content}</>
 }
 
 export function CopyToClipboardInput({
@@ -51,7 +67,7 @@ export function CopyToClipboardInput({
 }: InputProps): JSX.Element {
     return (
         <Input
-            className={isValueSensitive ? 'ph-no-capture ' + rrwebBlockClass : ''}
+            className={isValueSensitive ? 'ph-no-capture' : ''}
             type="text"
             value={value}
             placeholder={placeholder || 'nothing to show here'}

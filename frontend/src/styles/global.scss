@@ -1,0 +1,737 @@
+/* Only styles that are shared across multiple components (i.e. global) should go here, trying to keep this file
+nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
+style files without adding already imported styles.
+
+Font weights: only `normal` (400), `$medium` (500) or `bold` (700) should be used.
+NOTE: $medium is a SCSS var; not a keyword
+
+*/
+
+// Global components
+@import 'react-toastify/dist/ReactToastify';
+@import '~/vars';
+@import 'fonts';
+
+:root {
+    --primary: #{$primary};
+    --primary-alt: #{$primary_alt};
+    --success: #{$success};
+    --danger: #{$danger};
+    --warning: #{$warning};
+    --bg-menu: #{$bg_menu};
+    --bg-mid: #{$bg_mid};
+    --bg-side: #{$bg_side};
+    --bg-navy: #{$bg_navy};
+    --bg-charcoal: #{$bg_charcoal};
+    --bg-bridge: #{$bg_bridge};
+    --bg-shaded: #{$bg_shaded};
+    --text-default: #{$text_default};
+    --text-muted: #{$text_muted};
+    --text-light: #{$text_light};
+    --muted: #{$text_muted};
+    --muted-alt: #{$text_muted_alt};
+    --border-light: #{$border_light};
+    --border: #{$border};
+    --border-dark: #{$border_dark};
+    --border-active: #{$border_active};
+    --radius: #{$radius};
+    // Used for graph series
+    --blue: #{$blue_500};
+    --blue-light: #{$blue_300};
+    --purple: #{$purple_500};
+    --indigo: #{$purple_700};
+    --purple-light: #{$purple_300};
+    --salmon: #ff906e;
+    --yellow: #ffc035;
+    --green: #{$success};
+    --cyan: #17a2b8;
+    --pink: #e83e8c;
+    --white: #f4f6ff;
+    --maroon: #7f0000;
+    --mint: #aaffc3;
+    --olive: #807500;
+    --navy: #000075;
+    --orange: #f58231;
+    --lime: #bfef45;
+    --apricot: #ffd8b1;
+    --brown: #9a6324;
+    // Lifecycle series
+    --lifecycle-new: #{$lifecycle_new};
+    --lifecycle-returning: #{$lifecycle_returning};
+    --lifecycle-resurrecting: #{$lifecycle_resurrecting};
+    --lifecycle-dormant: #{$lifecycle_dormant};
+    --lifecycle-new-hover: #{darken($lifecycle_new, 20%)};
+    --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
+    --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
+    --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
+}
+
+// Text styles
+
+body b,
+body strong {
+    // body is specified to increase specificity – otherwise Ant Design's "bolder" takes precedence over "600"
+    font-weight: 600;
+}
+
+.text-default {
+    color: $text_default;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 400;
+}
+
+.text-small {
+    @extend .text-default;
+    font-size: 12px;
+}
+
+.text-extra-small {
+    @extend .text-default;
+    font-size: 10px;
+}
+
+.text-xxs {
+    @extend .text-default;
+    font-size: 8px;
+}
+
+.page-title-row {
+    margin-top: 16px;
+}
+
+.page-title {
+    font-size: 28px;
+    line-height: 34px;
+    margin-top: 0.5em;
+    font-weight: bold;
+}
+
+.page-caption {
+    @extend .text-default;
+    max-width: 640px;
+    margin-bottom: 32px;
+}
+
+.subtitle-row {
+    margin-top: 8px;
+}
+
+.subtitle {
+    display: flex;
+    align-items: center;
+    margin-top: 12px;
+    font-size: 22px;
+    line-height: 26px;
+    font-weight: bold;
+
+    &.highlighted {
+        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+    }
+}
+
+.l3 {
+    /* Level 3 title (ideally H3) */
+    font-size: 16px;
+    font-weight: bold;
+    line-height: 19px;
+}
+
+.l4 {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.l5 {
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.text-right {
+    text-align: right;
+}
+
+.text-left {
+    text-align: left;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-muted {
+    color: $text_muted;
+}
+
+.text-muted-alt {
+    color: $text_muted_alt;
+}
+
+.primary {
+    color: $primary;
+}
+
+// Supplement text, such as email under user name
+.supplement {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    color: var(--muted-alt);
+    font-size: 0.8125rem;
+}
+
+code.code {
+    // Temporary: .code class to transition legacy elements
+    color: $danger;
+    background-color: $bg_mid;
+    border-radius: $radius;
+    padding: 2px 6px;
+}
+
+// Spacing & layout
+.mb {
+    margin-bottom: $default_spacing;
+}
+
+.mt {
+    margin-top: $default_spacing;
+}
+
+.mb-2 {
+    margin-bottom: $default_spacing * 2;
+}
+
+.mt-2 {
+    margin-top: $default_spacing * 2;
+}
+
+.mb-05 {
+    margin-bottom: $default_spacing * 0.5;
+}
+
+.mb-025 {
+    margin-bottom: $default_spacing * 0.25;
+}
+
+.mt-05 {
+    margin-top: $default_spacing * 0.5;
+}
+
+.mt-025 {
+    margin-top: $default_spacing * 0.25;
+}
+
+.mr {
+    margin-right: $default_spacing;
+}
+
+.ml {
+    margin-left: $default_spacing;
+}
+
+.mr-05 {
+    margin-right: $default_spacing * 0.5;
+}
+
+.mr-025 {
+    margin-right: $default_spacing * 0.25;
+}
+
+.ml-05 {
+    margin-left: $default_spacing * 0.5;
+}
+
+.ml-025 {
+    margin-left: $default_spacing * 0.25;
+}
+
+.mx-0 {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+
+.my-0 {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+.pa {
+    // Padding all
+    padding: $default_spacing;
+}
+
+.pb {
+    padding-bottom: $default_spacing;
+}
+
+.pt {
+    padding-top: $default_spacing;
+}
+
+.pr {
+    padding-right: $default_spacing;
+}
+
+.pl {
+    padding-left: $default_spacing;
+}
+
+.full-width {
+    width: 100%;
+}
+
+.float-right {
+    float: right;
+}
+
+.float-left {
+    float: left;
+}
+
+.space-between-items {
+    display: flex;
+    justify-content: space-between;
+}
+
+.main-app-content {
+    min-width: 0;
+    padding: 0 2rem 2rem;
+
+    @media (min-width: 480px) and (max-width: 639px) {
+        padding: $default_spacing $default_spacing * 2 !important;
+    }
+
+    @media (max-width: 480px) {
+        padding: $default_spacing $default_spacing !important;
+    }
+}
+
+// Color styles
+.bg-primary {
+    background-color: $primary;
+}
+
+.text-primary {
+    color: var(--primary) !important;
+}
+
+.text-success {
+    color: var(--success) !important;
+}
+
+.text-danger {
+    color: var(--danger) !important;
+}
+
+.text-warning {
+    color: var(--warning) !important;
+}
+
+// Random general styles
+
+.cursor-pointer {
+    cursor: pointer;
+}
+
+.highlighted {
+    border-radius: $radius;
+    animation: highlight 2000ms ease-out;
+}
+
+@keyframes highlight {
+    0% {
+        background-color: $yellow_50;
+    }
+    100% {
+        background-color: initial;
+    }
+}
+
+.fullscreen-scroll {
+    overflow-y: auto;
+}
+
+// Toasts
+
+.Toastify__toast-container {
+    opacity: 1;
+    transform: none;
+    margin-top: $top_nav_height;
+}
+
+.Toastify__toast {
+    padding: 16px;
+    border-radius: $radius;
+    font-family: inherit;
+    background-color: $bg_light;
+    border: 1px solid $border;
+    @extend .text-default;
+
+    h1 {
+        font-size: 1.14rem;
+        font-weight: bold;
+    }
+
+    .action-bar {
+        @extend .text-small;
+        color: $text_muted;
+        margin-top: $default_spacing / 2;
+        display: flex;
+        align-items: center;
+        a {
+            color: $text_muted;
+        }
+        .help-button {
+            flex-grow: 1;
+            text-align: right;
+        }
+        .ant-btn-link {
+            padding: 0;
+        }
+    }
+}
+
+.Toastify__progress-bar {
+    background: $success;
+}
+
+.Toastify__toast--success {
+    h1 {
+        color: $success;
+    }
+}
+
+.Toastify__toast--info {
+    h1 {
+        color: $primary_alt;
+    }
+    &.accent-border {
+        border-color: $primary_alt;
+    }
+    .Toastify__progress-bar {
+        background: $primary_alt;
+    }
+}
+
+.Toastify__toast--error {
+    h1 {
+        color: $danger;
+    }
+    .Toastify__progress-bar {
+        background: $danger;
+    }
+    .error-details {
+        font-style: italic;
+    }
+}
+
+// Table styles
+
+.table-bordered td {
+    border: 1px solid $border;
+}
+
+// Card styles
+
+.ant-card-body > :first-child {
+    margin-top: 0;
+}
+
+.card-elevated {
+    @extend %mixin-elevated;
+}
+
+// Form & input styles
+
+.input-set {
+    padding-bottom: $default_spacing;
+    color: $text_default;
+
+    label {
+        font-weight: bold;
+        @extend .text-default;
+    }
+
+    .caption {
+        color: $text_muted;
+        @extend .text-small;
+    }
+
+    .ant-radio-button-wrapper {
+        // To properly handle label styles above
+        font-weight: normal !important;
+        line-height: 30px !important;
+    }
+
+    &.errored {
+        .caption {
+            color: $danger;
+        }
+        input[type='password'],
+        input[type='text'] {
+            border-color: $danger !important;
+        }
+    }
+}
+
+.error-on-blur {
+    &.errored:not(:focus) {
+        border-color: $danger !important;
+    }
+}
+
+.ant-form-item-label label {
+    font-weight: $medium;
+}
+
+// Button styles
+
+.btn-close {
+    color: $text_muted;
+}
+
+.ant-btn-sm {
+    font-size: 12px !important;
+}
+
+.ant-btn-md {
+    // Size between `small` & `default`
+    font-size: 13px !important;
+    height: 28px !important;
+    padding: 0px 10px !important;
+}
+
+.info-indicator {
+    color: $primary !important;
+    cursor: pointer;
+    margin-left: 5px;
+
+    &.left {
+        margin-left: 0;
+        margin-right: 5px;
+    }
+}
+
+.btn-lg-2x {
+    font-size: 1.5rem !important;
+    line-height: 1 !important;
+    svg {
+        width: 1.5rem !important;
+        height: 1.5rem !important;
+    }
+}
+
+// Badges styles
+
+.badge {
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    background-color: $border_dark;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+}
+
+.graph-series-glyph {
+    border-radius: 50%;
+    border: 2px solid $text_default;
+    font-weight: bold;
+    font-size: 12px;
+    height: 22px;
+    width: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+
+    // variants
+    &.funnel-step-glyph {
+        border-color: $border;
+        background-color: white;
+        color: $primary_alt;
+        height: 23px;
+        width: 23px;
+        font-size: unset;
+    }
+}
+
+// Overlays styles
+
+#bottom-notice {
+    z-index: $z_bottom_notice;
+    display: flex !important;
+    flex-direction: row;
+    position: fixed;
+    width: 100%;
+    bottom: 0;
+    left: 0;
+    background: #000;
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.5rem;
+    code {
+        color: inherit;
+        font-size: inherit;
+    }
+    &.warning div {
+        height: auto;
+        background: $danger;
+    }
+    &.tricolor {
+        cursor: pointer;
+        div:nth-child(1) {
+            background: $brand_blue;
+        }
+        div:nth-child(2) {
+            background: $brand_red;
+        }
+        div:nth-child(3) {
+            background: $brand_yellow;
+        }
+        span {
+            cursor: text;
+        }
+    }
+    div {
+        flex-basis: 0;
+        flex-grow: 1;
+        height: 1.5rem;
+        text-align: center;
+    }
+    span {
+        display: none;
+    }
+    button {
+        border: none;
+        background: transparent;
+        color: inherit;
+        width: 1.5rem;
+        height: 1.5rem;
+        padding: 0;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+    }
+    @media screen and (min-width: 750px) {
+        font-size: 1rem;
+        line-height: 2rem;
+        div {
+            height: 2rem;
+        }
+        span {
+            display: inline;
+        }
+        button {
+            width: 2rem;
+            height: 2rem;
+            font-size: 1.25rem;
+        }
+    }
+}
+
+// Overlays
+
+.overlay__parent {
+    position: relative;
+}
+
+.overlay__child {
+    transition: opacity 0.25s ease;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    .overlay--danger & {
+        background: repeating-linear-gradient(
+            -45deg,
+            rgba(255, 255, 255, 0.5),
+            rgba(255, 255, 255, 0.5) 0.75rem,
+            var(--danger) 0.5rem,
+            var(--danger) 20px
+        );
+    }
+}
+
+.clickable-card {
+    cursor: pointer;
+    &:hover {
+        border-color: $primary;
+    }
+}
+
+// Stateful badges
+
+.stateful-badge {
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-weight: bold;
+
+    &.or {
+        background-color: $blue_300;
+        text-align: center;
+        max-width: 50px;
+    }
+
+    &.width-locked {
+        width: 40px;
+        text-align: center;
+    }
+
+    &.and {
+        background-color: $yellow_100;
+        color: $primary_alt;
+    }
+
+    &.pos-center-end {
+        position: absolute;
+        top: 50%;
+        left: -30px;
+    }
+}
+
+// Simple tags
+
+.simple-tag {
+    border-radius: $radius;
+    font-weight: bold;
+    padding: 2px 6px;
+
+    &.tag-light-lilac {
+        background-color: $hc_light_lilac;
+        color: $hc_navy;
+    }
+}
+
+// Hotkey styles
+.hotkey {
+    width: 22px;
+    height: 22px;
+    border-radius: $radius;
+    font-weight: bold;
+    margin-left: 6px;
+    background-color: white;
+    color: $primary;
+    text-shadow: none;
+    text-transform: uppercase;
+    border: 1px solid $border_light;
+    margin-bottom: 2px;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hotkey-plus {
+    display: inline;
+    &::after {
+        content: '+';
+        margin-left: 6px;
+        font-size: 1rem;
+    }
+}
+.fullscreen-scroll {
+    overflow-y: auto;
+}

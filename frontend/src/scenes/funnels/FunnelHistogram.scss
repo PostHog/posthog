@@ -1,0 +1,18 @@
+.dashboard-item-content {
+    .histogram-container {
+        max-height: 100%;
+    }
+    .funnel-header-steps {
+        display: none;
+    }
+    .funnel-histogram-outer-container {
+        height: calc(100% - 1em);
+        width: 100%;
+    }
+}
+
+.funnel-histogram-outer-container {
+    &.scrollable {
+        overflow-x: auto;
+    }
+}

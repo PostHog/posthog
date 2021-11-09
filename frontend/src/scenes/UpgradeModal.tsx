@@ -2,12 +2,13 @@ import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
-import { UserType } from '~/types'
 import { sceneLogic } from './sceneLogic'
 
 export function UpgradeModal(): JSX.Element {
-    const { upgradeModalFeatureName } = useValues(sceneLogic)
+    const { upgradeModalFeatureNameAndCaption } = useValues(sceneLogic)
     const { hideUpgradeModal, takeToPricing } = useActions(sceneLogic)
+
+    const [featureName, featureCaption] = upgradeModalFeatureNameAndCaption ?? []
 
     return (
         <Modal
@@ -16,23 +17,13 @@ export function UpgradeModal(): JSX.Element {
             cancelText="Maybe Later"
             onOk={takeToPricing}
             onCancel={hideUpgradeModal}
-            visible={!!upgradeModalFeatureName}
+            visible={!!featureName}
         >
-            <b>{upgradeModalFeatureName && capitalizeFirstLetter(upgradeModalFeatureName)}</b> is an advanced PostHog
-            feature. Upgrade now and get access to this, as well as to other powerful enhancements.
+            <p>
+                <b>{featureName && capitalizeFirstLetter(featureName)}</b> is an advanced PostHog feature.
+            </p>
+            {featureCaption && <p>{featureCaption}</p>}
+            <p>Upgrade now and get access to this, as well as to other powerful enhancements.</p>
         </Modal>
     )
-}
-
-export function guardPremiumFeature(
-    user: UserType | null,
-    showUpgradeModal: (featureName: string) => void,
-    key: string,
-    name: string,
-    callback?: () => void
-): boolean {
-    const featureAvailable = !!user?.organization.available_features.includes(key)
-    if (featureAvailable) callback?.()
-    else showUpgradeModal(name)
-    return featureAvailable
 }

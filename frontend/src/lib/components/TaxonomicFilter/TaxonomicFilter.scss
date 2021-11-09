@@ -1,0 +1,16 @@
+.taxonomic-filter {
+    min-width: 300px;
+    width: 550px;
+    max-width: calc(100vw - 40px);
+    background: white;
+
+    .ant-tabs-tab {
+        margin-right: 16px;
+    }
+
+    &.one-taxonomic-tab {
+        .taxonomic-infinite-list {
+            margin-top: 10px;
+        }
+    }
+}

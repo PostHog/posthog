@@ -4,18 +4,36 @@ on:
     - pull_request
 
 jobs:
+    cypress_prep:
+        name: Cypress E2E preparation
+        runs-on: ubuntu-latest
+        outputs:
+            matrix: ${{ steps.set-matrix.outputs.matrix }}
+        steps:
+            - name: Check out
+              uses: actions/checkout@v2
+            - id: set-matrix
+              run: |
+                  if ${{github.event.pull_request.head.repo.full_name == github.repository}}; then
+                  matrix=$(jq 'map(.)' .github/workflows/e2e_matrix.json)  
+                  else              
+                  matrix='[{"containers": [1]}]'
+                  fi
+                  echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
+
     cypress:
-        name: Cypress tests
+        name: Cypress E2E tests
         runs-on: ubuntu-18.04
+        needs: cypress_prep
+
         strategy:
             # when one test fails, DO NOT cancel the other
             # containers, because this will kill Cypress processes
             # leaving the Dashboard hanging ...
             # https://github.com/cypress-io/github-action/issues/48
             fail-fast: false
-            matrix:
-                # run 7 copies of the current job in parallel
-                containers: [1, 2, 3, 4, 5, 6, 7]
+            matrix: ${{fromJson(needs.cypress_prep.outputs.matrix)}}
+
         services:
             postgres:
                 image: postgres:12
@@ -41,20 +59,20 @@ jobs:
                     --health-retries 5
         steps:
             - name: Checkout
-              uses: actions/checkout@v1
+              uses: actions/checkout@v2
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8
-            - uses: actions/cache@v1
-              name: Cache pip dependencies
-              id: pip-cache
+
+            - uses: syphar/restore-virtualenv@v1.2
+              id: cache-virtualenv
               with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
+                  requirement_files: requirements.txt # this is optional
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
             - name: Install python dependencies
+              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --no-cache-dir --compile
@@ -62,33 +80,25 @@ jobs:
             - uses: actions/setup-node@v1
               with:
                   node-version: 14
-            - name: Get yarn cache directory path
-              id: yarn-dep-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn cache dir)"
-            - uses: actions/cache@v1
-              name: Setup Yarn dep cache
-              id: yarn-dep-cache
+            - uses: actions/cache@v2
+              id: cypress-node-modules-cache-2
               with:
-                  path: ${{ steps.yarn-dep-cache-dir-path.outputs.dir }}
-                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('**/yarn.lock') }}
+                  path: |
+                      **/node_modules
+                      ~/.cache/Cypress
+                  key: ${{ runner.os }}-cypress-node-modules-2-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-yarn-dep-
+                      ${{ runner.os }}-cypress-node-modules-2
             - name: Yarn install deps
+              if: steps.cypress-node-modules-cache-2.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@5.3.0 cypress-terminal-report@2.1.0
-            - uses: actions/cache@v1
-              name: Setup Yarn build cache
-              id: yarn-build-cache
-              with:
-                  path: frontend/dist
-                  key: ${{ runner.os }}-yarn-build-${{ hashFiles('frontend/src/') }}
-                  restore-keys: |
-                      ${{ runner.os }}-yarn-build-
+                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
             - name: Yarn build
+              env:
+                  GENERATE_SOURCEMAP: 'false'
               run: |
                   yarn build
-              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
             - name: Boot PostHog
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -97,20 +107,29 @@ jobs:
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   SECURE_COOKIES: 0
                   OPT_OUT_CAPTURE: 1
-                  SELF_CAPTURE: 1
+                  SELF_CAPTURE: 0
+                  E2E_TESTING: 1
+                  EMAIL_HOST: 'email.test.posthog.net' # used to test password resets
+                  SITE_URL: 'test.posthog.net' # used to test password resets
               run: |
-                  python manage.py collectstatic --noinput
+                  python manage.py collectstatic --noinput &
+                  ./bin/docker-migrate & wait
+                  python manage.py setup_dev
                   mkdir -p cypress/screenshots
-                  ./bin/docker-migrate
                   ./bin/docker-worker &
                   ./bin/docker-server &
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
-                  config-file: cypress.json
+                  config-file: cypress.e2e.json
                   record: true
-                  parallel: true
+                  parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
                   group: 'PostHog Frontend'
+                  # We're already installing cypress above
+                  # We have to install it separately otherwise the tests fail.
+                  install: false
+                  # We already install cypress separately, we don't need to install it again here
+                  install-command: echo "no"
               env:
                   # pass the Dashboard record key as an environment variable
                   CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}

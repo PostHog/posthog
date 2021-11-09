@@ -34,11 +34,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             authorization_match = re.match(fr"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 return authorization_match.group(1).strip(), "Authorization header"
-        if request_data is None and isinstance(request, Request):
-            data = request.data
-        else:
-            data = request_data or {}
-        if "personal_api_key" in data:
+        data = request.data if request_data is None and isinstance(request, Request) else request_data
+
+        if data and "personal_api_key" in data:
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], "query string"
@@ -105,21 +103,11 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
         return None
 
 
-class PublicTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: Request):
-        if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
-            Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
-            dashboard = Dashboard.objects.filter(
-                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
-            )
-            if not dashboard.exists():
-                raise AuthenticationFailed(detail="Dashboard doesn't exist")
-            return (AnonymousUser(), None)
-        return None
-
-
 def authenticate_secondarily(endpoint):
-    """Proper authentication for function views."""
+    """
+    DEPRECATED: Used for supporting legacy endpoints not on DRF.
+    Authentication for function views.
+    """
 
     @functools.wraps(endpoint)
     def wrapper(request: HttpRequest):

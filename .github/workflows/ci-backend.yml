@@ -1,10 +1,58 @@
 name: Backend CI
 
 on:
-    - pull_request
+    push:
+        branches:
+            - master
+    pull_request:
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+    REDIS_URL: 'redis://localhost'
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    SAML_DISABLED: 1
+    TEST: 1
 
 jobs:
-    code-quality:
+    # Job to decide if we should run backend ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
+        runs-on: ubuntu-latest
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run backend checks
+        # Set job outputs to values from filter step
+        outputs:
+            backend: ${{ steps.filter.outputs.backend }}
+        steps:
+            # For pull requests it's not necessary to checkout the code, but we
+            # also want this to run on master so we need to checkout
+            - uses: actions/checkout@v2
+
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      backend:
+                        # Avoid running backend tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. We could make
+                        # the dependencies more clear if we separated the backend/frontend
+                        # code completely
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        # Make sure we run if someone is explicitly change the workflow
+                        - .github/workflows/ci-backend.yml
+
+    backend-code-quality:
+        needs: changes
+        # Make sure we only run on backend changes
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+
         name: Code quality checks
         runs-on: ubuntu-latest
 
@@ -12,9 +60,9 @@ jobs:
             postgres:
                 image: postgres:12
                 env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
+                    POSTGRES_USER: posthog
+                    POSTGRES_PASSWORD: posthog
+                    POSTGRES_DB: posthog
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
@@ -28,19 +76,19 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v1
+            - uses: syphar/restore-virtualenv@v1.2
+              id: cache-backend-tests
               with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/requirements-dev.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
+                  custom_cache_key_element: v1-
 
-            - name: Install Python dependencies with pip
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install -U pip
-                  python -m pip install -r requirements.txt
                   python -m pip install -r requirements-dev.txt
-              if: steps.cache.outputs.cache-hit != 'true'
+                  python -m pip install -r requirements.txt
 
             - name: Check formatting
               run: |
@@ -55,160 +103,197 @@ jobs:
                   flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
 
             - name: Typecheck
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   mypy .
 
     django:
-        name: Django tests – Py ${{ matrix.python-version }}
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
+
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.7.8', '3.8.5', '3.9.0']
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-            clickhouse-server:
-                image: yandex/clickhouse-server
-                ports:
-                    - '8123:8123'
-                    - '9000:9000'
-                    - '9440:9440'
-                    - '9009:9009'
+                python-version: ['3.8.5']
+                ee: [true]
+                foss: [false]
+                saml: [false]
+                name: ['']
+                # :NOTE: Keep concurrency and group's in sync
+                concurrency: [5]
+                group: [1, 2, 3, 4, 5]
+                include:
+                    # :TRICKY: Run FOSS tests in a separate container
+                    - python-version: '3.8.5'
+                      ee: false
+                      saml: false
+                      foss: true
+                      name: 'FOSS'
+                      concurrency: 1
+                      group: 1
+                    # :TRICKY: Run FOSS tests in a separate container
+                    - python-version: '3.9.0'
+                      ee: false
+                      saml: false
+                      foss: true
+                      name: 'FOSS'
+                      concurrency: 1
+                      group: 1
+                    # :TRICKY: Run SAML tests in a separate container
+                    - python-version: '3.8.5'
+                      ee: false
+                      saml: true
+                      foss: false
+                      name: 'SAML'
+                      concurrency: 1
+                      group: 1
         steps:
             - uses: actions/checkout@v1
               with:
                   fetch-depth: 1
+
+            - name: Start stack with Docker Compose
+              run: docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }}
 
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
                   python-version: ${{ matrix.python-version }}
 
-            - uses: actions/cache@v1
-              with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-${{ matrix.python-version }}-
+            - name: Install SAML (python3-saml) dependencies (not required for Cloud or FOSS)
+              if: ${{ matrix.saml }}
+              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Install requirements.txt dependencies with pip
+            - uses: syphar/restore-virtualenv@v1.2
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-${{ matrix.name }}
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis
-              if: steps.cache.outputs.cache-hit != 'true'
+
+            - name: Install SAML python dependencies
+              if: ${{ matrix.saml }}
+              run: |
+                  python -m pip install python3-saml==1.12.0
 
             - name: Check migrations
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
-              run: python manage.py makemigrations --check --dry-run
+              run: |
+                  python manage.py makemigrations --check --dry-run
+                  git fetch origin master
+                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
+                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
+                  # In this check we exclusively care about files that were added (A) in posthog/migrations/
+                  git diff --name-status origin/master..HEAD | grep "A\tposthog/migrations/" | awk '{print $2}' | python manage.py test_migrations_are_null
 
-            - name: Run posthog tests
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
+            - name: Set up needed files
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test posthog -v 2
-            - name: Run EE tests
+
+            - name: Run FOSS tests
+              if: ${{ matrix.foss }}
+              run: |
+                  rm -rf ee/
+                  pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
+
+            - name: Run SAML tests
+              if: ${{ matrix.saml }}
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_DATABASE: 'posthog_test'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  python manage.py test ee --testrunner="ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner"
+                  pytest ee -m "saml_only"
+
+            - name: Run ee/ tests
+              if: ${{ matrix.ee }}
+              env:
+                  PRIMARY_DB: 'clickhouse'
+              run: |
+                  pytest ee -m "not saml_only" \
+                      --splits ${{ matrix.concurrency }} \
+                      --group ${{ matrix.group }} \
+                      --store-durations \
+                      --cov \
+                      --cov-report=xml:coverage-clickhouse.xml
+
+            - name: Run pytest.mark.ee tests
+              if: ${{ matrix.ee && matrix.group == '1' }}
+              env:
+                  PRIMARY_DB: 'clickhouse'
+              run: |
+                  pytest posthog -m "ee"
+
+            - uses: codecov/codecov-action@v2
+              if: ${{ !matrix.saml && !matrix.cloud }}
+              with:
+                  files: ./coverage-postgres.xml,./coverage-clickhouse.xml
+                  fail_ci_if_error: false
+                  verbose: true
+
+            - name: Upload updated timing data as artifacts
+              uses: actions/upload-artifact@v2
+              if: ${{ matrix.ee }}
+              with:
+                  name: timing_data-${{ matrix.group }}
+                  path: .test_durations
 
     cloud:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+
         name: Django tests – Cloud
         runs-on: ubuntu-latest
-
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-            clickhouse-server:
-                image: yandex/clickhouse-server
-                ports:
-                    - '8123:8123'
-                    - '9000:9000'
-                    - '9440:9440'
-                    - '9009:9009'
-
         steps:
-            - name: Fetch posthog-production
+            - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-production/tarball/master | tar --strip-components=1 -xz --
+                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
-
             - name: Checkout master
               uses: actions/checkout@v2
               with:
                   ref: 'master'
                   path: 'deploy/'
-
-            - name: Link posthog-production at master
+            - name: Link posthog-cloud at master
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
                   cat requirements.txt >> deploy/requirements.txt
-
+            - name: Start stack with Docker Compose
+              run: docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v2
-              with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
+            - uses: syphar/restore-virtualenv@v1.2
+              id: cache-backend-tests
 
-            - name: Install requirements.txt dependencies with pip
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  cd deploy
-                  python -m pip install --upgrade pip
-                  python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis
-              if: steps.cache.outputs.cache-hit != 'true'
+                  python -m pip install -r deploy/requirements-dev.txt
+                  python -m pip install -r deploy/requirements.txt
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   python deploy/manage.py migrate
                   rm -rf deploy
@@ -218,119 +303,43 @@ jobs:
               with:
                   path: 'deploy/'
 
-            - name: Link posthog-production at current branch
+            - name: Install requirements.txt dependencies with pip at current branch
               run: |
+                  cd deploy
+                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements.txt
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
+
+            - name: Link posthog-cloud at current branch
+              run: |
+                  cp deploy/ee/conftest.py multi_tenancy/conftest.py
+                  cp deploy/ee/conftest.py messaging/conftest.py
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
                   cat requirements.txt >> deploy/requirements.txt
 
             - name: Check migrations
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
               run: |
                   cd deploy
                   python manage.py makemigrations --check --dry-run
                   python manage.py migrate
 
-            - name: Run posthog tests
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
+            - name: Set up needed files
               run: |
                   cd deploy
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test posthog --keepdb -v 2 --exclude-tag=skip_on_multitenancy
 
-            - name: Run cloud tests (posthog-production)
+            - name: Run cloud tests (posthog-cloud)
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
                   PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_DATABASE: 'posthog_test'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
+                  source .env.template
                   cd deploy
-                  python manage.py test multi_tenancy messaging --keepdb -v 2 --exclude-tag=skip_on_multitenancy
-            - name: Run EE tests
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
-                  PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_DATABASE: 'posthog_test'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
-              run: |
-                  cd deploy
-                  python manage.py test ee --keepdb
-
-    foss:
-        name: Django tests – FOSS
-        runs-on: ubuntu-latest
-
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
-        steps:
-            - uses: actions/checkout@v1
-              with:
-                  fetch-depth: 1
-
-            - name: Set up Python 3.8
-              uses: actions/setup-python@v2
-              with:
-                  python-version: 3.8
-
-            - uses: actions/cache@v1
-              with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
-
-            - name: Install requirements.txt dependencies with pip
-              run: |
-                  python -m pip install --upgrade pip
-                  python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis
-              if: steps.cache.outputs.cache-hit != 'true'
-
-            - name: Remove ee
-              run: |
-                  rm -rf ee/
-
-            - name: Check migrations
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  REDIS_URL: 'redis://localhost'
-              run: python manage.py makemigrations --check --dry-run
-
-            - name: Run tests
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  python manage.py test -v 2 --exclude-tag=ee
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"

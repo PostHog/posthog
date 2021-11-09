@@ -20,7 +20,6 @@ services:
         ports:
             - '8000:8000'
         environment:
-            IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: '<randomly generated secret key>'

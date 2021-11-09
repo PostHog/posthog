@@ -1,90 +1,55 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues } from 'kea'
-import { Alert, Button, Table, Tooltip } from 'antd'
-import { userLogic } from 'scenes/userLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
-import { PropertyUsageType } from '~/types'
-import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { humanizeNumber } from 'lib/utils'
+import { Alert, Skeleton } from 'antd'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { PageHeader } from 'lib/components/PageHeader'
+import { UsageDisabledWarning } from './UsageDisabledWarning'
+import { VolumeTable } from './VolumeTable'
+import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
+import { SceneExport } from 'scenes/sceneTypes'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
 
-const columns = [
-    {
-        title: 'Property',
-        render: function PropName(item: PropertyUsageType) {
-            return <PropertyKeyInfo value={item.key} />
-        },
-        sorter: (a: PropertyUsageType, b: PropertyUsageType) => {
-            // If PostHog property, put at end of list
-            if (keyMapping.event[a.key] && !keyMapping.event[b.key]) return 1
-            if (!keyMapping.event[a.key] && keyMapping.event[b.key]) return -1
-            return ('' + a.key).localeCompare(b.key)
-        },
-        defaultSortOrder: 'ascend',
-    },
-    {
-        title: function VolumeTitle() {
-            return (
-                <Tooltip
-                    placement="right"
-                    title="Total number of events that included this property in the last 30 days. Can be delayed by up to an hour."
-                >
-                    30 day volume (delayed by up to an hour)
-                    <InfoCircleOutlined className="info-indicator" />
-                </Tooltip>
-            )
-        },
-        render: (item: PropertyUsageType) => humanizeNumber(item.volume),
-        sorter: (a: PropertyUsageType, b: PropertyUsageType) =>
-            a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume,
-    },
-    {
-        title: function QueriesTitle() {
-            return (
-                <Tooltip
-                    placement="right"
-                    title="Number of queries in PostHog that included a filter on this property."
-                >
-                    30 day queries (delayed by up to an hour)
-                    <InfoCircleOutlined className="info-indicator" />
-                </Tooltip>
-            )
-        },
-        render: (item: PropertyUsageType) => humanizeNumber(item.usage_count),
-        sorter: (a: PropertyUsageType, b: PropertyUsageType) =>
-            a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
-    },
-]
+export const scene: SceneExport = {
+    component: PropertiesVolumeTable,
+    logic: eventDefinitionsModel,
+}
 
-export function PropertiesVolumeTable(): JSX.Element {
-    const { user } = useValues(userLogic)
-    const [showPostHogProps, setShowPostHogProps] = useState(true)
+export function PropertiesVolumeTable(): JSX.Element | null {
+    const { preflight } = useValues(preflightLogic)
+    const { propertyDefinitions, loaded } = useValues(propertyDefinitionsModel)
+
     return (
-        <div>
-            <Button size="small" type="default" onClick={() => setShowPostHogProps(!showPostHogProps)}>
-                {showPostHogProps ? 'Hide' : 'Show'} PostHog properties
-            </Button>
-            <br />
-            <br />
-            {user?.team.event_properties_with_usage[0]?.volume === null && (
-                <>
-                    <Alert
-                        type="warning"
-                        description="We haven't been able to get usage and volume data yet. Please check back later"
-                    />
-                    <br />
-                </>
-            )}
-            <Table
-                dataSource={user?.team.event_properties_with_usage
-                    .filter((item: PropertyUsageType) => (keyMapping.event[item.key] ? showPostHogProps : true))
-                    .filter((item: PropertyUsageType) =>
-                        keyMapping.event[item.key] && keyMapping.event[item.key].hide ? false : true
-                    )}
-                columns={columns}
-                style={{ marginBottom: '4rem' }}
-                size="small"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
+            <EventsTabs tab={EventsTab.EventPropertyStats} />
+            <PageHeader
+                title="Properties Stats"
+                caption="See all property keys that have ever been sent to this team, including the volume and how often
+                queries where made using this property key."
+                style={{ marginTop: 0 }}
             />
+            {loaded ? (
+                <>
+                    {preflight && !preflight?.is_event_property_usage_enabled ? (
+                        <UsageDisabledWarning tab="Properties Stats" />
+                    ) : (
+                        propertyDefinitions.length === 0 ||
+                        (propertyDefinitions[0].volume_30_day === null && (
+                            <>
+                                <Alert
+                                    type="warning"
+                                    message="We haven't been able to get usage and volume data yet. Please check back later."
+                                />
+                            </>
+                        ))
+                    )}
+                    <VolumeTable data={propertyDefinitions} type="property" />
+                </>
+            ) : (
+                <Skeleton active paragraph={{ rows: 5 }} />
+            )}
+            <DefinitionDrawer />
         </div>
     )
 }

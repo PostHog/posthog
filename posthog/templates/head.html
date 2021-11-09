@@ -1,13 +1,29 @@
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="/static/favicon-32x32.png" sizes="32x32"/>
-<link rel="icon" href="/static/favicon-192x192.png" sizes="192x192"/>
+<meta charset="utf8">
+
+<!-- Favicons & OS-theme configurations -->
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
+<link rel="manifest" href="/static/site.webmanifest?v=2021-04-29">
+<link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2021-04-29" color="#FF053C">
+<link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+<meta name="apple-mobile-web-app-title" content="PostHog">
+<meta name="application-name" content="PostHog">
+
+
 {% if not opt_out_capture and js_posthog_api_key %}
     <script>
     window.JS_POSTHOG_API_KEY = {{js_posthog_api_key | safe}};
     window.JS_POSTHOG_HOST = {{js_posthog_host | safe}};
+    window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
+    window.JS_CAPTURE_INTERNAL_METRICS = {{js_capture_internal_metrics | yesno:"true,false"}}
     </script>
 {% endif %}
 {% if sentry_dsn %}
     <script>window.SENTRY_DSN = '{{sentry_dsn}}';</script>
 {% endif %}
+<script id='posthog-app-user-preload'>
+    window.POSTHOG_APP_CONTEXT = {{ posthog_app_context | safe }};
+</script>
