@@ -61,7 +61,6 @@ describe('eventsTableLogic', () => {
 
     it('starts with known defaults', async () => {
         await expectLogic(logic).toMatchValues({
-            initialPathname: '/events',
             properties: expect.arrayContaining([]),
             eventFilter: '',
             isLoading: true,

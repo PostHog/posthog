@@ -8,6 +8,7 @@ import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
+import UrlPattern from 'url-pattern'
 
 const POLL_TIMEOUT = 5000
 
@@ -95,10 +96,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         noop: (s) => s,
     },
 
-    reducers: {
-        // save the pathname that was used when this logic was mounted
-        // we use it to NOT update the filters when the user moves away from this path, yet the scene is still active
-        initialPathname: [(state: string) => router.selectors.location(state).pathname, { noop: (_, s) => s }],
+    reducers: ({ props }) => ({
+        urlPattern: [props?.sceneUrl ? new UrlPattern(props.sceneUrl) : 'no scene url 🤯', {}],
         properties: [
             [] as PropertyFilter[],
             {
@@ -182,7 +181,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
-    },
+    }),
 
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
@@ -240,14 +239,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     urlToAction: ({ actions, values, props }) => {
         return {
             [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-                try {
-                    // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                    if (router.values.location.pathname !== values.initialPathname) {
-                        return
-                    }
-                } catch (error) {
-                    // since this is a catch-all route, this code might run during or after the logic was unmounted
-                    // if we have an error accessing the filter value, the logic is gone and we should return
+                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
+                const sceneIsLoaded = values.urlPattern?.match(router.values.location.pathname)
+                if (!sceneIsLoaded) {
                     return
                 }
 
