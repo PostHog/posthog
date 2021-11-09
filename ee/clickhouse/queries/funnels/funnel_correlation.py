@@ -620,21 +620,10 @@ class FunnelCorrelation:
             return None
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
+        odds_ratios, skewed_totals = results
         return {
-            "events": [
-                {
-                    "success_count": odds_ratio["success_count"],
-                    "success_people_url": self.construct_people_url(success=True, event_definition=event_definition),
-                    "failure_count": odds_ratio["failure_count"],
-                    "failure_people_url": self.construct_people_url(success=False, event_definition=event_definition),
-                    "odds_ratio": odds_ratio["odds_ratio"],
-                    "correlation_type": odds_ratio["correlation_type"],
-                    "event": event_definition,
-                }
-                for odds_ratio in results[0]
-                for event_definition in [self.serialize_event_with_property(odds_ratio["event"])]
-            ],
-            "skewed": results[1],
+            "events": [self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in odds_ratios],
+            "skewed": skewed_totals,
         }
 
     def run(self) -> FunnelCorrelationResponse:
@@ -700,6 +689,18 @@ class FunnelCorrelation:
             return True
 
         return False
+
+    def serialize_event_odds_ratio(self, odds_ratio: EventOddsRatio) -> EventOddsRatioSerialized:
+        event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
+        return {
+            "success_count": odds_ratio["success_count"],
+            "success_people_url": self.construct_people_url(success=True, event_definition=event_definition),
+            "failure_count": odds_ratio["failure_count"],
+            "failure_people_url": self.construct_people_url(success=False, event_definition=event_definition),
+            "odds_ratio": odds_ratio["odds_ratio"],
+            "correlation_type": odds_ratio["correlation_type"],
+            "event": event_definition,
+        }
 
     def serialize_event_with_property(self, event: str) -> EventDefinition:
         """
