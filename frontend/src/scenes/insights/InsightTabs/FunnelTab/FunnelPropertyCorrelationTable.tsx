@@ -30,7 +30,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         correlationPropKey,
     } = useValues(logic)
 
-    const { setPropertyCorrelationTypes, setPropertyNames, openPersonsModal } = useActions(logic)
+    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal } = useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 
@@ -50,7 +50,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openPersonsModal(record, true)
+                    openCorrelationPersonsModal(record, true)
                 }}
             >
                 {record.success_count}
@@ -62,7 +62,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openPersonsModal(record, false)
+                    openCorrelationPersonsModal(record, false)
                 }}
             >
                 {record.failure_count}

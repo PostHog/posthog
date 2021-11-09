@@ -33,6 +33,7 @@ import {
     EntityTypes,
     PropertyFilter,
     PropertyOperator,
+    BreakdownType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -123,9 +124,20 @@ export const funnelLogic = kea<funnelLogicType>({
             index,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        openPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
-            correlation,
-            success,
+        openPersonsModal: (
+            step: FunnelStep | FunnelStepWithNestedBreakdown,
+            stepNumber: number,
+            breakdown_value?: string | number,
+            breakdown?: string,
+            breakdown_type?: BreakdownType,
+            customSteps?: number[]
+        ) => ({
+            step,
+            stepNumber,
+            breakdown_value,
+            breakdown,
+            breakdown_type,
+            customSteps,
         }),
         openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
             correlation,
@@ -1104,41 +1116,54 @@ export const funnelLogic = kea<funnelLogicType>({
             })
             actions.loadFunnels()
         },
-        openPersonsModal: ({ correlation, success }) => {
-            const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
-
-            personsModalLogic.actions.loadPeopleFromUrl({
-                url: success ? correlation.success_people_url : correlation.failure_people_url,
-                // I'm not sure why this is -2, I'm just copying from what was here previously
-                stepNumber: success ? values.stepsWithCount.length : -2,
-                label: breakdown,
-                breakdown,
-                breakdown_value,
+        openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
+            personsModalLogic.actions.loadPeople({
+                action: 'session',
+                breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
+                label: step.name,
+                date_from: '',
+                date_to: '',
+                filters: { ...values.filters, breakdown, breakdown_type, funnel_custom_steps: customSteps },
+                saveOriginal: true,
+                funnelStep: stepNumber,
             })
-
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Properties,
-                'person modal',
-                values.filters.funnel_correlation_person_entity
-            )
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
-            const { name, properties } = parseEventAndProperty(correlation.event)
+            if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
+                const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
 
-            personsModalLogic.actions.loadPeopleFromUrl({
-                url: success ? correlation.success_people_url : correlation.failure_people_url,
-                stepNumber: success ? values.stepsWithCount.length : -2,
-                label: name,
-                breakdown: '',
-                breakdown_value: '',
-            })
+                personsModalLogic.actions.loadPeopleFromUrl({
+                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    // I'm not sure why this is -2, I'm just copying from what was here previously
+                    stepNumber: success ? values.stepsWithCount.length : -2,
+                    label: breakdown,
+                    breakdown,
+                    breakdown_value,
+                })
 
-            eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
-                id: name,
-                type: EntityTypes.EVENTS,
-                properties,
-                converted: success,
-            })
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.Properties,
+                    'person modal',
+                    values.filters.funnel_correlation_person_entity
+                )
+            } else {
+                const { name, properties } = parseEventAndProperty(correlation.event)
+
+                personsModalLogic.actions.loadPeopleFromUrl({
+                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    stepNumber: success ? values.stepsWithCount.length : -2,
+                    label: name,
+                    breakdown: '',
+                    breakdown_value: '',
+                })
+
+                eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
+                    id: name,
+                    type: EntityTypes.EVENTS,
+                    properties,
+                    converted: success,
+                })
+            }
         },
         changeStepRange: ({ funnel_from_step, funnel_to_step }) => {
             actions.setFilters({
