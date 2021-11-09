@@ -428,8 +428,7 @@ export class DB {
         let queryString = `SELECT
                 posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
                 posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified,
-                posthog_person.uuid, posthog_person.version,
-                posthog_persondistinctid.team_id AS persondistinctid__team_id,
+                posthog_person.uuid, posthog_persondistinctid.team_id AS persondistinctid__team_id,
                 posthog_persondistinctid.distinct_id AS persondistinctid__distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
@@ -540,26 +539,6 @@ export class DB {
         return client ? kafkaMessages : updatedPerson
     }
 
-    private async updatePersonSetProperties(person: Person, client: PoolClient): Promise<void> {
-        // Important: this should always be ran in a transaction with fetchPerson forUpdate=true
-        person.version = Number(person.version) + 1 // for safety we always update version here
-        const insertResult = await client.query(
-            `UPDATE posthog_person SET
-                properties = $1,
-                properties_last_updated_at = $2,
-                properties_last_operation = $3,
-                version = $4
-            WHERE id = $5`,
-            [
-                JSON.stringify(person.properties),
-                JSON.stringify(person.properties_last_updated_at),
-                JSON.stringify(person.properties_last_operation || {}),
-                person.version,
-                person.id,
-            ]
-        )
-    }
-
     private getPropertyLastUpdatedAtDateTimeOrEpoch(person: Person, key: string): DateTime {
         const lookup = person.properties_last_updated_at[key]
         if (lookup) {
@@ -576,8 +555,7 @@ export class DB {
     }
 
     private updatePropertiesLastOperation(person: Person, key: string, value: PersonPropertyUpdateOperation) {
-        // to get around the type check
-        if (person.properties_last_operation === null) {
+        if (!person.properties_last_operation) {
             person.properties_last_operation = {}
         }
         person.properties_last_operation[key] = value
@@ -626,9 +604,10 @@ export class DB {
         propertiesOnce: Properties,
         timestamp: DateTime
     ): Promise<void> {
-        if (properties.length === 0 && propertiesOnce.length === 0) {
+        if (Object.keys(properties).length === 0 && Object.keys(propertiesOnce).length === 0) {
             return
         }
+
         let person: Person | undefined
         await this.postgresTransaction(async (client) => {
             person = await this.fetchPerson(teamId, distinctId, client, true)
@@ -638,11 +617,24 @@ export class DB {
                 )
             }
 
-            if (!this.updatePersonPropertiesLocal(person, properties, propertiesOnce, timestamp)) {
+            const shouldUpdate = this.updatePersonPropertiesLocal(person, properties, propertiesOnce, timestamp)
+            if (!shouldUpdate) {
                 return
             }
 
-            await this.updatePersonSetProperties(person, client)
+            const insertResult = await client.query(
+                `UPDATE posthog_person SET
+                    properties = $1,
+                    properties_last_updated_at = $2,
+                    properties_last_operation = $3
+                WHERE id = $4`,
+                [
+                    JSON.stringify(person.properties),
+                    JSON.stringify(person.properties_last_updated_at),
+                    JSON.stringify(person.properties_last_operation || {}),
+                    person.id,
+                ]
+            )
         })
 
         if (this.kafkaProducer && person) {

@@ -62,6 +62,16 @@ describe('DB', () => {
         })
     })
 
+    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person> {
+        const selectResult = await db.postgresQuery(
+            `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
+            [teamId, personId],
+            'fetchPersonByPersonId'
+        )
+
+        return selectResult.rows[0]
+    }
+
     describe('fetchGroupTypes() and insertGroupType()', () => {
         it('fetches group types that have been inserted', async () => {
             expect(await db.fetchGroupTypes(2)).toEqual({})
@@ -118,16 +128,6 @@ describe('DB', () => {
         const FUTURE_TIMESTAMP = DateTime.fromISO('2050-10-14T11:42:06.502Z')
         const PAST_TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
-        async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
-            const selectResult = await db.postgresQuery(
-                `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
-                [teamId, personId],
-                'fetchPersonByPersonId'
-            )
-
-            return selectResult.rows[0]
-        }
-
         beforeEach(async () => {
             team = await getFirstTeam(hub)
             person = await db.createPerson(PAST_TIMESTAMP, {}, team.id, null, false, uuid, [distinctId])
@@ -140,25 +140,30 @@ describe('DB', () => {
             timestamp: DateTime
         ): Promise<Person['properties'] | undefined> {
             await db.updatePersonProperties(team.id, distinctId, properties, propertiesOnce, timestamp)
-            return (await fetchPersonByPersonId(team.id, person.id))?.properties
+            return (await fetchPersonByPersonId(team.id, person.id)).properties
         }
 
-        test('update non-existent single property', async () => {
+        test('empty properties', async () => {
+            const props = await updatePersonProperties({}, {}, PAST_TIMESTAMP)
+            expect(props).toEqual({})
+        })
+
+        test('non-existent single property', async () => {
             const props = await updatePersonProperties({ a: 'a' }, {}, PAST_TIMESTAMP)
             expect(props).toEqual({ a: 'a' })
         })
 
-        test('update non-existent property', async () => {
+        test('non-existent property', async () => {
             const props = await updatePersonProperties({ a: 'a' }, { b: 'b' }, PAST_TIMESTAMP)
             expect(props).toEqual({ a: 'a', b: 'b' })
         })
 
-        test('update set and set once same key', async () => {
+        test('set and set once same key', async () => {
             const props = await updatePersonProperties({ a: 'a set' }, { a: 'a set_once' }, PAST_TIMESTAMP)
             expect(props).toEqual({ a: 'a set' })
         })
 
-        test('update with newer timestamp - rows [2-5]', async () => {
+        test('with newer timestamp - rows [2-5]', async () => {
             // setup initially lower case letters
             let props = await updatePersonProperties({ r2: 'a', r3: 'b' }, { r4: 'c', r5: 'd' }, PAST_TIMESTAMP)
             expect(props).toEqual({ r2: 'a', r3: 'b', r4: 'c', r5: 'd' })
@@ -167,7 +172,7 @@ describe('DB', () => {
             expect(props).toEqual({ r2: 'A', r3: 'b', r4: 'C', r5: 'd' })
         })
 
-        test('update with equal timestamp - rows [6-9] ', async () => {
+        test('with equal timestamp - rows [6-9] ', async () => {
             // setup initially lower case letters
             let props = await updatePersonProperties({ r6: 'a', r7: 'b' }, { r8: 'c', r9: 'd' }, PAST_TIMESTAMP)
             expect(props).toEqual({ r6: 'a', r7: 'b', r8: 'c', r9: 'd' })
@@ -176,7 +181,7 @@ describe('DB', () => {
             expect(props).toEqual({ r6: 'a', r7: 'b', r8: 'C', r9: 'd' })
         })
 
-        test('update with older timestamp - rows [10-13] ', async () => {
+        test('with older timestamp - rows [10-13] ', async () => {
             // setup initially lower case letters
             let props = await updatePersonProperties({ r10: 'a', r11: 'b' }, { r12: 'c', r13: 'd' }, FUTURE_TIMESTAMP)
             expect(props).toEqual({ r10: 'a', r11: 'b', r12: 'c', r13: 'd' })
