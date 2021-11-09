@@ -48,18 +48,27 @@ const propertyFilterMapping: Record<string, TaxonomicFilterGroupType> = {
     event: TaxonomicFilterGroupType.EventProperties,
     cohort: TaxonomicFilterGroupType.Cohorts,
     element: TaxonomicFilterGroupType.Elements,
-    groups: TaxonomicFilterGroupType.GroupsPrefix, // :TODO:
 }
 
 export function propertyFilterTypeToTaxonomicFilterType(
-    filterType?: string | null
+    filterType?: string | null,
+    groupTypeIndex?: number | null
 ): TaxonomicFilterGroupType | undefined {
-    return filterType && filterType in propertyFilterMapping ? propertyFilterMapping[filterType] : undefined
+    if (!filterType) {
+        return undefined
+    }
+    if (filterType == 'group') {
+        return `${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}` as TaxonomicFilterGroupType
+    }
+    return propertyFilterMapping[filterType]
 }
 
 export function taxonomicFilterTypeToPropertyFilterType(filterType?: TaxonomicFilterGroupType): string | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return 'cohort'
+    }
+    if (filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
+        return 'group'
     }
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0]
 }

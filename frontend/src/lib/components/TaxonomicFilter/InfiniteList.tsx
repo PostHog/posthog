@@ -142,7 +142,7 @@ const selectedItemHasPopup = (
             ((listGroupType === TaxonomicFilterGroupType.Elements ||
                 listGroupType === TaxonomicFilterGroupType.Events ||
                 listGroupType === TaxonomicFilterGroupType.EventProperties ||
-                listGroupType?.includes(TaxonomicFilterGroupType.Groups) ||
+                listGroupType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) || // :TODO: Kill this maybe?
                 listGroupType === TaxonomicFilterGroupType.PersonProperties) &&
                 !!getKeyMapping(
                     group?.getValue(item),

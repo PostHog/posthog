@@ -39,7 +39,7 @@ export function TaxonomicPropertyFilter({
 
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type)}
+            groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type, filter?.group_type_index)}
             value={cohortOrOtherValue}
             onChange={(taxonomicGroup, value) => {
                 selectItem(taxonomicGroup, value)
@@ -109,7 +109,14 @@ export function TaxonomicPropertyFilter({
                             placeholder="Enter value..."
                             onChange={(newOperator, newValue) => {
                                 if (filter?.key && filter?.type) {
-                                    setFilter(index, filter?.key, newValue || null, newOperator, filter?.type)
+                                    setFilter(
+                                        index,
+                                        filter?.key,
+                                        newValue || null,
+                                        newOperator,
+                                        filter?.type,
+                                        filter?.group_type_index
+                                    )
                                 }
                                 if (
                                     newOperator &&
