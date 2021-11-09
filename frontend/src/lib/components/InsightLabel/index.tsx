@@ -33,6 +33,7 @@ interface InsightsLabelProps {
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
     useCustomName?: boolean // Whether to show new custom name (FF `6063-rename-filters`). `{custom_name} ({id})`.
     hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
+    onLabelClick?: () => void // Click handler for inner label
 }
 
 function MathTag({ math, mathProperty }: Record<string, string | undefined>): JSX.Element {
@@ -75,6 +76,7 @@ export function InsightLabel({
     allowWrap = false,
     useCustomName = false,
     hideSeriesSubtitle,
+    onLabelClick,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || hasMultipleSeries
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
@@ -104,7 +106,7 @@ export function InsightLabel({
                         hasBreakdown={!!breakdownValue}
                     />
                 )}
-                <div className={allowWrap ? '' : 'protect-width'}>
+                <div className={allowWrap ? '' : 'protect-width'} onClick={onLabelClick}>
                     {showEventName && (
                         <>
                             {useCustomName && action ? (

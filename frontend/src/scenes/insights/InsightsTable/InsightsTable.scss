@@ -3,6 +3,13 @@
 .series-name-wrapper-col {
     display: flex;
     align-items: center;
+
+    .edit-icon {
+        color: $primary;
+        cursor: pointer;
+        padding-right: 4px;
+    }
+
     .insights-label {
         flex-grow: 1;
         &.editable {

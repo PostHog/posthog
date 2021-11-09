@@ -68,6 +68,13 @@ export function InsightsTable({
     const colorList = getChartColors('white')
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
+    const handleEditClick = (item: IndexedTrendResult) => {
+        if (canEditSeriesNameInline) {
+            selectFilter(item.action)
+            showModal()
+        }
+    }
+
     const calcColumnMenu = (
         <Menu>
             {Object.keys(CALC_COLUMN_LABELS).map((key) => (
@@ -132,16 +139,10 @@ export function InsightsTable({
         title: 'Event or Action',
         render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
             return (
-                <div
-                    onClick={() => {
-                        if (canEditSeriesNameInline) {
-                            selectFilter(item.action)
-                            showModal()
-                        }
-                    }}
-                    className="series-name-wrapper-col"
-                >
-                    <EditOutlined style={{ color: 'var(--primary)', marginRight: 4 }} />
+                <div className="series-name-wrapper-col">
+                    <div className="edit-icon" onClick={() => handleEditClick(item)}>
+                        <EditOutlined />
+                    </div>
                     <InsightLabel
                         seriesColor={colorList[item.id]}
                         action={item.action}
@@ -154,6 +155,7 @@ export function InsightsTable({
                         useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
                         className={clsx(canEditSeriesNameInline && 'editable')}
                         hideSeriesSubtitle
+                        onLabelClick={() => handleEditClick(item)}
                     />
                 </div>
             )
