@@ -8,6 +8,7 @@ import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
+import { urls } from 'scenes/urls'
 
 const POLL_TIMEOUT = 5000
 
@@ -100,7 +101,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         noop: (s) => s,
     },
 
-    reducers: {
+    reducers: ({ props }) => ({
+        sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.events() : false, {}],
         properties: [
             [] as PropertyFilter[],
             {
@@ -184,7 +186,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
-    },
+    }),
 
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [

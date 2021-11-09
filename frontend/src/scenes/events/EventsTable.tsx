@@ -67,6 +67,7 @@ export function EventsTable({
         automaticLoadEnabled,
         exportUrl,
         highlightEvents,
+        sceneIsEventsPage,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
 
@@ -293,8 +294,8 @@ export function EventsTable({
     )
 
     return (
-        <div data-attr="manage-events-table" style={sceneUrl === urls.events() ? { paddingTop: 32 } : {}}>
-            {sceneUrl === urls.events() ? <EventsTabs tab={EventsTab.Events} /> : null}
+        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 32 } : {}}>
+            {sceneIsEventsPage ? <EventsTabs tab={EventsTab.Events} /> : null}
             <div className="events" data-attr="events-table">
                 <PageHeader
                     title="Events"
