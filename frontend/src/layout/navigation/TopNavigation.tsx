@@ -290,7 +290,7 @@ function TopNavigationOriginal(): JSX.Element {
     return (
         <>
             <div className="navigation-spacer" />
-            <div className={`navigation-top${sceneConfig.plain ? ' full-width' : ''}`}>
+            <div className={`navigation-top${sceneConfig?.plain ? ' full-width' : ''}`}>
                 <div style={{ justifyContent: 'flex-start' }}>
                     <div className="hide-gte-lg menu-toggle" onClick={() => setMenuCollapsed(!menuCollapsed)}>
                         <IconMenu />

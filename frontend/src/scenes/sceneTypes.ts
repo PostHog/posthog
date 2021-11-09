@@ -75,6 +75,10 @@ export interface Params {
 }
 
 export interface SceneConfig {
+    /** Name to display, e.g. in the sidebar or in breadcrumbs - if key is not human-friendly enough */
+    displayName?: string
+    /** Path - only for non-parametric scenes */
+    path?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
@@ -85,12 +89,12 @@ export interface SceneConfig {
     hideTopNav?: boolean
     /** Hides demo project warnings (DemoWarning.tsx) */
     hideDemoWarnings?: boolean
-    /** Account management */
+    /** Personal account management (used e.g. by breadcrumbs) */
     personal?: boolean
-    /** Instance management */
+    /** Instance management (used e.g. by breadcrumbs) */
     instanceLevel?: boolean
-    /** Route requires organization access */
+    /** Route requires organization access (used e.g. by breadcrumbs) */
     organizationBased?: boolean
-    /** Route requires project access. A true value implies organizationBased being true as well */
+    /** Route requires project access (used e.g. by breadcrumbs). `true` implies `organizationBased` */
     projectBased?: boolean
 }

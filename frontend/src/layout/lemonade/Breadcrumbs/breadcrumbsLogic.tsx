@@ -7,43 +7,87 @@ import { sceneLogic } from '../../../scenes/sceneLogic'
 import { Scene } from '../../../scenes/sceneTypes'
 import { urls } from '../../../scenes/urls'
 import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
-import { stripHTTP } from '../../../lib/utils'
+import { identifierToHuman, stripHTTP } from '../../../lib/utils'
 import { userLogic } from '../../../scenes/userLogic'
 import React from 'react'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
+import { dashboardsModel } from '../../../models/dashboardsModel'
+import { featureFlagLogic } from '../../../scenes/feature-flags/featureFlagLogic'
+import { personsLogic } from '../../../scenes/persons/personsLogic'
+import { asDisplay } from '../../../scenes/persons/PersonHeader'
 
 export interface Breadcrumb {
-    name: string
+    /** Name to display. */
+    name: string | null | undefined
+    /** Symbol, e.g. a lettermark or a profile picture. */
     symbol?: React.ReactNode
+    /** Path to link to. */
     path?: string
+    /** Tooltip on hover. */
     tooltip?: string
+    /** Whether this breadcrumb refers to the current location. */
+    here?: boolean
 }
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
     props: {} as {
         hashParams: Record<string, any>
     },
-    connect: () => ({
+    connect: {
         values: [
             preflightLogic,
-            ['preflight'],
+            ['preflight', 'preflightLoading'],
             sceneLogic,
             ['sceneConfig', 'activeScene'],
             userLogic,
-            ['user'],
+            ['user', 'userLoading'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'currentOrganizationLoading'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'currentTeamLoading'],
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
+            dashboardsModel,
+            ['rawDashboards', 'lastDashboardId'],
+            featureFlagLogic,
+            ['featureFlag'],
+            personsLogic,
+            ['person'],
         ],
-    }),
-    selectors: () => ({
+    },
+    selectors: {
         breadcrumbs: [
-            (s) => [s.preflight, s.sceneConfig, s.activeScene, s.user, s.currentOrganization, s.currentTeam],
-            (preflight, sceneConfig, activeScene, user, currentOrganization, currentTeam) => {
+            (s) => [
+                s.preflight,
+                s.sceneConfig,
+                s.activeScene,
+                s.user,
+                s.currentOrganization,
+                s.currentTeam,
+                s.rawDashboards,
+                s.lastDashboardId,
+                s.featureFlag,
+                s.person,
+            ],
+            (
+                preflight,
+                sceneConfig,
+                activeScene,
+                user,
+                currentOrganization,
+                currentTeam,
+                rawDashboards,
+                lastDashboardId,
+                featureFlag,
+                person
+            ) => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (sceneConfig.personal) {
+                if (!activeScene) {
+                    return breadcrumbs
+                }
+                // User
+                if (sceneConfig?.personal) {
                     if (!user) {
                         return breadcrumbs
                     }
@@ -52,9 +96,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         tooltip: 'You',
                         symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
                     })
-                    return breadcrumbs
                 }
-                if (sceneConfig.instanceLevel) {
+                // Instance
+                if (sceneConfig?.instanceLevel) {
                     if (!preflight?.site_url) {
                         return breadcrumbs
                     }
@@ -63,9 +107,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         tooltip: 'This PostHog instance',
                         symbol: <Lettermark name="@" />,
                     })
-                    return breadcrumbs
                 }
-                if (sceneConfig.organizationBased || sceneConfig.projectBased) {
+                // Organization
+                if (sceneConfig?.organizationBased || sceneConfig?.projectBased) {
                     if (!currentOrganization) {
                         return breadcrumbs
                     }
@@ -75,7 +119,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         tooltip: 'Current organization',
                     })
                 }
-                if (sceneConfig.projectBased) {
+                // Project
+                if (sceneConfig?.projectBased) {
                     if (!currentTeam) {
                         return breadcrumbs
                     }
@@ -84,11 +129,17 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         tooltip: 'Current project',
                     })
                 }
+                // Parent page handling
                 switch (activeScene) {
                     case Scene.Person:
                         breadcrumbs.push({
                             name: 'Persons',
                             path: urls.persons(),
+                        })
+                        // Current place
+                        breadcrumbs.push({
+                            name: person ? asDisplay(person) : null,
+                            here: true,
                         })
                         break
                     case Scene.Insights:
@@ -96,11 +147,32 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                             name: 'Insights',
                             path: urls.savedInsights(),
                         })
+                        // Current place
+                        breadcrumbs.push({
+                            name: 'Insight',
+                            here: true,
+                        })
+                        break
+                    case Scene.Action:
+                        breadcrumbs.push({
+                            name: 'Actions',
+                            path: urls.actions(),
+                        })
+                        // Current place
+                        breadcrumbs.push({
+                            name: 'Action',
+                            here: true,
+                        })
                         break
                     case Scene.FeatureFlag:
                         breadcrumbs.push({
                             name: 'Feature flags',
                             path: urls.featureFlags(),
+                        })
+                        // Current place
+                        breadcrumbs.push({
+                            name: featureFlag ? featureFlag.key || 'Unnamed flag' : null,
+                            here: true,
                         })
                         break
                     case Scene.Dashboard:
@@ -108,10 +180,55 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                             name: 'Dashboards',
                             path: urls.dashboards(),
                         })
+                        // Current place
+                        breadcrumbs.push({
+                            name:
+                                lastDashboardId !== null && lastDashboardId in rawDashboards
+                                    ? rawDashboards[lastDashboardId].name || 'Unnamed dashboard'
+                                    : null,
+                            here: true,
+                        })
                         break
+                    default:
+                        // Current place
+                        breadcrumbs.push({
+                            name: identifierToHuman(activeScene),
+                            here: true,
+                        })
                 }
                 return breadcrumbs
             },
         ],
-    }),
+        breadcrumbsLoading: [
+            (s) => [
+                s.preflightLoading,
+                s.sceneConfig,
+                s.userLoading,
+                s.currentOrganizationLoading,
+                s.currentTeamLoading,
+            ],
+            (preflightLoading, sceneConfig, userLoading, currentOrganizationLoading, currentTeamLoading) => {
+                if (!sceneConfig) {
+                    return true
+                }
+                // User
+                if (sceneConfig.personal && userLoading) {
+                    return true
+                }
+                // Instance
+                if (sceneConfig.instanceLevel && preflightLoading) {
+                    return true
+                }
+                // Organization
+                if ((sceneConfig.organizationBased || sceneConfig.projectBased) && currentOrganizationLoading) {
+                    return true
+                }
+                // Project
+                if (sceneConfig.projectBased && currentTeamLoading) {
+                    return true
+                }
+                return false
+            },
+        ],
+    },
 })

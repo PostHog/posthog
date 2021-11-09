@@ -3,6 +3,10 @@
     align-items: center;
     margin-top: 1.5rem;
     cursor: default;
+    overflow-x: auto;
+    &--loading {
+        margin-top: 0.75rem;
+    }
 }
 
 .Breadcrumbs__breadcrumb {
@@ -10,8 +14,9 @@
     align-items: center;
     color: var(--primary);
     font-weight: 500;
-    a & {
-        text-decoration: underline;
+    white-space: pre;
+    &--current {
+        font-style: italic;
     }
     > :first-child {
         margin-right: 0.5rem;
@@ -19,6 +24,7 @@
 }
 
 .Breadcrumbs__separator {
+    flex-shrink: 0;
     margin: 0 0.5rem;
     font-size: 1rem;
     color: var(--primary-alt);

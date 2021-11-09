@@ -106,8 +106,8 @@ export const sceneLogic = kea<sceneLogicType>({
     selectors: {
         sceneConfig: [
             (s) => [s.scene],
-            (scene: Scene): SceneConfig => {
-                return sceneConfigurations[scene] ?? {}
+            (scene: Scene): SceneConfig | null => {
+                return sceneConfigurations[scene] || null
             },
         ],
         activeScene: [
