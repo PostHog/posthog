@@ -2,10 +2,11 @@
 import * as path from 'path'
 import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isDev, startServer } from './utils.mjs'
 
-copyPublicFolder()
-copyIndexHtml('src/index.html', 'dist/index.html', 'index')
-copyIndexHtml('src/layout.html', 'dist/layout.html', 'index')
-copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard')
+function writeIndexHtml(chunks = {}) {
+    copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks)
+    copyIndexHtml('src/layout.html', 'dist/layout.html', 'index', chunks)
+    copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks)
+}
 
 let pauseServer = () => {}
 let resumeServer = () => {}
@@ -17,6 +18,23 @@ if (isDev) {
 } else {
     console.log(`🛳 Starting production build`)
 }
+let buildsInProgress = 0
+function onBuildStart() {
+    if (buildsInProgress === 0) {
+        pauseServer()
+    }
+    buildsInProgress++
+}
+function onBuildComplete(chunks) {
+    buildsInProgress--
+    if (buildsInProgress === 0) {
+        resumeServer()
+        writeIndexHtml(chunks)
+    }
+}
+
+copyPublicFolder()
+writeIndexHtml({})
 
 await Promise.all([
     buildOrWatch({
@@ -26,8 +44,8 @@ await Promise.all([
         splitting: true,
         format: 'esm',
         outdir: path.resolve(__dirname, 'dist'),
-        onBuildStart: pauseServer,
-        onBuildComplete: resumeServer,
+        onBuildStart,
+        onBuildComplete,
     }),
     buildOrWatch({
         name: 'Shared Dashboard',
@@ -35,8 +53,8 @@ await Promise.all([
         bundle: true,
         format: 'iife',
         outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
-        onBuildStart: pauseServer,
-        onBuildComplete: resumeServer,
+        onBuildStart,
+        onBuildComplete,
     }),
     buildOrWatch({
         name: 'Toolbar',
@@ -44,7 +62,7 @@ await Promise.all([
         bundle: true,
         format: 'iife',
         outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
-        onBuildStart: pauseServer,
-        onBuildComplete: resumeServer,
+        onBuildStart,
+        onBuildComplete,
     }),
 ])

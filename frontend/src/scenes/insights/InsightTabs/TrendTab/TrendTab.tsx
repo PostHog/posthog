@@ -18,6 +18,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export interface TrendTabProps {
     view: string
@@ -29,7 +30,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
     groupPropertiesModel.mount()
-    const { taxonomicTypesWithGroups } = useValues(groupsModel)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
         { name: 'new', tooltip: 'Users that are new.' },
@@ -42,6 +43,17 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const formulaAvailable =
         (!filters.insight || filters.insight === ViewType.TRENDS) && preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
+
+    const taxonomicTypes =
+        filters.insight === ViewType.TRENDS
+            ? [
+                  TaxonomicFilterGroupType.EventProperties,
+                  TaxonomicFilterGroupType.PersonProperties,
+                  ...groupsTaxonomicTypes,
+                  TaxonomicFilterGroupType.Cohorts,
+                  TaxonomicFilterGroupType.Elements,
+              ]
+            : undefined
 
     return (
         <>
@@ -94,7 +106,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     {filters.insight !== ViewType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle />
-                            <PropertyFilters taxonomicGroupTypes={taxonomicTypesWithGroups} pageKey="trends-filters" />
+                            <PropertyFilters taxonomicGroupTypes={taxonomicTypes} pageKey="trends-filters" />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             {formulaAvailable && (
                                 <>

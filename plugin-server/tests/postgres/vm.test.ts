@@ -1089,11 +1089,7 @@ describe('exportEvents', () => {
 
         // adds exportEventsWithRetry job and onEvent function
         expect(Object.keys(vm.tasks.job)).toEqual(
-            expect.arrayContaining([
-                'exportEventsWithRetry',
-                'exportEventsFromTheBeginning',
-                'Export historical events',
-            ])
+            expect.arrayContaining(['exportEventsWithRetry', 'exportHistoricalEvents', 'Export historical events'])
         )
         expect(Object.keys(vm.tasks.schedule)).toEqual([])
         expect(

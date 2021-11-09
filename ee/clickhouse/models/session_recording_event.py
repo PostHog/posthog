@@ -23,6 +23,7 @@ def create_session_recording_event(
     team_id: int,
     distinct_id: str,
     session_id: str,
+    window_id: str,
     timestamp: Union[datetime.datetime, str],
     snapshot_data: dict,
 ) -> str:
@@ -34,6 +35,7 @@ def create_session_recording_event(
         "team_id": team_id,
         "distinct_id": distinct_id,
         "session_id": session_id,
+        "window_id": window_id,
         "snapshot_data": snapshot_data_json,
         "timestamp": timestamp,
         "created_at": timestamp,

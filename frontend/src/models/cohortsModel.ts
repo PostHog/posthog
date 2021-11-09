@@ -6,6 +6,7 @@ import { CohortType } from '~/types'
 const POLL_TIMEOUT = 5000
 
 export const cohortsModel = kea<cohortsModelType>({
+    path: ['models', 'cohortsModel'],
     actions: () => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),

@@ -37,6 +37,7 @@ export const searchItems = (sources: SelectedItem[], search: string): SelectedIt
 }
 
 export const selectBoxLogic = kea<selectBoxLogicType>({
+    path: ['lib', 'logic', 'selectBoxLogic'],
     props: {} as {
         items: SelectBoxItem[]
         updateFilter: (type: any, id: string | number, name: string) => void

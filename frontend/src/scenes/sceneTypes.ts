@@ -1,46 +1,49 @@
 import { LogicWrapper } from 'kea'
 
+// The enum here has to match the first and only exported component of the scene.
+// If so, we can preload the scene's required chunks in parallel with the scene itself.
 export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
-    ErrorProjectUnavailable = 'projectUnavailable',
-    Dashboards = 'dashboards',
-    Dashboard = 'dashboard',
-    Insights = 'insights',
-    InsightRouter = 'insightRouter',
-    Cohorts = 'cohorts',
-    Events = 'events',
-    EventStats = 'eventStats',
-    EventPropertyStats = 'eventPropertyStats',
-    Sessions = 'sessions',
-    SessionRecordings = 'sessionRecordings',
-    Person = 'person',
-    Persons = 'persons',
-    Action = 'action',
-    Actions = 'actions',
-    FeatureFlags = 'featureFlags',
-    FeatureFlag = 'featureFlag',
-    OrganizationSettings = 'organizationSettings',
-    OrganizationCreateFirst = 'organizationCreateFirst',
-    ProjectSettings = 'projectSettings',
-    ProjectCreateFirst = 'projectCreateFirst',
-    SystemStatus = 'systemStatus',
-    InstanceLicenses = 'instanceLicenses',
-    MySettings = 'mySettings',
-    Annotations = 'annotations',
-    Billing = 'billing',
-    Plugins = 'plugins',
-    SavedInsights = 'savedInsights',
+    ErrorProjectUnavailable = 'ProjectUnavailable',
+    Dashboards = 'Dashboards',
+    Dashboard = 'Dashboard',
+    Insights = 'Insights',
+    InsightRouter = 'InsightRouter',
+    Cohorts = 'Cohorts',
+    Events = 'Events',
+    EventStats = 'EventsVolumeTable',
+    EventPropertyStats = 'PropertiesVolumeTable',
+    Sessions = 'Sessions',
+    SessionRecordings = 'SessionsRecordings',
+    Person = 'Person',
+    Persons = 'Persons',
+    Action = 'Action',
+    Actions = 'ActionsTable',
+    FeatureFlags = 'FeatureFlags',
+    FeatureFlag = 'FeatureFlag',
+    OrganizationSettings = 'OrganizationSettings',
+    OrganizationCreateFirst = 'OrganizationCreate',
+    ProjectSettings = 'ProjectSettings',
+    ProjectCreateFirst = 'ProjectCreate',
+    SystemStatus = 'SystemStatus',
+    Licenses = 'Licenses',
+    MySettings = 'MySettings',
+    Annotations = 'Annotations',
+    Billing = 'Billing',
+    BillingSubscribed = 'BillingSubscribed',
+    Plugins = 'Plugins',
+    SavedInsights = 'SavedInsights',
     // Authentication & onboarding routes
-    Login = 'login',
-    Signup = 'signup',
-    InviteSignup = 'inviteSignup',
-    PasswordReset = 'passwordReset',
-    PasswordResetComplete = 'passwordResetComplete',
-    PreflightCheck = 'preflightCheck',
-    Ingestion = 'ingestion',
-    OnboardingSetup = 'onboardingSetup',
-    Personalization = 'personalization',
+    Login = 'Login',
+    Signup = 'Signup',
+    InviteSignup = 'InviteSignup',
+    PasswordReset = 'PasswordReset',
+    PasswordResetComplete = 'PasswordResetComplete',
+    PreflightCheck = 'PreflightCheck',
+    Ingestion = 'IngestionWizard',
+    OnboardingSetup = 'OnboardingSetup',
+    Personalization = 'Personalization',
 }
 
 export type SceneProps = Record<string, any>
@@ -78,8 +81,6 @@ export interface SceneConfig {
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
     allowUnauthenticated?: boolean
-    /** Background is $bg_mid */
-    dark?: boolean
     /** Only keeps the main content and the top navigation bar */
     plain?: boolean
     /** Hides the top navigation bar (regardless of whether `plain` is `true` or not) */

@@ -8,6 +8,7 @@ import { OrganizationType, TeamType } from '~/types'
 import { onboardingSetupLogicType } from './onboardingSetupLogicType'
 
 export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
+    path: ['scenes', 'onboarding', 'onboardingSetupLogic'],
     actions: {
         switchToNonDemoProject: (dest) => ({ dest }),
         setProjectModalShown: (shown) => ({ shown }),

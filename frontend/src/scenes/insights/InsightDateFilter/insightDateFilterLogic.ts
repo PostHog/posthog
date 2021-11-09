@@ -10,6 +10,7 @@ interface UrlParams {
 }
 
 export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
+    path: ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic'],
     actions: () => ({
         setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
             dateFrom,

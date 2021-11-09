@@ -12,6 +12,7 @@ describe('Person Visualization Check', () => {
         cy.get('[data-row-key="email"] > :nth-child(1)').should('contain', 'email')
 
         cy.get('.events').should('exist')
+        cy.get('[data-attr="manage-events-table"] .ant-tabs-top').should('not.exist')
         cy.get('[data-row-key="email"] .anticon-copy').click()
         cy.window()
             .then((win) => {

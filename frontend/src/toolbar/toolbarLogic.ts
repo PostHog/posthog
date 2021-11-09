@@ -10,6 +10,7 @@ import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 // input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({
+    path: ['toolbar', 'toolbarLogic'],
     props: {} as ToolbarProps,
     connect: () => [
         featureFlagsLogic, // makes an API call that invalidates the token on error

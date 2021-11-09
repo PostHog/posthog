@@ -153,7 +153,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     return stepsWithCount.length > 1 ? (
-        <VisibilitySensor offset={300} id={`${correlationPropKey}-properties`}>
+        <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
             <div className="funnel-correlation-table">
                 <span className="funnel-correlation-header">
                     <span className="table-header">
@@ -213,7 +213,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                 page_size,
                             }),
                     }}
-                    style={{ marginTop: '1rem' }}
                 >
                     <Column
                         title="Correlated Person Properties"
@@ -261,7 +260,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
             onClick={() => excludePropertyFromProject(propertyName)}
             type="link"
         >
-            Exclude
+            Exclude from project
         </Button>
     )
 }

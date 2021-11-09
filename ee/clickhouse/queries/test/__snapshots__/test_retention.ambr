@@ -6,8 +6,7 @@
          COUNT(DISTINCT event.target) count
   FROM
     (SELECT e.timestamp AS event_date,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$group_0')) as target,
+            e.$group_0 as target,
             e.uuid AS uuid,
             e.event AS event
      FROM events e
@@ -29,13 +28,11 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, '$group_0')))
+       AND NOT has([''], $group_0)
        AND team_id = 2 ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     trim(BOTH '"'
-                          FROM JSONExtractRaw(e.properties, '$group_0')) as target,
+                     e.$group_0 as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -57,8 +54,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, '$group_0')))
+       AND NOT has([''], $group_0)
        AND team_id = 2 ) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
@@ -74,8 +70,7 @@
          count(DISTINCT target)
   FROM
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     trim(BOTH '"'
-                          FROM JSONExtractRaw(e.properties, '$group_0')) as target,
+                     e.$group_0 as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -97,8 +92,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, '$group_0')))
+       AND NOT has([''], $group_0)
        AND team_id = 2 )
   GROUP BY event_date
   ORDER BY event_date
@@ -112,8 +106,7 @@
          COUNT(DISTINCT event.target) count
   FROM
     (SELECT e.timestamp AS event_date,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$group_1')) as target,
+            e.$group_1 as target,
             e.uuid AS uuid,
             e.event AS event
      FROM events e
@@ -135,13 +128,11 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, '$group_1')))
+       AND NOT has([''], $group_1)
        AND team_id = 2 ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     trim(BOTH '"'
-                          FROM JSONExtractRaw(e.properties, '$group_1')) as target,
+                     e.$group_1 as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -163,8 +154,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, '$group_1')))
+       AND NOT has([''], $group_1)
        AND team_id = 2 ) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
@@ -180,8 +170,7 @@
          count(DISTINCT target)
   FROM
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     trim(BOTH '"'
-                          FROM JSONExtractRaw(e.properties, '$group_1')) as target,
+                     e.$group_1 as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -203,8 +192,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, '$group_1')))
+       AND NOT has([''], $group_1)
        AND team_id = 2 )
   GROUP BY event_date
   ORDER BY event_date
@@ -242,7 +230,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON JSONExtractString(properties, '$group_0') == groups_0.group_key
+        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -275,7 +263,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON JSONExtractString(properties, '$group_0') == groups_0.group_key
+        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -320,7 +308,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON JSONExtractString(properties, '$group_0') == groups_0.group_key
+        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -363,7 +351,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON JSONExtractString(properties, '$group_0') == groups_0.group_key
+        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -395,7 +383,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON JSONExtractString(properties, '$group_0') == groups_0.group_key
+        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -439,7 +427,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON JSONExtractString(properties, '$group_0') == groups_0.group_key
+        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')

@@ -46,6 +46,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
+    path: ['scenes', 'saved-insights', 'savedInsightsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
         logic: [eventUsageLogic],
@@ -218,7 +219,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         },
     }),
     actionToUrl: ({ values }) => {
-        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: true }] | void => {
+        const changeUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: true
+                  }
+              ]
+            | void => {
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
