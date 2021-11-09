@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 interface EditableFieldProps {
     name: string
     value: string
-    placeholder: string
+    placeholder?: string
     className: string
     dataAttr: string
     onChange: (value: string) => void

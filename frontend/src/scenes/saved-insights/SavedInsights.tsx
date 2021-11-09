@@ -175,7 +175,7 @@ export function SavedInsights(): JSX.Element {
                     <Col>
                         <Row wrap={false}>
                             <Link to={link} style={{ marginRight: 12 }}>
-                                <strong>{name || `Unnamed insight`}</strong>
+                                <strong>{name || <i>Unnamed insight</i>}</strong>
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content' }}
@@ -191,7 +191,9 @@ export function SavedInsights(): JSX.Element {
                             </div>
                         </Row>
                         {hasDashboardCollaboration && (
-                            <div className="text-muted-alt">{insight.description || 'No description provided'}</div>
+                            <div className="text-muted-alt">
+                                {insight.description || <i>No description provided</i>}
+                            </div>
                         )}
                     </Col>
                 )
