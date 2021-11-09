@@ -16,6 +16,7 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
@@ -173,11 +174,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (selectors) => [selectors.groupTypes],
             (groupTypes): TaxonomicFilterGroup[] =>
                 groupTypes.map((type, index) => ({
-                    name: type.group_type,
+                    name: capitalizeFirstLetter(type.group_type),
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${index}` as TaxonomicFilterGroupType,
                     logic: groupPropertiesModel,
                     value: `groupProperties_${index}`,
-                    getName: (group) => group.name,
+                    getName: (group) => capitalizeFirstLetter(group.name),
                     getValue: (group) => group.name,
                     groupTypeIndex: index,
                 })),
