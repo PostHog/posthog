@@ -18,10 +18,19 @@ if (isDev) {
 } else {
     console.log(`🛳 Starting production build`)
 }
-
+let buildsInProgress = 0
+function onBuildStart() {
+    if (buildsInProgress === 0) {
+        pauseServer()
+    }
+    buildsInProgress++
+}
 function onBuildComplete(chunks) {
-    resumeServer()
-    writeIndexHtml(chunks)
+    buildsInProgress--
+    if (buildsInProgress === 0) {
+        resumeServer()
+        writeIndexHtml(chunks)
+    }
 }
 
 copyPublicFolder()
@@ -35,8 +44,8 @@ await Promise.all([
         splitting: true,
         format: 'esm',
         outdir: path.resolve(__dirname, 'dist'),
-        onBuildStart: pauseServer,
-        onBuildComplete: onBuildComplete,
+        onBuildStart,
+        onBuildComplete,
     }),
     buildOrWatch({
         name: 'Shared Dashboard',
@@ -44,8 +53,8 @@ await Promise.all([
         bundle: true,
         format: 'iife',
         outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
-        onBuildStart: pauseServer,
-        onBuildComplete: onBuildComplete,
+        onBuildStart,
+        onBuildComplete,
     }),
     buildOrWatch({
         name: 'Toolbar',
@@ -53,7 +62,7 @@ await Promise.all([
         bundle: true,
         format: 'iife',
         outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
-        onBuildStart: pauseServer,
-        onBuildComplete: onBuildComplete,
+        onBuildStart,
+        onBuildComplete,
     }),
 ])
