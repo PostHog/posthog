@@ -339,9 +339,10 @@ describe('e2e', () => {
                     attributes: { attr__class: 'btn btn-sm' },
                     nth_child: 1,
                     nth_of_type: 2,
+                    order: 0,
                     tag_name: 'a',
                 },
-                { $el_text: '💻', attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' },
+                { $el_text: '💻', attributes: {}, nth_child: 1, nth_of_type: 2, order: 1, tag_name: 'div', text: '💻' },
             ])
         })
     })
