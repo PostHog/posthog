@@ -48,6 +48,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
 
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ taxonomicGroup, propertyKey }) => {
+            console.trace('TaxPropFilterLogic.selectItem', { taxonomicGroup, propertyKey })
             const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === 'cohort') {
