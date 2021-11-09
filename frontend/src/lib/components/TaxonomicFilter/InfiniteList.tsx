@@ -96,8 +96,7 @@ const renderItemPopup = (
             // NB: also update "selectedItemHasPopup" below
             listGroupType === TaxonomicFilterGroupType.Events ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
-            listGroupType === TaxonomicFilterGroupType.PersonProperties ||
-            listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+            listGroupType === TaxonomicFilterGroupType.PersonProperties
         ) {
             data = getKeyMapping(value.toString(), 'event')
         } else if (listGroupType === TaxonomicFilterGroupType.Elements) {
@@ -142,7 +141,6 @@ const selectedItemHasPopup = (
             ((listGroupType === TaxonomicFilterGroupType.Elements ||
                 listGroupType === TaxonomicFilterGroupType.Events ||
                 listGroupType === TaxonomicFilterGroupType.EventProperties ||
-                listGroupType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) || // :TODO: Kill this maybe?
                 listGroupType === TaxonomicFilterGroupType.PersonProperties) &&
                 !!getKeyMapping(
                     group?.getValue(item),
