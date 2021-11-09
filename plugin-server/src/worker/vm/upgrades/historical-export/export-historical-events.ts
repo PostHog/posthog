@@ -47,7 +47,6 @@ export function addHistoricalEventsExportCapability(
         // the historical export to duplicate them
         meta.global.timestampBoundariesForTeam = timestampBoundaries
 
-        console.log('##########', timestampBoundaries)
         await oldSetupPlugin?.()
     }
 
@@ -233,7 +232,6 @@ export function addHistoricalEventsExportCapability(
                 )
             }
             await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, meta.global.timestampBoundariesForTeam.max.getTime())
-            console.log('###### did dateTo')
         }
     }
 
