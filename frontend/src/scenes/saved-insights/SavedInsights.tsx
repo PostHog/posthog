@@ -25,11 +25,10 @@ import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/Da
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 
 import { PageHeader } from 'lib/components/PageHeader'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
     InsightsFunnelsIcon,
@@ -175,7 +174,7 @@ export function SavedInsights(): JSX.Element {
                     <Col>
                         <Row wrap={false}>
                             <Link to={link} style={{ marginRight: 12 }}>
-                                <strong>{name || `Insight #${insight.id}`}</strong>
+                                <strong>{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</strong>
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content' }}
@@ -191,7 +190,9 @@ export function SavedInsights(): JSX.Element {
                             </div>
                         </Row>
                         {hasDashboardCollaboration && (
-                            <div className="text-muted-alt">{insight.description || 'No description provided'}</div>
+                            <div className="text-muted-alt">
+                                {insight.description || <i>No description provided</i>}
+                            </div>
                         )}
                     </Col>
                 )

@@ -5,9 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import {
     AvailableFeature,
     FunnelCorrelation,
@@ -187,12 +185,9 @@ describe('funnelLogic', () => {
             await expectLogic(logic).toMount([
                 eventUsageLogic,
                 insightLogic({ dashboardItemId: undefined }),
-                insightHistoryLogic,
                 preflightLogic,
-                funnelsModel,
             ])
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await expectLogic(funnelsModel).toDispatchActions(['loadFunnelsSuccess'])
         })
 
         it('has clickhouse enabled once preflight loads', async () => {

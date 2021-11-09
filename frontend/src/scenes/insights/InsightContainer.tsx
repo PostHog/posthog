@@ -2,7 +2,7 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightTabs/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { FunnelVizType, ViewType } from '~/types'
+import { FunnelVizType, ItemMode, ViewType } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -138,7 +138,11 @@ export function InsightContainer(): JSX.Element {
                 <Card style={{ marginTop: 8 }}>
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <h3 className="l3">Details table</h3>
-                        <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
+                        <InsightsTable
+                            showTotalCount={activeView !== ViewType.SESSIONS}
+                            filterKey={activeView === ViewType.TRENDS ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={activeView === ViewType.TRENDS && insightMode === ItemMode.Edit}
+                        />
                     </BindLogic>
                 </Card>
             )

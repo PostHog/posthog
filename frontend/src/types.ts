@@ -779,8 +779,6 @@ export enum ViewType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    // Views that are not insights:
-    HISTORY = 'HISTORY',
 }
 
 export enum PathType {
