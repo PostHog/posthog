@@ -1,8 +1,9 @@
 describe('Actions', () => {
-    let actionName = Cypress._.random(0, 1e6)
+    let actionName
     beforeEach(() => {
         cy.clickNavMenu('events')
         cy.get('[data-attr=events-actions-tab]').click()
+        actionName = Cypress._.random(0, 1e6)
     })
 
     it('Create action', () => {
