@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { Table, Switch, Typography, Input } from 'antd'
@@ -26,7 +26,7 @@ export const scene: SceneExport = {
 
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags, featureFlagsLoading, searchedFeatureFlags } = useValues(featureFlagsLogic)
+    const { featureFlags, featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
     const { push } = useActions(router)
     const { tableScrollX } = useIsTableScrolling('lg')
@@ -177,6 +177,7 @@ export function FeatureFlags(): JSX.Element {
                     allowClear
                     enterButton
                     style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                    value={searchTerm}
                     onChange={(e) => {
                         setSearchTerm(e.target.value)
                     }}
