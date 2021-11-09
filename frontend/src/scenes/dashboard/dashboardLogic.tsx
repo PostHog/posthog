@@ -70,8 +70,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
-        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }), // id represents dashboardItem id's
+        setRefreshStatus: (id: number, loading = false) => ({ id, loading }),
+        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }),
         setRefreshError: (id: number) => ({ id }),
     },
 
@@ -290,6 +290,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         isRefreshing: [
             () => [selectors.refreshStatus],
             (refreshStatus) => (id: number) => !!refreshStatus[id]?.loading,
+        ],
+        highlightedInsightId: [
+            () => [router.selectors.searchParams],
+            (searchParams) => searchParams.highlightInsightId || searchParams.dive_source_id,
         ],
         lastRefreshed: [
             () => [selectors.items],

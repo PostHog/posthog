@@ -20,11 +20,11 @@ export function SaveToDashboard({ insight }: Props): JSX.Element {
 
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
-            {openModal && <SaveToDashboardModal closeModal={() => setOpenModal(false)} insight={insight} />}
+            <SaveToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
             {dashboard ? (
                 <Tooltip title={`Go to dashboard "${dashboard?.name}"`} placement="bottom">
                     <LinkButton
-                        to={urls.dashboard(dashboard.id)}
+                        to={`${urls.dashboard(dashboard.id)}?highlightInsightId=${insight.id}`}
                         type="default"
                         style={{ color: 'var(--primary)' }}
                         icon={<CheckSquareOutlined />}
