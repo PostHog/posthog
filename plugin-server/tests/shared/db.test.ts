@@ -94,9 +94,6 @@ describe('DB', () => {
             expect(fetched_person.properties_last_updated_at).toEqual({})
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
-
-            const updatePersonSpy = jest.spyOn(hub.db, 'updatePerson')
-            expect(updatePersonSpy).not.toHaveBeenCalled()
         })
 
         test('without properties indentified true', async () => {
@@ -108,9 +105,6 @@ describe('DB', () => {
             expect(fetched_person.properties_last_updated_at).toEqual({})
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
-
-            const updatePersonSpy = jest.spyOn(hub.db, 'updatePerson')
-            expect(updatePersonSpy).not.toHaveBeenCalled()
         })
 
         test('with properties', async () => {
@@ -139,9 +133,6 @@ describe('DB', () => {
             })
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
-
-            const updatePersonSpy = jest.spyOn(hub.db, 'updatePerson')
-            expect(updatePersonSpy).not.toHaveBeenCalled()
         })
 
         test('with set and set_once for the same key', async () => {
@@ -155,9 +146,6 @@ describe('DB', () => {
             expect(fetched_person.properties_last_updated_at).toEqual({ a: TIMESTAMP.toISO() })
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
-
-            const updatePersonSpy = jest.spyOn(hub.db, 'updatePerson')
-            expect(updatePersonSpy).not.toHaveBeenCalled()
         })
     })
 

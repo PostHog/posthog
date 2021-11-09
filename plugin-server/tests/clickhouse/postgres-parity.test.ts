@@ -81,7 +81,7 @@ describe('postgres parity', () => {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
                 team_id: team.id,
-                properties: '{"userPropOnce":"propOnceValue", "userProp":"propValue"}',
+                properties: '{"userPropOnce":"propOnceValue","userProp":"propValue"}',
                 is_identified: 1,
                 is_deleted: 0,
                 _timestamp: expect.any(String),
@@ -98,13 +98,16 @@ describe('postgres parity', () => {
                 created_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',
-                    userPropOnce: 'userPropOnceValue',
+                    userPropOnce: 'propOnceValue',
                 },
                 properties_last_updated_at: {
+                    userProp: expect.any(String),
+                    userPropOnce: expect.any(String),
+                },
+                properties_last_operation: {
                     userProp: PersonPropertyUpdateOperation.Set,
                     userPropOnce: PersonPropertyUpdateOperation.SetOnce,
                 },
-                properties_last_operation: { userProp: expect.any(String), userPropOnce: expect.any(String) },
                 team_id: 2,
                 is_user_id: null,
                 is_identified: true,

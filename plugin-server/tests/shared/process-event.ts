@@ -288,6 +288,7 @@ export const createProcessEventTests = (
     })
 
     test('capture new person', async () => {
+        const updatePersonSpy = jest.spyOn(hub.db, 'updatePerson')
         await hub.db.postgresQuery(
             `UPDATE posthog_team
              SET ingested_event = $1
@@ -328,6 +329,7 @@ export const createProcessEventTests = (
             DateTime.now(),
             new UUIDT().toString()
         )
+        expect(updatePersonSpy).not.toHaveBeenCalled()
 
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
@@ -390,6 +392,7 @@ export const createProcessEventTests = (
             DateTime.now(),
             new UUIDT().toString()
         )
+        expect(updatePersonSpy).toHaveBeenCalledTimes(1)
 
         events = await hub.db.fetchEvents()
         persons = await hub.db.fetchPersons()
