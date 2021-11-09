@@ -469,10 +469,6 @@ describe('insightLogic', () => {
 
     test('keeps saved filters', async () => {
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SAVED_INSIGHTS], {
-            [FEATURE_FLAGS.SAVED_INSIGHTS]: true,
-        })
-
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: 'FUNNELS' },

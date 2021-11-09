@@ -27,7 +27,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys, findInsightFromMountedLogic } from './utils'
-import * as Sentry from '@sentry/browser'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -374,12 +373,8 @@ export const insightLogic = kea<insightLogicType>({
                 filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
         ],
         metadataEditable: [
-            () => [featureFlagLogic.selectors.featureFlags, userLogic.selectors.user],
-            (featureFlags, user) =>
-                !!(
-                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                    user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION)
-                ),
+            () => [userLogic.selectors.user],
+            (user) => user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
         ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
@@ -558,39 +553,6 @@ export const insightLogic = kea<insightLogicType>({
                         ...router.values.hashParams,
                         fromItem: createdInsight.id,
                     })
-                }
-            } else if (insight.filters) {
-                // This auto-saves new filters into the insight.
-                // Exceptions:
-                if (
-                    // - not saved if "saved insights" feature flag is enabled
-                    !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                    // - not saved if on the history "insight" for some reason
-                    (insight.filters.insight as ViewType) !== ViewType.HISTORY &&
-                    // - not saved if we came from a dashboard --> there's a separate "save" button for that
-                    !router.values.hashParams.fromDashboard &&
-                    // - not saved if we come from the "saved funnels" list, TO BE REMOVED with release of "3408-saved-insights"
-                    !router.values.hashParams.fromSavedFunnels
-                ) {
-                    const filterLength = Object.keys(insight.filters).length
-                    if (filterLength === 0 || (filterLength === 1 && 'from_dashboard' in insight.filters)) {
-                        Sentry.captureException(
-                            new Error(
-                                filterLength === 0
-                                    ? 'Would save empty filters'
-                                    : `Would save filters with just "from_dashboard"`
-                            ),
-                            {
-                                extra: {
-                                    filters_to_save: JSON.stringify(insight.filters),
-                                    insight: JSON.stringify(insight),
-                                    filters: JSON.stringify(values.filters),
-                                },
-                            }
-                        )
-                    } else {
-                        actions.updateInsight({ filters: insight.filters })
-                    }
                 }
             }
         },

@@ -8,7 +8,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
-import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 import { HotKeys, ItemMode, ViewType } from '~/types'
@@ -111,8 +110,6 @@ export function Insights(): JSX.Element {
         },
     })
 
-    const viewMode = featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View
-
     const insightScene = (
         <div className="insights-page">
             <div className="insight-metadata">
@@ -133,7 +130,7 @@ export function Insights(): JSX.Element {
                         sm={{ order: 2 }}
                         style={{ flex: 0 }}
                     >
-                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && filtersChanged ? (
+                        {filtersChanged ? (
                             <Popconfirm
                                 title="Are you sure? This will discard all unsaved changes in this insight."
                                 onConfirm={() => {
@@ -147,7 +144,7 @@ export function Insights(): JSX.Element {
                             </Popconfirm>
                         ) : null}
                         {insight.id && <SaveToDashboard insight={insight} />}
-                        {viewMode ? (
+                        {insightMode === ItemMode.View ? (
                             <HotkeyButton
                                 type="primary"
                                 style={{ marginLeft: 8 }}
@@ -156,11 +153,11 @@ export function Insights(): JSX.Element {
                             >
                                 Edit
                             </HotkeyButton>
-                        ) : featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? (
+                        ) : (
                             <Button style={{ marginLeft: 8 }} type="primary" onClick={saveInsight}>
                                 Save
                             </Button>
-                        ) : null}
+                        )}
                     </Col>
                 </Row>
                 <EditableField
@@ -185,7 +182,7 @@ export function Insights(): JSX.Element {
                 ) : null}
             </div>
 
-            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
+            {insightMode === ItemMode.View ? (
                 <Row>
                     <Col span={24} style={{ marginTop: 16 }}>
                         <InsightContainer />
@@ -198,57 +195,46 @@ export function Insights(): JSX.Element {
                     </Row>
 
                     <Row gutter={16}>
-                        {(activeView as ViewType) === ViewType.HISTORY ? (
-                            <Col span={24}>
-                                <Card className="" style={{ overflow: 'visible' }}>
-                                    <InsightHistoryPanel />
-                                </Card>
-                            </Col>
-                        ) : (
-                            <>
-                                <Col span={24} xl={verticalLayout ? 8 : undefined}>
-                                    <Card
-                                        className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
-                                        onClick={() => controlsCollapsed && toggleControlsCollapsed()}
-                                    >
-                                        <div
-                                            role="button"
-                                            title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
-                                            className="collapse-control"
-                                            onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
-                                        >
-                                            {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                        </div>
-                                        {controlsCollapsed && (
-                                            <div>
-                                                <h3 className="l3">Query definition</h3>
-                                                <span className="text-small text-muted">
-                                                    Click here to view and change the query events, filters and other
-                                                    settings.
-                                                </span>
-                                            </div>
-                                        )}
-                                        <div className="tabs-inner">
-                                            {/* These are insight specific filters. They each have insight specific logics */}
-                                            {
-                                                {
-                                                    [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
-                                                    [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
-                                                    [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
-                                                    [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                                    [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                                    [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                                    [`${ViewType.PATHS}`]: <PathTab />,
-                                                }[activeView]
-                                            }
-                                        </div>
-                                    </Card>
-                                </Col>
-                                <Col span={24} xl={verticalLayout ? 16 : undefined}>
-                                    <InsightContainer />
-                                </Col>
-                            </>
-                        )}
+                        <Col span={24} xl={verticalLayout ? 8 : undefined}>
+                            <Card
+                                className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
+                                onClick={() => controlsCollapsed && toggleControlsCollapsed()}
+                            >
+                                <div
+                                    role="button"
+                                    title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                    className="collapse-control"
+                                    onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                >
+                                    {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                </div>
+                                {controlsCollapsed && (
+                                    <div>
+                                        <h3 className="l3">Query definition</h3>
+                                        <span className="text-small text-muted">
+                                            Click here to view and change the query events, filters and other settings.
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="tabs-inner">
+                                    {/* These are insight specific filters. They each have insight specific logics */}
+                                    {
+                                        {
+                                            [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
+                                            [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
+                                            [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
+                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
+                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
+                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
+                                            [`${ViewType.PATHS}`]: <PathTab />,
+                                        }[activeView]
+                                    }
+                                </div>
+                            </Card>
+                        </Col>
+                        <Col span={24} xl={verticalLayout ? 16 : undefined}>
+                            <InsightContainer />
+                        </Col>
                     </Row>
                     <NPSPrompt />
                 </>
