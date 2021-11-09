@@ -167,7 +167,9 @@ describe('insightLogic', () => {
                             properties: [partial({ value: 'a' })],
                         }),
                     })
-                    .toDispatchActions(['updateInsight', 'updateInsightSuccess'])
+                    .delay(1)
+                    // do not override the insight if querying with different filters
+                    .toNotHaveDispatchedActions(['updateInsight', 'updateInsightSuccess'])
             })
         })
 

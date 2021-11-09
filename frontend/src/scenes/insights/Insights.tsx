@@ -149,12 +149,18 @@ export function Insights(): JSX.Element {
                                 type="primary"
                                 style={{ marginLeft: 8 }}
                                 onClick={() => setInsightMode(ItemMode.Edit, null)}
+                                data-attr="insight-edit-button"
                                 hotkey="e"
                             >
                                 Edit
                             </HotkeyButton>
                         ) : (
-                            <Button style={{ marginLeft: 8 }} type="primary" onClick={saveInsight}>
+                            <Button
+                                style={{ marginLeft: 8 }}
+                                type="primary"
+                                onClick={saveInsight}
+                                data-attr="insight-save-button"
+                            >
                                 Save
                             </Button>
                         )}
