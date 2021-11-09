@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import Fuse from 'fuse.js'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { Table, Switch, Typography, Input } from 'antd'
@@ -25,23 +24,12 @@ export const scene: SceneExport = {
     logic: featureFlagsLogic,
 }
 
-const searchFeatureFlags = (sources: FeatureFlagType[], search: string): FeatureFlagType[] => {
-    return new Fuse(sources, {
-        keys: ['key', 'name'],
-        threshold: 0.3,
-    })
-        .search(search)
-        .map((result) => result.item)
-}
-
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
-    const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)
+    const { featureFlags, featureFlagsLoading, searchedFeatureFlags } = useValues(featureFlagsLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
     const { push } = useActions(router)
     const { tableScrollX } = useIsTableScrolling('lg')
-
-    const [searchTerm, setSearchTerm] = useState(false as string | false)
 
     const columns = [
         {
@@ -189,7 +177,6 @@ export function FeatureFlags(): JSX.Element {
                     allowClear
                     enterButton
                     style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                    autoFocus
                     onChange={(e) => {
                         setSearchTerm(e.target.value)
                     }}
@@ -206,7 +193,7 @@ export function FeatureFlags(): JSX.Element {
                 </div>
             </div>
             <Table
-                dataSource={searchTerm ? searchFeatureFlags(featureFlags, searchTerm) : featureFlags}
+                dataSource={searchedFeatureFlags}
                 columns={columns}
                 loading={featureFlagsLoading && featureFlags.length === 0}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}

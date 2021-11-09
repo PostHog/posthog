@@ -182,7 +182,6 @@ export function Cohorts(): JSX.Element {
                     allowClear
                     enterButton
                     style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                    autoFocus
                     onChange={(e) => {
                         setSearchTerm(e.target.value)
                     }}
