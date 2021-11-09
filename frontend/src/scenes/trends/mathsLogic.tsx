@@ -19,8 +19,8 @@ export const mathsLogic = kea<mathsLogicType>({
             (mathDefinitions) => Object.entries(mathDefinitions).filter(([, item]) => item.type == PROPERTY_MATH_TYPE),
         ],
         mathDefinitions: [
-            () => [],
-            () => ({
+            (s) => [s.groupsMathDefinitions],
+            (groupOptions) => ({
                 total: {
                     name: 'Total count',
                     description: (
@@ -76,6 +76,7 @@ export const mathsLogic = kea<mathsLogicType>({
                     onProperty: false,
                     type: EVENT_MATH_TYPE,
                 },
+                ...groupOptions,
                 avg: {
                     name: 'Average',
                     description: (
@@ -190,21 +191,31 @@ export const mathsLogic = kea<mathsLogicType>({
                 },
             }),
         ],
-        // groupsMathOptions: [
-        //     (s) => [s.groupTypes],
-        //     (groupTypes) => groupTypes.map((groupType) => ({
-        //         name: `Unique ${groupType.group_type}`,
-        //         description: (
-        //             <>
-        //                 Number of unique users who performed the event in the specified period.
-        //                 <br />
-        //                 <br />
-        //                 <i>Example: If a single {groupType.group_type} performs an event 3 times in the given period, it counts only as 1.</i>
-        //             </>
-        //         ),
-        //         onProperty: false,
-        //         type: EVENT_MATH_TYPE,
-        //     }))
-        // ]
+        groupsMathDefinitions: [
+            (s) => [s.groupTypes],
+            (groupTypes) =>
+                Object.fromEntries(
+                    groupTypes.map((groupType) => [
+                        `unique_group::${groupType.group_type_index}`,
+                        {
+                            name: `Unique ${groupType.group_type}(s)`,
+                            description: (
+                                <>
+                                    Number of unique {groupType.group_type}(s) who performed the event in the specified
+                                    period.
+                                    <br />
+                                    <br />
+                                    <i>
+                                        Example: If a single {groupType.group_type} performs an event 3 times in the
+                                        given period, it counts only as 1.
+                                    </i>
+                                </>
+                            ),
+                            onProperty: false,
+                            type: EVENT_MATH_TYPE,
+                        },
+                    ])
+                ),
+        ],
     },
 })
