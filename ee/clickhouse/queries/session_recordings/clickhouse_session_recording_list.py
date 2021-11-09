@@ -3,17 +3,10 @@ from typing import Any, Dict, List, NamedTuple, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
-from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
-from posthog.models import Person
 from posthog.models.entity import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import (
-    EventsQueryWithAggregateClausesSQL,
-    SessionRecordingList,
-    SessionRecordingQueryResult,
-)
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingQueryResult
 
 
 class EventFiltersSQL(NamedTuple):
