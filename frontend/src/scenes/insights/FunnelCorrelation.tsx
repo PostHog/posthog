@@ -39,6 +39,16 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         return null
     }
 
+    if (!correlationAnalysisAvailable && !preflight?.instance_preferences?.disable_paid_fs) {
+        return (
+            <PayCard
+                identifier={AvailableFeature.CORRELATION_ANALYSIS}
+                title="Get a deeper understanding of why your users are not converting"
+                caption="Correlation analysis automatically finds signals for why users are converting or dropping off."
+            />
+        )
+    }
+
     return (
         <>
             <div className="funnel-correlation">
