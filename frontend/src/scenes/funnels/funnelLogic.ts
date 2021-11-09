@@ -263,7 +263,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
     }),
 
-    reducers: ({ props, values }) => ({
+    reducers: ({ props }) => ({
         people: {
             clearFunnel: () => [],
         },
