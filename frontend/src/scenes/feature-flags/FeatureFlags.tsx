@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
+import Fuse from 'fuse.js'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch, Typography } from 'antd'
+import { Table, Switch, Typography, Input } from 'antd'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
@@ -24,12 +25,23 @@ export const scene: SceneExport = {
     logic: featureFlagsLogic,
 }
 
+const searchFeatureFlags = (sources: FeatureFlagType[], search: string): FeatureFlagType[] => {
+    return new Fuse(sources, {
+        keys: ['key', 'name'],
+        threshold: 0.3,
+    })
+        .search(search)
+        .map((result) => result.item)
+}
+
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)
     const { push } = useActions(router)
     const { tableScrollX } = useIsTableScrolling('lg')
+
+    const [searchTerm, setSearchTerm] = useState(false as string | false)
 
     const columns = [
         {
@@ -172,18 +184,29 @@ export function FeatureFlags(): JSX.Element {
                 title="Feature Flags"
                 caption="Feature flags are a way of turning functionality in your app on or off, based on user properties."
             />
-            <div className="mb text-right">
-                <LinkButton
-                    type="primary"
-                    to={urls.featureFlag('new')}
-                    data-attr="new-feature-flag"
-                    icon={<PlusOutlined />}
-                >
-                    New Feature Flag
-                </LinkButton>
+            <div>
+                <Input.Search
+                    allowClear
+                    enterButton
+                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                    autoFocus
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value)
+                    }}
+                />
+                <div className="mb float-right">
+                    <LinkButton
+                        type="primary"
+                        to={urls.featureFlag('new')}
+                        data-attr="new-feature-flag"
+                        icon={<PlusOutlined />}
+                    >
+                        New Feature Flag
+                    </LinkButton>
+                </div>
             </div>
             <Table
-                dataSource={featureFlags}
+                dataSource={searchTerm ? searchFeatureFlags(featureFlags, searchTerm) : featureFlags}
                 columns={columns}
                 loading={featureFlagsLoading && featureFlags.length === 0}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
