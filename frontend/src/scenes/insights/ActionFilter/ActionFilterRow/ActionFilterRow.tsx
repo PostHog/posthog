@@ -13,7 +13,7 @@ import {
     SelectOption,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { EVENT_MATH_TYPE, FEATURE_FLAGS, PROPERTY_MATH_TYPE } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
     CloseSquareOutlined,
     DeleteOutlined,

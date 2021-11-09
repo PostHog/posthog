@@ -1,4 +1,3 @@
-import React from 'react'
 import { AnnotationScope } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
