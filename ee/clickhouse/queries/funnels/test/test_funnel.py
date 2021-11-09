@@ -1453,7 +1453,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:6"},
         )
 
-        result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+        result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
@@ -1515,7 +1515,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:6"},
         )
 
-        result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+        result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
@@ -1580,7 +1580,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:6"},
         )
 
-        result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+        result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
@@ -1646,7 +1646,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             properties={"$group_0": "org:5"},  # same group, but different person, so not in funnel
         )
 
-        result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+        result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)

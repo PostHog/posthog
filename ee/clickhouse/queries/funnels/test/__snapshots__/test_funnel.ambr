@@ -45,8 +45,8 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           trim(BOTH '"'
-                                FROM JSONExtractRaw(e.properties, '$group_0')) as aggregation_target
+                           e.$group_0 as aggregation_target,
+                           e.$group_0 as $group_0
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -63,9 +63,11 @@
                           HAVING max(is_deleted) = 0)
                        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND event IN ['user signed up', 'paid']
+                      AND event IN ['paid', 'user signed up']
                       AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp <= '2020-01-14 23:59:59'
+                      AND NOT has([''], $group_0)
+                      AND team_id = 2 ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -113,8 +115,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND has(['org:5'], trim(BOTH '"'
-                                                   FROM JSONExtractRaw(properties, '$group_0')))
+                           AND has(['org:5'], $group_0)
                            AND team_id = 2, 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -124,9 +125,8 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           trim(BOTH '"'
-                                FROM JSONExtractRaw(e.properties, '$group_0')) as aggregation_target,
-                           e.properties as properties
+                           e.$group_0 as aggregation_target,
+                           e.$group_0 as $group_0
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -143,9 +143,11 @@
                           HAVING max(is_deleted) = 0)
                        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND event IN ['user signed up', 'paid']
+                      AND event IN ['paid', 'user signed up']
                       AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp <= '2020-01-14 23:59:59'
+                      AND NOT has([''], $group_0)
+                      AND team_id = 2 ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -193,8 +195,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND has(['org:5'], trim(BOTH '"'
-                                                   FROM JSONExtractRaw(properties, '$group_0')))
+                           AND has(['org:5'], $group_0)
                            AND team_id = 2, 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -205,7 +206,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e.properties as properties
+                           e.$group_0 as $group_0
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -302,9 +303,9 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON JSONExtractString(properties, '$group_0') == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
                     WHERE team_id = 2
-                      AND event IN ['user signed up', 'paid']
+                      AND event IN ['paid', 'user signed up']
                       AND timestamp >= '2020-01-01 00:00:00'
                       AND timestamp <= '2020-01-14 23:59:59'
                       AND has(['finance'], trim(BOTH '"'

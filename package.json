@@ -114,7 +114,7 @@
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
         "resize-observer-polyfill": "^1.5.1",
-        "rrweb": "^1.0.2",
+        "rrweb": "^1.0.6",
         "sass": "^1.26.2",
         "screenfull": "^5.1.0",
         "use-debounce": "^6.0.1",

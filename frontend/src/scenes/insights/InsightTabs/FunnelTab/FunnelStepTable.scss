@@ -30,6 +30,9 @@
     &.dividing-column {
         border-right: 1px solid $border;
     }
+    &:last-of-type.dividing-column {
+        border-right: none;
+    }
 
     &.axis-labels-column {
         z-index: 2;
