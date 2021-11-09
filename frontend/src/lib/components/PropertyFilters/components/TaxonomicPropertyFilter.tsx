@@ -12,10 +12,7 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import {
-    propertyFilterTypeToTaxonomicFilterType,
-    taxonomicFilterTypeToPropertyFilterType,
-} from 'lib/components/PropertyFilters/utils'
+import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 
 let uniqueMemoizedIndex = 0
 
@@ -42,11 +39,11 @@ export function TaxonomicPropertyFilter({
 
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type)}
+            groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type, filter?.group_type_index)}
             value={cohortOrOtherValue}
-            onChange={(groupType, value) => {
-                selectItem(taxonomicFilterTypeToPropertyFilterType(groupType), value)
-                if (groupType === TaxonomicFilterGroupType.Cohorts) {
+            onChange={(taxonomicGroup, value) => {
+                selectItem(taxonomicGroup, value)
+                if (taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts) {
                     onComplete?.()
                 }
             }}
@@ -112,7 +109,14 @@ export function TaxonomicPropertyFilter({
                             placeholder="Enter value..."
                             onChange={(newOperator, newValue) => {
                                 if (filter?.key && filter?.type) {
-                                    setFilter(index, filter?.key, newValue || null, newOperator, filter?.type)
+                                    setFilter(
+                                        index,
+                                        filter?.key,
+                                        newValue || null,
+                                        newOperator,
+                                        filter?.type,
+                                        filter?.group_type_index
+                                    )
                                 }
                                 if (
                                     newOperator &&

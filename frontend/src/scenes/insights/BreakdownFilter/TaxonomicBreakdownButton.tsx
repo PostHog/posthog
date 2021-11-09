@@ -24,9 +24,9 @@ export function TaxonomicBreakdownButton({
             overlay={
                 <TaxonomicFilter
                     groupType={breakdownType}
-                    onChange={(groupType, value) => {
+                    onChange={(taxonomicGroup, value) => {
                         if (value) {
-                            onChange(value, groupType)
+                            onChange(value, taxonomicGroup.type)
                             setOpen(false)
                         }
                     }}

@@ -270,6 +270,7 @@ export interface PropertyFilter {
     operator: PropertyOperator | null
     type: string
     value: PropertyFilterValue
+    group_type_index?: number | null
 }
 
 export type EmptyPropertyFilter = Partial<PropertyFilter>
