@@ -42,8 +42,8 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
             }
             onCancel={hideModal}
         >
-            Query series/steps can be renamed to provide a more <b>meaningful label for you and your team members</b>.
-            Custom names are also shown on dashboards.
+            Query series/steps can be renamed to provide a more{' '}
+            <strong>meaningful label for you and your team members</strong>. Custom names are also shown on dashboards.
             <br />
             <div className="l4 mt-05 mb-05">Name</div>
             <Input
