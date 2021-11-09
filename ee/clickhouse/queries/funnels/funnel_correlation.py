@@ -602,7 +602,7 @@ class FunnelCorrelation:
                                 }
                                 for property_key, property_value in elements_as_action.items()
                                 if property_value
-                                if not None
+                                if property_value is not None
                             ],
                         }
                     ),
