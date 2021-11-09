@@ -4,9 +4,10 @@ import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
-import { MATHS } from 'lib/constants'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { useValues } from 'kea'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 export enum IconSize {
     Small = 'small',
@@ -33,6 +34,8 @@ interface InsightsLabelProps {
 }
 
 function MathTag({ math, mathProperty }: Record<string, string | undefined>): JSX.Element {
+    const { mathDefinitions } = useValues(mathsLogic)
+
     if (!math || math === 'total') {
         return <Tag>Total</Tag>
     }
@@ -42,7 +45,7 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(math || '')) {
         return (
             <>
-                <Tag>{MATHS[math]?.name || capitalizeFirstLetter(math)}</Tag>
+                <Tag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</Tag>
                 {mathProperty && (
                     <>
                         <span style={{ paddingLeft: 4, paddingRight: 2 }}>of</span>
