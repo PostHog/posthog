@@ -601,7 +601,6 @@ class FunnelCorrelation:
                                     "operator": "exact",
                                 }
                                 for property_key, property_value in elements_as_action.items()
-                                if property_value
                                 if property_value is not None
                             ],
                         }
