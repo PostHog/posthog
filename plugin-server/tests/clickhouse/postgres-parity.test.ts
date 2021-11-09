@@ -2,7 +2,15 @@ import { DateTime } from 'luxon'
 import { PoolClient } from 'pg'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { Database, Hub, LogLevel, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
+import {
+    Database,
+    Hub,
+    LogLevel,
+    PersonPropertyUpdateOperation,
+    PluginsServerConfig,
+    Team,
+    TimestampFormat,
+} from '../../src/types'
 import { castTimestampOrNow, delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -57,7 +65,7 @@ describe('postgres parity', () => {
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
-            {},
+            { userPropOnce: 'propOnceValue' },
             team.id,
             null,
             true,
@@ -73,7 +81,7 @@ describe('postgres parity', () => {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
                 team_id: team.id,
-                properties: '{"userProp":"propValue"}',
+                properties: '{"userProp":"propValue", "userPropOnce":"propOnceValue"}',
                 is_identified: 1,
                 is_deleted: 0,
                 _timestamp: expect.any(String),
@@ -90,9 +98,13 @@ describe('postgres parity', () => {
                 created_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',
+                    userPropOnce: 'userPropOnceValue',
                 },
-                properties_last_updated_at: {},
-                properties_last_operation: null,
+                properties_last_updated_at: {
+                    userProp: PersonPropertyUpdateOperation.Set,
+                    userPropOnce: PersonPropertyUpdateOperation.SetOnce,
+                },
+                properties_last_operation: { userProp: expect.any(String), userPropOnce: expect.any(String) },
                 team_id: 2,
                 is_user_id: null,
                 is_identified: true,
