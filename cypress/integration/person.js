@@ -67,6 +67,7 @@ describe('Merge person', () => {
         cy.contains('merritt.humphrey@gmail.com').click()
         cy.contains('Merge persons').click()
 
+        cy.contains('There are new events. Click here to load them.').click()
         cy.contains('$create_alias').should('exist')
         cy.get('span:contains(Pageview)').should('have.length', 2)
         cy.get('span:contains(clicked)').should('have.length', 2)
