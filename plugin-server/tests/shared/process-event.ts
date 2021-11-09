@@ -87,7 +87,6 @@ export const createProcessEventTests = (
     extraServerConfig?: Partial<PluginsServerConfig>,
     createTests?: (response: ReturnWithHub) => void
 ): ReturnWithHub => {
-    let queryCounter = 0
     let processEventCounter = 0
     let mockClientEventCounter = 0
     let team: Team
@@ -110,8 +109,6 @@ export const createProcessEventTests = (
 
         await redis.del(hub.PLUGINS_CELERY_QUEUE)
         await redis.del(hub.CELERY_DEFAULT_QUEUE)
-
-        onQuery(hub, () => queryCounter++)
 
         return [hub, closeHub]
     }
@@ -145,7 +142,6 @@ export const createProcessEventTests = (
         returned.hub = hub
         returned.closeHub = closeHub
         eventsProcessor = new EventsProcessor(hub)
-        queryCounter = 0
         processEventCounter = 0
         mockClientEventCounter = 0
         team = await getFirstTeam(hub)
@@ -332,13 +328,6 @@ export const createProcessEventTests = (
             DateTime.now(),
             new UUIDT().toString()
         )
-
-        // TODO: Make this test actually useful and not flaky
-        if (database === 'clickhouse') {
-            expect(queryCounter).toBe(9 + 14 /* event & prop definitions */)
-        } else if (database === 'postgresql') {
-            expect(queryCounter).toBe(12 + 14 /* event & prop definitions */)
-        }
 
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
