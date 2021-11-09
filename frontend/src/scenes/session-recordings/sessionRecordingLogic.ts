@@ -1,9 +1,10 @@
 import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
-import { errorToast, toParams } from 'lib/utils'
+import { clamp, errorToast, toParams } from 'lib/utils'
 import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
+    EventType,
     RecordingEventsFilters,
     SessionPlayerData,
     SessionRecordingId,
@@ -197,8 +198,22 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         },
     }),
     selectors: {
-        sessionEvents: [(selectors) => [selectors.sessionEventsData], (eventsData) => eventsData?.events ?? []],
-        filteredSessionEvents: [
+        sessionEvents: [
+            (selectors) => [selectors.sessionEventsData, selectors.sessionPlayerData],
+            (eventsData, playerData) => {
+                return (eventsData?.events ?? []).map((e: EventType) => ({
+                    ...e,
+                    timestamp: +dayjs(e.timestamp),
+                    zeroOffsetTime:
+                        clamp(
+                            +dayjs(e.timestamp),
+                            playerData.session_recording.start_time,
+                            playerData.session_recording.end_time
+                        ) - playerData.session_recording.start_time,
+                }))
+            },
+        ],
+        eventsToShow: [
             (selectors) => [selectors.filters, selectors.sessionEvents],
             (filters, events) => {
                 return filters?.query

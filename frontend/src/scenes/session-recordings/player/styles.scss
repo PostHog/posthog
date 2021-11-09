@@ -1,6 +1,6 @@
 @import '~/vars';
 
-$recording_spacing: $default_spacing / 2;
+$recording_spacing: $default_spacing * 2 / 3;
 
 .session-player-v2 {
     display: flex;
@@ -11,7 +11,7 @@ $recording_spacing: $default_spacing / 2;
     .session-player-body {
         flex: 1;
         overflow: hidden;
-        background-color: $recording_player_container_bg;
+        background-color: $bg_light;
 
         .player-container {
             position: relative;
@@ -23,16 +23,62 @@ $recording_spacing: $default_spacing / 2;
             padding: $recording_spacing $recording_spacing $recording_spacing 0;
 
             .player-events-container {
+                display: flex;
+                flex-direction: column;
                 background-color: $bg_light;
-                box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
                 height: 100%;
-                border: 1px solid rgba(217, 217, 217, 0.25);
+                border: 1px solid $border;
                 border-radius: $radius;
                 padding: $recording_spacing;
 
                 .event-list {
+                    flex: 1;
+
                     .event-list-item {
                         padding: $recording_spacing;
+                        cursor: pointer;
+
+                        &:hover {
+                            background-color: $recording_current_event;
+
+                            .event-item-icon {
+                                svg {
+                                    path {
+                                        fill: $recording_current_event_dark;
+                                    }
+                                }
+                            }
+                        }
+
+                        .event-item-icon {
+                            display: flex;
+                            margin-right: $recording_spacing;
+                            margin-top: 2px;
+
+                            svg {
+                                width: 18px;
+                                height: 18px;
+
+                                path {
+                                    fill: $text_muted;
+                                }
+                            }
+                        }
+
+                        .event-item-text {
+                            display: flex;
+                            flex-direction: column;
+                            flex: 1;
+                            padding-left: $recording_spacing / 2;
+                            min-width: 0;
+
+                            .event-item-text-title {
+                                font-weight: 600;
+                            }
+
+                            .event-item-text-subtitle {
+                            }
+                        }
                     }
                 }
             }
@@ -41,14 +87,14 @@ $recording_spacing: $default_spacing / 2;
 
     .session-player-controller {
         padding: 0 $recording_spacing $recording_spacing $recording_spacing;
-        background-color: $recording_player_container_bg;
+        background-color: $bg_light;
     }
 
     .rrweb-player {
         height: 100%;
         width: 100%;
         overflow: hidden;
-        border: 1px solid rgba(217, 217, 217, 0.25);
+        border: 1px solid $border;
         border-radius: $radius;
         background-color: $bg_depth;
         box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
@@ -126,7 +172,7 @@ $recording_spacing: $default_spacing / 2;
         width: 100%;
         background-color: $bg_light;
         border-radius: $radius;
-        border: 1px solid $recording_player_container_bg;
+        border: 1px solid $border;
         padding: 0 $default_spacing;
         flex-direction: row;
         align-items: center;
@@ -158,6 +204,7 @@ $recording_spacing: $default_spacing / 2;
                     position: absolute;
                     font-size: 6px;
                 }
+
                 .seek-icon {
                     position: absolute;
                     font-size: 18px;
@@ -187,6 +234,7 @@ $recording_spacing: $default_spacing / 2;
     .ant-drawer-body {
         padding: 0;
     }
+
     .ant-drawer-close {
         padding: 12px 0px;
     }

@@ -542,6 +542,7 @@ export interface EventType {
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    zeroOffsetTime?: number // Used in session recording events that have a start time offset
     person?: Partial<PersonType> | null
     event: string
 }

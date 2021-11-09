@@ -18,6 +18,7 @@ import {
     objectDiffShallow,
     pluralize,
     toParams,
+    eventToName,
 } from './utils'
 import { ActionFilter, PropertyOperator } from '~/types'
 
@@ -338,5 +339,38 @@ describe('objectDiffShallow()', () => {
             a: '2',
             c: undefined,
         })
+    })
+})
+
+describe('eventToName()', () => {
+    const baseEvent = {
+        elements: [],
+        event: '',
+        properties: {},
+        person: {},
+    }
+
+    it('handles page events as expected', () => {
+        expect(eventToName({ ...baseEvent, event: '$pageview', properties: { $pathname: '/hello' } })).toEqual('/hello')
+        expect(eventToName({ ...baseEvent, event: '$pageleave', properties: { $pathname: '/bye' } })).toEqual('/bye')
+    })
+
+    it('handles autocapture as expected', () => {
+        expect(
+            eventToName({
+                ...baseEvent,
+                event: '$autocapture',
+                properties: { $event_type: 'click' },
+            })
+        ).toEqual('Clicked ')
+    })
+
+    it('handles unknown event/action', () => {
+        expect(
+            eventToName({
+                ...baseEvent,
+                event: 'custom event/action',
+            })
+        ).toEqual('custom event/action')
     })
 })

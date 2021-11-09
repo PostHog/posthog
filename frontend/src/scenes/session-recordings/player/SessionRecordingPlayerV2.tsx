@@ -44,10 +44,10 @@ export function SessionRecordingPlayerV2(): JSX.Element {
     return (
         <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
             <Row className="session-player-body" wrap={false}>
-                <Col className="player-container ph-no-capture" span={18}>
+                <Col className="player-container ph-no-capture" span={16}>
                     <PlayerFrame ref={frame} />
                 </Col>
-                <Col className="player-events" span={6} flex={1}>
+                <Col className="player-events" span={8}>
                     <PlayerEvents />
                 </Col>
             </Row>

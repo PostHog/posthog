@@ -27,7 +27,11 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
         >
             {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER] ? (
                 <Col style={{ height: '100vh' }}>
-                    <Row style={{ height: 40 }} align="middle" justify="space-between">
+                    <Row
+                        style={{ height: 40, borderBottom: '1px solid var(--border)' }}
+                        align="middle"
+                        justify="space-between"
+                    >
                         <Button type="link" onClick={onClose}>
                             <ArrowLeftOutlined /> Back to{' '}
                             {isPersonPage

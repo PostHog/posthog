@@ -7,7 +7,7 @@ import { Link } from 'lib/components/Link'
 import { Button, Col, Row, Spin } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { eventToName, toParams } from 'lib/utils'
+import { autoCaptureEventToName, toParams } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
@@ -121,7 +121,7 @@ export function EventsTable({
                         return newEventsRender(item, tableWidth)
                     }
                     const { event } = item
-                    return <PropertyKeyInfo value={eventToName(event)} />
+                    return <PropertyKeyInfo value={autoCaptureEventToName(event) as string} />
                 },
                 ellipsis: true,
             },

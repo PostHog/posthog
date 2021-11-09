@@ -7,7 +7,7 @@ import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardM
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
+import { KeyMappingInterface, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
@@ -619,19 +619,45 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToName(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
+export function eventToName(
+    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
+    emphasizeEl: boolean = false
+): string | JSX.Element {
+    if (['$pageview', '$pageleave'].includes(event.event)) {
+        return emphasizeEl ? <b>{event.properties.$pathname}</b> : event.properties.$pathname
+    }
+    if (event.event === '$autocapture') {
+        return autoCaptureEventToName(event, emphasizeEl, true)
+    }
+    if (event.event.startsWith('$')) {
+        return emphasizeEl ? (
+            <b>
+                <PropertyKeyInfo value={event.event} disablePopover disableIcon />
+            </b>
+        ) : (
+            <PropertyKeyInfo value={event.event} disablePopover disableIcon />
+        )
+    }
+    return emphasizeEl ? <b>{event.event}</b> : event.event
+}
+
+export function autoCaptureEventToName(
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
+    emphasizeEl: boolean = false,
+    capFirstLetter: boolean = false
+): string | JSX.Element {
     if (event.event !== '$autocapture') {
         return event.event
     }
-    let name = ''
+    let name: string | JSX.Element = ''
     if (event.properties.$event_type === 'click') {
-        name += 'clicked '
+        name += (capFirstLetter ? 'C' : 'c') + 'licked '
     }
     if (event.properties.$event_type === 'change') {
-        name += 'typed something into '
+        name += (capFirstLetter ? 'T' : 't') + 'yped something into '
     }
     if (event.properties.$event_type === 'submit') {
-        name += 'submitted '
+        name += (capFirstLetter ? 'S' : 's') + 'ubmitted '
     }
 
     if (event.elements.length > 0) {
@@ -643,9 +669,25 @@ export function eventToName(event: Pick<EventType, 'elements' | 'event' | 'prope
             name += event.elements[0].tag_name
         }
         if (event.elements[0].text) {
-            name += ' with text "' + event.elements[0].text + '"'
+            if (emphasizeEl) {
+                name = (
+                    <span>
+                        {name} with text "<b>{event.elements[0].text}</b>"
+                    </span>
+                )
+            } else {
+                name += ' with text "' + event.elements[0].text + '"'
+            }
         } else if (event.elements[0].attributes['attr__aria-label']) {
-            name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
+            if (emphasizeEl) {
+                name = (
+                    <span>
+                        {name} with aria label "<b> {event.elements[0].attributes['attr__aria-label']}</b>"
+                    </span>
+                )
+            } else {
+                name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
+            }
         }
     }
     return name
