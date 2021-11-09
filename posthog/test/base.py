@@ -137,6 +137,21 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
+    def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
+        if len(response1):
+            for attr in remove:
+                if attr in response1[0]:
+                    response1[0].pop(attr)
+        else:
+            return False
+        if len(response2):
+            for attr in remove:
+                if attr in response2[0]:
+                    response2[0].pop(attr)
+        else:
+            return False
+        self.assertDictEqual(response1[0], response2[0])
+
 
 def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
     """
