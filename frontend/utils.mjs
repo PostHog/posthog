@@ -56,7 +56,7 @@ export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', e
         fse.readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script type="application/javascript">
-                    window.ESBUILD_LOADED_CHUNKS = new Set(); 
+                    window.ESBUILD_LOADED_CHUNKS = new Set();
                     window.ESBUILD_LOAD_SCRIPT = async function (file) {
                         try {
                             await import('${isDev ? jsURL : ''}/static/' + file)
@@ -64,14 +64,14 @@ export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', e
                             console.error('Error loading chunk: "' + file + '"')
                         }
                     }
-                    window.ESBUILD_LOAD_CHUNKS = function(name) { 
+                    window.ESBUILD_LOAD_CHUNKS = function(name) {
                         const chunks = ${JSON.stringify(chunks)}[name] || [];
-                        for (const chunk of chunks) { 
-                            if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
-                                window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
+                        for (const chunk of chunks) {
+                            if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
+                                window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
                                 window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                            } 
-                        } 
+                            }
+                        }
                     }
                     window.ESBUILD_LOAD_SCRIPT("${entry}.js?t=" + new Date().valueOf())
                     window.ESBUILD_LOAD_CHUNKS('index');
@@ -161,9 +161,9 @@ export async function buildOrWatch(config) {
         }
         buildAgain = false
         onBuildStart?.()
-        reloadLiveServer()
         buildPromise = runBuild()
         const chunks = await buildPromise
+        reloadLiveServer()
         buildPromise = null
         onBuildComplete?.(chunks)
         if (isDev && buildAgain) {
