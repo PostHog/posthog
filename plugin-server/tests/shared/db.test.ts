@@ -84,7 +84,7 @@ describe('DB', () => {
             team = await getFirstTeam(hub)
         })
 
-        test('witout properties', async () => {
+        test('without properties', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, team.id, null, false, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
 
@@ -96,7 +96,7 @@ describe('DB', () => {
             expect(fetched_person.team_id).toEqual(team.id)
         })
 
-        test('witout properties indentified true', async () => {
+        test('without properties indentified true', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, team.id, null, true, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person.is_identified).toEqual(true)
