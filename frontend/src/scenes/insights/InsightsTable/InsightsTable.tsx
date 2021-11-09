@@ -27,7 +27,7 @@ import clsx from 'clsx'
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
     showTotalCount?: boolean
-    typeKey: string // key for the entityFilterLogic
+    filterKey: string // key for the entityFilterLogic
     canEditSeriesNameInline?: boolean
 }
 
@@ -40,7 +40,7 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 export function InsightsTable({
     isLegend = true,
     showTotalCount = false,
-    typeKey,
+    filterKey,
     canEditSeriesNameInline,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -52,7 +52,7 @@ export function InsightsTable({
     const _entityFilterLogic = entityFilterLogic({
         setFilters,
         filters,
-        typeKey,
+        typeKey: filterKey,
     })
     const { showModal, selectFilter } = useActions(_entityFilterLogic)
 

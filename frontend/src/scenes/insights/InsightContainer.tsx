@@ -140,7 +140,7 @@ export function InsightContainer(): JSX.Element {
                         <h3 className="l3">Details table</h3>
                         <InsightsTable
                             showTotalCount={activeView !== ViewType.SESSIONS}
-                            typeKey={activeView === ViewType.TRENDS ? `trends_${activeView}` : ''}
+                            filterKey={activeView === ViewType.TRENDS ? `trends_${activeView}` : ''}
                             canEditSeriesNameInline={activeView === ViewType.TRENDS && insightMode === ItemMode.Edit}
                         />
                     </BindLogic>
