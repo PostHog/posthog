@@ -43,7 +43,7 @@ export function ActionsLineGraph({
                     ? null
                     : (point) => {
                           const { dataset, day, value: pointValue, index } = point
-                          console.log(point)
+
                           const params = {
                               action: dataset.action || 'session',
                               label: dataset.label,
