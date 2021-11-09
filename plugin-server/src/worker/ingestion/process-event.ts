@@ -144,6 +144,7 @@ export class EventsProcessor {
                         teamId,
                         distinctId,
                         properties['$session_id'],
+                        properties['$window_id'],
                         ts,
                         properties['$snapshot_data'],
                         personUuid
@@ -582,6 +583,7 @@ export class EventsProcessor {
         team_id: number,
         distinct_id: string,
         session_id: string,
+        window_id: string,
         timestamp: DateTime | string,
         snapshot_data: Record<any, any>,
         personUuid: string
@@ -598,6 +600,7 @@ export class EventsProcessor {
             team_id: team_id,
             distinct_id: distinct_id,
             session_id: session_id,
+            window_id: window_id,
             snapshot_data: JSON.stringify(snapshot_data),
             timestamp: timestampString,
             created_at: timestampString,
@@ -612,8 +615,16 @@ export class EventsProcessor {
             const {
                 rows: [eventCreated],
             } = await this.db.postgresQuery(
-                'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-                [data.created_at, data.team_id, data.distinct_id, data.session_id, data.timestamp, data.snapshot_data],
+                'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, window_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+                [
+                    data.created_at,
+                    data.team_id,
+                    data.distinct_id,
+                    data.session_id,
+                    data.window_id,
+                    data.timestamp,
+                    data.snapshot_data,
+                ],
                 'insertSessionRecording'
             )
             return eventCreated as PostgresSessionRecordingEvent

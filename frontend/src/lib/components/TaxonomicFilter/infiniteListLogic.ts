@@ -33,6 +33,7 @@ const apiCache: Record<string, EventDefinitionStorage> = {}
 const apiCacheTimers: Record<string, number> = {}
 
 export const infiniteListLogic = kea<infiniteListLogicType>({
+    path: (key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key],
     props: {} as InfiniteListLogicProps,
 
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,

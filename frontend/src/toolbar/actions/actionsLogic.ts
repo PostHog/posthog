@@ -6,6 +6,7 @@ import Fuse from 'fuse.js'
 import { toolbarFetch } from '~/toolbar/utils'
 
 export const actionsLogic = kea<actionsLogicType>({
+    path: ['toolbar', 'actions', 'actionsLogic'],
     actions: {
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },

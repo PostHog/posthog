@@ -1866,7 +1866,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
-    @test_with_materialized_columns(["$current_url"])
+    @test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_paths_start_and_end(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"])
         events_p1 = [
@@ -1980,7 +1980,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "end_point": "/about",
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 00:00:00",
-            }
+            },
+            team=self.team,
         )
         response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
         self.assertEqual(

@@ -7,6 +7,7 @@ import { uniqueBy } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 export const dashboardsLogic = kea<dashboardsLogicType>({
+    path: ['scenes', 'dashboard', 'dashboardsLogic'],
     actions: {
         addNewDashboard: true,
         setNewDashboardDrawer: (shown: boolean) => ({ shown }),

@@ -11,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { membershipLevelToName } from '../../../lib/utils/permissioning'
 
 export const membersLogic = kea<membersLogicType>({
+    path: ['scenes', 'organization', 'Settings', 'membersLogic'],
     actions: {
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,

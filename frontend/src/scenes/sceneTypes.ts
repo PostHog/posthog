@@ -31,6 +31,7 @@ export enum Scene {
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',
+    BillingSubscribed = 'BillingSubscribed',
     Plugins = 'Plugins',
     SavedInsights = 'SavedInsights',
     // Authentication & onboarding routes
@@ -80,8 +81,6 @@ export interface SceneConfig {
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
     allowUnauthenticated?: boolean
-    /** Background is $bg_mid */
-    dark?: boolean
     /** Only keeps the main content and the top navigation bar */
     plain?: boolean
     /** Hides the top navigation bar (regardless of whether `plain` is `true` or not) */
