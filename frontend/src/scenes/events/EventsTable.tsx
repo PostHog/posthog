@@ -27,7 +27,6 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
-import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
 import { urls } from 'scenes/urls'
 
@@ -46,12 +45,6 @@ interface EventsTable {
     pageKey?: string
     hidePersonColumn?: boolean
     sceneUrl?: string
-}
-
-export const scene: SceneExport = {
-    component: EventsTable,
-    logic: eventsTableLogic,
-    paramsToProps: ({ params: { fixedFilters, pageKey } }) => ({ fixedFilters, key: pageKey }),
 }
 
 export function EventsTable({
