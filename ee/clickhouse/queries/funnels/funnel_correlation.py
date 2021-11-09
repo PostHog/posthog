@@ -583,12 +583,6 @@ class FunnelCorrelation:
             # NOTE: for property correlations, we just use the regular funnel
             # persons endpoint, with the breakdown value set, and we assume that
             # event.event will be of the format "{property_name}::{property_value}"
-            # NOTE: this is just trying to recreate what we are doing in the
-            # frontend here:
-            # https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelPropertyCorrelationTable.tsx#L77:L77
-            #
-            # That's a pretty complicated code path so I'd have low confidence
-            # that this was right.
             property_name, property_value = event_definition["event"].split("::")
             params = self._filter.with_data(
                 {
