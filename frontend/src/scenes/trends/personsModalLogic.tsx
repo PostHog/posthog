@@ -93,6 +93,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
+        loadPeopleFromUrl: (url: string) => ({ url }),
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
@@ -130,6 +131,10 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     day: date_from,
                     breakdown_value,
                 }),
+                loadPeopleFromUrl: () => ({
+                    people: [],
+                    count: 0,
+                }),
                 setFilters: () => null,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
             },
@@ -152,6 +157,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             false,
             {
                 loadPeople: () => true,
+                loadPeopleFromUrl: () => true,
                 hidePeople: () => false,
             },
         ],
@@ -159,6 +165,12 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             null as PersonModalParams | null,
             {
                 loadPeople: (_, { peopleParams }) => peopleParams,
+            },
+        ],
+        peopleUrl: [
+            null as string | null,
+            {
+                loadPeopleFromUrl: (_, { url }) => ({ url }),
             },
         ],
     }),
@@ -261,6 +273,14 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }
 
                 return peopleResult
+            },
+            loadPeopleFromUrl: async ({ url }) => {
+                const people = await (await fetch(url)).json()
+
+                return {
+                    people: people?.results[0]?.people,
+                    count: people?.results[0]?.count || 0,
+                }
             },
             loadMorePeople: async ({}, breakpoint) => {
                 if (values.people) {

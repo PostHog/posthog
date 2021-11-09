@@ -14,6 +14,7 @@ import { IconSelectProperties } from 'lib/components/icons'
 import './FunnelCorrelationTable.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -30,7 +31,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         correlationPropKey,
     } = useValues(logic)
 
-    const { setPropertyCorrelationTypes, openPersonsModal, setPropertyNames } = useActions(logic)
+    const { loadPeopleFromUrl } = useActions(personsModalLogic)
+
+    const { setPropertyCorrelationTypes, setPropertyNames } = useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 
@@ -69,19 +72,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openPersonsModal(
-                        { ...emptyFunnelStep, name: breakdown },
-                        stepsWithCount.length,
-                        breakdown_value,
-                        breakdown,
-                        'person',
-                        [stepsWithCount.length] // funnel_custom_steps for correlations
-                    )
+                    loadPeopleFromUrl(record.success_people_url)
                 }}
             >
                 {record.success_count}
@@ -90,19 +84,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openPersonsModal(
-                        { ...emptyFunnelStep, name: breakdown },
-                        -2,
-                        breakdown_value,
-                        breakdown,
-                        'person',
-                        Array.from(Array(stepsWithCount.length).keys()).slice(1) // returns array like: [1,2,3,.... stepsWithCount.length - 1]
-                    )
+                    loadPeopleFromUrl(record.failure_people_url)
                 }}
             >
                 {record.failure_count}

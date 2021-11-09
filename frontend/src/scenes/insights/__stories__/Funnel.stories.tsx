@@ -96,6 +96,7 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
                 ])
             )
         ),
+        rest.get('/some/people/url', (_, res, ctx) => res(ctx.json(samplePeople))),
         rest.post('/api/projects/:projectId/insights/funnel/', (_, res, ctx) =>
             res(ctx.json(sampleSkewedFunnelResponse))
         ),
@@ -190,6 +191,8 @@ type FunnelCorrelationResponse = {
             odds_ratio: number
             success_count: number
             failure_count: number
+            success_people_url: string
+            failure_people_url: string
             correlation_type: 'success' | 'failure'
         }[]
         skewed: boolean
@@ -208,6 +211,8 @@ const samplePropertyCorrelationResponse: FunnelCorrelationResponse = {
                 },
                 success_count: 65,
                 failure_count: 12,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 9.709598031173092,
                 correlation_type: 'success',
             },
@@ -217,6 +222,8 @@ const samplePropertyCorrelationResponse: FunnelCorrelationResponse = {
                 },
                 success_count: 1737,
                 failure_count: 1192,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 4.267011809020293,
                 correlation_type: 'success',
             },
@@ -226,6 +233,8 @@ const samplePropertyCorrelationResponse: FunnelCorrelationResponse = {
                 },
                 success_count: 382,
                 failure_count: 192,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 4.048527814836648,
                 correlation_type: 'success',
             },
@@ -245,6 +254,8 @@ const sampleEventCorrelationResponse: FunnelCorrelationResponse = {
                 },
                 success_count: 59,
                 failure_count: 0,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 114.75839475839476,
                 correlation_type: 'success',
             },
@@ -254,6 +265,8 @@ const sampleEventCorrelationResponse: FunnelCorrelationResponse = {
                 },
                 success_count: 42,
                 failure_count: 0,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 81.86358695652174,
                 correlation_type: 'success',
             },
@@ -263,6 +276,8 @@ const sampleEventCorrelationResponse: FunnelCorrelationResponse = {
                 },
                 success_count: 396,
                 failure_count: 1300,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 0.621617558628984,
                 correlation_type: 'failure',
             },
@@ -279,6 +294,8 @@ const sampleEventWithPropertyCorrelationResponse: FunnelCorrelationResponse = {
             {
                 success_count: 155,
                 failure_count: 0,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 27.594682835820894,
                 correlation_type: 'success',
                 event: { event: 'section heading viewed::$feature/new-paths-ui::true', properties: {}, elements: [] },
@@ -286,6 +303,8 @@ const sampleEventWithPropertyCorrelationResponse: FunnelCorrelationResponse = {
             {
                 success_count: 150,
                 failure_count: 0,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 26.694674280386902,
                 correlation_type: 'success',
                 event: { event: 'section heading viewed::$lib_version::1.15.3', properties: {}, elements: [] },
@@ -293,6 +312,8 @@ const sampleEventWithPropertyCorrelationResponse: FunnelCorrelationResponse = {
             {
                 success_count: 155,
                 failure_count: 1,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 odds_ratio: 13.788246268656716,
                 correlation_type: 'success',
                 event: {
@@ -386,6 +407,43 @@ const sampleSkewedFunnelResponse: FunnelResponse = {
     ],
     last_refresh: '2021-10-11T15:00:52.117340Z',
     is_cached: true,
+}
+
+const samplePeople = {
+    results: [
+        {
+            people: [
+                {
+                    id: 165374220,
+                    name: 'test@posthog.com',
+                    distinct_ids: ['2'],
+                    properties: {
+                        $initial_os: 'Mac OS X',
+                    },
+                    is_identified: true,
+                    created_at: '2021-10-11T11:48:57.449000Z',
+                    uuid: '017c6f2f-35e8-0000-736e-50f22cae39d8',
+                },
+                {
+                    id: 173639169,
+                    name: 'user@posthog.com',
+                    distinct_ids: ['1'],
+                    properties: {
+                        $os: 'Mac OS X',
+                    },
+                    is_identified: false,
+                    created_at: '2021-10-20T13:15:00.555000Z',
+                    uuid: '017c9dd7-65cf-0000-173b-a91493a2faf4',
+                },
+            ],
+            count: 2,
+        },
+    ],
+    next: null,
+    initial:
+        'https://app.posthog.com/api/person/funnel/?insight=FUNNELS&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A1%2C%22name%22%3A%22%24pageview%22%7D%5D&display=FunnelViz&interval=day&properties=%5B%5D&funnel_step=-2&funnel_viz_type=steps&funnel_to_step=1&funnel_step_breakdown=2&exclusions=%5B%5D&breakdown=organization_count&breakdown_type=person&funnel_custom_steps=%5B1%5D&funnel_from_step=0',
+    is_cached: true,
+    last_refresh: '2021-11-08T15:27:01.035422Z',
 }
 
 // This is data that is rendered into the html. I tried not to use this and just

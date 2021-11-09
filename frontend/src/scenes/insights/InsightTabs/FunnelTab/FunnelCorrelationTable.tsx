@@ -22,6 +22,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -42,10 +43,11 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     const {
         setCorrelationTypes,
         loadEventWithPropertyCorrelations,
-        openCorrelationPersonsModal,
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
     } = useActions(logic)
+
+    const { loadPeopleFromUrl } = useActions(personsModalLogic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 
@@ -138,16 +140,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         }
     }
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
-        const { name, properties } = parseEventAndProperty(record.event)
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openCorrelationPersonsModal(
-                        { id: name, type: EntityTypes.EVENTS, properties },
-                        true,
-                        record.result_type
-                    )
+                    loadPeopleFromUrl(record.success_people_url)
                 }}
             >
                 {record.success_count}
@@ -156,16 +152,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
-        const { name, properties } = parseEventAndProperty(record.event)
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openCorrelationPersonsModal(
-                        { id: name, type: EntityTypes.EVENTS, properties },
-                        false,
-                        record.result_type
-                    )
+                    loadPeopleFromUrl(record.failure_people_url)
                 }}
             >
                 {record.failure_count}
