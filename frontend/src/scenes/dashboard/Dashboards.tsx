@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Row, Spin, Table } from 'antd'
+import { Button, Card, Col, Drawer, Input, Row, Spin, Table } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import {
@@ -32,8 +32,8 @@ export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
-    const { setNewDashboardDrawer } = useActions(dashboardsLogic)
-    const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
+    const { setNewDashboardDrawer, setSearchTerm } = useActions(dashboardsLogic)
+    const { dashboards, newDashboardDrawer, dashboardTags, searchTerm } = useValues(dashboardsLogic)
     const { user, hasAvailableFeature } = useValues(userLogic)
     const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardType>[])
 
@@ -153,15 +153,26 @@ export function Dashboards(): JSX.Element {
     return (
         <div>
             <PageHeader title="Dashboards" />
-            <div className="mb text-right">
-                <Button
-                    data-attr={'new-dashboard'}
-                    onClick={() => setNewDashboardDrawer(true)}
-                    type="primary"
-                    icon={<PlusOutlined />}
-                >
-                    New Dashboard
-                </Button>
+            <div>
+                <Input.Search
+                    allowClear
+                    enterButton
+                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                    value={searchTerm}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value)
+                    }}
+                />
+                <div className="mb float-right">
+                    <Button
+                        data-attr={'new-dashboard'}
+                        onClick={() => setNewDashboardDrawer(true)}
+                        type="primary"
+                        icon={<PlusOutlined />}
+                    >
+                        New Dashboard
+                    </Button>
+                </div>
             </div>
 
             <Drawer
@@ -174,62 +185,60 @@ export function Dashboards(): JSX.Element {
                 <NewDashboard />
             </Drawer>
 
-            <Card>
-                {dashboardsLoading ? (
-                    <Spin />
-                ) : dashboards.length > 0 ? (
-                    <Table
-                        dataSource={dashboards}
-                        rowKey="id"
-                        size="small"
-                        pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                        columns={displayedColumns}
-                    />
-                ) : (
-                    <div>
-                        <p>Create your first dashboard:</p>
+            {dashboardsLoading ? (
+                <Spin />
+            ) : dashboards.length > 0 ? (
+                <Table
+                    dataSource={dashboards}
+                    rowKey="id"
+                    size="small"
+                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                    columns={displayedColumns}
+                />
+            ) : (
+                <div>
+                    <p>Create your first dashboard:</p>
 
-                        <Row gutter={24}>
-                            <Col xs={24} xl={6}>
-                                <Card
-                                    title="Empty"
-                                    size="small"
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() =>
-                                        addDashboard({
-                                            name: 'New Dashboard',
-                                            show: true,
-                                            useTemplate: '',
-                                        })
-                                    }
-                                >
-                                    <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                        <AppstoreAddOutlined />
-                                    </div>
-                                </Card>
-                            </Col>
-                            <Col xs={24} xl={6}>
-                                <Card
-                                    title="App Default"
-                                    size="small"
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() =>
-                                        addDashboard({
-                                            name: 'Web App Dashboard',
-                                            show: true,
-                                            useTemplate: 'DEFAULT_APP',
-                                        })
-                                    }
-                                >
-                                    <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                        <AppstoreAddOutlined />
-                                    </div>
-                                </Card>
-                            </Col>
-                        </Row>
-                    </div>
-                )}
-            </Card>
+                    <Row gutter={24}>
+                        <Col xs={24} xl={6}>
+                            <Card
+                                title="Empty"
+                                size="small"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() =>
+                                    addDashboard({
+                                        name: 'New Dashboard',
+                                        show: true,
+                                        useTemplate: '',
+                                    })
+                                }
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                    <AppstoreAddOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                        <Col xs={24} xl={6}>
+                            <Card
+                                title="App Default"
+                                size="small"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() =>
+                                    addDashboard({
+                                        name: 'Web App Dashboard',
+                                        show: true,
+                                        useTemplate: 'DEFAULT_APP',
+                                    })
+                                }
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                    <AppstoreAddOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                    </Row>
+                </div>
+            )}
         </div>
     )
 }
