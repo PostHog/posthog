@@ -458,8 +458,8 @@ export class DB {
 
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await client.query(
-                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-                [createdAt.toISO(), JSON.stringify(properties), '{}', teamId, isUserId, isIdentified, uuid]
+                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+                [createdAt.toISO(), JSON.stringify(properties), '{}', teamId, isUserId, isIdentified, uuid, 0]
             )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {
