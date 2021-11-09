@@ -25,7 +25,6 @@ import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/Da
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 
 import { PageHeader } from 'lib/components/PageHeader'

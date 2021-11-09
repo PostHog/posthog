@@ -1,5 +1,6 @@
 describe('Retention', () => {
     beforeEach(() => {
+        cy.visit('/insights/new')
         cy.get('[data-attr=insight-retention-tab]').click()
     })
 

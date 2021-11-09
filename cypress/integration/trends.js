@@ -12,13 +12,6 @@ describe('Trends', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it('Insight History Panel Rendered', () => {
-        cy.get('.insights-page').should('exist')
-        cy.wait(500)
-        cy.get('[data-attr=insight-history-button]').click()
-        cy.get('[data-attr=insight-history-panel]').should('exist')
-    })
-
     it('Add a pageview action filter', () => {
         // when
         cy.contains('Add graph series').click()
