@@ -232,6 +232,7 @@ export function generateKafkaPersonUpdateMessage(
     teamId: number,
     isIdentified: boolean,
     id: string,
+    version?: number | null,
     isDeleted = 0
 ): ProducerRecord {
     return {
@@ -246,6 +247,7 @@ export function generateKafkaPersonUpdateMessage(
                         team_id: teamId,
                         is_identified: isIdentified,
                         is_deleted: isDeleted,
+                        ...(version ? { version } : {}),
                     })
                 ),
             },

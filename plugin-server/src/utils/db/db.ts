@@ -497,17 +497,28 @@ export class DB {
         update: Partial<Person>,
         client?: PoolClient
     ): Promise<Person | ProducerRecord[]> {
+        const updateValues = Object.values(unparsePersonPartial(update))
+
+        // short circuit if there are no updates to be made
+        if (updateValues.length === 0) {
+            return client ? [] : person
+        }
+
         const updatedPerson: Person = { ...person, ...update }
-        const values = [...Object.values(unparsePersonPartial(update)), person.id]
+        const values = [...updateValues, person.id]
 
-        const queryString = `UPDATE posthog_person SET ${Object.keys(update).map(
-            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${Object.values(update).length + 1}`
+        const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
+            update
+        ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
+            Object.values(update).length + 1
+        }
+        RETURNING version`
 
+        let updateResult: QueryResult | null = null
         if (client) {
-            await client.query(queryString, values)
+            updateResult = await client.query(queryString, values)
         } else {
-            await this.postgresQuery(queryString, values, 'updatePerson')
+            updateResult = await this.postgresQuery(queryString, values, 'updatePerson')
         }
 
         const kafkaMessages = []
@@ -517,7 +528,8 @@ export class DB {
                 updatedPerson.properties,
                 updatedPerson.team_id,
                 updatedPerson.is_identified,
-                updatedPerson.uuid
+                updatedPerson.uuid,
+                updateResult.rows[0].version
             )
             if (client) {
                 kafkaMessages.push(message)
