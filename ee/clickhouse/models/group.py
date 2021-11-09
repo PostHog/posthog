@@ -32,8 +32,10 @@ def create_group(
     p.produce(topic=KAFKA_GROUPS, sql=INSERT_GROUP_SQL, data=data)
 
 
-def get_aggregation_target_field(aggregation_group_type_index: Optional[int], distinct_id_table_alias: str) -> str:
+def get_aggregation_target_field(
+    aggregation_group_type_index: Optional[int], event_table_alias: str, distinct_id_table_alias: str
+) -> str:
     if aggregation_group_type_index is not None:
-        return f"$group_{aggregation_group_type_index}"
+        return f"{event_table_alias}.$group_{aggregation_group_type_index}"
     else:
         return f"{distinct_id_table_alias}.person_id"
