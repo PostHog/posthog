@@ -31,9 +31,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         correlationPropKey,
     } = useValues(logic)
 
-    const { loadPeopleFromUrl } = useActions(personsModalLogic)
-
-    const { setPropertyCorrelationTypes, setPropertyNames } = useActions(logic)
+    const { setPropertyCorrelationTypes, setPropertyNames, openPersonsModal } = useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 
@@ -49,30 +47,11 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         }
     }
 
-    const parseBreakdownValue = (item: string): { breakdown: string; breakdown_value: string } => {
-        const components = item.split('::')
-        if (components.length === 1) {
-            return { breakdown: components[0], breakdown_value: '' }
-        } else {
-            return {
-                breakdown: components[0],
-                breakdown_value: components[1],
-            }
-        }
-    }
-
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    loadPeopleFromUrl({
-                        url: record.success_people_url,
-                        stepNumber: stepsWithCount.length,
-                        label: breakdown,
-                        breakdown_value,
-                    })
+                    openPersonsModal(record, true)
                 }}
             >
                 {record.success_count}
@@ -81,17 +60,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    loadPeopleFromUrl({
-                        url: record.failure_people_url,
-                        stepNumber: -2, // I'm not sure why this is -2, I'm just copying from what was here previously
-                        label: breakdown,
-                        breakdown_value,
-                    })
+                    openPersonsModal(record, false)
                 }}
             >
                 {record.failure_count}

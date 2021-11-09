@@ -21,7 +21,6 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -44,9 +43,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         loadEventWithPropertyCorrelations,
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
+        openCorrelationPersonsModal,
     } = useActions(logic)
-
-    const { loadPeopleFromUrl } = useActions(personsModalLogic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 
@@ -106,49 +104,11 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         )
     }
 
-    const parseEventAndProperty = (
-        event: FunnelCorrelation['event']
-    ): { name: string; properties?: PropertyFilter[] } => {
-        const components = event.event.split('::')
-        /*
-          The `event` is either an event name, or event::property::property_value
-        */
-        if (components.length === 1) {
-            return { name: components[0] }
-        } else if (components[0] === '$autocapture') {
-            // We use elementsToAction to generate the required property filters
-            const elementData = elementsToAction(event.elements)
-            return {
-                name: components[0],
-                properties: Object.entries(elementData)
-                    .filter(([, propertyValue]) => !!propertyValue)
-                    .map(([propertyKey, propertyValue]) => ({
-                        key: propertyKey,
-                        operator: PropertyOperator.Exact,
-                        type: 'element',
-                        value: [propertyValue as string],
-                    })),
-            }
-        } else {
-            return {
-                name: components[0],
-                properties: [
-                    { key: components[1], operator: PropertyOperator.Exact, value: components[2], type: 'event' },
-                ],
-            }
-        }
-    }
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
-        const { name } = parseEventAndProperty(record.event)
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    loadPeopleFromUrl({
-                        url: record.failure_people_url,
-                        stepNumber: stepsWithCount.length,
-                        label: name,
-                    })
+                    openCorrelationPersonsModal(record, true)
                 }}
             >
                 {record.success_count}
@@ -157,16 +117,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
-        const { name } = parseEventAndProperty(record.event)
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    loadPeopleFromUrl({
-                        url: record.failure_people_url,
-                        stepNumber: -2, // I'm not sure why this is -2, I'm just copying from what was here previously
-                        label: name,
-                    })
+                    openCorrelationPersonsModal(record, false)
                 }}
             >
                 {record.failure_count}
