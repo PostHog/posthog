@@ -9,7 +9,7 @@ import { ViewType } from '~/types'
 import { router } from 'kea-router'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isSingleSeries } from 'lib/utils'
+import { isMultiSeriesFormula } from 'lib/utils'
 
 export function ActionsLineGraph({
     dashboardItemId,
@@ -40,7 +40,7 @@ export function ActionsLineGraph({
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === ViewType.STICKINESS}
             onClick={
-                dashboardItemId || !isSingleSeries(filters.formula)
+                dashboardItemId || isMultiSeriesFormula(filters.formula)
                     ? null
                     : (point) => {
                           const { dataset, day, value: pointValue } = point
