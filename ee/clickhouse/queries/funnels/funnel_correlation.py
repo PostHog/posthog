@@ -562,6 +562,42 @@ class FunnelCorrelation:
             return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
         if self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
+            if self.support_autocapture_elements():
+                # If we have an $autocapture event, we need to special case the
+                # url by converting the `elements` chain into an `Action`
+                event_name, _, _ = event_definition["event"].split("::")
+                elements = event_definition["elements"]
+                first_element = elements[0]
+                elements_as_action = {
+                    "tag_name": first_element["tag_name"],
+                    "href": first_element["href"],
+                    "text": first_element["text"],
+                    "selector": build_selector(elements),
+                }
+                params = self._filter.with_data(
+                    {
+                        "funnel_correlation_person_converted": "true" if success else "false",
+                        "funnel_correlation_person_entity": json.dumps(
+                            {
+                                "id": event_name,
+                                "type": "events",
+                                "properties": [
+                                    {
+                                        "key": property_key,
+                                        "value": [property_value],
+                                        "type": "element",
+                                        "operator": "exact",
+                                    }
+                                    for property_key, property_value in elements_as_action.items()
+                                    if property_value
+                                    if not None
+                                ],
+                            }
+                        ),
+                    }
+                ).to_params()
+                return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+
             event_name, property_name, property_value = event_definition["event"].split("::")
             params = self._filter.with_data(
                 {
@@ -730,3 +766,17 @@ def get_entity_odds_ratio(event_contingency_table: EventContingencyTable, prior_
         odds_ratio=odds_ratio,
         correlation_type="success" if odds_ratio > 1 else "failure",
     )
+
+
+def build_selector(elements: List[Dict[str, Any]]) -> str:
+    # build a CSS select given an "elements_chain"
+    # NOTE: my source of what this should be doing is
+    # https://github.com/PostHog/posthog/blob/cc054930a47fb59940531e99a856add49a348ee5/frontend/src/scenes/events/createActionFromEvent.tsx#L36:L36
+    #
+    def element_to_selector(element: Dict[str, Any]) -> str:
+        if attr_id := element.get("attr_id"):
+            return f'[id="{attr_id}"]'
+
+        return element["tag_name"]
+
+    return " > ".join([element_to_selector(element) for element in elements])

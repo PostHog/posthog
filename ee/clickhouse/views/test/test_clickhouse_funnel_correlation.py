@@ -615,6 +615,11 @@ class FunnelCorrelationTest(BaseTest):
             "is_cached": False,
         }
 
+        assert get_people_for_correlation_ok(client=self.client, correlation=response["result"]["events"][0]) == {
+            "success": ["user_0", "user_1", "user_2"],
+            "failure": [],
+        }
+
 
 @pytest.fixture(autouse=True)
 def clear_django_cache():
