@@ -4,7 +4,7 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, FunnelStep } from '~/types'
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
@@ -59,16 +59,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 breakdown_value: components[1],
             }
         }
-    }
-
-    // A sentinel node used to respect typings
-    const emptyFunnelStep: FunnelStep = {
-        action_id: '',
-        average_conversion_time: null,
-        count: 0,
-        name: '',
-        order: 0,
-        type: 'new_entity',
     }
 
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {

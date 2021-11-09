@@ -6,7 +6,6 @@ import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import {
-    EntityTypes,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
