@@ -27,7 +27,7 @@ export function TaxonomicPropertyFilter({
     const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
-    const { filter, dropdownOpen, selectedCohortName } = useValues(logic)
+    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
@@ -107,6 +107,7 @@ export function TaxonomicPropertyFilter({
                             operator={filter?.operator}
                             value={filter?.value}
                             placeholder="Enter value..."
+                            valuesEndpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
                             onChange={(newOperator, newValue) => {
                                 if (filter?.key && filter?.type) {
                                     setFilter(

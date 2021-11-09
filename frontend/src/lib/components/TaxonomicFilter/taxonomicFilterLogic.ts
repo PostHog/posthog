@@ -16,7 +16,7 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, toParams } from 'lib/utils'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
@@ -171,13 +171,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 groupTypes || taxonomicGroups.map((g) => g.type),
         ],
         groupAnalyticsTaxonomicGroups: [
-            (selectors) => [selectors.groupTypes],
-            (groupTypes): TaxonomicFilterGroup[] =>
+            (selectors) => [selectors.groupTypes, selectors.currentTeamId],
+            (groupTypes, teamId): TaxonomicFilterGroup[] =>
                 groupTypes.map((type, index) => ({
                     name: capitalizeFirstLetter(type.group_type),
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${index}` as TaxonomicFilterGroupType,
                     logic: groupPropertiesModel,
                     value: `groupProperties_${index}`,
+                    valuesEndpoint: (key) =>
+                        `api/projects/${teamId}/groups/property_values/?${toParams({ key, group_type_index: index })}`,
                     getName: (group) => capitalizeFirstLetter(group.name),
                     getValue: (group) => group.name,
                     groupTypeIndex: index,

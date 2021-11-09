@@ -41,3 +41,19 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
             group_type_index_to_properties[group_type_index].append({"name": key, "count": count})
 
         return response.Response(group_type_index_to_properties)
+
+    @action(methods=["GET"], detail=False)
+    def property_values(self, request: request.Request, **kw):
+        rows = sync_execute(
+            f"""
+            SELECT trim(BOTH '"' FROM tupleElement(keysAndValues, 2)) as value
+            FROM groups
+            ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
+            WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s AND tupleElement(keysAndValues, 1) = %(key)s
+            GROUP BY tupleElement(keysAndValues, 2)
+            ORDER BY value ASC
+        """,
+            {"team_id": self.team.pk, "group_type_index": request.GET["group_type_index"], "key": request.GET["key"]},
+        )
+
+        return response.Response([{"name": name} for name in rows])
