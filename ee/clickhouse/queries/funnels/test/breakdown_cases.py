@@ -1369,9 +1369,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-        @snapshot_clickhouse_queries
-        def test_funnel_breakdown_group(self):
-
+        def _create_groups(self):
             GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
             GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
@@ -1382,19 +1380,10 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
             )
             create_group(team_id=self.team.pk, group_type_index=1, group_key="org:5", properties={"industry": "random"})
-            filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-08",
-                "funnel_window_days": 7,
-                "breakdown": "industry",
-                "breakdown_type": "group",
-                "breakdown_group_type_index": 0,
-            }
 
-            filter = Filter(data=filters, team=self.team)
-            funnel = Funnel(filter, self.team)
+        @snapshot_clickhouse_queries
+        def test_funnel_breakdown_group(self):
+            self._create_groups()
 
             # event
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -1445,7 +1434,19 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 timestamp="2020-01-02T14:00:00Z",
             )
 
-            result = funnel.run()
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown": "industry",
+                "breakdown_type": "group",
+                "breakdown_group_type_index": 0,
+            }
+
+            filter = Filter(data=filters, team=self.team)
+            result = Funnel(filter, self.team).run()
             self.assertEqual(
                 result[0],
                 [
@@ -1545,32 +1546,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         @snapshot_clickhouse_queries
         def test_funnel_aggregate_by_groups_breakdown_group(self):
-
-            GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-            GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-            create_group(
-                team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"}
-            )
-            create_group(
-                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
-            )
-            create_group(team_id=self.team.pk, group_type_index=1, group_key="org:5", properties={"industry": "random"})
-            filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-08",
-                "funnel_window_days": 7,
-                "breakdown": "industry",
-                "breakdown_type": "group",
-                "breakdown_group_type_index": 0,
-                "aggregation_group_type_index": 0,
-            }
-
-            filter = Filter(data=filters, team=self.team)
-            funnel = Funnel(filter, self.team)
-
+            self._create_groups()
             # event
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
             _create_event(
@@ -1620,7 +1596,19 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 timestamp="2020-01-02T18:00:00Z",
             )
 
-            result = funnel.run()
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown": "industry",
+                "breakdown_type": "group",
+                "breakdown_group_type_index": 0,
+                "aggregation_group_type_index": 0,
+            }
+
+            result = Funnel(Filter(data=filters, team=self.team), self.team).run()
 
             self.assertEqual(
                 result[0],
