@@ -14,8 +14,11 @@ from ee.clickhouse.materialized_columns.columns import (
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from ee.tasks.materialized_columns import mark_all_materialized
+from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
+
+GROUPS_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
 
 
 def _create_event(**kwargs):
@@ -27,7 +30,7 @@ def _create_event(**kwargs):
 
 class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
     def test_get_columns_default(self):
-        self.assertCountEqual(get_materialized_columns("events"), [])
+        self.assertCountEqual(get_materialized_columns("events"), GROUPS_COLUMNS)
         self.assertCountEqual(get_materialized_columns("person"), [])
 
     def test_caching_and_materializing(self):
@@ -36,15 +39,21 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
             materialize("events", "$bar")
             materialize("person", "$zeta")
 
-            self.assertCountEqual(get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar"])
+            self.assertCountEqual(
+                get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar", *GROUPS_COLUMNS]
+            )
             self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), ["$zeta"])
 
             materialize("events", "abc")
 
-            self.assertCountEqual(get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar"])
+            self.assertCountEqual(
+                get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar", *GROUPS_COLUMNS]
+            )
 
         with freeze_time("2020-01-04T14:00:01Z"):
-            self.assertCountEqual(get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar", "abc"])
+            self.assertCountEqual(
+                get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar", "abc", *GROUPS_COLUMNS]
+            )
 
     def test_materialized_column_naming(self):
         random.seed(0)
@@ -54,13 +63,13 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
         materialize("events", "$foO_____sqlinject")
         materialize("person", "SoMePrOp")
 
-        self.assertEqual(
-            get_materialized_columns("events"),
+        self.assertDictContainsSubset(
             {
                 "$foO();--sqlinject": "mat_$foO_____sqlinject",
                 "$foO();ääsqlinject": "mat_$foO_____sqlinject_yWAc",
                 "$foO_____sqlinject": "mat_$foO_____sqlinject_qGFz",
             },
+            get_materialized_columns("events"),
         )
 
         self.assertEqual(get_materialized_columns("person"), {"SoMePrOp": "pmat_SoMePrOp"})

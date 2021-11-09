@@ -155,14 +155,14 @@ function AppScene(): JSX.Element | null {
     return (
         <>
             {featureFlags[FEATURE_FLAGS.LEMONADE] ? (
-                <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
+                <Layout style={{ minHeight: '100vh' }}>
                     {!sceneConfig.hideTopNav && <TopNavigation />}
                     <SideBar>{layoutContent}</SideBar>
                 </Layout>
             ) : (
                 <Layout>
                     <MainNavigation />
-                    <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
+                    <Layout style={{ minHeight: '100vh' }}>
                         {!sceneConfig.hideTopNav && <TopNavigation />}
                         {layoutContent}
                     </Layout>
