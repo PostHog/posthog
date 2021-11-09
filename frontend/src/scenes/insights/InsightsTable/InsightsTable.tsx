@@ -68,7 +68,7 @@ export function InsightsTable({
     const colorList = getChartColors('white')
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
-    const handleEditClick = (item: IndexedTrendResult) => {
+    const handleEditClick = (item: IndexedTrendResult): void => {
         if (canEditSeriesNameInline) {
             selectFilter(item.action)
             showModal()
