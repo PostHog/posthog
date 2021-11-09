@@ -656,8 +656,6 @@ class FunnelCorrelation:
         query, params = self.get_contingency_table_query()
         results_with_total = sync_execute(query, params)
 
-        assert isinstance(results_with_total, list)
-
         # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]
         _, success_total, failure_total = [
