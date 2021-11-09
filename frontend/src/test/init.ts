@@ -34,16 +34,19 @@ export function initKeaTestLogic<L extends Logic = Logic>({
     logic,
     props,
     onLogic,
+    beforeLogic,
 }: {
     logic?: LogicWrapper<L>
     props?: LogicWrapper<L>['props']
     onLogic?: (l: BuiltLogic<L>) => any
+    beforeLogic?: () => any
 } = {}): void {
     let builtLogic: BuiltLogic<L>
     let unmount: () => void
 
     beforeEach(async () => {
         initKeaTests()
+        beforeLogic?.()
         if (logic) {
             builtLogic = logic.build({ ...props })
             await onLogic?.(builtLogic)

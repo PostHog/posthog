@@ -19,8 +19,9 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
             key: PropertyFilter['key'],
             value: PropertyFilter['value'],
             operator: PropertyFilter['operator'],
-            type: PropertyFilter['type']
-        ) => ({ index, key, value, operator, type }),
+            type: PropertyFilter['type'],
+            group_type_index?: PropertyFilter['group_type_index']
+        ) => ({ index, key, value, operator, type, group_type_index }),
         setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
         newFilter: true,
         remove: (index: number) => ({ index }),
@@ -30,9 +31,9 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         filters: [
             props.propertyFilters ? parseProperties(props.propertyFilters) : ([] as AnyPropertyFilter[]),
             {
-                setFilter: (state, { index, key, value, operator, type }) => {
+                setFilter: (state, { index, ...property }) => {
                     const newFilters = [...state]
-                    newFilters[index] = { key, value, operator, type }
+                    newFilters[index] = property
                     return newFilters
                 },
                 setFilters: (_, { filters }) => filters,

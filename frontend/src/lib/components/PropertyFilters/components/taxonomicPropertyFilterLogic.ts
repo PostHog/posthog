@@ -4,6 +4,8 @@ import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilter
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
+import { TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
+import { taxonomicFilterTypeToPropertyFilterType } from 'lib/components/PropertyFilters/utils'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key],
@@ -15,7 +17,10 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
 
     actions: {
-        selectItem: (propertyType?: string, propertyKey?: PropertyFilterValue) => ({ propertyType, propertyKey }),
+        selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: PropertyFilterValue) => ({
+            taxonomicGroup,
+            propertyKey,
+        }),
         openDropdown: true,
         closeDropdown: true,
     },
@@ -42,7 +47,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     },
 
     listeners: ({ actions, values, props }) => ({
-        selectItem: ({ propertyType, propertyKey }) => {
+        selectItem: ({ taxonomicGroup, propertyKey }) => {
+            const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === 'cohort') {
                     propertyFilterLogic(props).actions.setFilter(
@@ -63,7 +69,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         propertyKey.toString(),
                         null, // Reset value field
                         operator,
-                        propertyType
+                        propertyType,
+                        taxonomicGroup.groupTypeIndex
                     )
                 }
                 actions.closeDropdown()

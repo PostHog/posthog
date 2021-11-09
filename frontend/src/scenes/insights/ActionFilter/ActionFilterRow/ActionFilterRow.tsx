@@ -207,9 +207,9 @@ export function ActionFilterRow({
                     value={
                         filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined
                     }
-                    onChange={(groupType, changedValue, item) => {
+                    onChange={(taxonomicGroup, changedValue, item) => {
                         updateFilter({
-                            type: taxonomicFilterGroupTypeToEntityType(groupType) || undefined,
+                            type: taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type) || undefined,
                             id: `${changedValue}`,
                             name: item?.name,
                             index,
