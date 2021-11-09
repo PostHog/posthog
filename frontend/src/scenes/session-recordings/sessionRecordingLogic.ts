@@ -1,8 +1,15 @@
 import { kea } from 'kea'
+import Fuse from 'fuse.js'
 import api from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
 import { sessionRecordingLogicType } from './sessionRecordingLogicType'
-import { SessionPlayerData, SessionRecordingId, SessionRecordingMeta, SessionRecordingUsageType } from '~/types'
+import {
+    RecordingEventsFilters,
+    SessionPlayerData,
+    SessionRecordingId,
+    SessionRecordingMeta,
+    SessionRecordingUsageType,
+} from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
@@ -28,6 +35,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         values: [teamLogic, ['currentTeamId']],
     },
     actions: {
+        setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({
             recordingData,
@@ -38,6 +46,12 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         loadEvents: (url?: string) => ({ url }),
     },
     reducers: {
+        filters: [
+            {} as Partial<RecordingEventsFilters>,
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
         sessionRecordingId: [
             null as SessionRecordingId | null,
             {
@@ -183,6 +197,19 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     }),
     selectors: {
         sessionEvents: [(selectors) => [selectors.sessionEventsData], (eventsData) => eventsData?.events ?? []],
+        filteredSessionEvents: [
+            (selectors) => [selectors.filters, selectors.sessionEvents],
+            (filters, events) => {
+                return filters?.query
+                    ? new Fuse(events, {
+                          threshold: 0.3,
+                          keys: ['event'],
+                      })
+                          .search(filters.query)
+                          .map((result) => result.item)
+                    : events
+            },
+        ],
         firstChunkLoaded: [
             (selectors) => [selectors.chunkPaginationIndex],
             (chunkPaginationIndex) => chunkPaginationIndex > 0,

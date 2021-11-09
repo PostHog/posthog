@@ -869,6 +869,10 @@ export interface FilterType {
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
 }
 
+export interface RecordingEventsFilters {
+    query: string
+}
+
 export interface SystemStatusSubrows {
     columns: string[]
     rows: string[][]
