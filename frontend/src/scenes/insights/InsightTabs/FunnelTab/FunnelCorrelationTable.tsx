@@ -140,10 +140,16 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         }
     }
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
+        const { name } = parseEventAndProperty(record.event)
+
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    loadPeopleFromUrl(record.success_people_url)
+                    loadPeopleFromUrl({
+                        url: record.failure_people_url,
+                        stepNumber: stepsWithCount.length,
+                        label: name,
+                    })
                 }}
             >
                 {record.success_count}
@@ -152,10 +158,16 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
+        const { name } = parseEventAndProperty(record.event)
+
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    loadPeopleFromUrl(record.failure_people_url)
+                    loadPeopleFromUrl({
+                        url: record.failure_people_url,
+                        stepNumber: -2, // I'm not sure why this is -2, I'm just copying from what was here previously
+                        label: name,
+                    })
                 }}
             >
                 {record.failure_count}

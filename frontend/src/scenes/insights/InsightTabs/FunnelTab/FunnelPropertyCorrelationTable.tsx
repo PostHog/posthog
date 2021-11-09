@@ -72,10 +72,17 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
+        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
+
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    loadPeopleFromUrl(record.success_people_url)
+                    loadPeopleFromUrl({
+                        url: record.success_people_url,
+                        stepNumber: stepsWithCount.length,
+                        label: breakdown,
+                        breakdown_value,
+                    })
                 }}
             >
                 {record.success_count}
@@ -84,10 +91,17 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
+        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
+
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    loadPeopleFromUrl(record.failure_people_url)
+                    loadPeopleFromUrl({
+                        url: record.failure_people_url,
+                        stepNumber: -2, // I'm not sure why this is -2, I'm just copying from what was here previously
+                        label: breakdown,
+                        breakdown_value,
+                    })
                 }}
             >
                 {record.failure_count}
