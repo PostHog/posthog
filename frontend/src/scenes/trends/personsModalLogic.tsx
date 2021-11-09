@@ -88,6 +88,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 }
 
 export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
+    path: ['scenes', 'trends', 'personsModalLogic'],
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),

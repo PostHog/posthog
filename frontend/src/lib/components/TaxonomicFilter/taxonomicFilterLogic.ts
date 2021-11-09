@@ -16,8 +16,10 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
+    path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
     connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']] },
@@ -30,8 +32,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue | null, item: any) => ({
-            groupType,
+        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
+            group,
             value,
             item,
         }),
@@ -72,54 +74,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         taxonomicGroups: [
-            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTypes],
-            (teamId, groupAnalyticsTypes): TaxonomicFilterGroup[] => [
+            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups],
+            (teamId, groupAnalyticsTaxonomicGroups): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     type: TaxonomicFilterGroupType.Events,
                     endpoint: `api/projects/${teamId}/event_definitions`,
                     getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
                     getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
-                },
-                {
-                    name: groupAnalyticsTypes[0]?.group_type,
-                    type: `${TaxonomicFilterGroupType.Groups}_0`,
-                    logic: groupPropertiesModel,
-                    value: 'groupProperties_0',
-                    getName: (group) => group.name,
-                    getValue: (group) => group.name,
-                },
-                {
-                    name: groupAnalyticsTypes[1]?.group_type,
-                    type: `${TaxonomicFilterGroupType.Groups}_1`,
-                    logic: groupPropertiesModel,
-                    value: 'groupProperties_1',
-                    getName: (group) => group.name,
-                    getValue: (group) => group.name,
-                },
-                {
-                    name: groupAnalyticsTypes[2]?.group_type,
-                    type: `${TaxonomicFilterGroupType.Groups}_2`,
-                    logic: groupPropertiesModel,
-                    value: 'groupProperties_2',
-                    getName: (group) => group.name,
-                    getValue: (group) => group.name,
-                },
-                {
-                    name: groupAnalyticsTypes[3]?.group_type,
-                    type: `${TaxonomicFilterGroupType.Groups}_3`,
-                    logic: groupPropertiesModel,
-                    value: 'groupProperties_3',
-                    getName: (group) => group.name,
-                    getValue: (group) => group.name,
-                },
-                {
-                    name: groupAnalyticsTypes[4]?.group_type,
-                    type: `${TaxonomicFilterGroupType.Groups}_4`,
-                    logic: groupPropertiesModel,
-                    value: 'groupProperties_4',
-                    getName: (group) => group.name,
-                    getValue: (group) => group.name,
                 },
                 {
                     name: 'Actions',
@@ -200,6 +162,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: (option: SimpleOption): string => option.name,
                     getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
                 },
+                ...groupAnalyticsTaxonomicGroups,
             ],
         ],
         taxonomicGroupTypes: [
@@ -207,22 +170,31 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
                 groupTypes || taxonomicGroups.map((g) => g.type),
         ],
+        groupAnalyticsTaxonomicGroups: [
+            (selectors) => [selectors.groupTypes],
+            (groupTypes): TaxonomicFilterGroup[] =>
+                groupTypes.map((type, index) => ({
+                    name: capitalizeFirstLetter(type.group_type),
+                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${index}` as TaxonomicFilterGroupType,
+                    logic: groupPropertiesModel,
+                    value: `groupProperties_${index}`,
+                    getName: (group) => capitalizeFirstLetter(group.name),
+                    getValue: (group) => group.name,
+                    groupTypeIndex: index,
+                })),
+        ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
         currentTabIndex: [
             (s) => [s.taxonomicGroupTypes, s.activeTab],
             (groupTypes, activeTab) => Math.max(groupTypes.indexOf(activeTab || ''), 0),
         ],
-        groupAnalyticsTypes: [(s) => [s.groupTypes], (groupTypes) => groupTypes],
     },
 
     listeners: ({ actions, values, props }) => ({
-        selectItem: ({ groupType, value, item }) => {
+        selectItem: ({ group, value, item }) => {
             if (item && value) {
-                const groupTypeWithGroupAnalytics = groupType.includes('groups')
-                    ? TaxonomicFilterGroupType.Groups
-                    : groupType
-                props.onChange?.(groupTypeWithGroupAnalytics, value, item)
+                props.onChange?.(group, value, item)
             }
         },
 

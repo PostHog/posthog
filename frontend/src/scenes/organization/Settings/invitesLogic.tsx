@@ -9,6 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export const invitesLogic = kea<invitesLogicType>({
+    path: ['scenes', 'organization', 'Settings', 'invitesLogic'],
     loaders: ({ values }) => ({
         invites: {
             __default: [] as OrganizationInviteType[],

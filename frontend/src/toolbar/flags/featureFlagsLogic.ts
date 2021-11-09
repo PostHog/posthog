@@ -7,6 +7,7 @@ import Fuse from 'fuse.js'
 import { posthog } from '~/toolbar/posthog'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
+    path: ['toolbar', 'flags', 'featureFlagsLogic'],
     actions: {
         getUserFlags: true,
         setOverriddenUserFlag: (flagId: number, overrideValue: string | boolean) => ({ flagId, overrideValue }),

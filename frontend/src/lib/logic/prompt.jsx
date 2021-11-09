@@ -12,6 +12,7 @@ import { Modal, Input, Form } from 'antd'
 // actions:
 // - prompt({ title, placeholder, value, error, success, failure })
 export const prompt = kea({
+    path: (key) => ['lib', 'logic', 'prompt', key],
     key: (props) => props.key,
 
     actions: () => ({

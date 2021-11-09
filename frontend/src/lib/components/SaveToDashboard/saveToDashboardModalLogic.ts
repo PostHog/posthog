@@ -6,6 +6,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
 
 export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
+    path: (key) => ['lib', 'components', 'SaveToDashboard', 'saveToDashboardModalLogic', key],
     props: {} as {
         id?: number
         fromDashboard?: number

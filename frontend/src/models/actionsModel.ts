@@ -8,6 +8,7 @@ interface ActionsModelProps {
 }
 
 export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
+    path: ['models', 'actionsModel'],
     props: {} as ActionsModelProps,
     loaders: ({ props }) => ({
         actions: {

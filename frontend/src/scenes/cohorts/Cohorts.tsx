@@ -35,6 +35,7 @@ const NEW_COHORT: CohortType = {
 }
 
 const cohortsUrlLogic = kea<cohortsUrlLogicType>({
+    path: ['scenes', 'cohorts', 'cohortsUrlLogic'],
     actions: {
         setOpenCohort: (cohort: CohortType | null) => ({ cohort }),
     },

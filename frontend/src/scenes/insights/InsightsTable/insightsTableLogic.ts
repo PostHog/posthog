@@ -4,6 +4,7 @@ import { insightsTableLogicType } from './insightsTableLogicType'
 export type CalcColumnState = 'total' | 'average' | 'median'
 
 export const insightsTableLogic = kea<insightsTableLogicType<CalcColumnState>>({
+    path: ['scenes', 'insights', 'InsightsTable', 'insightsTableLogic'],
     props: {} as {
         hasMathUniqueFilter: boolean
     },

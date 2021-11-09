@@ -22,6 +22,7 @@ import { SideBar } from '../layout/lemonade/SideBar/SideBar'
 import { appScenes } from 'scenes/appScenes'
 
 export const appLogic = kea<appLogicType>({
+    path: ['scenes', 'App'],
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
