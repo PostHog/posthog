@@ -58,7 +58,6 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     )
                     return groups.find((group) => group.type === taxonomicGroupType)
                 }
-                return undefined
             },
         ],
     },
