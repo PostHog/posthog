@@ -240,7 +240,7 @@ function Pages(): JSX.Element {
                     icon: <IconPlus />,
                     to: urls.newInsight(InsightType.TRENDS),
                     tooltip: 'New insight',
-                    identifier: 'insights',
+                    identifier: Scene.Insights,
                 }}
             />
             <PageButton
