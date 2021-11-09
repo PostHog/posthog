@@ -10,7 +10,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Insights]: () => import('./insights/Insights'),
     [Scene.InsightRouter]: () => import('./insights/InsightRouter'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
-    [Scene.Events]: () => import('./events/EventsTable'),
+    [Scene.Events]: () => import('./events/Events'),
     [Scene.Actions]: () => import('./actions/ActionsTable'),
     [Scene.EventStats]: () => import('./events/EventsVolumeTable'),
     [Scene.EventPropertyStats]: () => import('./events/PropertiesVolumeTable'),

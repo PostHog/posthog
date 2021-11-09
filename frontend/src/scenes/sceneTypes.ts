@@ -11,7 +11,7 @@ export enum Scene {
     Insights = 'Insights',
     InsightRouter = 'InsightRouter',
     Cohorts = 'Cohorts',
-    Events = 'EventsTable',
+    Events = 'Events',
     EventStats = 'EventsVolumeTable',
     EventPropertyStats = 'PropertiesVolumeTable',
     Sessions = 'Sessions',
