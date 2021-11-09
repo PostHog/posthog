@@ -44,7 +44,7 @@ class GroupsJoinQuery:
                     WHERE team_id = %(team_id)s AND group_type_index = %({var})s
                     GROUP BY group_key
                 ) groups_{group_type_index}
-                ON JSONExtractString(properties, '$group_{group_type_index}') == groups_{group_type_index}.group_key
+                ON $group_{group_type_index} == groups_{group_type_index}.group_key
                 """
             )
 

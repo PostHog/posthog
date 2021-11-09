@@ -50,6 +50,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
+    path: ['scenes', 'saved-insights', 'savedInsightsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
         logic: [eventUsageLogic],

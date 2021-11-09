@@ -38,6 +38,7 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>({
+    path: ['scenes', 'feature-flags', 'featureFlagLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
     },

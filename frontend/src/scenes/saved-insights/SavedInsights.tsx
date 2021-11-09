@@ -29,7 +29,7 @@ import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 
 import { PageHeader } from 'lib/components/PageHeader'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
     InsightsFunnelsIcon,
@@ -159,7 +159,7 @@ export function SavedInsights(): JSX.Element {
                     <Col>
                         <Row wrap={false}>
                             <Link to={link} style={{ marginRight: 12 }}>
-                                <strong>{name || `Insight #${insight.id}`}</strong>
+                                <strong>{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</strong>
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content' }}
@@ -175,7 +175,9 @@ export function SavedInsights(): JSX.Element {
                             </div>
                         </Row>
                         {hasDashboardCollaboration && (
-                            <div className="text-muted-alt">{insight.description || 'No description provided'}</div>
+                            <div className="text-muted-alt">
+                                {insight.description || <i>No description provided</i>}
+                            </div>
                         )}
                     </Col>
                 )
@@ -304,7 +306,7 @@ export function SavedInsights(): JSX.Element {
                                 .map((menuItem) => (
                                     <Menu.Item key={menuItem.type}>
                                         <Link
-                                            to={urls.insightView(menuItem.type)}
+                                            to={urls.newInsight(menuItem.type)}
                                             data-attr="saved-insights-create-new-insight"
                                             data-attr-insight-type={menuItem.type}
                                             onClick={() =>

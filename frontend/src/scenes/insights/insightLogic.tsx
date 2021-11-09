@@ -49,6 +49,7 @@ export const defaultFilterTestAccounts = (): boolean => {
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
+    path: (key) => ['scenes', 'insights', 'insightLogic', key],
 
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -382,6 +383,10 @@ export const insightLogic = kea<insightLogicType>({
                     user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION)
                 ),
         ],
+        syncWithUrl: [
+            () => [(_, props: InsightLogicProps) => props.syncWithUrl, router.selectors.location],
+            (syncWithUrl, { pathname }) => syncWithUrl && pathname.startsWith('/insights'),
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, breakpoint, _, previousState) => {
@@ -555,7 +560,7 @@ export const insightLogic = kea<insightLogicType>({
                     { ...insight, ...createdInsight, result: createdInsight.result || insight.result },
                     {}
                 )
-                if (props.syncWithUrl) {
+                if (values.syncWithUrl) {
                     router.actions.replace('/insights', router.values.searchParams, {
                         ...router.values.hashParams,
                         fromItem: createdInsight.id,
@@ -604,14 +609,14 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
     }),
-    actionToUrl: ({ values, props }) => ({
+    actionToUrl: ({ values }) => ({
         setFilters: () => {
-            if (props.syncWithUrl) {
+            if (values.syncWithUrl) {
                 return ['/insights', values.filters, router.values.hashParams, { replace: true }]
             }
         },
         setInsightMode: () => {
-            if (props.syncWithUrl) {
+            if (values.syncWithUrl) {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { edit: _discard, ...otherHashParams } = router.values.hashParams
                 return [
@@ -623,9 +628,9 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
     }),
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
-            if (props.syncWithUrl) {
+            if (values.syncWithUrl) {
                 let loadedFromAnotherLogic = false
                 if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
                     if (values.insightMode !== ItemMode.Edit) {

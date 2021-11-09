@@ -8,6 +8,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export const ingestionLogic = kea<ingestionLogicType>({
+    path: ['scenes', 'ingestion', 'ingestionLogic'],
     connect: {
         actions: [teamLogic, ['updateCurrentTeamSuccess']],
     },

@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 interface EditableFieldProps {
     name: string
     value: string
-    placeholder: string
+    placeholder?: string
     className: string
     dataAttr: string
     onChange: (value: string) => void
@@ -68,7 +68,7 @@ export function EditableField({
                 </div>
             ) : (
                 <div className="view-container">
-                    <span className="field">{value || placeholder}</span>
+                    <span className="field">{value || <i>{placeholder}</i>}</span>
                     {metadataEditable && (
                         <Button
                             type="link"

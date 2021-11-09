@@ -38,6 +38,7 @@ from posthog.models.filters.mixins.funnel import (
     FunnelWindowMixin,
     HistogramMixin,
 )
+from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 
@@ -70,6 +71,7 @@ class Filter(
     FunnelLayoutMixin,
     FunnelTypeMixin,
     HistogramMixin,
+    GroupsAggregationMixin,
     FunnelCorrelationMixin,
     FunnelCorrelationPersonsMixin,
     SimplifyFilterMixin,

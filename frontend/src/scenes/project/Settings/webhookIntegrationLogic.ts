@@ -10,6 +10,7 @@ function adjustDiscordWebhook(webhookUrl: string): string {
 }
 
 export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>({
+    path: ['scenes', 'project', 'Settings', 'webhookIntegrationLogic'],
     loaders: ({ actions }) => ({
         testedWebhook: [
             null as string | null,

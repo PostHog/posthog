@@ -19,6 +19,7 @@ interface PersonPaginatedResponse {
 const FILTER_ALLOWLIST: string[] = ['is_identified', 'search', 'cohort']
 
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
+    path: ['scenes', 'persons', 'personsLogic'],
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],

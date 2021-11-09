@@ -92,7 +92,6 @@ export class EventsProcessor {
     public async processEvent(
         distinctId: string,
         ip: string | null,
-        siteUrl: string,
         data: PluginEvent,
         teamId: number,
         now: DateTime,
@@ -144,6 +143,7 @@ export class EventsProcessor {
                         teamId,
                         distinctId,
                         properties['$session_id'],
+                        properties['$window_id'],
                         ts,
                         properties['$snapshot_data'],
                         personUuid
@@ -162,7 +162,6 @@ export class EventsProcessor {
                         eventUuid,
                         personUuid,
                         ip,
-                        siteUrl,
                         teamId,
                         data['event'],
                         distinctId,
@@ -452,7 +451,6 @@ export class EventsProcessor {
         eventUuid: string,
         personUuid: string,
         ip: string | null,
-        siteUrl: string,
         teamId: number,
         event: string,
         distinctId: string,
@@ -499,16 +497,7 @@ export class EventsProcessor {
             )
         }
 
-        return await this.createEvent(
-            eventUuid,
-            event,
-            teamId,
-            distinctId,
-            properties,
-            timestamp,
-            elementsList,
-            siteUrl
-        )
+        return await this.createEvent(eventUuid, event, teamId, distinctId, properties, timestamp, elementsList)
     }
 
     private async createEvent(
@@ -518,13 +507,13 @@ export class EventsProcessor {
         distinctId: string,
         properties?: Properties,
         timestamp?: DateTime | string,
-        elements?: Element[],
-        siteUrl?: string
+        elements?: Element[]
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
+
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const eventPayload: IEvent = {
@@ -582,6 +571,7 @@ export class EventsProcessor {
         team_id: number,
         distinct_id: string,
         session_id: string,
+        window_id: string,
         timestamp: DateTime | string,
         snapshot_data: Record<any, any>,
         personUuid: string
@@ -598,6 +588,7 @@ export class EventsProcessor {
             team_id: team_id,
             distinct_id: distinct_id,
             session_id: session_id,
+            window_id: window_id,
             snapshot_data: JSON.stringify(snapshot_data),
             timestamp: timestampString,
             created_at: timestampString,
@@ -612,8 +603,16 @@ export class EventsProcessor {
             const {
                 rows: [eventCreated],
             } = await this.db.postgresQuery(
-                'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-                [data.created_at, data.team_id, data.distinct_id, data.session_id, data.timestamp, data.snapshot_data],
+                'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, window_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+                [
+                    data.created_at,
+                    data.team_id,
+                    data.distinct_id,
+                    data.session_id,
+                    data.window_id,
+                    data.timestamp,
+                    data.snapshot_data,
+                ],
                 'insertSessionRecording'
             )
             return eventCreated as PostgresSessionRecordingEvent

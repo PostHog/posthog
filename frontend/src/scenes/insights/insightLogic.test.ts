@@ -357,6 +357,9 @@ describe('insightLogic', () => {
         })
 
         it('sets the URL when changing filters', async () => {
+            // make sure we're on the right page
+            router.actions.push('/insights')
+
             logic.actions.setFilters({ insight: 'TRENDS', interval: 'minute' })
             await expectLogic()
                 .toDispatchActions(logic, [logic.actionCreators.setFilters({ insight: 'TRENDS', interval: 'minute' })])

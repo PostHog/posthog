@@ -131,6 +131,8 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         create_group(
             team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "foobar"}
         )
+        # :TRICKY: Test group type overlapping
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="org:8", properties={"industry": "foobar"})
 
         for org_index in range(5, 9):
             _create_event(

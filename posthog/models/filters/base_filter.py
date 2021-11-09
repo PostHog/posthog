@@ -1,6 +1,6 @@
 import inspect
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from rest_framework import request
 
@@ -36,6 +36,9 @@ class BaseFilter(BaseParamMixin):
 
         return ret
 
+    def to_params(self) -> Dict[str, str]:
+        return {key: encode_value_as_param(value=value) for key, value in self.to_dict().items()}
+
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
 
@@ -44,3 +47,9 @@ class BaseFilter(BaseParamMixin):
         return type(self)(data={**self._data, **overrides}, **self.kwargs)
 
     __repr__ = sane_repr("_data", "kwargs", include_id=False)
+
+
+def encode_value_as_param(value: Union[str, list, dict]) -> str:
+    if isinstance(value, (list, dict)):
+        return json.dumps(value)
+    return value
