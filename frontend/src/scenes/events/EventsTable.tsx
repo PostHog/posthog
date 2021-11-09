@@ -293,8 +293,8 @@ export function EventsTable({
     )
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <EventsTabs tab={EventsTab.Events} />
+        <div data-attr="manage-events-table" style={sceneUrl === urls.events() ? { paddingTop: 32 } : {}}>
+            {sceneUrl === urls.events() ? <EventsTabs tab={EventsTab.Events} /> : null}
             <div className="events" data-attr="events-table">
                 <PageHeader
                     title="Events"
