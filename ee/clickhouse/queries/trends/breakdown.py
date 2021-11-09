@@ -214,7 +214,24 @@ class ClickhouseTrendsBreakdown:
             parsed_results = []
             for idx, stats in enumerate(result):
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
-                parsed_result = {"aggregated_value": stats[0], **result_descriptors, **additional_values}
+                filter_params = filter.to_dict()
+                extra_params = {
+                    "entity_id": entity.id,
+                    "entity_type": entity.type,
+                    "breakdown_value": result_descriptors["breakdown_value"],
+                    "breakdown_type": filter.breakdown_type or "event",
+                }
+                parsed_params = deep_dump_object({**filter_params, **extra_params})
+                parsed_result = {
+                    "aggregated_value": stats[0],
+                    "filter": filter_params,
+                    "persons": {
+                        "filter": extra_params,
+                        "url": f"api/projects/{self.team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    },
+                    **result_descriptors,
+                    **additional_values,
+                }
                 parsed_results.append(parsed_result)
 
             return parsed_results
@@ -253,6 +270,7 @@ class ClickhouseTrendsBreakdown:
                 "date_from": date,
                 "date_to": date,
                 "breakdown_value": breakdown_value,
+                "breakdown_type": filter.breakdown_type or "event",
             }
             parsed_params = deep_dump_object({**filter_params, **extra_params})
             persons_url.append(

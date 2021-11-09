@@ -103,6 +103,21 @@ class ClickhouseTestInsights(
         person_response = self.client.get("/" + response["result"][0]["persons_urls"][-1]["url"]).json()
         self.assertEqual(len(person_response["results"][0]["people"]), 1)
 
+        data = deep_dump_object(
+            {
+                "date_from": "-14d",
+                "breakdown": "key",
+                "display": "ActionsPie",
+                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+            }
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
+
+        self.assertEqual(response["result"][0]["aggregated_value"], 1)
+
+        person_response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
+        self.assertEqual(len(person_response["results"][0]["people"]), 1)
+
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

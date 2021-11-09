@@ -91,7 +91,7 @@ class ClickhouseTrendsTotalVolume:
                 {
                     "aggregated_value": result[0][0] if result and len(result) else 0,
                     "days": time_range,
-                    "filter": filter.to_dict(),
+                    "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
                         "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
