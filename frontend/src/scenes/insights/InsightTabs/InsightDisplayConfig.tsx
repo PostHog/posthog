@@ -4,7 +4,7 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, ViewType } from '~/types'
+import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
@@ -16,38 +16,38 @@ import { PathStepPicker } from './PathTab/PathStepPicker'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     filters: FilterType
-    activeView: ViewType
+    activeView: InsightType
     insightMode: ItemMode
     annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
-const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
+const showIntervalFilter = function (activeView: InsightType, filter: FilterType): boolean {
     switch (activeView) {
-        case ViewType.FUNNELS:
+        case InsightType.FUNNELS:
             return filter.funnel_viz_type === FunnelVizType.Trends
-        case ViewType.RETENTION:
-        case ViewType.PATHS:
+        case InsightType.RETENTION:
+        case InsightType.PATHS:
             return false
-        case ViewType.TRENDS:
-        case ViewType.STICKINESS:
-        case ViewType.LIFECYCLE:
-        case ViewType.SESSIONS:
+        case InsightType.TRENDS:
+        case InsightType.STICKINESS:
+        case InsightType.LIFECYCLE:
+        case InsightType.SESSIONS:
         default:
             return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display || '') // sometimes insights aren't set for trends
     }
 }
 
-const showChartFilter = function (activeView: ViewType): boolean {
+const showChartFilter = function (activeView: InsightType): boolean {
     switch (activeView) {
-        case ViewType.TRENDS:
-        case ViewType.STICKINESS:
-        case ViewType.SESSIONS:
-        case ViewType.RETENTION:
+        case InsightType.TRENDS:
+        case InsightType.STICKINESS:
+        case InsightType.SESSIONS:
+        case InsightType.RETENTION:
             return true
-        case ViewType.FUNNELS:
+        case InsightType.FUNNELS:
             return false
-        case ViewType.LIFECYCLE:
-        case ViewType.PATHS:
+        case InsightType.LIFECYCLE:
+        case InsightType.PATHS:
             return false
         default:
             return true // sometimes insights aren't set for trends
@@ -55,23 +55,23 @@ const showChartFilter = function (activeView: ViewType): boolean {
 }
 
 const showDateFilter = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: true,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: true,
-    [`${ViewType.RETENTION}`]: false,
-    [`${ViewType.PATHS}`]: true,
+    [`${InsightType.TRENDS}`]: true,
+    [`${InsightType.STICKINESS}`]: true,
+    [`${InsightType.LIFECYCLE}`]: true,
+    [`${InsightType.SESSIONS}`]: true,
+    [`${InsightType.FUNNELS}`]: true,
+    [`${InsightType.RETENTION}`]: false,
+    [`${InsightType.PATHS}`]: true,
 }
 
 const showComparePrevious = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: false,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: false,
-    [`${ViewType.PATHS}`]: false,
+    [`${InsightType.TRENDS}`]: true,
+    [`${InsightType.STICKINESS}`]: true,
+    [`${InsightType.LIFECYCLE}`]: false,
+    [`${InsightType.SESSIONS}`]: true,
+    [`${InsightType.FUNNELS}`]: false,
+    [`${InsightType.RETENTION}`]: false,
+    [`${InsightType.PATHS}`]: false,
 }
 
 const isFunnelEmpty = (filters: FilterType): boolean => {
@@ -83,8 +83,8 @@ export function InsightDisplayConfig({
     activeView,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
-    const showFunnelBarOptions = activeView === ViewType.FUNNELS
-    const showPathOptions = activeView === ViewType.PATHS
+    const showFunnelBarOptions = activeView === InsightType.FUNNELS
+    const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
 
     return (
@@ -101,12 +101,12 @@ export function InsightDisplayConfig({
                             }
                         }}
                         filters={filters}
-                        disabled={filters.insight === ViewType.LIFECYCLE}
+                        disabled={filters.insight === InsightType.LIFECYCLE}
                     />
                 )}
                 {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
 
-                {activeView === ViewType.RETENTION && <RetentionDatePicker />}
+                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
 
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>

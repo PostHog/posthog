@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
+import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType } from '~/types'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -116,7 +116,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
                 combineUrl(
                     '/insights',
                     encodeParams({
-                        insight: ViewType.FUNNELS,
+                        insight: InsightType.FUNNELS,
                         events,
                         date_from: values.filter.date_from,
                     })
@@ -127,11 +127,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
     selectors: {
         loadedFilters: [
             (s) => [s.insight],
-            ({ filters }): Partial<FilterType> => (filters?.insight === ViewType.PATHS ? filters ?? {} : {}),
+            ({ filters }): Partial<FilterType> => (filters?.insight === InsightType.PATHS ? filters ?? {} : {}),
         ],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): PathNode[] => (filters?.insight === ViewType.PATHS ? result || [] : []),
+            ({ filters, result }): PathNode[] => (filters?.insight === InsightType.PATHS ? result || [] : []),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         paths: [
@@ -162,7 +162,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
             (s) => [s.filter],
             (filter: Partial<FilterType>) => {
                 let result: Partial<FilterType> = {
-                    insight: ViewType.PATHS,
+                    insight: InsightType.PATHS,
                 }
                 if (filter && Object.keys(filter).length > 0) {
                     result = {

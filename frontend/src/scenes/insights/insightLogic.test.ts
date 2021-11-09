@@ -2,7 +2,7 @@ import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { insightLogic } from './insightLogic'
-import { AvailableFeature, InsightType, ItemMode, PropertyOperator, ViewType } from '~/types'
+import { AvailableFeature, InsightType, ItemMode, PropertyOperator } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -14,7 +14,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 jest.mock('lib/api')
 
 const API_FILTERS = {
-    insight: ViewType.TRENDS as InsightType,
+    insight: InsightType.TRENDS as InsightType,
     events: [{ id: 3 }],
     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
 }
@@ -45,7 +45,12 @@ describe('insightLogic', () => {
                 id: 33,
                 filters: {},
                 items: [
-                    { id: 42, result: 'result!', filters: { insight: 'TRENDS', interval: 'month' }, tags: ['bla'] },
+                    {
+                        id: 42,
+                        result: 'result!',
+                        filters: { insight: InsightType.TRENDS, interval: 'month' },
+                        tags: ['bla'],
+                    },
                 ],
             }
         } else if ([`api/projects/${MOCK_TEAM_ID}/insights/500`].includes(pathname)) {
@@ -95,15 +100,15 @@ describe('insightLogic', () => {
         it('reports insight changes on setFilter', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
-                filters: { insight: 'TRENDS' },
+                filters: { insight: InsightType.TRENDS },
             })
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ insight: 'FUNNELS' })
+                logic.actions.setFilters({ insight: InsightType.FUNNELS })
             }).toDispatchActions([
-                eventUsageLogic.actionCreators.reportInsightViewed({ insight: 'FUNNELS' }, true, false, 0, {
-                    changed_insight: 'TRENDS',
+                eventUsageLogic.actionCreators.reportInsightViewed({ insight: InsightType.FUNNELS }, true, false, 0, {
+                    changed_insight: InsightType.TRENDS,
                 }),
             ])
         })
@@ -116,7 +121,7 @@ describe('insightLogic', () => {
                     dashboardItemId: 42,
                     cachedResults: ['cached result'],
                     filters: {
-                        insight: ViewType.TRENDS,
+                        insight: InsightType.TRENDS,
                         events: [{ id: 2 }],
                         properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
                     },
@@ -146,7 +151,7 @@ describe('insightLogic', () => {
                     dashboardItemId: 42,
                     cachedResults: undefined,
                     filters: {
-                        insight: ViewType.TRENDS,
+                        insight: InsightType.TRENDS,
                         events: [{ id: 3 }],
                         properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                     },
@@ -172,7 +177,7 @@ describe('insightLogic', () => {
                     dashboardItemId: 42,
                     cachedResults: undefined,
                     filters: {
-                        insight: ViewType.TRENDS,
+                        insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
                         properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                     },
@@ -199,7 +204,7 @@ describe('insightLogic', () => {
                     dashboardItemId: 42,
                     cachedResults: undefined,
                     filters: {
-                        insight: ViewType.TRENDS,
+                        insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
                         properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                     },
@@ -303,12 +308,12 @@ describe('insightLogic', () => {
         })
 
         it('sets filters from the URL', async () => {
-            const url = combineUrl('/insights', { insight: 'TRENDS', interval: 'minute' }).url
+            const url = combineUrl('/insights', { insight: InsightType.TRENDS, interval: 'minute' }).url
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
                 .toMatchValues({
-                    filters: partial({ insight: 'TRENDS', interval: 'minute' }),
+                    filters: partial({ insight: InsightType.TRENDS, interval: 'minute' }),
                 })
 
             // setting the same URL twice doesn't call `setFilters`
@@ -317,36 +322,36 @@ describe('insightLogic', () => {
                 .toDispatchActions([router.actionCreators.push(url)])
                 .toNotHaveDispatchedActions(['setFilters'])
                 .toMatchValues({
-                    filters: partial({ insight: 'TRENDS', interval: 'minute' }),
+                    filters: partial({ insight: InsightType.TRENDS, interval: 'minute' }),
                 })
 
             // calls when the values changed
-            const url2 = combineUrl('/insights', { insight: 'TRENDS', interval: 'week' }).url
+            const url2 = combineUrl('/insights', { insight: InsightType.TRENDS, interval: 'week' }).url
             router.actions.push(url2)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url2), 'setFilters'])
                 .toMatchValues({
-                    filters: partial({ insight: 'TRENDS', interval: 'week' }),
+                    filters: partial({ insight: InsightType.TRENDS, interval: 'week' }),
                 })
         })
 
         it('takes the dashboardItemId from the URL', async () => {
-            const url = combineUrl('/insights', { insight: 'TRENDS' }, { fromItem: 42 }).url
+            const url = combineUrl('/insights', { insight: InsightType.TRENDS }, { fromItem: 42 }).url
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'loadInsight', 'loadInsightSuccess'])
                 .toNotHaveDispatchedActions(['loadResults'])
                 .toMatchValues({
-                    filters: partial({ insight: 'TRENDS' }),
+                    filters: partial({ insight: InsightType.TRENDS }),
                     insight: partial({ id: 42, result: ['result from api'] }),
                 })
 
             // changing the ID, does not query twice
-            router.actions.push(combineUrl('/insights', { insight: 'FUNNELS' }, { fromItem: 43 }).url)
+            router.actions.push(combineUrl('/insights', { insight: InsightType.FUNNELS }, { fromItem: 43 }).url)
             await expectLogic(logic)
                 .toDispatchActions(['loadInsight', 'setFilters', 'loadResults', 'loadInsightSuccess'])
                 .toMatchValues({
-                    filters: partial({ insight: 'FUNNELS' }),
+                    filters: partial({ insight: InsightType.FUNNELS }),
                     insight: partial({ id: 43, result: null }),
                 })
                 .toNotHaveDispatchedActions(['loadResults']) // don't load twice!
@@ -357,35 +362,39 @@ describe('insightLogic', () => {
         })
 
         it('sets the URL when changing filters', async () => {
-            logic.actions.setFilters({ insight: 'TRENDS', interval: 'minute' })
+            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'minute' })
             await expectLogic()
-                .toDispatchActions(logic, [logic.actionCreators.setFilters({ insight: 'TRENDS', interval: 'minute' })])
+                .toDispatchActions(logic, [
+                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'minute' }),
+                ])
                 .toDispatchActions(router, ['replace', 'locationChanged'])
                 .toMatchValues(router, { searchParams: partial({ interval: 'minute' }) })
 
             // no change in filters, doesn't change the URL
-            logic.actions.setFilters({ insight: 'TRENDS', interval: 'minute' })
+            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'minute' })
             await expectLogic()
-                .toDispatchActions(logic, [logic.actionCreators.setFilters({ insight: 'TRENDS', interval: 'minute' })])
+                .toDispatchActions(logic, [
+                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'minute' }),
+                ])
                 .toNotHaveDispatchedActions(router, ['replace', 'locationChanged'])
                 .toMatchValues(router, { searchParams: partial({ interval: 'minute' }) })
 
-            logic.actions.setFilters({ insight: 'TRENDS', interval: 'month' })
+            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'month' })
             await expectLogic()
                 .toDispatchActions(router, ['replace', 'locationChanged'])
                 .toMatchValues(router, {
-                    searchParams: partial({ insight: 'TRENDS', interval: 'month' }),
+                    searchParams: partial({ insight: InsightType.TRENDS, interval: 'month' }),
                 })
         })
 
         it('persists edit mode in the url', async () => {
-            const url1 = combineUrl('/insights', cleanFilters({ insight: 'TRENDS' }), { fromItem: 42 })
+            const url1 = combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42 })
             router.actions.push(url1.url)
             await expectLogic(logic)
                 .toNotHaveDispatchedActions(['setInsightMode'])
                 .toDispatchActions(['loadInsightSuccess'])
                 .toMatchValues({
-                    filters: partial({ insight: 'TRENDS' }),
+                    filters: partial({ insight: InsightType.TRENDS }),
                     insight: partial({ id: 42, result: ['result from api'] }),
                     insightMode: ItemMode.View,
                 })
@@ -433,7 +442,11 @@ describe('insightLogic', () => {
                 .toDispatchActions(['setInsight'])
                 .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
                 .toMatchValues({
-                    insight: partial({ id: 42, result: 'result!', filters: { insight: 'TRENDS', interval: 'month' } }),
+                    insight: partial({
+                        id: 42,
+                        result: 'result!',
+                        filters: { insight: InsightType.TRENDS, interval: 'month' },
+                    }),
                 })
         })
 
@@ -471,41 +484,41 @@ describe('insightLogic', () => {
         featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
-            filters: { insight: 'FUNNELS' },
+            filters: { insight: InsightType.FUNNELS },
         })
         logic.mount()
 
         // `setFilters` only changes `filters`, does not change `savedFilters`
         await expectLogic(logic, () => {
-            logic.actions.setFilters({ insight: 'TRENDS' })
+            logic.actions.setFilters({ insight: InsightType.TRENDS })
         }).toMatchValues({
-            filters: partial({ insight: 'TRENDS' }),
-            savedFilters: partial({ insight: 'FUNNELS' }),
+            filters: partial({ insight: InsightType.TRENDS }),
+            savedFilters: partial({ insight: InsightType.FUNNELS }),
             filtersChanged: true,
         })
 
         // results from search don't change anything
         await expectLogic(logic, () => {
-            logic.actions.loadResultsSuccess({ id: 42, filters: { insight: 'PATHS' } })
+            logic.actions.loadResultsSuccess({ id: 42, filters: { insight: InsightType.PATHS } })
         }).toMatchValues({
-            filters: partial({ insight: 'TRENDS' }),
-            savedFilters: partial({ insight: 'FUNNELS' }),
+            filters: partial({ insight: InsightType.TRENDS }),
+            savedFilters: partial({ insight: InsightType.FUNNELS }),
             filtersChanged: true,
         })
 
         // results from API GET and POST calls change saved filters
         await expectLogic(logic, () => {
-            logic.actions.loadInsightSuccess({ id: 42, filters: { insight: 'PATHS' } })
+            logic.actions.loadInsightSuccess({ id: 42, filters: { insight: InsightType.PATHS } })
         }).toMatchValues({
-            filters: partial({ insight: 'TRENDS' }),
-            savedFilters: partial({ insight: 'PATHS' }),
+            filters: partial({ insight: InsightType.TRENDS }),
+            savedFilters: partial({ insight: InsightType.PATHS }),
             filtersChanged: true,
         })
         await expectLogic(logic, () => {
-            logic.actions.updateInsightSuccess({ id: 42, filters: { insight: 'RETENTION' } })
+            logic.actions.updateInsightSuccess({ id: 42, filters: { insight: InsightType.RETENTION } })
         }).toMatchValues({
-            filters: partial({ insight: 'TRENDS' }),
-            savedFilters: partial({ insight: 'RETENTION' }),
+            filters: partial({ insight: InsightType.TRENDS }),
+            savedFilters: partial({ insight: InsightType.RETENTION }),
             filtersChanged: true,
         })
 
@@ -514,9 +527,9 @@ describe('insightLogic', () => {
             logic.actions.setFilters(API_FILTERS)
         }).toFinishAllListeners()
         await expectLogic(logic).toMatchValues({
-            filters: partial({ insight: 'TRENDS' }),
-            loadedFilters: partial({ insight: 'TRENDS' }),
-            savedFilters: partial({ insight: 'RETENTION' }),
+            filters: partial({ insight: InsightType.TRENDS }),
+            loadedFilters: partial({ insight: InsightType.TRENDS }),
+            savedFilters: partial({ insight: InsightType.RETENTION }),
             filtersChanged: true,
         })
 
@@ -525,9 +538,9 @@ describe('insightLogic', () => {
         }).toFinishAllListeners()
 
         await expectLogic(logic).toMatchValues({
-            filters: partial({ insight: 'TRENDS' }),
-            loadedFilters: partial({ insight: 'TRENDS' }),
-            savedFilters: partial({ insight: 'TRENDS' }),
+            filters: partial({ insight: InsightType.TRENDS }),
+            loadedFilters: partial({ insight: InsightType.TRENDS }),
+            savedFilters: partial({ insight: InsightType.TRENDS }),
             filtersChanged: false,
         })
     })

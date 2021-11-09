@@ -14,7 +14,6 @@ import {
     GlobalHotKeys,
     EntityType,
     DashboardItemType,
-    ViewType,
     InsightType,
     PropertyFilter,
     HelpType,
@@ -442,7 +441,7 @@ export const eventUsageLogic = kea<
             }
 
             for (const item of dashboard.items) {
-                const key = `${item.filters?.insight?.toLowerCase() || ViewType.TRENDS}_count`
+                const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {

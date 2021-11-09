@@ -7,7 +7,7 @@ import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
-import { FilterType, ViewType } from '~/types'
+import { FilterType, InsightType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -40,7 +40,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const formulaAvailable =
-        (!filters.insight || filters.insight === ViewType.TRENDS) && preflight?.is_clickhouse_enabled
+        (!filters.insight || filters.insight === InsightType.TRENDS) && preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
     return (
@@ -54,10 +54,10 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         typeKey={'trends_' + view}
                         buttonCopy="Add graph series"
                         showSeriesIndicator
-                        singleFilter={filters.insight === ViewType.LIFECYCLE}
-                        hideMathSelector={filters.insight === ViewType.LIFECYCLE}
+                        singleFilter={filters.insight === InsightType.LIFECYCLE}
+                        hideMathSelector={filters.insight === InsightType.LIFECYCLE}
                         customRowPrefix={
-                            filters.insight === ViewType.LIFECYCLE ? (
+                            filters.insight === InsightType.LIFECYCLE ? (
                                 <>
                                     Showing <b>Unique users</b> who did
                                 </>
@@ -66,7 +66,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     />
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
-                    {filters.insight === ViewType.LIFECYCLE && (
+                    {filters.insight === InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle unit="actions/events" />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
@@ -91,7 +91,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             </div>
                         </>
                     )}
-                    {filters.insight !== ViewType.LIFECYCLE && (
+                    {filters.insight !== InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle />
                             <PropertyFilters taxonomicGroupTypes={taxonomicTypesWithGroups} pageKey="trends-filters" />
@@ -159,7 +159,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             )}
                         </>
                     )}
-                    {filters.insight !== ViewType.LIFECYCLE && filters.insight !== ViewType.STICKINESS && (
+                    {filters.insight !== InsightType.LIFECYCLE && filters.insight !== InsightType.STICKINESS && (
                         <>
                             <hr />
                             <h4 className="secondary">

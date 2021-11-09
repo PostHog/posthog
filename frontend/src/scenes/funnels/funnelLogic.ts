@@ -11,7 +11,7 @@ import {
     FunnelStep,
     FunnelsTimeConversionBins,
     PersonType,
-    ViewType,
+    InsightType,
     FunnelStepWithNestedBreakdown,
     FunnelTimeConversionMetrics,
     FlattenedFunnelStep,
@@ -393,10 +393,10 @@ export const funnelLogic = kea<funnelLogicType>({
 
     selectors: ({ selectors }) => ({
         isLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
-        loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === ViewType.FUNNELS ? filters : {})],
+        loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): FunnelAPIResponse => (filters?.insight === ViewType.FUNNELS ? result : []),
+            ({ filters, result }): FunnelAPIResponse => (filters?.insight === InsightType.FUNNELS ? result : []),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         conversionWindow: [
@@ -1024,7 +1024,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         loadResultsSuccess: async ({ insight }) => {
-            if (insight.filters?.insight !== ViewType.FUNNELS) {
+            if (insight.filters?.insight !== InsightType.FUNNELS) {
                 return
             }
             // hide all but the first five breakdowns for each step

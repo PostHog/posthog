@@ -3,7 +3,7 @@ import { Button, Card, Divider, Space } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
-import { Entity, PersonPropertyFilter, PropertyFilter, PropertyOperator, ViewType } from '~/types'
+import { Entity, PersonPropertyFilter, PropertyFilter, PropertyOperator, InsightType } from '~/types'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { EventPropertyFilter } from 'scenes/sessions/filters/EventPropertyFilter'
 import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
@@ -140,7 +140,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
     })
 
     const params = {
-        insight: ViewType.TRENDS,
+        insight: InsightType.TRENDS,
         interval: 'day',
         display: 'ActionsLineGraph',
         events,

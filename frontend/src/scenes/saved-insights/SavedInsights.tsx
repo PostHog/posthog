@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
+import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
 import {
     AppstoreFilled,
@@ -48,59 +48,59 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { TabPane } = Tabs
 
-interface InsightType {
-    type: ViewType
+interface SavedInsightType {
+    type: InsightType
     name: string
     description?: string
     icon?: (props?: any) => JSX.Element
     inMenu: boolean
 }
 
-const insightTypes: InsightType[] = [
+const insightTypes: SavedInsightType[] = [
     {
-        type: ViewType.TRENDS,
+        type: InsightType.TRENDS,
         name: 'Trends',
         description: 'Understand how users are spending their time in your product',
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
     {
-        type: ViewType.FUNNELS,
+        type: InsightType.FUNNELS,
         name: 'Funnels',
         description: 'Visualize completion and dropoff between events',
         icon: InsightsFunnelsIcon,
         inMenu: true,
     },
     {
-        type: ViewType.SESSIONS,
+        type: InsightType.SESSIONS,
         name: 'Sessions',
         description: 'Understand how users are spending their time in your product',
         icon: InsightsSessionsIcon,
         inMenu: false,
     },
     {
-        type: ViewType.RETENTION,
+        type: InsightType.RETENTION,
         name: 'Retention',
         description: 'Visualize how many users return on subsequent days after a session',
         icon: InsightsRetentionIcon,
         inMenu: true,
     },
     {
-        type: ViewType.PATHS,
+        type: InsightType.PATHS,
         name: 'Paths',
         description: 'Understand how traffic is flowing through your product',
         icon: InsightsPathsIcon,
         inMenu: true,
     },
     {
-        type: ViewType.STICKINESS,
+        type: InsightType.STICKINESS,
         name: 'Stickiness',
         description: 'See how many days users performed an action within a timeframe',
         icon: InsightsStickinessIcon,
         inMenu: true,
     },
     {
-        type: ViewType.LIFECYCLE,
+        type: InsightType.LIFECYCLE,
         name: 'Lifecycle',
         description: 'See new, resurrected, returning, and dormant users',
         icon: InsightsLifecycleIcon,
@@ -156,7 +156,7 @@ export function SavedInsights(): JSX.Element {
             key: 'id',
             className: 'icon-column',
             render: function renderType(_, insight) {
-                const selectedType = insight.filters?.insight || ViewType.TRENDS
+                const selectedType = insight.filters?.insight || InsightType.TRENDS
                 const type = insightTypes.find(({ type: _type }) => _type === selectedType)
                 if (type && type.icon) {
                     return <type.icon />
@@ -385,22 +385,23 @@ export function SavedInsights(): JSX.Element {
                         style={{ paddingLeft: 8, width: 140 }}
                         onChange={(it) => setSavedInsightsFilters({ insightType: it })}
                     >
-                        {[{ name: 'All types', type: 'All types' as ViewType, inMenu: false }, ...insightTypes].map(
-                            (insight: InsightType, index) => (
-                                <Select.Option key={index} value={insight.type}>
-                                    <div className="insight-type-icon-wrapper">
-                                        {insight.icon ? (
-                                            <div className="icon-container">
-                                                <div className="icon-container-inner">
-                                                    {<insight.icon color="#747EA2" noBackground />}
-                                                </div>
+                        {[
+                            { name: 'All types', type: 'All types' as InsightType, inMenu: false } as SavedInsightType,
+                            ...insightTypes,
+                        ].map((insight, index) => (
+                            <Select.Option key={index} value={insight.type}>
+                                <div className="insight-type-icon-wrapper">
+                                    {insight.icon ? (
+                                        <div className="icon-container">
+                                            <div className="icon-container-inner">
+                                                {<insight.icon color="#747EA2" noBackground />}
                                             </div>
-                                        ) : null}
-                                        <div>{insight.name}</div>
-                                    </div>
-                                </Select.Option>
-                            )
-                        )}
+                                        </div>
+                                    ) : null}
+                                    <div>{insight.name}</div>
+                                </div>
+                            </Select.Option>
+                        ))}
                     </Select>
                 </Col>
                 <Col>

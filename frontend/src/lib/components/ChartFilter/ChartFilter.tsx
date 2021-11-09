@@ -10,7 +10,7 @@ import {
     PieChartOutlined,
     TableOutlined,
 } from '@ant-design/icons'
-import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
+import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 interface ChartFilterProps {
@@ -26,17 +26,17 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
 
     const linearDisabled = !!filters.session && filters.session === 'dist'
     const cumulativeDisabled =
-        !!filters.session || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
+        !!filters.session || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const tableDisabled = false
     const pieDisabled =
-        !!filters.session || filters.insight === ViewType.RETENTION || filters.insight === ViewType.STICKINESS
-    const barDisabled = !!filters.session || filters.insight === ViewType.RETENTION
+        !!filters.session || filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
+    const barDisabled = !!filters.session || filters.insight === InsightType.RETENTION
     const barValueDisabled =
-        barDisabled || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
+        barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const defaultDisplay: ChartDisplayType =
-        filters.insight === ViewType.RETENTION
+        filters.insight === InsightType.RETENTION
             ? ChartDisplayType.ActionsTable
-            : filters.insight === ViewType.FUNNELS
+            : filters.insight === InsightType.FUNNELS
             ? ChartDisplayType.FunnelViz
             : ChartDisplayType.ActionsLineGraphLinear
 
@@ -57,7 +57,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     }
 
     const options =
-        filters.insight === ViewType.FUNNELS
+        filters.insight === InsightType.FUNNELS
             ? preflight?.is_clickhouse_enabled
                 ? [
                       {
