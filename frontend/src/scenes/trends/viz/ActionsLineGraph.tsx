@@ -55,8 +55,8 @@ export function ActionsLineGraph({
                               saveOriginal: true,
                               pointValue,
                           }
-                          if (dataset.persons_urls?.[index]) {
-                              loadPeople(params, dataset.persons_urls[index])
+                          if (dataset.persons_urls?.[index].url) {
+                              loadPeople(params, dataset.persons_urls[index].url)
                           } else {
                               loadPeople(params)
                           }

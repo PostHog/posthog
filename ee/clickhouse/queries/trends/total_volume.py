@@ -5,13 +5,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
-from ee.clickhouse.queries.util import (
-    format_ch_timestamp,
-    get_earliest_timestamp,
-    get_interval_func_ch,
-    get_time_diff,
-    get_trunc_func_ch,
-)
+from ee.clickhouse.queries.util import deep_dump_object, get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.volume import ACTIVE_USER_SQL, VOLUME_SQL, VOLUME_TOTAL_AGGREGATE_SQL
@@ -88,17 +82,21 @@ class ClickhouseTrendsTotalVolume:
 
         return _parse
 
-    def _get_persons_url(self, filter: Filter, entity: Entity, team_id: int, dates: List[str]) -> List[str]:
+    def _get_persons_url(self, filter: Filter, entity: Entity, team_id: int, dates: List[str]) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
-            params = filter.to_dict()
-            params = {
-                **params,
-                "events": json.dumps(params["events"]),
+            filter_params = filter.to_dict()
+            extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "date_from": date,
                 "date_to": date,
             }
-            persons_url.append(f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(params)}")
+            parsed_params = deep_dump_object({**filter_params, **extra_params})
+            persons_url.append(
+                {
+                    "filter": extra_params,
+                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                }
+            )
         return persons_url
