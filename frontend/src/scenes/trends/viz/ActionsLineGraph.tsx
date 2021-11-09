@@ -19,7 +19,7 @@ export function ActionsLineGraph({
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
-    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
+    const { loadPeople } = useActions(personsModalLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
 
     return indexedResults &&
