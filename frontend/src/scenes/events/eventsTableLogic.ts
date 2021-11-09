@@ -236,27 +236,19 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    urlToAction: ({ actions, values, props }) => {
-        return {
-            [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                const sceneIsLoaded = values.urlPattern?.match(router.values.location.pathname)
-                if (!sceneIsLoaded) {
-                    return
-                }
+    urlToAction: ({ actions, values, props }) => ({
+        [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
+            actions.setProperties(searchParams.properties || values.properties || {})
 
-                actions.setProperties(searchParams.properties || values.properties || {})
+            if (searchParams.autoload) {
+                actions.toggleAutomaticLoad(searchParams.autoload)
+            }
 
-                if (searchParams.autoload) {
-                    actions.toggleAutomaticLoad(searchParams.autoload)
-                }
-
-                if (searchParams.eventFilter) {
-                    actions.setEventFilter(searchParams.eventFilter)
-                }
-            },
-        }
-    },
+            if (searchParams.eventFilter) {
+                actions.setEventFilter(searchParams.eventFilter)
+            }
+        },
+    }),
 
     events: ({ values }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
