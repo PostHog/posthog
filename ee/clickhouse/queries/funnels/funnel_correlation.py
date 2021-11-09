@@ -1,5 +1,4 @@
 import dataclasses
-import json
 import urllib.parse
 from os import stat
 from typing import (
@@ -566,7 +565,7 @@ class FunnelCorrelation:
         params = self._filter.with_data(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
-                "funnel_correlation_person_entity": json.dumps({"id": event_definition["event"], "type": "events"}),
+                "funnel_correlation_person_entity": {"id": event_definition["event"], "type": "events"},
             }
         ).to_params()
         return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
@@ -587,22 +586,15 @@ class FunnelCorrelation:
             params = self._filter.with_data(
                 {
                     "funnel_correlation_person_converted": "true" if success else "false",
-                    "funnel_correlation_person_entity": json.dumps(
-                        {
-                            "id": event_name,
-                            "type": "events",
-                            "properties": [
-                                {
-                                    "key": property_key,
-                                    "value": [property_value],
-                                    "type": "element",
-                                    "operator": "exact",
-                                }
-                                for property_key, property_value in elements_as_action.items()
-                                if property_value is not None
-                            ],
-                        }
-                    ),
+                    "funnel_correlation_person_entity": {
+                        "id": event_name,
+                        "type": "events",
+                        "properties": [
+                            {"key": property_key, "value": [property_value], "type": "element", "operator": "exact",}
+                            for property_key, property_value in elements_as_action.items()
+                            if property_value is not None
+                        ],
+                    },
                 }
             ).to_params()
             return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
@@ -611,15 +603,13 @@ class FunnelCorrelation:
         params = self._filter.with_data(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
-                "funnel_correlation_person_entity": json.dumps(
-                    {
-                        "id": event_name,
-                        "type": "events",
-                        "properties": [
-                            {"key": property_name, "value": property_value, "type": "event", "operator": "exact"}
-                        ],
-                    }
-                ),
+                "funnel_correlation_person_entity": {
+                    "id": event_name,
+                    "type": "events",
+                    "properties": [
+                        {"key": property_name, "value": property_value, "type": "event", "operator": "exact"}
+                    ],
+                },
             }
         ).to_params()
         return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
@@ -635,7 +625,7 @@ class FunnelCorrelation:
                 "funnel_step_breakdown": property_value,
                 "breakdown_type": "person",
                 "display": "FunnelViz",
-                "funnel_custom_steps": json.dumps(
+                "funnel_custom_steps": (
                     [len(self._filter.events)] if success else list(range(1, len(self._filter.events)))
                 ),
                 "name": property_name,
