@@ -5,6 +5,24 @@ import { groupsModel } from '~/models/groupsModel'
 import { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
 
+export function mathTypeToApiValues(mathType: string): {
+    math: string
+    math_group_type_index?: number | null | undefined
+} {
+    if (mathType.startsWith('unique_group')) {
+        const index = mathType.split('::')[1]
+        return { math: 'unique_group', math_group_type_index: +index }
+    }
+    return { math: mathType }
+}
+
+export function apiValueToMathType(math: string | undefined, groupTypeIndex: number | null | undefined): string {
+    if (math === 'unique_group') {
+        return `unique_group::${groupTypeIndex}`
+    }
+    return math || 'total'
+}
+
 export const mathsLogic = kea<mathsLogicType>({
     path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
@@ -197,7 +215,7 @@ export const mathsLogic = kea<mathsLogicType>({
             (groupTypes) =>
                 Object.fromEntries(
                     groupTypes.map((groupType) => [
-                        `unique_group::${groupType.group_type_index}`,
+                        apiValueToMathType('unique_group', groupType.group_type_index),
                         {
                             name: `Unique ${groupType.group_type}(s)`,
                             description: (

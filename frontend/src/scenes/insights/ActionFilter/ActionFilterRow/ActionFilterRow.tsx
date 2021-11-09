@@ -36,7 +36,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import clsx from 'clsx'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -145,14 +145,14 @@ export function ActionFilterRow({
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
     let entity: BareEntity, name: string | null | undefined, value: PropertyFilterValue
-    const { math, math_property: mathProperty } = filter
+    const { math, math_property: mathProperty, math_group_type_index: mathGroupTypeIndex } = filter
 
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
     }
     const onMathSelect = (_: unknown, selectedMath: string): void => {
         updateFilterMath({
-            math: selectedMath,
+            ...mathTypeToApiValues(selectedMath),
             math_property: mathDefinitions[selectedMath]?.onProperty ? mathProperty ?? '$time' : undefined,
             type: filter.type,
             index,
@@ -367,6 +367,7 @@ export function ActionFilterRow({
                                 <Col style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}>
                                     <MathSelector
                                         math={math}
+                                        mathGroupTypeIndex={mathGroupTypeIndex}
                                         index={index}
                                         onMathSelect={onMathSelect}
                                         areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
@@ -450,6 +451,7 @@ export function ActionFilterRow({
 
 interface MathSelectorProps {
     math?: string
+    mathGroupTypeIndex?: number | null
     index: number
     onMathSelect: (index: number, value: any) => any // TODO
     areEventPropertiesNumericalAvailable?: boolean
@@ -458,6 +460,7 @@ interface MathSelectorProps {
 
 function MathSelector({
     math,
+    mathGroupTypeIndex,
     index,
     onMathSelect,
     areEventPropertiesNumericalAvailable,
@@ -479,7 +482,7 @@ function MathSelector({
     return (
         <Select
             style={{ width: 150, ...style }}
-            value={math || 'total'}
+            value={apiValueToMathType(math, mathGroupTypeIndex)}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             dropdownMatchSelectWidth={false}
