@@ -117,7 +117,9 @@ describe('infiniteListLogic', () => {
         expectLogic(logic, () => logic.actions.selectSelected()).toDispatchActions([
             logic.actionCreators.selectSelected(),
             logic.actionCreators.selectItem(
-                TaxonomicFilterGroupType.Events,
+                expect.objectContaining({
+                    type: TaxonomicFilterGroupType.Events,
+                }),
                 'event1',
                 expect.objectContaining({ name: 'event1' })
             ),
