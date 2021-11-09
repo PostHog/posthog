@@ -539,7 +539,7 @@ class FunnelCorrelation:
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
         return events, skewed_totals
 
-    def construct_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+    def construct_people_url(self, success: bool, event_definition: EventDefinition) -> Optional[str]:
         """
         Given an event_definition and success/failure flag, returns a url that
         get be used to GET the associated people for the event/sucess pair. The
@@ -554,10 +554,6 @@ class FunnelCorrelation:
 
         elif self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return self.construct_person_properties_people_url(success=success, event_definition=event_definition)
-
-        else:
-            # Ensure we have exhausted all values of self._filter.correlation_type
-            _assert_never(self._filter.correlation_type)
 
     def construct_event_correlation_people_url(self, success: bool, event_definition: EventDefinition) -> str:
         # NOTE: we need to convert certain params to strings. I don't think this
@@ -788,13 +784,3 @@ def build_selector(elements: List[Dict[str, Any]]) -> str:
         return element["tag_name"]
 
     return " > ".join([element_to_selector(element) for element in elements])
-
-
-def _assert_never(x: NoReturn) -> NoReturn:
-    """
-    This is a helper function to make sure that we never get to this point. It's
-    a way of ensuring that the possible values of x are exhausted. Simply call
-    this at the end of a function passing in the value you think you've covered
-    all cases for and you should get a type error if you haven't.
-    """
-    assert False, "Unhandled type: {}".format(type(x).__name__)
