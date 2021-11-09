@@ -1139,7 +1139,9 @@ export function setPageTitle(title: string): void {
 }
 
 export function isMultiSeriesFormula(formula?: string): boolean {
-    if (!formula) return false
+    if (!formula) {
+        return false
+    }
     const count = (formula.match(/[a-zA-Z]/g) || []).length
     return count > 1
 }
