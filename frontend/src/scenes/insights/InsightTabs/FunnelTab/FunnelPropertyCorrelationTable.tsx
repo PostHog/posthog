@@ -14,7 +14,6 @@ import { IconSelectProperties } from 'lib/components/icons'
 import './FunnelCorrelationTable.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

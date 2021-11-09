@@ -5,20 +5,13 @@ import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import {
-    FunnelCorrelation,
-    FunnelCorrelationResultsType,
-    FunnelCorrelationType,
-    PropertyFilter,
-    PropertyOperator,
-} from '~/types'
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './FunnelCorrelationTable.scss'
 import { Tooltip } from 'lib/components/Tooltip'
-import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 

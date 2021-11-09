@@ -27,11 +27,12 @@ import {
     FunnelStepReference,
     FunnelAPIResponse,
     TrendResult,
-    BreakdownType,
     FunnelCorrelationResultsType,
     AvailableFeature,
     TeamType,
     EntityTypes,
+    PropertyFilter,
+    PropertyOperator,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -56,6 +57,7 @@ import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
+import { elementsToAction } from 'scenes/events/createActionFromEvent'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values

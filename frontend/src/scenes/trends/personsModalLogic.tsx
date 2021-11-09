@@ -141,7 +141,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     day: date_from,
                     breakdown_value,
                 }),
-                loadPeopleFromUrl: ({ label }) => ({
+                loadPeopleFromUrl: (_, { label }) => ({
                     people: [],
                     count: 0,
                     day: '',
