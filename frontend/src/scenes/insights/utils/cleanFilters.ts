@@ -35,6 +35,9 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+            ...(filters.aggregation_group_type_index != undefined
+                ? { aggregation_group_type_index: filters.aggregation_group_type_index }
+                : {}),
         }
     } else if (filters.insight === ViewType.FUNNELS) {
         const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
