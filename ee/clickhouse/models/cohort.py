@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import structlog
 from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
@@ -11,6 +12,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
+    GET_COHORT_SIZE_SQL,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
@@ -29,6 +31,8 @@ from posthog.models.property import Property
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
+
+logger = structlog.get_logger(__name__)
 
 
 def format_person_query(
@@ -262,6 +266,14 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 def recalculate_cohortpeople(cohort: Cohort):
     cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
 
+    before_count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
+    logger.info(
+        "Recalculating cohortpeople starting",
+        team_id=cohort.team_id,
+        cohort_id=cohort.pk,
+        size_before=before_count[0][0],
+    )
+
     cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
@@ -269,6 +281,15 @@ def recalculate_cohortpeople(cohort: Cohort):
 
     remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
     sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
+
+    count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
+    logger.info(
+        "Recalculating cohortpeople done",
+        team_id=cohort.team_id,
+        cohort_id=cohort.pk,
+        size_before=before_count[0][0],
+        size=count[0][0],
+    )
 
 
 def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Property]:

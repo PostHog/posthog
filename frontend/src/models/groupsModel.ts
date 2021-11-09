@@ -9,6 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export const groupsModel = kea<groupsModelType>({
+    path: ['models', 'groupsModel'],
     connect: {
         values: [
             teamLogic,

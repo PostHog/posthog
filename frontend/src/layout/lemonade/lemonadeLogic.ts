@@ -4,6 +4,7 @@ import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 import { lemonadeLogicType } from './lemonadeLogicType'
 
 export const lemonadeLogic = kea<lemonadeLogicType>({
+    path: ['layout', 'lemonade', 'lemonadeLogic'],
     connect: {
         values: [featureFlagLogic, ['featureFlags']],
     },

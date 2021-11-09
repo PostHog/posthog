@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { ColumnChoice } from '~/types'
 
 export const tableConfigLogic = kea<tableConfigLogicType>({
+    path: ['lib', 'components', 'ResizableTable', 'tableConfigLogic'],
     actions: {
         showModal: true,
         hideModal: false,

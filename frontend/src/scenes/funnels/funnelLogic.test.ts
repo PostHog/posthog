@@ -500,7 +500,7 @@ describe('funnelLogic', () => {
 
         it('Deselecting all returns empty result', async () => {
             await expectLogic(logic, () => logic.actions.setPropertyNames([]))
-                .toFinishListeners()
+                .toDispatchActions(logic, ['loadPropertyCorrelationsSuccess'])
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [],

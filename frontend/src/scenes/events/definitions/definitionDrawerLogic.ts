@@ -10,6 +10,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { teamLogic } from '../../teamLogic'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
+    path: ['scenes', 'events', 'definitions', 'definitionDrawerLogic'],
     actions: () => ({
         openDrawer: (type: string, id: string) => ({ type, id }),
         setDrawerType: (type: string) => ({ type }),

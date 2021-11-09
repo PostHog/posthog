@@ -13,6 +13,7 @@ interface AnnotationsLogicProps {
 }
 
 export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
+    path: (key) => ['lib', 'components', 'Annotations', 'annotationsLogic', key],
     props: {} as AnnotationsLogicProps,
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     connect: {

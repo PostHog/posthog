@@ -9,6 +9,7 @@ import { router } from 'kea-router'
 const FUNNEL_COMMAND_SCOPE = 'funnels'
 
 export const funnelCommandLogic = kea<funnelCommandLogicType>({
+    path: ['scenes', 'insights', 'InsightTabs', 'FunnelTab', 'funnelCommandLogic'],
     connect: [commandPaletteLogic],
     events: {
         afterMount: () => {

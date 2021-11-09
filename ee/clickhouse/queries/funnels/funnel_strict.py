@@ -23,11 +23,11 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
-                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
                         {steps_per_person_query}
                 )
-            ) GROUP BY person_id, steps {breakdown_clause}
+            ) GROUP BY aggregation_target, steps {breakdown_clause}
             HAVING steps = max_steps
         """
 
@@ -40,7 +40,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
 
         inner_query = f"""
             SELECT 
-            person_id,
+            aggregation_target,
             timestamp,
             {partition_select}
             {breakdown_clause}
@@ -62,6 +62,6 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
                 cols.append(f"latest_{i}")
             else:
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)

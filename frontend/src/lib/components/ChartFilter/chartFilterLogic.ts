@@ -9,6 +9,7 @@ function isFunnelVizType(filter: FunnelVizType | ChartDisplayType): filter is Fu
 }
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
+    path: ['lib', 'components', 'ChartFilter', 'chartFilterLogic'],
     actions: () => ({
         setChartFilter: (filter: ChartDisplayType | FunnelVizType) => ({ filter }),
     }),
