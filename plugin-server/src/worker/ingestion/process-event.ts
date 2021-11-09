@@ -92,7 +92,6 @@ export class EventsProcessor {
     public async processEvent(
         distinctId: string,
         ip: string | null,
-        siteUrl: string,
         data: PluginEvent,
         teamId: number,
         now: DateTime,
@@ -163,7 +162,6 @@ export class EventsProcessor {
                         eventUuid,
                         personUuid,
                         ip,
-                        siteUrl,
                         teamId,
                         data['event'],
                         distinctId,
@@ -453,7 +451,6 @@ export class EventsProcessor {
         eventUuid: string,
         personUuid: string,
         ip: string | null,
-        siteUrl: string,
         teamId: number,
         event: string,
         distinctId: string,
@@ -500,16 +497,7 @@ export class EventsProcessor {
             )
         }
 
-        return await this.createEvent(
-            eventUuid,
-            event,
-            teamId,
-            distinctId,
-            properties,
-            timestamp,
-            elementsList,
-            siteUrl
-        )
+        return await this.createEvent(eventUuid, event, teamId, distinctId, properties, timestamp, elementsList)
     }
 
     private async createEvent(
@@ -519,13 +507,13 @@ export class EventsProcessor {
         distinctId: string,
         properties?: Properties,
         timestamp?: DateTime | string,
-        elements?: Element[],
-        siteUrl?: string
+        elements?: Element[]
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
+
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const eventPayload: IEvent = {

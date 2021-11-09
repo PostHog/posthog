@@ -466,6 +466,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 return f", {expression} AS prop"
             elif self._filter.breakdown_type == "cohort":
                 return ", value AS prop"
+            elif self._filter.breakdown_type == "group":
+                # :TRICKY: We only support string breakdown for group properties
+                assert isinstance(self._filter.breakdown, str)
+                properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
+                expression, _ = get_property_string_expr(
+                    "groups", self._filter.breakdown, "%(breakdown)s", properties_field
+                )
+                return f", {expression} AS prop"
 
         return ""
 

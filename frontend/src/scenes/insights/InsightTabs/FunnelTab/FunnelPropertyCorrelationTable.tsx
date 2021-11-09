@@ -213,7 +213,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                 page_size,
                             }),
                     }}
-                    style={{ marginTop: '1rem' }}
                 >
                     <Column
                         title="Correlated Person Properties"
@@ -261,7 +260,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
             onClick={() => excludePropertyFromProject(propertyName)}
             type="link"
         >
-            Exclude
+            Exclude from project
         </Button>
     )
 }

@@ -19,6 +19,7 @@ export function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): num
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>({
+    path: ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic'],
     connect: {
         logic: [eventUsageLogic],
         values: [
@@ -195,10 +196,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentEvents = values.replayer?.service.state.context.events ?? []
             const eventsToAdd = values.snapshots.slice(currentEvents.length) ?? []
 
-            if (eventsToAdd.length < 1) {
-                return
-            }
-
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
             if (!!values.replayer) {
                 eventsToAdd.forEach((event: eventWithTime) => {
@@ -206,8 +203,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 })
             }
 
+            // replayer should be updated with new events.
+            const finalEvents = [...currentEvents, ...eventsToAdd]
+            if (finalEvents.length < 1) {
+                return
+            }
+
             // Update last buffered point
-            const lastEvent = eventsToAdd[eventsToAdd.length - 1]
+            const lastEvent = finalEvents[finalEvents.length - 1]
             actions.setLastBufferedTime(lastEvent.timestamp)
 
             // If buffering has completed, resume last playing state
@@ -226,7 +229,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Sometimes replayer doesn't update with events we recently added.
                 const endTime = Math.max(
                     meta.endTime,
-                    eventsToAdd.length ? eventsToAdd[eventsToAdd.length - 1]?.timestamp : 0
+                    finalEvents.length ? finalEvents[finalEvents.length - 1]?.timestamp : 0
                 )
                 const finalMeta = {
                     ...meta,
@@ -268,7 +271,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setCurrentTime(time ?? 0)
 
             // If next time is greater than last buffered time, set to buffering
-            if (nextTime > values.zeroOffsetTime.lastBuffered) {
+            if (!values.zeroOffsetTime.lastBuffered || nextTime > values.zeroOffsetTime.lastBuffered) {
                 values.replayer?.pause()
                 actions.setBuffer()
             }

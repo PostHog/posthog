@@ -30,6 +30,7 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
 }
 
 export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
+    path: ['scenes', 'session-recordings', 'sessionRecordingLogic'],
     connect: {
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId']],

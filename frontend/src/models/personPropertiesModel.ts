@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { PersonProperty } from '~/types'
 
 export const personPropertiesModel = kea<personPropertiesModelType>({
+    path: ['models', 'personPropertiesModel'],
     loaders: {
         personProperties: [
             [] as Array<PersonProperty>,

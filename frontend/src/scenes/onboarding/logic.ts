@@ -7,6 +7,7 @@ interface AccountResponse {
 }
 
 export const signupLogic = kea<signupLogicType<AccountResponse>>({
+    path: ['scenes', 'onboarding', 'signupLogic'],
     loaders: () => ({
         account: [
             null as AccountResponse | null,

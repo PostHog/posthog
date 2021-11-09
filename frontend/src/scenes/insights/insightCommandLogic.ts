@@ -9,6 +9,7 @@ import { dateMapping } from 'lib/utils'
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
 export const insightCommandLogic = kea<insightCommandLogicType>({
+    path: ['scenes', 'insights', 'insightCommandLogic'],
     connect: [commandPaletteLogic, compareFilterLogic, insightDateFilterLogic],
     events: () => ({
         afterMount: () => {

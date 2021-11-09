@@ -96,7 +96,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
                         </b>
                     </mark>{' '}
-                    to do this event
+                    to{' '}
+                    {record.result_type === FunnelCorrelationResultsType.EventWithProperties
+                        ? 'have this event property'
+                        : 'do this event'}
                 </div>
             </>
         )
@@ -274,7 +277,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         hideOnSinglePage: true,
                         onChange: () => reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'load more'),
                     }}
-                    style={{ marginTop: '1rem' }}
                     expandable={{
                         expandedRowRender: (record) => renderNestedTable(record.event.event),
                         expandedRowKeys: nestedTableExpandedKeys,
@@ -365,7 +367,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
             }
             type="link"
         >
-            Exclude
+            Exclude from project
         </Button>
     )
 }

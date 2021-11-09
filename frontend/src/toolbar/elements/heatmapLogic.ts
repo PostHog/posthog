@@ -10,6 +10,7 @@ import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 export const heatmapLogic = kea<heatmapLogicType>({
+    path: ['toolbar', 'elements', 'heatmapLogic'],
     actions: {
         enableHeatmap: true,
         disableHeatmap: true,
