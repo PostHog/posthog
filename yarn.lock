@@ -10970,10 +10970,10 @@ kea-localstorage@^1.1.1:
   resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.1.1.tgz#6edf69476779e002708fb10f2360e48333707406"
   integrity sha512-YijSF33Y1QpfHAq1hGvulWWoGC9Kckd4lVa+XStHar4t7GfoaDa1aWnTeJxzz9bWnJovfk+MnG8ekP4rWIqINA==
 
-kea-router@^1.0.5:
-  version "1.0.5"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.5.tgz#1e6e2e820bf012904589b356356dcd3156360fb9"
-  integrity sha512-EIY/0SmdtLrKTxmoE+MaB1GOQ0HHr4a38TS4ub4ylQ7mQ+lyC2D8m4KIbYRYJ9wFvkEK2QOMsuVQbmfD1AXEOA==
+kea-router@^1.0.6:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.6.tgz#2e8fbbde5bdabe1a884d454ffa336070391f093d"
+  integrity sha512-oOzPAVQKKuM8M9b1friYfUJ2j4BlZ39f3CdjwPjX5w9v2Gff4V7hyZo5BxmTfv2YH9tLSwGymDV6fID5JHpDcw==
   dependencies:
     url-pattern "^1.0.3"
 
@@ -10984,10 +10984,10 @@ kea-test-utils@^0.2.1:
   dependencies:
     kea-waitfor "^0.2.1"
 
-kea-typegen@^1.2.2:
-  version "1.2.2"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.2.2.tgz#1eec505c9b570b13053a4fd0a048f5390d0b211b"
-  integrity sha512-2Ushf0mZWqpJMbBBc7raDtUIqOkxv7SmRQs4Y3R5pyMfcw5zOcxAJJKwnX9QfYK0N37O8GlGs7wQLti17md99A==
+kea-typegen@^1.3.0:
+  version "1.3.0"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.3.0.tgz#bb2cb334d4643ecea6c675ba17f7d241031802be"
+  integrity sha512-4LADs4rJ8Jh1QhR9ejhG2l2zLlB816k9RgKDHi8JLK53bqS/xc9YJdHUPlenKfq6tuhCsYCPaCVPoJ2Df44u3w==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     diff "^5.0.0"
@@ -14601,6 +14601,11 @@ rrweb-snapshot@^1.1.7:
   resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.7.tgz#92a3b47b1112a1b566c2fae2edb02fa48a6f6653"
   integrity sha512-+f2kCCvIQ1hbEeCWnV7mPVPDEdWEExqwcYqMd/r1nfK52QE7qU52jefUOyTe85Vy67rZGqWnfK/B25e/OTSgYg==
 
+rrweb-snapshot@^1.1.9:
+  version "1.1.9"
+  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.9.tgz#f8d0f560291a37dab00dc5ac6d9368f76208256f"
+  integrity sha512-kpoWi2gx1AmX2PZU8XNKMvIvh5WPSz9lKfyHs9GYvczYE2H7VNrmPf7+rDin8Y+HcJ9Tu7x9id4JOCD2PsSPQA==
+
 rrweb@^1.0.2:
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.0.2.tgz#da561b829e3729461443966fe5abc745e7d3ebf3"
@@ -14611,6 +14616,17 @@ rrweb@^1.0.2:
     fflate "^0.4.4"
     mitt "^1.1.3"
     rrweb-snapshot "^1.1.7"
+
+rrweb@^1.0.6:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.0.6.tgz#381027a4331c610739145dc4142364be680504ba"
+  integrity sha512-uiRpPMNEd1oMqNYRelKBz28WBLXQEirx9u+nlTIaxk65fbTEUyKBr81GhcUSjeZAsTpkUtIAHacS0Gjz35x/Rw==
+  dependencies:
+    "@types/css-font-loading-module" "0.0.4"
+    "@xstate/fsm" "^1.4.0"
+    fflate "^0.4.4"
+    mitt "^1.1.3"
+    rrweb-snapshot "^1.1.9"
 
 rsvp@^4.8.4:
   version "4.8.5"

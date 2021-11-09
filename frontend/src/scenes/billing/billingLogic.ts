@@ -16,6 +16,7 @@ export enum BillingAlertType {
 }
 
 export const billingLogic = kea<billingLogicType<BillingAlertType>>({
+    path: ['scenes', 'billing', 'billingLogic'],
     actions: {
         registerInstrumentationProps: true,
     },

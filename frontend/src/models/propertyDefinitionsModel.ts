@@ -16,6 +16,7 @@ interface PropertyDefinitionStorage {
 export const propertyDefinitionsModel = kea<
     propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption>
 >({
+    path: ['models', 'propertyDefinitionsModel'],
     actions: () => ({
         updatePropertyDefinition: (property: PropertyDefinition) => ({ property }),
     }),

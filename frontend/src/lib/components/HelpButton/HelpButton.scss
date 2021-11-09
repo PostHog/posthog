@@ -1,11 +1,19 @@
 @import '~/vars';
 
 .help-button {
-    display: flex;
     align-items: center;
     height: 2.5rem;
     cursor: pointer;
-    margin-left: 1.25rem !important;
+    display: flex;
+
+    &:not(.custom-component) {
+        margin-left: 1.25rem !important;
+    }
+
+    &.inline {
+        display: inline-flex;
+    }
+
     .help-icon {
         color: var(--bg-navy);
         font-size: 1.25rem;

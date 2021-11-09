@@ -19,6 +19,7 @@ const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
 }
 
 export const funnelsModel = kea<funnelsModelType>({
+    path: ['models', 'funnelsModel'],
     loaders: ({ values, actions }) => ({
         funnels: {
             __default: [] as SavedFunnel[],

@@ -10,6 +10,7 @@ import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/shared
 export const trendsLogic = kea<trendsLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('all_trends'),
+    path: (key) => ['scenes', 'trends', 'trendsLogic', key],
 
     connect: (props: InsightLogicProps) => ({
         values: [insightLogic(props), ['filters', 'insight', 'insightLoading']],

@@ -28,10 +28,11 @@ interface Params {
 }
 
 export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>>({
-    key: (props) => props.personIds || 'global',
     props: {} as {
         personIds?: string[]
     },
+    key: (props) => props.personIds || 'global',
+    path: (key) => ['scenes', 'sessions', 'sessionsTableLogic', Array.isArray(key) ? key.join(',') : key],
     connect: {
         values: [sessionsFiltersLogic, ['filters']],
         actions: [sessionsFiltersLogic, ['setAllFilters', 'removeFilter']],

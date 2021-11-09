@@ -320,7 +320,7 @@ export function SavedInsights(): JSX.Element {
                                 .map((menuItem) => (
                                     <Menu.Item key={menuItem.type}>
                                         <Link
-                                            to={urls.insightView(menuItem.type)}
+                                            to={urls.newInsight(menuItem.type)}
                                             data-attr="saved-insights-create-new-insight"
                                             data-attr-insight-type={menuItem.type}
                                             onClick={() =>

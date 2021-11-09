@@ -20,6 +20,7 @@ interface ValidatedTokenResponseType extends ResponseType {
 export const passwordResetLogic = kea<
     passwordResetLogicType<ResetResponseType, ResponseType, ValidatedTokenResponseType>
 >({
+    path: ['scenes', 'authentication', 'passwordResetLogic'],
     loaders: ({ values }) => ({
         resetResponse: [
             null as ResetResponseType | null,
