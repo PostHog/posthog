@@ -34,7 +34,7 @@ class ClickhouseTestMixin:
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None):
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
-        query = re.sub(r"team_id = \d+", "team_id = 2", query)
+        query = re.sub(r"(team|cohort)_id = \d+", r"\1_id = 2", query)
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:

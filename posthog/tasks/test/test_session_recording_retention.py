@@ -46,11 +46,12 @@ class TestSessionRecording(BaseTest):
             self.assertEqual(SessionRecordingEvent.objects.count(), 1)
             self.assertEqual(SessionRecordingEvent.objects.last(), event_after_threshold)
 
-    def create_snapshot(self, session_id: str, timestamp: datetime) -> SessionRecordingEvent:
+    def create_snapshot(self, session_id: str, timestamp: datetime, window_id: str = "") -> SessionRecordingEvent:
         return SessionRecordingEvent.objects.create(
             team=self.team,
             distinct_id="distinct_id",
             timestamp=timestamp,
             snapshot_data={"timestamp": timestamp.timestamp()},
             session_id=session_id,
+            window_id=window_id,
         )

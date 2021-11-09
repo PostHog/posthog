@@ -13,7 +13,7 @@
 
         .player-container {
             position: relative;
-            padding: $default_spacing * 4 $default_spacing / 2;
+            padding: $default_spacing;
         }
     }
 
@@ -146,7 +146,6 @@
 
     .rrweb-speed-toggle {
         cursor: pointer;
-        margin-right: $default_spacing;
     }
 
     .rrweb-inactivity-toggle {
@@ -165,5 +164,8 @@
 .ant-drawer.session-player-drawer-v2 {
     .ant-drawer-body {
         padding: 0;
+    }
+    .ant-drawer-close {
+        padding: 12px 0px;
     }
 }

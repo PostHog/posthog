@@ -42,8 +42,12 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
+<<<<<<< HEAD
                            trim(BOTH '"'
                                 FROM JSONExtractRaw(e.properties, '$group_0')) as aggregation_target
+=======
+                           $group_0 as aggregation_target
+>>>>>>> b11c4421eee540038537009cdbf891757b3c606c
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -60,7 +64,11 @@
                           HAVING max(is_deleted) = 0)
                        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
+<<<<<<< HEAD
                       AND event IN ['user signed up', 'paid']
+=======
+                      AND event IN ['paid', 'user signed up']
+>>>>>>> b11c4421eee540038537009cdbf891757b3c606c
                       AND timestamp >= '2020-01-01 00:00:00'
                       AND timestamp <= '2020-01-14 23:59:59' ) events
                  WHERE (step_0 = 1
@@ -92,8 +100,12 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
+<<<<<<< HEAD
                            trim(BOTH '"'
                                 FROM JSONExtractRaw(e.properties, '$group_0')) as aggregation_target
+=======
+                           $group_0 as aggregation_target
+>>>>>>> b11c4421eee540038537009cdbf891757b3c606c
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -110,7 +122,11 @@
                           HAVING max(is_deleted) = 0)
                        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
+<<<<<<< HEAD
                       AND event IN ['user signed up', 'paid']
+=======
+                      AND event IN ['paid', 'user signed up']
+>>>>>>> b11c4421eee540038537009cdbf891757b3c606c
                       AND timestamp >= '2020-01-01 00:00:00'
                       AND timestamp <= '2020-01-14 23:59:59' ) events
                  WHERE (step_0 = 1
