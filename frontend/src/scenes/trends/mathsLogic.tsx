@@ -6,6 +6,7 @@ import { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
 
 export const mathsLogic = kea<mathsLogicType>({
+    path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
         values: [groupsModel, ['groupTypes']],
     },
