@@ -8,7 +8,6 @@ import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
-import UrlPattern from 'url-pattern'
 
 const POLL_TIMEOUT = 5000
 
@@ -96,8 +95,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         noop: (s) => s,
     },
 
-    reducers: ({ props }) => ({
-        urlPattern: [props?.sceneUrl ? new UrlPattern(props.sceneUrl) : 'no scene url 🤯', {}],
+    reducers: {
         properties: [
             [] as PropertyFilter[],
             {
@@ -181,7 +179,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
-    }),
+    },
 
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
