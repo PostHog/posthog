@@ -135,7 +135,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.SystemStatus]: {
         instanceLevel: true,
     },
-    [Scene.InstanceLicenses]: {
+    [Scene.Licenses]: {
         instanceLevel: true,
     },
     // Personal routes
