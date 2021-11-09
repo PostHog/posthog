@@ -23,4 +23,5 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         key = "industry"
         response = self.client.get(f"/api/projects/{self.team.id}/groups/property_values/?key={key}&group_type_index={group_type_index}").json()
         self.assertEqual(len(response), 2)
-        self.assertEqual(response[0]['name'][0], "finance")
+        self.assertIn("finance", response[0]['name'])
+        self.assertIn("technology", response[1]['name'])
