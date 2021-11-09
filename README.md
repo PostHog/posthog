@@ -8,7 +8,7 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2.jpg" width="50px" />
 
-## Quick Start
+## Quick Starasdasdasdtasdasd
 
 1-click Heroku deploy:
 
