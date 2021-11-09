@@ -504,7 +504,6 @@ export class DB {
             return client ? [] : person
         }
 
-        const updatedPerson: Person = { ...person, ...update }
         const values = [...updateValues, person.id]
 
         const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
@@ -521,6 +520,9 @@ export class DB {
             updateResult = await this.postgresQuery(queryString, values, 'updatePerson')
         }
 
+        const updatedPersonVersion: Person['version'] = updateResult.rows[0].version
+        const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
+
         const kafkaMessages = []
         if (this.kafkaProducer) {
             const message = generateKafkaPersonUpdateMessage(
@@ -529,7 +531,7 @@ export class DB {
                 updatedPerson.team_id,
                 updatedPerson.is_identified,
                 updatedPerson.uuid,
-                updateResult.rows[0].version
+                updatedPersonVersion
             )
             if (client) {
                 kafkaMessages.push(message)

@@ -477,6 +477,7 @@ export interface BasePerson {
     uuid: string
     properties_last_updated_at: Record<string, any>
     properties_last_operation: Record<string, any> | null
+    version: number | null
 }
 
 /** Raw Person row from database. */
