@@ -60,7 +60,7 @@ export function SessionRecordingPlayerV2(): JSX.Element {
                 {/*    <PlayerEvents />*/}
                 {/*</Col>*/}
             </Row>
-            <Row className="session-player-controller ph-no-capture" align="middle">
+            <Row className="session-player-controller" align="middle">
                 <PlayerController />
             </Row>
         </Col>

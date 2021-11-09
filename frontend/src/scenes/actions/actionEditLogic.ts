@@ -17,6 +17,7 @@ export interface ActionEditLogicProps {
 }
 
 export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, ActionEditType>>({
+    path: (key) => ['scenes', 'actions', 'actionEditLogic', key],
     props: {} as ActionEditLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({

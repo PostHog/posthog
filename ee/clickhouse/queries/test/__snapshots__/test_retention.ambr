@@ -6,7 +6,7 @@
          COUNT(DISTINCT event.target) count
   FROM
     (SELECT e.timestamp AS event_date,
-            $group_0 as target,
+            e.$group_0 as target,
             e.uuid AS uuid,
             e.event AS event
      FROM events e
@@ -32,7 +32,7 @@
        AND team_id = 2 ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     $group_0 as target,
+                     e.$group_0 as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -70,7 +70,7 @@
          count(DISTINCT target)
   FROM
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     $group_0 as target,
+                     e.$group_0 as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -106,7 +106,7 @@
          COUNT(DISTINCT event.target) count
   FROM
     (SELECT e.timestamp AS event_date,
-            $group_1 as target,
+            e.$group_1 as target,
             e.uuid AS uuid,
             e.event AS event
      FROM events e
@@ -132,7 +132,7 @@
        AND team_id = 2 ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     $group_1 as target,
+                     e.$group_1 as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
@@ -170,7 +170,7 @@
          count(DISTINCT target)
   FROM
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                     $group_1 as target,
+                     e.$group_1 as target,
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e

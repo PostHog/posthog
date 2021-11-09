@@ -19,6 +19,7 @@ type WarningType =
     | null
 
 export const navigationLogic = kea<navigationLogicType<WarningType>>({
+    path: ['layout', 'navigation', 'navigationLogic'],
     actions: {
         setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},

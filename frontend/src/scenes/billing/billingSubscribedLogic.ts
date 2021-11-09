@@ -10,6 +10,7 @@ export enum SubscriptionStatus {
 }
 
 export const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionStatus>>({
+    path: ['scenes', 'billing', 'billingSubscribedLogic'],
     connect: {
         actions: [sceneLogic, ['setScene']],
         values: [billingLogic, ['billing']],

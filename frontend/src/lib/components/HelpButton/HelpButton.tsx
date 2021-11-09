@@ -9,10 +9,12 @@ import { Popup } from '../Popup/Popup'
 import { Placement } from '@popperjs/core'
 import { LemonButton } from '../LemonButton'
 import { IconArticle, IconGithub, IconMail, IconQuestionAnswer } from '../icons'
+import clsx from 'clsx'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
 export const helpButtonLogic = kea<helpButtonLogicType>({
+    path: ['lib', 'components', 'HelpButton', 'HelpButton'],
     connect: {
         actions: [eventUsageLogic, ['reportHelpButtonViewed']],
     },
@@ -46,9 +48,10 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
 export interface HelpButtonProps {
     placement?: Placement
     customComponent?: JSX.Element
+    inline?: boolean // Whether the component should be an inline element as opposed to a block element
 }
 
-export function HelpButton({ placement, customComponent }: HelpButtonProps): JSX.Element {
+export function HelpButton({ placement, customComponent, inline }: HelpButtonProps): JSX.Element {
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
     const { isHelpVisible } = useValues(helpButtonLogic)
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic)
@@ -116,7 +119,10 @@ export function HelpButton({ placement, customComponent }: HelpButtonProps): JSX
             placement={placement}
             actionable
         >
-            <div className="help-button" onClick={toggleHelp}>
+            <div
+                className={clsx('help-button', customComponent && 'custom-component', inline && 'inline')}
+                onClick={toggleHelp}
+            >
                 {customComponent || (
                     <>
                         <QuestionCircleOutlined className="help-icon" />

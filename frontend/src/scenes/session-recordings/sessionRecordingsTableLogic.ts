@@ -47,6 +47,7 @@ export const DEFAULT_ENTITY_FILTERS = {
 }
 
 export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId>>({
+    path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
     key: (props) => props.personUUID || 'global',
     props: {} as {
         personUUID?: PersonUUID

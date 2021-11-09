@@ -6,8 +6,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightRouterLogicType } from './insightRouterLogicType'
+import { generateRandomAnimal } from '../../lib/utils/randomAnimal'
 
 export const insightRouterLogic = kea<insightRouterLogicType>({
+    path: ['scenes', 'insights', 'insightRouterLogic'],
     actions: {
         loadInsight: (id: string) => ({ id }),
         setError: true,
@@ -41,7 +43,14 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
             }
         },
         createInsight: async ({ insight }, breakpoint) => {
-            const newInsight = { name: '', description: '', tags: [], filters: {}, result: null, ...insight }
+            const newInsight = {
+                name: generateRandomAnimal(),
+                description: '',
+                tags: [],
+                filters: {},
+                result: null,
+                ...insight,
+            }
             const createdInsight = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight

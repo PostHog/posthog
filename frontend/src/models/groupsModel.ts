@@ -9,6 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export const groupsModel = kea<groupsModelType>({
+    path: ['models', 'groupsModel'],
     connect: {
         values: [
             teamLogic,
@@ -37,20 +38,13 @@ export const groupsModel = kea<groupsModelType>({
             (s) => [s.featureFlags, s.clickhouseEnabled],
             (featureFlags, clickhouseEnabled) => featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] && clickhouseEnabled,
         ],
-        taxonomicTypesWithGroups: [
-            (s) => [s.groupsEnabled, s.groupTypes],
-            (groupsEnabled, groupTypes) => {
-                if (groupsEnabled) {
-                    return [
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        ...groupTypes.map(
-                            (groupType: GroupType) => `${TaxonomicFilterGroupType.Groups}_${groupType.group_type_index}`
-                        ),
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ] as TaxonomicFilterGroupType[]
-                }
+        groupsTaxonomicTypes: [
+            (s) => [s.groupTypes],
+            (groupTypes): TaxonomicFilterGroupType[] => {
+                return groupTypes.map(
+                    (groupType: GroupType) =>
+                        `${TaxonomicFilterGroupType.GroupsPrefix}_${groupType.group_type_index}` as TaxonomicFilterGroupType
+                )
             },
         ],
     },

@@ -20,23 +20,6 @@ export const scene: SceneExport = {
     logic: ingestionLogic,
 }
 
-export function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        <div
-            className="background"
-            style={{
-                display: 'flex',
-                height: 'calc(100vh - 50px)',
-                width: '100vw',
-                alignItems: 'center',
-                justifyContent: 'center',
-            }}
-        >
-            {children}
-        </div>
-    )
-}
-
 export function IngestionWizard(): JSX.Element {
     const { platform, framework, verify } = useValues(ingestionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -95,4 +78,19 @@ export function IngestionWizard(): JSX.Element {
     return <></>
 }
 
-export default IngestionWizard
+function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <div
+            className="background"
+            style={{
+                display: 'flex',
+                height: 'calc(100vh - 50px)',
+                width: '100vw',
+                alignItems: 'center',
+                justifyContent: 'center',
+            }}
+        >
+            {children}
+        </div>
+    )
+}

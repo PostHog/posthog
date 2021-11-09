@@ -5,6 +5,7 @@ import { InsightType, ViewType } from '~/types'
 import { compareFilterLogicType } from './compareFilterLogicType'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
+    path: ['lib', 'components', 'CompareFilter', 'compareFilterLogic'],
     actions: () => ({
         setCompare: (compare: boolean) => ({ compare }),
         setDisabled: (disabled: boolean) => ({ disabled }),

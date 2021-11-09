@@ -4,6 +4,7 @@ import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 import { lemonadeLogicType } from './lemonadeLogicType'
 
 export const lemonadeLogic = kea<lemonadeLogicType>({
+    path: ['layout', 'lemonade', 'lemonadeLogic'],
     connect: {
         values: [featureFlagLogic, ['featureFlags']],
     },
@@ -29,7 +30,7 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
     },
     reducers: {
         isSideBarShownRaw: [
-            window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
+            window.innerWidth >= 992, // Sync width threshold with Sass variable $lg!
             {
                 toggleSideBar: (state) => !state,
                 hideSideBar: () => false,

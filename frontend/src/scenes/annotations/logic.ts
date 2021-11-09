@@ -7,6 +7,7 @@ import { AnnotationType } from '~/types'
 import { teamLogic } from '../teamLogic'
 
 export const annotationsTableLogic = kea<annotationsTableLogicType>({
+    path: ['scenes', 'annotations', 'logic'],
     loaders: ({ actions }) => ({
         annotations: {
             __default: [],
