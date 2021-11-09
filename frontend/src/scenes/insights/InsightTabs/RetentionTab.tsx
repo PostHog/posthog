@@ -16,10 +16,12 @@ import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { RetentionAggregationSelector } from './RetentionAggregationSelector'
+import { AggregationSelect } from 'scenes/insights/AggregationSelect'
+import { groupsModel } from '~/models/groupsModel'
 
 export function RetentionTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)
     )
@@ -61,12 +63,16 @@ export function RetentionTab(): JSX.Element {
                                 customRowPrefix={
                                     <>
                                         Showing{' '}
-                                        <RetentionAggregationSelector
-                                            aggregationGroupTypeIndex={filters.aggregation_group_type_index}
-                                            onChange={(groupTypeIndex) =>
-                                                setFilters({ aggregation_group_type_index: groupTypeIndex })
-                                            }
-                                        />{' '}
+                                        {showGroupsOptions ? (
+                                            <AggregationSelect
+                                                aggregationGroupTypeIndex={filters.aggregation_group_type_index}
+                                                onChange={(groupTypeIndex) =>
+                                                    setFilters({ aggregation_group_type_index: groupTypeIndex })
+                                                }
+                                            />
+                                        ) : (
+                                            <b>unique users</b>
+                                        )}{' '}
                                         who did
                                     </>
                                 }

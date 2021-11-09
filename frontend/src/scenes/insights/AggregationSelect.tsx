@@ -1,27 +1,17 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Select } from 'antd'
 import { groupsModel } from '~/models/groupsModel'
 
 const UNIQUE_USERS = -1
 
-interface AggregationSelectorProps {
+interface AggregationSelectProps {
     aggregationGroupTypeIndex: number | undefined
     onChange: (aggregationGroupTypeIndex: number | undefined) => void
 }
 
-export function RetentionAggregationSelector({
-    aggregationGroupTypeIndex,
-    onChange,
-}: AggregationSelectorProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: AggregationSelectProps): JSX.Element {
     const { groupTypes } = useValues(groupsModel)
-
-    if (!featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] || groupTypes.length === 0) {
-        return <b>unique users</b>
-    }
 
     return (
         <Select
