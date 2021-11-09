@@ -12,7 +12,7 @@ import { average, median, maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
@@ -21,6 +21,8 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
+import './InsightsTable.scss'
+import clsx from 'clsx'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -137,7 +139,9 @@ export function InsightsTable({
                             showModal()
                         }
                     }}
+                    className="series-name-wrapper-col"
                 >
+                    <EditOutlined style={{ color: 'var(--primary)', marginRight: 4 }} />
                     <InsightLabel
                         seriesColor={colorList[item.id]}
                         action={item.action}
@@ -148,14 +152,7 @@ export function InsightsTable({
                         hideBreakdown
                         hideIcon
                         useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
-                        innerStyle={
-                            canEditSeriesNameInline
-                                ? {
-                                      cursor: 'pointer',
-                                      borderBottom: '1px dashed var(--primary)',
-                                  }
-                                : undefined
-                        }
+                        className={clsx(canEditSeriesNameInline && 'editable')}
                         hideSeriesSubtitle
                     />
                 </div>
