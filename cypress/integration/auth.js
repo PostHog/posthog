@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 describe('Auth', () => {
     beforeEach(() => {
         cy.get('[data-attr=top-navigation-whoami]').click()
