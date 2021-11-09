@@ -3,9 +3,9 @@ import { CreateProjectModal } from '../CreateProjectModal'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
-    component: Create,
+    component: ProjectCreate,
 }
 
-export function Create(): JSX.Element {
+export function ProjectCreate(): JSX.Element {
     return <CreateProjectModal isVisible />
 }
