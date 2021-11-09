@@ -555,6 +555,8 @@ class FunnelCorrelation:
         elif self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return self.construct_person_properties_people_url(success=success, event_definition=event_definition)
 
+        return None
+
     def construct_event_correlation_people_url(self, success: bool, event_definition: EventDefinition) -> str:
         # NOTE: we need to convert certain params to strings. I don't think this
         # class should need to know these details, but with_data is
