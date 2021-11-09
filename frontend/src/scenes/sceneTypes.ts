@@ -75,10 +75,6 @@ export interface Params {
 }
 
 export interface SceneConfig {
-    /** Name to display, e.g. in the sidebar or in breadcrumbs - if key is not human-friendly enough */
-    displayName?: string
-    /** Path - only for non-parametric scenes */
-    path?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
