@@ -194,7 +194,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
             if (item && value) {
-                props.onChange?.(group, value)
+                props.onChange?.(group, value, item)
             }
         },
 
