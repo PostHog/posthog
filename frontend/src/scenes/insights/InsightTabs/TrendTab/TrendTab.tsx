@@ -45,7 +45,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
     const taxonomicTypes =
-        filters.insight === ViewType.TRENDS
+        filters.insight === InsightType.TRENDS
             ? [
                   TaxonomicFilterGroupType.EventProperties,
                   TaxonomicFilterGroupType.PersonProperties,
