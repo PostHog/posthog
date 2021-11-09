@@ -18,7 +18,6 @@ class ClickhouseTrendsTotalVolume:
     def _total_volume_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
-        _, seconds_in_interval, _ = get_time_diff(filter.interval, filter.date_from, filter.date_to, team_id=team_id)
         aggregate_operation, join_condition, math_params = process_math(entity)
 
         trend_event_query = TrendsEventQuery(
@@ -41,15 +40,8 @@ class ClickhouseTrendsTotalVolume:
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
-            time_range = enumerate_time_range(filter, seconds_in_interval)
 
-            return (
-                content_sql,
-                params,
-                lambda result: [
-                    {"aggregated_value": result[0][0] if result and len(result) else 0, "days": time_range}
-                ],
-            )
+            return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team_id))
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
@@ -78,7 +70,34 @@ class ClickhouseTrendsTotalVolume:
                 )
                 parsed_results.append(parsed_result)
 
+            parsed_result.update({"filter": filter.to_dict()})
             return parsed_results
+
+        return _parse
+
+    def _parse_aggregate_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
+        def _parse(result: List) -> List:
+            _, seconds_in_interval, _ = get_time_diff(
+                filter.interval, filter.date_from, filter.date_to, team_id=team_id
+            )
+            time_range = enumerate_time_range(filter, seconds_in_interval)
+            filter_params = filter.to_dict()
+            extra_params = {
+                "entity_id": entity.id,
+                "entity_type": entity.type,
+            }
+            parsed_params = deep_dump_object({**filter_params, **extra_params})
+            return [
+                {
+                    "aggregated_value": result[0][0] if result and len(result) else 0,
+                    "days": time_range,
+                    "filter": filter.to_dict(),
+                    "persons": {
+                        "filter": extra_params,
+                        "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    },
+                }
+            ]
 
         return _parse
 
