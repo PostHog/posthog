@@ -18,47 +18,12 @@ from posthog.queries.session_recordings.session_recording_list import (
 
 class EventFiltersSQL(NamedTuple):
     event_select_clause: str
-    event_where_clause: str
     aggregate_select_clause: str
-    aggregate_where_clause: str
+    aggregate_having_clause: str
     params: Dict[str, Any]
 
 
 class ClickhouseSessionRecordingList(SessionRecordingList):
-
-    _core_session_recording_query: str = """
-        SELECT 
-            all_recordings.session_id,
-            all_recordings.start_time,
-            all_recordings.end_time,
-            all_recordings.duration,
-            all_recordings.distinct_id
-        FROM (
-            SELECT
-                session_id,
-                distinct_id,
-                MIN(timestamp) AS start_time,
-                MAX(timestamp) AS end_time,
-                dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
-                COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
-            FROM session_recording_events
-            WHERE
-                team_id = %(team_id)s
-                {events_timestamp_clause}
-                {distinct_id_clause}
-            GROUP BY session_id, distinct_id
-        ) as all_recordings
-        WHERE full_snapshots > 0
-        {recording_start_time_clause}
-        {duration_clause} 
-    """
-
-    _limited_session_recordings_query: str = """
-    {core_session_recording_query}
-    ORDER BY start_time DESC
-    LIMIT %(limit)s OFFSET %(offset)s
-    """
-
     _session_recordings_query_with_entity_filter: str = """
     SELECT * FROM 
     (
@@ -67,59 +32,61 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             any(session_recordings.start_time) as start_time,
             any(session_recordings.end_time) as end_time,
             any(session_recordings.duration) as duration,
-            any(filtered_events.distinct_id) as distinct_id
+            any(filtered_events.distinct_id) as distinct_id,
+            arrayElement(groupArray(current_url), 1) as start_url,
+            arrayElement(groupArray(current_url), -1) as end_url
             {event_filter_aggregate_select_clause}
         FROM (
-            {events_query}
+            SELECT
+                timestamp,
+                distinct_id,
+                JSONExtractString(properties, '$current_url') as current_url
+                {event_filter_event_select_clause}
+            FROM events
+            WHERE
+                team_id = %(team_id)s
+                {events_timestamp_clause}
         ) AS filtered_events
         JOIN (
-            {core_session_recording_query}
+            SELECT
+                session_id,
+                MIN(timestamp) AS start_time,
+                MAX(timestamp) AS end_time,
+                dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+                any(distinct_id) as distinct_id,
+                COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
+            FROM session_recording_events
+            WHERE
+                team_id = %(team_id)s
+                {events_timestamp_clause}
+            GROUP BY session_id
+            HAVING full_snapshots > 0
+            {recording_start_time_clause}
+            {duration_clause} 
         ) AS session_recordings
         ON session_recordings.distinct_id = filtered_events.distinct_id
+        JOIN person_distinct_id ON person_distinct_id.distinct_id = session_recordings.distinct_id 
+        JOIN person ON person.id = person_distinct_id.person_id 
         WHERE
             filtered_events.timestamp >= session_recordings.start_time 
             AND filtered_events.timestamp <= session_recordings.end_time
+            AND person_distinct_id.team_id = %(team_id)s
+            AND person.team_id = %(team_id)s
+            {person_id_clause}
         GROUP BY session_recordings.session_id
     ) as session_recordings
-    {event_filter_aggregate_where_clause}
+    {event_filter_aggregate_having_clause}
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
-    _event_query = """
-        SELECT
-            timestamp,
-            distinct_id
-            {event_filter_event_select_clause}
-        FROM events
-        WHERE
-            team_id = %(team_id)s
-            {events_timestamp_clause}
-            {event_filter_event_where_clause}
-    """
-
-    def _get_distinct_id_clause(self) -> Tuple[Dict[str, Any], str]:
-        distinct_id_clause = ""
-        distinct_id_params = {}
+    def _get_person_id_clause(self) -> Tuple[Dict[str, Any], str]:
+        person_id_clause = ""
+        person_id_params = {}
         if self._filter.person_uuid:
-            distinct_id_clause = f"AND distinct_id IN (SELECT distinct_id from person_distinct_id WHERE person_id = %(person_uuid)s AND team_id = %(team_id)s)"
-            distinct_id_params = {"person_uuid": self._filter.person_uuid, "team_id": self._team.pk}
-        return distinct_id_params, distinct_id_clause
-
-    def _get_events_query_with_aggregate_clauses(self) -> EventsQueryWithAggregateClausesSQL:
-        event_filters = format_event_filters(self._filter)
-        events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
-        event_query = self._event_query.format(
-            events_timestamp_clause=events_timestamp_clause,
-            event_filter_event_select_clause=event_filters.event_select_clause,
-            event_filter_event_where_clause=event_filters.event_where_clause,
-        )
-
-        params: Dict[str, Any] = {"team_id": self._team.pk, **events_timestamp_params, **event_filters.params}
-
-        return EventsQueryWithAggregateClausesSQL(
-            event_query, params, event_filters.aggregate_select_clause, event_filters.aggregate_where_clause,
-        )
+            person_id_clause = "AND person.id = %(person_uuid)s"
+            person_id_params = {"person_uuid": self._filter.person_uuid}
+        return person_id_params, person_id_clause
 
     def _has_entity_filters(self):
         return self._filter.entities and len(self._filter.entities) > 0
@@ -151,15 +118,6 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             start_time_params["end_time"] = self._filter.date_to
         return start_time_params, start_time_clause
 
-    def _get_distinct_id_clause(self) -> Tuple[Dict[str, Any], str]:
-        distinct_id_clause = ""
-        distinct_id_params = {}
-        if self._filter.person_uuid:
-            person = Person.objects.get(uuid=self._filter.person_uuid)
-            distinct_id_clause = f"AND distinct_id IN (SELECT distinct_id from posthog_persondistinctid WHERE person_id = %(person_id)s AND team_id = %(team_id)s)"
-            distinct_id_params = {"person_id": person.pk, "team_id": self._team.pk}
-        return distinct_id_params, distinct_id_clause
-
     def _get_duration_clause(self) -> Tuple[Dict[str, Any], str]:
         duration_clause = ""
         duration_params = {}
@@ -181,42 +139,28 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         base_params = {"team_id": self._team.pk, "limit": limit, "offset": offset}
         events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
         recording_start_time_params, recording_start_time_clause = self._get_recording_start_time_clause()
-        distinct_id_params, distinct_id_clause = self._get_distinct_id_clause()
+        person_id_params, person_id_clause = self._get_person_id_clause()
         duration_params, duration_clause = self._get_duration_clause()
+        event_filters = format_event_filters(self._filter)
 
-        core_session_recording_query = self._core_session_recording_query.format(
-            distinct_id_clause=distinct_id_clause,
-            events_timestamp_clause=events_timestamp_clause,
-            recording_start_time_clause=recording_start_time_clause,
-            duration_clause=duration_clause,
-        )
-        params = {
-            **base_params,
-            **distinct_id_params,
-            **events_timestamp_params,
-            **duration_params,
-            **recording_start_time_params,
-        }
-
-        if self._has_entity_filters():
-            (
-                events_query,
-                event_query_params,
-                aggregate_select_clause,
-                aggregate_where_clause,
-            ) = self._get_events_query_with_aggregate_clauses()
-            return (
-                self._session_recordings_query_with_entity_filter.format(
-                    core_session_recording_query=core_session_recording_query,
-                    events_query=events_query,
-                    event_filter_aggregate_select_clause=aggregate_select_clause,
-                    event_filter_aggregate_where_clause=aggregate_where_clause,
-                ),
-                {**params, **event_query_params},
-            )
         return (
-            self._limited_session_recordings_query.format(core_session_recording_query=core_session_recording_query),
-            params,
+            self._session_recordings_query_with_entity_filter.format(
+                person_id_clause=person_id_clause,
+                events_timestamp_clause=events_timestamp_clause,
+                recording_start_time_clause=recording_start_time_clause,
+                duration_clause=duration_clause,
+                event_filter_event_select_clause=event_filters.event_select_clause,
+                event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
+                event_filter_aggregate_having_clause=event_filters.aggregate_having_clause,
+            ),
+            {
+                **base_params,
+                **person_id_params,
+                **events_timestamp_params,
+                **duration_params,
+                **recording_start_time_params,
+                **event_filters.params,
+            },
         )
 
     def _paginate_results(self, session_recordings) -> SessionRecordingQueryResult:
@@ -239,7 +183,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
 
 def format_event_filters(filter: SessionRecordingsFilter) -> EventFiltersSQL:
     if len(filter.entities) == 0:
-        return EventFiltersSQL("", "", "", "", {})
+        return EventFiltersSQL("", "", "", {})
 
     event_select_clause = ""
     aggregate_select_clause = ""
@@ -256,12 +200,9 @@ def format_event_filters(filter: SessionRecordingsFilter) -> EventFiltersSQL:
         event_where_conditions.append(condition_sql)
         params = {**params, **filter_params}
 
-    aggregate_where_clause = f"WHERE {' AND '.join(aggregate_where_conditions)}"
-    event_where_clause = f"AND ({' OR '.join(event_where_conditions)})"
+    aggregate_having_clause = f"HAVING {' AND '.join(aggregate_where_conditions)}"
 
-    return EventFiltersSQL(
-        event_select_clause, event_where_clause, aggregate_select_clause, aggregate_where_clause, params,
-    )
+    return EventFiltersSQL(event_select_clause, aggregate_select_clause, aggregate_having_clause, params,)
 
 
 def format_event_filter(entity: Entity, prepend: str):
