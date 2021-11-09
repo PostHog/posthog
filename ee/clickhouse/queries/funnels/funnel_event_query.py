@@ -81,4 +81,4 @@ class FunnelEventQuery(ClickhouseEventQuery):
             else:
                 events.add(entity.id)
 
-        return f"AND event IN %({entity_name})s", {entity_name: list(events)}
+        return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}
