@@ -37,7 +37,7 @@ if [[ -n $DYNO_RAM ]]; then
   export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
 fi
 
-cd plugins
+cd plugin-server
 
 echo "🧐 Verifying installed packages..."
 yarn --frozen-lockfile
