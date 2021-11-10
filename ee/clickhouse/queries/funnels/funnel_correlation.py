@@ -101,9 +101,15 @@ class FunnelCorrelation:
     MIN_PERSON_PERCENTAGE = 0.02
     PRIOR_COUNT = 1
 
-    def __init__(self, filter: Filter, team: Team) -> None:
+    def __init__(
+        self,
+        filter: Filter,  #  Used to filter people
+        team: Team,  # Used to partition by team
+        base_uri: str = "/",  # Used to generate absolute urls
+    ) -> None:
         self._filter = filter
         self._team = team
+        self._base_uri = base_uri
 
         if self._filter.funnel_step is None:
             self._filter = self._filter.with_data({"funnel_step": 1})
@@ -568,7 +574,7 @@ class FunnelCorrelation:
                 "funnel_correlation_person_entity": {"id": event_definition["event"], "type": "events"},
             }
         ).to_params()
-        return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+        return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
     def construct_event_with_properties_people_url(self, success: bool, event_definition: EventDefinition) -> str:
         if self.support_autocapture_elements():
@@ -597,7 +603,7 @@ class FunnelCorrelation:
                     },
                 }
             ).to_params()
-            return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+            return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
         event_name, property_name, property_value = event_definition["event"].split("::")
         params = self._filter.with_data(
@@ -612,7 +618,7 @@ class FunnelCorrelation:
                 },
             }
         ).to_params()
-        return f"/api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+        return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
     def construct_person_properties_people_url(self, success: bool, event_definition: EventDefinition) -> str:
         # NOTE: for property correlations, we just use the regular funnel
@@ -639,7 +645,7 @@ class FunnelCorrelation:
             # params.
             if not key.startswith("funnel_correlation_")
         }
-        return f"/api/person/funnel/?{urllib.parse.urlencode(params_without_correlation_keys)}"
+        return f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(params_without_correlation_keys)}"
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         odds_ratios, skewed_totals = results
