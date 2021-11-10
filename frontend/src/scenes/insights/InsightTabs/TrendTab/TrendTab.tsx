@@ -63,7 +63,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         horizontalUI
                         filters={filters}
                         setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
-                        typeKey={'trends_' + view}
+                        typeKey={`trends_${view}`}
                         buttonCopy="Add graph series"
                         showSeriesIndicator
                         singleFilter={filters.insight === InsightType.LIFECYCLE}

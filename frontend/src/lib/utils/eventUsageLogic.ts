@@ -692,9 +692,9 @@ export const eventUsageLogic = kea<
         },
         reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
             if (delay === 0) {
-                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
             } else {
-                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} analyzed`, {
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, {
                     filters,
                     delay,
                 })

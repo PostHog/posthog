@@ -33,6 +33,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
+
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
@@ -48,7 +49,12 @@ export function TrendInsight({ view }: Props): JSX.Element {
             }
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
-                    <InsightsTable isLegend={false} showTotalCount={view !== InsightType.SESSIONS} />
+                    <InsightsTable
+                        isLegend={false}
+                        showTotalCount={view !== InsightType.SESSIONS}
+                        filterKey={`trends_${view}`}
+                        canEditSeriesNameInline
+                    />
                 </BindLogic>
             )
         }

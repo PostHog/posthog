@@ -932,6 +932,7 @@ export type SetupState = EnabledSetupState | DisabledSetupState
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
+    math_group_type_index?: number | null
     properties: PropertyFilter[]
     type: EntityType
 }
