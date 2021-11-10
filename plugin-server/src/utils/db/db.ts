@@ -570,7 +570,7 @@ export class DB {
     }
 
     private getPropertiesLastOperationOrSet(person: Person, key: string): PersonPropertyUpdateOperation {
-        if (person.properties_last_operation === null || !(key in person.properties_last_operation)) {
+        if (!person.properties_last_operation || !(key in person.properties_last_operation)) {
             return PersonPropertyUpdateOperation.Set
         }
         return person.properties_last_operation[key]
@@ -594,7 +594,7 @@ export class DB {
         Object.entries(propertiesOnce).forEach(([key, value]) => {
             if (
                 !(key in person.properties) ||
-                (this.getPropertiesLastOperationOrSet(person, key) == PersonPropertyUpdateOperation.SetOnce &&
+                (this.getPropertiesLastOperationOrSet(person, key) === PersonPropertyUpdateOperation.SetOnce &&
                     this.getPropertyLastUpdatedAtDateTimeOrEpoch(person, key) > timestamp)
             ) {
                 updatedSomething = true
@@ -607,7 +607,7 @@ export class DB {
         Object.entries(properties).forEach(([key, value]) => {
             if (
                 !(key in person.properties) ||
-                this.getPropertiesLastOperationOrSet(person, key) == PersonPropertyUpdateOperation.SetOnce ||
+                this.getPropertiesLastOperationOrSet(person, key) === PersonPropertyUpdateOperation.SetOnce ||
                 this.getPropertyLastUpdatedAtDateTimeOrEpoch(person, key) < timestamp
             ) {
                 updatedSomething = true
@@ -644,7 +644,7 @@ export class DB {
                 return
             }
 
-            const insertResult = await client.query(
+            await client.query(
                 `UPDATE posthog_person SET
                     properties = $1,
                     properties_last_updated_at = $2,
