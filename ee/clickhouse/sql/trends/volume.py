@@ -33,3 +33,14 @@ SELECT DISTINCT person_id FROM (
     ) e WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
 """
+
+AGGREGATE_SQL = """
+SELECT groupArray(day_start) as date, groupArray(count) as data FROM (
+    SELECT SUM(total) AS count, day_start from ({null_sql} UNION ALL {content_sql}) group by day_start order by day_start
+)
+"""
+
+CUMULATIVE_SQL = """
+SELECT person_id, min(timestamp) as timestamp
+FROM ({event_query}) GROUP BY person_id
+"""
