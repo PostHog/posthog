@@ -1,7 +1,7 @@
 import json
 import urllib.parse
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
@@ -86,7 +86,8 @@ class ClickhouseTrendsTotalVolume:
                 "entity_id": entity.id,
                 "entity_type": entity.type,
             }
-            parsed_params = {**filter_params, **extra_params}
+            parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
+
             return [
                 {
                     "aggregated_value": result[0][0] if result and len(result) else 0,
@@ -111,7 +112,7 @@ class ClickhouseTrendsTotalVolume:
                 "date_from": date,
                 "date_to": date,
             }
-            parsed_params = {**filter_params, **extra_params}
+            parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
             persons_url.append(
                 {
                     "filter": extra_params,
