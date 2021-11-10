@@ -411,6 +411,7 @@ export class DB {
                     ({
                         ...rawPerson,
                         created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
+                        version: Number(rawPerson.version || 0),
                     } as Person)
             )
         } else {
@@ -441,7 +442,11 @@ export class DB {
 
         if (selectResult.rows.length > 0) {
             const rawPerson: RawPerson = selectResult.rows[0]
-            return { ...rawPerson, created_at: DateTime.fromISO(rawPerson.created_at).toUTC() }
+            return {
+                ...rawPerson,
+                created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
+                version: Number(rawPerson.version || 0),
+            }
         }
     }
 
@@ -465,10 +470,13 @@ export class DB {
             const person = {
                 ...personCreated,
                 created_at: DateTime.fromISO(personCreated.created_at).toUTC(),
+                version: Number(personCreated.version || 0),
             } as Person
 
             if (this.kafkaProducer) {
-                kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid))
+                kafkaMessages.push(
+                    generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
+                )
             }
 
             for (const distinctId of distinctIds || []) {
@@ -554,6 +562,7 @@ export class DB {
                     person.team_id,
                     person.is_identified,
                     person.uuid,
+                    null,
                     1
                 )
             )

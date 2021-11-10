@@ -331,8 +331,9 @@ export const createProcessEventTests = (
             expect(queryCounter).toBe(14 + 14 /* event & prop definitions */)
         }
 
-        let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
+        let persons = await hub.db.fetchPersons()
+        expect(persons[0].version).toEqual(1)
         expect(persons[0].properties).toEqual({
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
@@ -397,6 +398,7 @@ export const createProcessEventTests = (
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
         expect(persons.length).toEqual(1)
+        expect(persons[0].version).toEqual(2)
         expect(persons[0].properties).toEqual({
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
@@ -464,6 +466,10 @@ export const createProcessEventTests = (
         )
 
         events = await hub.db.fetchEvents()
+        persons = await hub.db.fetchPersons()
+        expect(events.length).toEqual(3)
+        expect(persons.length).toEqual(1)
+        expect(persons[0].version).toEqual(2)
 
         expect(events[2].properties.$set).toEqual({
             utm_medium: 'instagram',

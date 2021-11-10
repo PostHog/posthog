@@ -477,17 +477,18 @@ export interface BasePerson {
     uuid: string
     properties_last_updated_at: Record<string, any>
     properties_last_operation: Record<string, any> | null
-    version: number | null
 }
 
 /** Raw Person row from database. */
 export interface RawPerson extends BasePerson {
     created_at: string
+    version: string | null
 }
 
 /** Usable Person model. */
 export interface Person extends BasePerson {
     created_at: DateTime
+    version: number
 }
 
 /** Clickhouse Person model. */
