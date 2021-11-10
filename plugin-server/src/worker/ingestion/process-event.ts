@@ -237,7 +237,7 @@ export class EventsProcessor {
 
         const arePersonsEqual = equal(personFound.properties, updatedProperties)
 
-        if (arePersonsEqual && !this.db.kafkaProducer) {
+        if (arePersonsEqual) {
             return
         }
 
