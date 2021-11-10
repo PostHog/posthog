@@ -61,7 +61,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     JOIN (
         SELECT * FROM person_distinct_id WHERE person_distinct_id.team_id = %(team_id)s
     ) as person_distinct_id 
-    ON person_distinct_id.distinct_id = session_recordings.distinct_id 
+    ON person_distinct_id.distinct_id = session_recordings.distinct_id
     JOIN ({person_query}) as person ON person.id = person_distinct_id.person_id 
     WHERE
         empty(filtered_events.event) OR
@@ -221,6 +221,3 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         query_results = sync_execute(query, query_params)
         session_recordings = self._data_to_return(query_results)
         return self._paginate_results(session_recordings)
-
-
-"\n            SELECT id\n            FROM person\n            WHERE team_id = %(team_id)s\n            GROUP BY id\n            HAVING max(is_deleted) = 0 \n        "
