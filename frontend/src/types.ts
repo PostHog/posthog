@@ -953,6 +953,10 @@ export interface TrendResult {
 
 export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
+    persons: {
+        url: string
+        filter: Partial<FilterType>
+    }
 }
 
 export interface FunnelStep {

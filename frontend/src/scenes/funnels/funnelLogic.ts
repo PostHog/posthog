@@ -1128,6 +1128,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: breakdown,
                     breakdown_value,
+                    action: 'session',
+                    date_from: '',
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(
@@ -1142,6 +1144,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: name,
+                    action: 'session',
+                    date_from: '',
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {

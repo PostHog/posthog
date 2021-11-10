@@ -17,6 +17,7 @@ from posthog.api.test.test_event_definition import (
 )
 from posthog.api.test.test_retention import identify
 from posthog.models.team import Team
+from posthog.test.base import stripResponse
 
 
 @pytest.mark.django_db
@@ -88,33 +89,29 @@ def test_includes_only_intervals_within_range(client: Client):
             ),
             team=team,
         )
-        assert trends == {
-            "is_cached": False,
-            "last_refresh": "2021-09-20T16:00:00Z",
-            "next": None,
-            "result": [
-                {
-                    "action": {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "math": "dau",
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "breakdown_value": cohort["id"],
-                    "label": "$pageview - test cohort",
-                    "count": 3.0,
-                    "data": [1.0, 1.0, 1.0],
-                    # Prior to the fix this would also include '29-Aug-2021'
-                    "labels": ["5-Sep-2021", "12-Sep-2021", "19-Sep-2021"],
-                    "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
-                }
-            ],
-        }
+
+        assert stripResponse(trends["result"], remove=("persons_urls", "filter")) == [
+            {
+                "action": {
+                    "id": "$pageview",
+                    "type": "events",
+                    "order": 0,
+                    "name": "$pageview",
+                    "custom_name": None,
+                    "math": "dau",
+                    "math_property": None,
+                    "math_group_type_index": None,
+                    "properties": [],
+                },
+                "breakdown_value": cohort["id"],
+                "label": "$pageview - test cohort",
+                "count": 3.0,
+                "data": [1.0, 1.0, 1.0],
+                # Prior to the fix this would also include '29-Aug-2021'
+                "labels": ["5-Sep-2021", "12-Sep-2021", "19-Sep-2021"],
+                "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
+            }
+        ]
 
 
 @dataclasses.dataclass

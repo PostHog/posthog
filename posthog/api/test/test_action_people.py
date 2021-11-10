@@ -128,19 +128,6 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                         team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i},
                     )
 
-        def assertEntityResponseEqual(self, response1, response2, remove=("action", "label")):
-            if len(response1):
-                for attr in remove:
-                    response1[0].pop(attr)
-            else:
-                return False
-            if len(response2):
-                for attr in remove:
-                    response2[0].pop(attr)
-            else:
-                return False
-            self.assertDictEqual(response1[0], response2[0])
-
         def test_people_endpoint_paginated(self):
 
             for index in range(0, 150):

@@ -137,6 +137,19 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
+    def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
+        stripped_response1 = stripResponse(response1, remove=remove)
+        stripped_response2 = stripResponse(response2, remove=remove)
+        self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+
+
+def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
+    if len(response):
+        for attr in remove:
+            if attr in response[0]:
+                response[0].pop(attr)
+    return response
+
 
 def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
     """
@@ -177,8 +190,7 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
 
             if verify_no_jsonextract:
                 for sql in sqls:
-                    self.assertNotIn("JSONExtract", sql)
-                    self.assertNotIn("properties", sql)
+                    self.assertNotIn("JSONExtract(properties", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
