@@ -52,6 +52,7 @@ export interface ActionFilterProps {
     fullWidth?: boolean
     showNestedArrow?: boolean // show nested arrows to the left of property filter buttons
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    propertyFilterTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
     hideDeleteBtn?: boolean
     renderRow?: ({
         seriesIndicator,
@@ -92,6 +93,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             customActions,
             showNestedArrow = false,
             taxonomicGroupTypes,
+            propertyFilterTaxonomicGroupTypes,
             hideDeleteBtn,
             renderRow,
         },
@@ -142,6 +144,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hasBreakdown: !!filters.breakdown,
             fullWidth,
             taxonomicGroupTypes,
+            propertyFilterTaxonomicGroupTypes,
             hideDeleteBtn,
             disabled,
             renderRow,

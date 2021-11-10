@@ -14,7 +14,10 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import './SessionRecordingTable.scss'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 interface SessionRecordingsTableProps {
     personUUID?: string
     isPersonPage?: boolean
@@ -67,6 +70,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         setDurationFilter,
         enableEntityFilter,
     } = useActions(sessionRecordingsTableLogicInstance)
+    const { preflight } = useValues(preflightLogic)
     const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
@@ -138,6 +142,11 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         showOr
                         renderRow={(props) => <FilterRow {...props} />}
                         showNestedArrow={false}
+                        propertyFilterTaxonomicGroupTypes={
+                            preflight?.is_clickhouse_enabled
+                                ? undefined
+                                : [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.Elements]
+                        }
                     />
                 </div>
                 <Button

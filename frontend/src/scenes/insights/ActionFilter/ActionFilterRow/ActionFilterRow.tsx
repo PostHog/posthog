@@ -86,6 +86,7 @@ export interface ActionFilterRowProps {
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     taxonomicGroupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
+    propertyFilterTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show in the property filter
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     disabled?: boolean
     renderRow?: ({
@@ -125,6 +126,7 @@ export function ActionFilterRow({
     showNestedArrow = false,
     hideDeleteBtn = false,
     taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    propertyFilterTaxonomicGroupTypes,
     disabled = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
@@ -442,6 +444,7 @@ export function ActionFilterRow({
                         disablePopover={horizontalUI}
                         style={{ marginBottom: 0 }}
                         showNestedArrow={showNestedArrow}
+                        taxonomicGroupTypes={propertyFilterTaxonomicGroupTypes}
                     />
                 </div>
             )}
