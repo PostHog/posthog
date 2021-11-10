@@ -15,6 +15,7 @@ export function ActionsPie({
     filters: filtersParam,
     color = 'white',
     inSharedMode,
+    showPersonsModal = true,
 }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
@@ -67,7 +68,7 @@ export function ActionsPie({
                         inSharedMode={inSharedMode}
                         dashboardItemId={dashboardItemId}
                         onClick={
-                            dashboardItemId || filtersParam.formula
+                            dashboardItemId || filtersParam.formula || !showPersonsModal
                                 ? null
                                 : (point) => {
                                       const { dataset } = point

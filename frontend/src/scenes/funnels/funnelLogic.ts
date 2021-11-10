@@ -1114,19 +1114,11 @@ export const funnelLogic = kea<funnelLogicType>({
                 saved: true,
             })
         },
-        openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
-            personsModalLogic.actions.loadPeople({
-                action: 'session',
-                breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
-                label: step.name,
-                date_from: '',
-                date_to: '',
-                filters: { ...values.filters, breakdown, breakdown_type, funnel_custom_steps: customSteps },
-                saveOriginal: true,
-                funnelStep: stepNumber,
-            })
-        },
         openCorrelationPersonsModal: ({ correlation, success }) => {
+            // :TODO: Support 'person' modal for groups
+            if (values.filters.aggregation_group_type_index != undefined) {
+                return
+            }
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 personsModalLogic.actions.loadPeopleFromUrl({
