@@ -162,11 +162,11 @@ class StructuredViewSetMixin(_GenericViewSet):
 
 
 class ProjectScopedSerializerMixin:
-    team: Team = None
+    team: Team
     request: Request
 
     def __init__(self, instance=None, data=empty, **kwargs):
-        super().__init__(instance=instance, data=data, **kwargs)
+        super().__init__(instance=instance, data=data, **kwargs)  # type: ignore
 
         context = kwargs.get("context")
 
@@ -182,7 +182,7 @@ class ProjectScopedSerializerMixin:
                         self.team = team
 
             if not self.team and context.get("team_id"):
-                self.team = Team.objects.get(id=self.context["team_id"])
+                self.team = Team.objects.get(id=context["team_id"])
 
 
 class ProjectScopedModelSerializer(ProjectScopedSerializerMixin, serializers.ModelSerializer):

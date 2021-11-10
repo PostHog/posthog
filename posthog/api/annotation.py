@@ -42,8 +42,9 @@ class AnnotationSerializer(ProjectScopedModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
+        user = self.request.user  # type: ignore
         annotation = Annotation.objects.create(
-            organization=self.team.organization, team=self.team, created_by=self.request.user, **validated_data,
+            organization=self.team.organization, team=self.team, created_by=user, **validated_data,
         )
         return annotation
 
