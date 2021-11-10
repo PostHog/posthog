@@ -12,6 +12,8 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+export const INSIGHTS_PER_PAGE = 15
+
 export interface InsightsResult {
     results: DashboardItemType[]
     count: number
@@ -30,8 +32,7 @@ export interface SavedInsightFilters {
     createdBy: number | 'All users'
     dateFrom: string | Dayjs | undefined | 'all'
     dateTo: string | Dayjs | undefined
-    limit: number
-    offset: number
+    page: number
 }
 
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -44,8 +45,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
-        limit: parseInt(String(values.limit)) || 15,
-        offset: parseInt(String(values.offset)) || 0,
+        page: parseInt(String(values.page)) || 1,
     }
 }
 
@@ -93,11 +93,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 }
 
                 // scroll to top if the page changed, except if changed via back/forward
-                if (
-                    router.values.lastMethod !== 'POP' &&
-                    (values.insights.filters?.offset !== filters.offset ||
-                        values.insights.filters?.limit !== filters.limit)
-                ) {
+                if (router.values.lastMethod !== 'POP' && values.insights.filters?.page !== filters.page) {
                     window.scrollTo(0, 0)
                 }
 
@@ -145,8 +141,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             (s) => [s.filters],
             (filters) => ({
                 order: filters.order,
-                limit: filters.limit,
-                offset: filters.offset,
+                limit: INSIGHTS_PER_PAGE,
+                offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
                 saved: true,
                 ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
                 ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),

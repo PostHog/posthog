@@ -5,7 +5,7 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
-import { savedInsightsLogic } from './savedInsightsLogic'
+import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import {
     AppstoreFilled,
     ArrowDownOutlined,
@@ -129,10 +129,10 @@ export function SavedInsights(): JSX.Element {
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
-    const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo, offset, limit } = filters
+    const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
-    const startCount = offset + 1
-    const endCount = offset + limit < count ? offset + limit : count
+    const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
+    const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
     const columns: ColumnsType<DashboardItemType> = [
         {
@@ -461,21 +461,21 @@ export function SavedInsights(): JSX.Element {
                                     </span>
                                     <LeftOutlined
                                         style={{ paddingRight: 16 }}
-                                        className={`${offset === 0 ? 'paginate-disabled' : ''}`}
+                                        className={`${page === 1 ? 'paginate-disabled' : ''}`}
                                         onClick={() => {
-                                            if (offset > 0) {
+                                            if (page > 1) {
                                                 setSavedInsightsFilters({
-                                                    offset: Math.max(0, offset - limit),
+                                                    page: page - 1,
                                                 })
                                             }
                                         }}
                                     />
                                     <RightOutlined
-                                        className={`${offset + limit >= count ? 'paginate-disabled' : ''}`}
+                                        className={`${page * INSIGHTS_PER_PAGE >= count ? 'paginate-disabled' : ''}`}
                                         onClick={() => {
-                                            if (offset + limit < count) {
+                                            if (page * INSIGHTS_PER_PAGE < count) {
                                                 setSavedInsightsFilters({
-                                                    offset: Math.min(count, offset + limit),
+                                                    page: page + 1,
                                                 })
                                             }
                                         }}
