@@ -25,6 +25,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     },
     actions: {
+        setPerson: (person: PersonType) => ({ person }),
+        loadPerson: (id: string) => ({ id }),
+        loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
@@ -57,6 +60,12 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 setSplitMergeModalShown: (_, { shown }) => shown,
             },
         ],
+        persons: {
+            setPerson: (state, { person }) => ({
+                ...state,
+                results: state.results.map((p) => (p.id === person.id ? person : p)),
+            }),
+        },
     },
     selectors: {
         exampleEmail: [
@@ -156,7 +165,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         persons: [
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
             {
-                loadPersons: async (url: string | null = '') => {
+                loadPersons: async ({ url }) => {
                     if (!url) {
                         const qs = Object.keys(values.listFilters)
                             .filter((key) =>
@@ -180,7 +189,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         person: [
             null as PersonType | null,
             {
-                loadPerson: async (id: string): Promise<PersonType | null> => {
+                loadPerson: async ({ id }): Promise<PersonType | null> => {
                     const response = await api.get(`api/person/?distinct_id=${id}`)
                     if (!response.results.length) {
                         router.actions.push(urls.notFound())
@@ -189,7 +198,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                     person && actions.reportPersonDetailViewed(person)
                     return person
                 },
-                setPerson: (person: PersonType): PersonType => {
+                setPerson: ({ person }): PersonType => {
                     // Used after merging persons to update the view without an additional request
                     return person
                 },

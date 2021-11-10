@@ -12,6 +12,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     },
     actions: {
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
+        deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
     loaders: ({ values }) => ({
@@ -55,6 +56,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     return [flag, ...state]
                 }
             },
+            deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
         },
     },
     events: ({ actions }) => ({

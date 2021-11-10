@@ -5,7 +5,7 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
-import { savedInsightsLogic } from './savedInsightsLogic'
+import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import {
     AppstoreFilled,
     ArrowDownOutlined,
@@ -121,33 +121,17 @@ const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
 )
 
 export function SavedInsights(): JSX.Element {
-    const {
-        loadInsights,
-        updateFavoritedInsight,
-        loadPaginatedInsights,
-        renameInsight,
-        duplicateInsight,
-        setSavedInsightsFilters,
-    } = useActions(savedInsightsLogic)
-    const { insights, count, offset, nextResult, previousResult, insightsLoading, filters } =
-        useValues(savedInsightsLogic)
+    const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
+        useActions(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters } = useValues(savedInsightsLogic)
 
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
-    const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo } = filters
+    const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
-    const pageLimit = 15
-    const paginationCount = (): number => {
-        if (!previousResult) {
-            // no previous url means it's the first result set
-            return 1
-        }
-        if (nextResult) {
-            return offset - pageLimit
-        }
-        return count - (insights?.results.length || 0)
-    }
+    const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
+    const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
     const columns: ColumnsType<DashboardItemType> = [
         {
@@ -438,7 +422,7 @@ export function SavedInsights(): JSX.Element {
             </Row>
             {insights.count > 0 && (
                 <Row className="list-or-card-layout">
-                    Showing {paginationCount()} - {nextResult ? offset : count} of {count} insights
+                    Showing {startCount} - {endCount} of {count} insights
                     <div>
                         <Radio.Group
                             onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
@@ -472,21 +456,27 @@ export function SavedInsights(): JSX.Element {
                                 <Row className="footer-pagination">
                                     <span className="text-muted-alt">
                                         {insights.count > 0 &&
-                                            `Showing ${paginationCount()} - ${
-                                                nextResult ? offset : count
-                                            } of ${count} insights`}
+                                            `Showing ${startCount} - ${endCount} of ${count} insights`}
                                     </span>
                                     <LeftOutlined
                                         style={{ paddingRight: 16 }}
-                                        className={`${!previousResult ? 'paginate-disabled' : ''}`}
+                                        className={`${page === 1 ? 'paginate-disabled' : ''}`}
                                         onClick={() => {
-                                            previousResult && loadPaginatedInsights(previousResult)
+                                            if (page > 1) {
+                                                setSavedInsightsFilters({
+                                                    page: page - 1,
+                                                })
+                                            }
                                         }}
                                     />
                                     <RightOutlined
-                                        className={`${!nextResult ? 'paginate-disabled' : ''}`}
+                                        className={`${page * INSIGHTS_PER_PAGE >= count ? 'paginate-disabled' : ''}`}
                                         onClick={() => {
-                                            nextResult && loadPaginatedInsights(nextResult)
+                                            if (page * INSIGHTS_PER_PAGE < count) {
+                                                setSavedInsightsFilters({
+                                                    page: page + 1,
+                                                })
+                                            }
                                         }}
                                     />
                                 </Row>
