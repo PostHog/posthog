@@ -1,14 +1,13 @@
 import json
 from collections import defaultdict
 
-from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin
 
 from ee.clickhouse.client import sync_execute
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.utils import convert_property_value
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -41,6 +40,13 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
         )
 
         return response.Response(instances)
+
+    @action(methods=["GET"], detail=False)
+    def types(self, request: request.Request, **kw):
+        queryset = GroupTypeMapping.objects.all()
+        serializer = self.serializer_class(data=queryset, many=True)
+        serializer.is_valid()
+        return response.Response(serializer.data)
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):
