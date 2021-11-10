@@ -801,7 +801,7 @@ test('posthog.api', async () => {
         [
             'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
             {
-                headers: { Authorization: expect.stringContaining('Bearer phx_') },
+                headers: { Authorization: expect.stringContaining('Bearer phx_'), 'Content-Type': 'application/json' },
                 method: 'POST',
                 body: JSON.stringify({ a: 1 }),
             },
