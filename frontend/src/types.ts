@@ -811,6 +811,7 @@ export interface FilterType {
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+    breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
     session?: string
     period?: string
