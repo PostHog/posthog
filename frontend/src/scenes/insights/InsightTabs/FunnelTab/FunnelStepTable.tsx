@@ -50,6 +50,7 @@ export function FunnelStepTable(): JSX.Element | null {
         flattenedStepsByBreakdown,
         flattenedBreakdowns,
         clickhouseFeaturesEnabled,
+        aggregationTargetLabel,
     } = useValues(logic)
     const { openPersonsModal, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
@@ -133,7 +134,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         <InsightLabel
                             seriesColor={color}
                             fallbackName={formatBreakdownLabel(
-                                isOnlySeries ? 'Unique users' : breakdown.breakdown_value,
+                                isOnlySeries ? `Unique ${aggregationTargetLabel}` : breakdown.breakdown_value,
                                 cohorts
                             )}
                             hasMultipleSeries={steps.length > 1}
@@ -202,7 +203,8 @@ export function FunnelStepTable(): JSX.Element | null {
                             ),
                             renderSubColumnTitle(
                                 <>
-                                    <UserOutlined title="Unique users who completed this step" /> Completed
+                                    <UserOutlined title={`Unique ${aggregationTargetLabel} who completed this step`} />{' '}
+                                    Completed
                                 </>
                             ),
                             showLabels,
@@ -283,7 +285,10 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ),
                                 renderSubColumnTitle(
                                     <>
-                                        <UserDeleteOutlined title="Unique users who dropped off on this step" /> Dropped
+                                        <UserDeleteOutlined
+                                            title={`Unique ${aggregationTargetLabel} who dropped off on this step`}
+                                        />{' '}
+                                        Dropped
                                     </>
                                 ),
                                 showLabels,
