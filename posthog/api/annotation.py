@@ -8,7 +8,7 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
-from posthog.api.routing import ProjectScopedSerializerMixin, StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
@@ -16,7 +16,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.utils import str_to_bool
 
 
-class AnnotationSerializer(ProjectScopedSerializerMixin):
+class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -42,8 +42,10 @@ class AnnotationSerializer(ProjectScopedSerializerMixin):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
+        request = self.context["request"]
+        project = Team.objects.get(id=self.context["team_id"])
         annotation = Annotation.objects.create(
-            organization=self.team.organization, team=self.team, created_by=self.request.user, **validated_data,
+            organization=project.organization, team=project, created_by=request.user, **validated_data,
         )
         return annotation
 
