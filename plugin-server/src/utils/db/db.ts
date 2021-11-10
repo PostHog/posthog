@@ -582,7 +582,7 @@ export class DB {
         const kafkaMessages = []
         if (this.kafkaProducer) {
             const message = generateKafkaPersonUpdateMessage(
-                updatedPerson.created_at,
+                updatedPerson.created_at, // TODO: double check what this is & why we send it & if I'm doing it right in my update Properties function
                 updatedPerson.properties,
                 updatedPerson.team_id,
                 updatedPerson.is_identified,
@@ -758,6 +758,7 @@ export class DB {
         } else {
             return []
         }
+        return []
     }
 
     public async moveDistinctIds(source: Person, target: Person, client?: PoolClient): Promise<ProducerRecord[]> {
