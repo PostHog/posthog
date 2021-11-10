@@ -140,9 +140,11 @@ export function InsightsTable({
         render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
             return (
                 <div className="series-name-wrapper-col">
-                    <div className="edit-icon" onClick={() => handleEditClick(item)}>
-                        <EditOutlined />
-                    </div>
+                    {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && canEditSeriesNameInline && (
+                        <div className="edit-icon" onClick={() => handleEditClick(item)}>
+                            <EditOutlined />
+                        </div>
+                    )}
                     <InsightLabel
                         seriesColor={colorList[item.id]}
                         action={item.action}
@@ -153,9 +155,15 @@ export function InsightsTable({
                         hideBreakdown
                         hideIcon
                         useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
-                        className={clsx(canEditSeriesNameInline && 'editable')}
+                        className={clsx({
+                            editable: featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && canEditSeriesNameInline,
+                        })}
                         hideSeriesSubtitle
-                        onLabelClick={() => handleEditClick(item)}
+                        onLabelClick={
+                            featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && canEditSeriesNameInline
+                                ? () => handleEditClick(item)
+                                : undefined
+                        }
                     />
                 </div>
             )

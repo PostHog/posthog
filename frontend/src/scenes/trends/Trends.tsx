@@ -58,7 +58,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                         isLegend={false}
                         showTotalCount={view !== InsightType.SESSIONS}
                         filterKey={`trends_${view}`}
-                        canEditSeriesNameInline
+                        canEditSeriesNameInline={_filters.session !== 'avg'}
                     />
                 </BindLogic>
             )
