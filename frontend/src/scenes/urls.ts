@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { ViewType } from '~/types'
+import { InsightType } from '~/types'
 
 export const urls = {
     default: () => '/',
@@ -13,7 +13,7 @@ export const urls = {
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
     insights: () => '/insights',
-    newInsight: (insight?: ViewType) => `/insights/new${insight ? `?insight=${encodeURIComponent(insight)}` : ``}`,
+    newInsight: (insight?: InsightType) => `/insights/new${insight ? `?insight=${encodeURIComponent(insight)}` : ``}`,
     insightRouter: (id: string) => `/i/${id}`,
     savedInsights: () => '/saved_insights',
     sessions: () => '/sessions',

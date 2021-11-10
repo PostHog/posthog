@@ -5,7 +5,11 @@ import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/type
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterTypeToPropertyFilterType } from 'lib/components/PropertyFilters/utils'
+import {
+    propertyFilterTypeToTaxonomicFilterType,
+    taxonomicFilterTypeToPropertyFilterType,
+} from 'lib/components/PropertyFilters/utils'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key],
@@ -13,7 +17,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     key: (props) => `${props.pageKey}-${props.filterIndex}`,
 
     connect: (props: TaxonomicPropertyFilterLogicProps) => ({
-        values: [propertyFilterLogic(props), ['filters']],
+        values: [propertyFilterLogic(props), ['filters'], taxonomicFilterLogic, ['taxonomicGroups']],
     }),
 
     actions: {
@@ -43,6 +47,18 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         selectedCohortName: [
             (s) => [s.filter, cohortsModel.selectors.cohorts],
             (filter, cohorts) => (filter?.type === 'cohort' ? cohorts.find((c) => c.id === filter?.value)?.name : null),
+        ],
+        activeTaxonomicGroup: [
+            (s) => [s.filter, s.taxonomicGroups],
+            (filter, groups): TaxonomicFilterGroup | undefined => {
+                if (filter) {
+                    const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(
+                        filter.type,
+                        filter.group_type_index
+                    )
+                    return groups.find((group) => group.type === taxonomicGroupType)
+                }
+            },
         ],
     },
 

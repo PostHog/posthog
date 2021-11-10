@@ -12,6 +12,8 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+export const INSIGHTS_PER_PAGE = 15
+
 export interface InsightsResult {
     results: DashboardItemType[]
     count: number
@@ -28,8 +30,9 @@ export interface SavedInsightFilters {
     search: string
     insightType: string
     createdBy: number | 'All users'
-    dateFrom?: string | Dayjs | undefined
-    dateTo?: string | Dayjs | undefined
+    dateFrom: string | Dayjs | undefined | 'all'
+    dateTo: string | Dayjs | undefined
+    page: number
 }
 
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -42,6 +45,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
+        page: parseInt(String(values.page)) || 1,
     }
 }
 
@@ -67,23 +71,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     await breakpoint(300)
                 }
                 const { filters } = values
-                const params = {
-                    order: filters.order,
-                    limit: 15,
-                    saved: true,
-                    ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                    ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
-                    ...(filters.search && { search: filters.search }),
-                    ...(filters.insightType?.toLowerCase() !== 'all types' && {
-                        insight: filters.insightType?.toUpperCase(),
-                    }),
-                    ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
-                    ...(filters.dateFrom &&
-                        filters.dateFrom !== 'all' && {
-                            date_from: filters.dateFrom,
-                            date_to: filters.dateTo,
-                        }),
-                }
+                const params = values.paramsFromFilters
                 const response = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
@@ -104,9 +92,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     }
                 }
 
+                // scroll to top if the page changed, except if changed via back/forward
+                if (router.values.lastMethod !== 'POP' && values.insights.filters?.page !== filters.page) {
+                    window.scrollTo(0, 0)
+                }
+
                 return { ...response, filters }
             },
-            loadPaginatedInsights: async (url: string) => await api.get(url),
             updateFavoritedInsight: async ({ id, favorited }) => {
                 const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, {
                     favorited,
@@ -140,19 +132,31 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     },
     selectors: {
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
-        nextResult: [(s) => [s.insights], (insights) => insights.next],
-        previousResult: [(s) => [s.insights], (insights) => insights.previous],
         count: [(s) => [s.insights], (insights) => insights.count],
-        offset: [
-            (s) => [s.insights],
-            (insights) => {
-                const offset = new URLSearchParams(insights.next).get('offset') || '0'
-                return parseInt(offset)
-            },
-        ],
         usingFilters: [
             (s) => [s.filters],
             (filters) => !objectsEqual(cleanFilters({ ...filters, tab: SavedInsightsTabs.All }), cleanFilters({})),
+        ],
+        paramsFromFilters: [
+            (s) => [s.filters],
+            (filters) => ({
+                order: filters.order,
+                limit: INSIGHTS_PER_PAGE,
+                offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
+                saved: true,
+                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                ...(filters.search && { search: filters.search }),
+                ...(filters.insightType?.toLowerCase() !== 'all types' && {
+                    insight: filters.insightType?.toUpperCase(),
+                }),
+                ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                ...(filters.dateFrom &&
+                    filters.dateFrom !== 'all' && {
+                        date_from: filters.dateFrom,
+                        date_to: filters.dateTo,
+                    }),
+            }),
         ],
     },
     listeners: ({ actions, values, selectors }) => ({
@@ -219,20 +223,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         },
     }),
     actionToUrl: ({ values }) => {
-        const changeUrl = ():
-            | [
-                  string,
-                  Record<string, any>,
-                  Record<string, any>,
-                  {
-                      replace: true
-                  }
-              ]
-            | void => {
+        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
-                return ['/saved_insights', objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: true }]
+                return ['/saved_insights', objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
             }
         }
         return {

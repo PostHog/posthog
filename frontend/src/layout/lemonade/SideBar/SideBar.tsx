@@ -33,7 +33,7 @@ import { Scene } from '../../../scenes/sceneTypes'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
-import { AvailableFeature, TeamBasicType, ViewType } from '../../../types'
+import { AvailableFeature, TeamBasicType, InsightType } from '../../../types'
 import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './SideBar.scss'
@@ -238,7 +238,7 @@ function Pages(): JSX.Element {
                 to={urls.savedInsights()}
                 sideAction={{
                     icon: <IconPlus />,
-                    to: urls.newInsight(ViewType.TRENDS),
+                    to: urls.newInsight(InsightType.TRENDS),
                     tooltip: 'New insight',
                     identifier: Scene.Insights,
                 }}

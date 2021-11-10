@@ -12,7 +12,7 @@ import {
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
     TeamType,
-    ViewType,
+    InsightType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -170,7 +170,7 @@ describe('funnelLogic', () => {
         props: {
             dashboardItemId: undefined,
             filters: {
-                insight: ViewType.FUNNELS,
+                insight: InsightType.FUNNELS,
                 actions: [
                     { id: '$pageview', order: 0 },
                     { id: '$pageview', order: 1 },
@@ -212,7 +212,7 @@ describe('funnelLogic', () => {
                         result: null,
                     }),
                     filters: {
-                        insight: ViewType.FUNNELS,
+                        insight: InsightType.FUNNELS,
                         actions: [
                             { id: '$pageview', order: 0 },
                             { id: '$pageview', order: 1 },
@@ -224,7 +224,7 @@ describe('funnelLogic', () => {
                 .toMatchValues({
                     insight: expect.objectContaining({
                         filters: {
-                            insight: ViewType.FUNNELS,
+                            insight: InsightType.FUNNELS,
                             actions: [
                                 { id: '$pageview', order: 0 },
                                 { id: '$pageview', order: 1 },
@@ -233,7 +233,7 @@ describe('funnelLogic', () => {
                         result: ['result from api'],
                     }),
                     filters: {
-                        insight: ViewType.FUNNELS,
+                        insight: InsightType.FUNNELS,
                         actions: [
                             { id: '$pageview', order: 0 },
                             { id: '$pageview', order: 1 },
@@ -370,6 +370,8 @@ describe('funnelLogic', () => {
                 correlation_type: FunnelCorrelationType.Success,
                 success_count: 1,
                 failure_count: 1,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 result_type: FunnelCorrelationResultsType.Events,
             }
             it('chooses the correct name based on Event type', async () => {
@@ -508,7 +510,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
             })
                 .toFinishListeners()
                 .toMatchValues({
@@ -544,7 +546,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
                 logic.actions.excludePropertyFromProject('another property')
             })
                 .toFinishAllListeners()
@@ -619,7 +621,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -654,7 +656,7 @@ describe('funnelLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
             })
                 .toFinishAllListeners()
                 .toMatchValues({

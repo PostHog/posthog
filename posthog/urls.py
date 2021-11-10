@@ -50,10 +50,6 @@ def authorize_and_redirect(request):
     )
 
 
-def static_not_found(request):
-    return HttpResponse("Static file not found", status=404)
-
-
 # Try to include EE endpoints
 ee_urlpatterns: List[Any] = []
 if settings.EE_AVAILABLE:
@@ -102,16 +98,13 @@ urlpatterns = [
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
+    opt_slash_path("robots.txt", robots_txt),
     # auth
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
     path("login", login_view),
 ]
-
-# Allow crawling on PostHog Cloud, disable for all self-hosted installations
-if not settings.MULTI_TENANCY:
-    urlpatterns.append(opt_slash_path("robots.txt", robots_txt))
 
 if settings.TEST:
 
@@ -136,5 +129,4 @@ frontend_unauthenticated_routes = [
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
-urlpatterns.append(re_path(r"static/.*", static_not_found))
 urlpatterns.append(re_path(r"^.*", login_required(home)))

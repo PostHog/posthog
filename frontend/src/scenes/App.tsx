@@ -20,6 +20,7 @@ import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { SideBar } from '../layout/lemonade/SideBar/SideBar'
 import { appScenes } from 'scenes/appScenes'
+import { Breadcrumbs } from '../layout/lemonade/Breadcrumbs/Breadcrumbs'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -74,7 +75,7 @@ export function App(): JSX.Element | null {
             <>
                 {user && currentTeamId ? <Models /> : null}
                 {featureFlags[FEATURE_FLAGS.TURBO_MODE] ? <LoadedSceneLogics /> : null}
-                {(!sceneConfig.projectBased || currentTeamId) && <AppScene />}
+                {(!sceneConfig?.projectBased || currentTeamId) && <AppScene />}
             </>
         )
     }
@@ -122,7 +123,7 @@ function AppScene(): JSX.Element | null {
     const toastContainer = <ToastContainer autoClose={8000} transition={Slide} position="bottom-right" />
 
     if (!user) {
-        return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
+        return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <SceneComponent {...params} />
                 {toastContainer}
@@ -130,7 +131,7 @@ function AppScene(): JSX.Element | null {
         ) : null
     }
 
-    if (sceneConfig.plain) {
+    if (sceneConfig?.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
                 {!sceneConfig.hideTopNav && <TopNavigation />}
@@ -142,7 +143,8 @@ function AppScene(): JSX.Element | null {
 
     const layoutContent = activeScene ? (
         <Layout.Content className="main-app-content" data-attr="layout-content">
-            {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
+            {featureFlags[FEATURE_FLAGS.LEMONADE] && <Breadcrumbs />}
+            {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
             {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                 <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
             ) : null}
@@ -156,14 +158,14 @@ function AppScene(): JSX.Element | null {
         <>
             {featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                 <Layout style={{ minHeight: '100vh' }}>
-                    {!sceneConfig.hideTopNav && <TopNavigation />}
+                    {!sceneConfig?.hideTopNav && <TopNavigation />}
                     <SideBar>{layoutContent}</SideBar>
                 </Layout>
             ) : (
                 <Layout>
                     <MainNavigation />
                     <Layout style={{ minHeight: '100vh' }}>
-                        {!sceneConfig.hideTopNav && <TopNavigation />}
+                        {!sceneConfig?.hideTopNav && <TopNavigation />}
                         {layoutContent}
                     </Layout>
                 </Layout>

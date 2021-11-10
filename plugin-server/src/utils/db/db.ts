@@ -29,6 +29,7 @@ import {
     Hook,
     Person,
     PersonDistinctId,
+    PersonPropertyUpdateOperation,
     PluginConfig,
     PluginLogEntry,
     PluginLogEntrySource,
@@ -418,8 +419,13 @@ export class DB {
         }
     }
 
-    public async fetchPerson(teamId: number, distinctId: string, client?: PoolClient): Promise<Person | undefined> {
-        const queryString = `SELECT
+    public async fetchPerson(
+        teamId: number,
+        distinctId: string,
+        client?: PoolClient,
+        forUpdate?: boolean
+    ): Promise<Person | undefined> {
+        let queryString = `SELECT
                 posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
                 posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified,
                 posthog_person.uuid, posthog_persondistinctid.team_id AS persondistinctid__team_id,
@@ -430,6 +436,10 @@ export class DB {
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
                 AND posthog_persondistinctid.distinct_id = $2`
+        if (forUpdate) {
+            // Locks the teamId and distinctId tied to this personId + this person's info
+            queryString = queryString.concat(` FOR UPDATE`)
+        }
         const values = [teamId, distinctId]
 
         let selectResult
@@ -448,6 +458,7 @@ export class DB {
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
+        propertiesOnce: Properties,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -456,10 +467,31 @@ export class DB {
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
 
+        const props = { ...propertiesOnce, ...properties }
+        const props_last_operation: Record<string, any> = {}
+        const props_last_updated_at: Record<string, any> = {}
+        Object.keys(propertiesOnce).forEach((key) => {
+            props_last_operation[key] = PersonPropertyUpdateOperation.SetOnce
+            props_last_updated_at[key] = createdAt
+        })
+        Object.keys(properties).forEach((key) => {
+            props_last_operation[key] = PersonPropertyUpdateOperation.Set
+            props_last_updated_at[key] = createdAt
+        })
+
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await client.query(
-                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-                [createdAt.toISO(), JSON.stringify(properties), '{}', teamId, isUserId, isIdentified, uuid]
+                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+                [
+                    createdAt.toISO(),
+                    JSON.stringify(props),
+                    JSON.stringify(props_last_updated_at),
+                    JSON.stringify(props_last_operation),
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    uuid,
+                ]
             )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {
@@ -468,7 +500,7 @@ export class DB {
             } as Person
 
             if (this.kafkaProducer) {
-                kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid))
+                kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, props, teamId, isIdentified, uuid))
             }
 
             for (const distinctId of distinctIds || []) {
@@ -527,6 +559,116 @@ export class DB {
         }
 
         return client ? kafkaMessages : updatedPerson
+    }
+
+    private getPropertyLastUpdatedAtDateTimeOrEpoch(person: Person, key: string): DateTime {
+        const lookup = person.properties_last_updated_at[key]
+        if (lookup) {
+            return DateTime.fromISO(lookup)
+        }
+        return DateTime.fromMillis(0)
+    }
+
+    private getPropertiesLastOperationOrSet(person: Person, key: string): PersonPropertyUpdateOperation {
+        if (!person.properties_last_operation || !(key in person.properties_last_operation)) {
+            return PersonPropertyUpdateOperation.Set
+        }
+        return person.properties_last_operation[key]
+    }
+
+    private updatePropertiesLastOperation(person: Person, key: string, value: PersonPropertyUpdateOperation) {
+        if (!person.properties_last_operation) {
+            person.properties_last_operation = {}
+        }
+        person.properties_last_operation[key] = value
+    }
+
+    private updatePersonPropertiesLocal(
+        person: Person,
+        properties: Properties,
+        propertiesOnce: Properties,
+        timestamp: DateTime
+    ): boolean {
+        // updates the person & returns true/false if anything was updated
+        let updatedSomething = false
+        Object.entries(propertiesOnce).forEach(([key, value]) => {
+            if (
+                !(key in person.properties) ||
+                (this.getPropertiesLastOperationOrSet(person, key) === PersonPropertyUpdateOperation.SetOnce &&
+                    this.getPropertyLastUpdatedAtDateTimeOrEpoch(person, key) > timestamp)
+            ) {
+                updatedSomething = true
+                person.properties[key] = value
+                this.updatePropertiesLastOperation(person, key, PersonPropertyUpdateOperation.SetOnce)
+                person.properties_last_updated_at[key] = timestamp.toISO()
+            }
+        })
+        // note that if the key appears twice we override it with set value here
+        Object.entries(properties).forEach(([key, value]) => {
+            if (
+                !(key in person.properties) ||
+                this.getPropertiesLastOperationOrSet(person, key) === PersonPropertyUpdateOperation.SetOnce ||
+                this.getPropertyLastUpdatedAtDateTimeOrEpoch(person, key) < timestamp
+            ) {
+                updatedSomething = true
+                person.properties[key] = value
+                this.updatePropertiesLastOperation(person, key, PersonPropertyUpdateOperation.Set)
+                person.properties_last_updated_at[key] = timestamp.toISO()
+            }
+        })
+        return updatedSomething
+    }
+
+    public async updatePersonProperties(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties,
+        timestamp: DateTime
+    ): Promise<void> {
+        if (Object.keys(properties).length === 0 && Object.keys(propertiesOnce).length === 0) {
+            return
+        }
+
+        let person: Person | undefined
+        await this.postgresTransaction(async (client) => {
+            person = await this.fetchPerson(teamId, distinctId, client, true)
+            if (!person) {
+                throw new Error(
+                    `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update props`
+                )
+            }
+
+            const shouldUpdate = this.updatePersonPropertiesLocal(person, properties, propertiesOnce, timestamp)
+            if (!shouldUpdate) {
+                return
+            }
+
+            await client.query(
+                `UPDATE posthog_person SET
+                    properties = $1,
+                    properties_last_updated_at = $2,
+                    properties_last_operation = $3
+                WHERE id = $4`,
+                [
+                    JSON.stringify(person.properties),
+                    JSON.stringify(person.properties_last_updated_at),
+                    JSON.stringify(person.properties_last_operation || {}),
+                    person.id,
+                ]
+            )
+        })
+
+        if (this.kafkaProducer && person) {
+            const kafkaMessage = generateKafkaPersonUpdateMessage(
+                timestamp,
+                person.properties,
+                person.team_id,
+                person.is_identified,
+                person.uuid
+            )
+            await this.kafkaProducer.queueMessage(kafkaMessage)
+        }
     }
 
     public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {

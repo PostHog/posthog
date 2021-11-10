@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import React, { useEffect, useRef } from 'react'
-import { InsightType, ViewType } from '~/types'
+import { InsightType } from '~/types'
 import { Button, Input, Modal } from 'antd'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { renameModalLogic } from 'scenes/insights/ActionFilter/renameModalLogic'
@@ -23,7 +23,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
     const ref = useRef<Input | null>(null)
     useSelectAllText(ref, { cursor: 'all' }, [modalVisible])
 
-    const title = `Rename ${view === ViewType.FUNNELS ? 'funnel step' : 'graph series'}`
+    const title = `Rename ${view === InsightType.FUNNELS ? 'funnel step' : 'graph series'}`
 
     return (
         <Modal

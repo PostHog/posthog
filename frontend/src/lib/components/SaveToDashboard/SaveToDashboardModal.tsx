@@ -1,8 +1,8 @@
-import React, { FormEvent, useState } from 'react'
+import React, { FormEvent } from 'react'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Input, Select, Modal } from 'antd'
+import { Select, Modal } from 'antd'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -10,11 +10,12 @@ import { DashboardItemType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface SaveToDashboardModalProps {
+    visible: boolean
     closeModal: () => void
     insight: Partial<DashboardItemType>
 }
 
-export function SaveToDashboardModal({ closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
+export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({ id: insight.id, fromDashboard: insight.dashboard || undefined })
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { dashboardId } = useValues(logic)
@@ -22,16 +23,14 @@ export function SaveToDashboardModal({ closeModal, insight }: SaveToDashboardMod
     const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
     const { insightLoading } = useValues(insightLogic)
     const { updateInsight } = useActions(insightLogic)
-    const [name, setName] = useState(insight?.name || '')
-    const newItem = !insight.dashboard
 
     async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
-        updateInsight({ ...insight, name, dashboard: dashboardId }, () => {
+        updateInsight({ ...insight, dashboard: dashboardId }, () => {
             reportSavedInsightToDashboard()
             toast(
                 <div data-attr="success-toast">
-                    {newItem ? 'Panel added to dashboard.' : 'Panel updated!'}&nbsp;
+                    Panel added to dashboard.&nbsp;
                     <Link to={`/dashboard/${dashboardId}`}>Click here to see it.</Link>
                 </div>
             )
@@ -45,25 +44,11 @@ export function SaveToDashboardModal({ closeModal, insight }: SaveToDashboardMod
             onCancel={closeModal}
             afterClose={closeModal}
             confirmLoading={insightLoading}
-            visible
-            title={newItem ? 'Add graph to dashboard' : 'Update graph on dashboard'}
-            okText={newItem ? 'Add panel to dashboard' : 'Update panel on dashboard'}
+            visible={visible}
+            title="Add to dashboard"
+            okText="Add insight to dashboard"
         >
             <form onSubmit={(e) => void save(e)}>
-                <label>Panel name on dashboard</label>
-                <Input
-                    name="name"
-                    required
-                    type="text"
-                    placeholder="Users who did x"
-                    autoFocus={!name}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                />
-
-                <br />
-                <br />
-
                 <label>Dashboard</label>
                 <Select
                     value={dashboardId}
