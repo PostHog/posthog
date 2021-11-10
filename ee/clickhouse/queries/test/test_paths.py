@@ -10,10 +10,11 @@ from freezegun import freeze_time
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries import ClickhousePaths
 from ee.clickhouse.queries.paths import ClickhousePathsPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -23,6 +24,7 @@ from posthog.constants import (
     SCREEN_EVENT,
 )
 from posthog.models.filters import Filter, PathFilter
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.test.test_paths import MockEvent, paths_test_factory
@@ -57,6 +59,18 @@ def _create_all_events(all_events: List[Dict]):
 class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePaths, _create_event, Person.objects.create, _create_all_events)):  # type: ignore
 
     maxDiff = None
+
+    def _create_groups(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+
+        create_group(
+            team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"industry": "technology"}
+        )
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
     def _get_people_at_path(self, filter, path_start=None, path_end=None, funnel_filter=None, path_dropoff=None):
         person_filter = filter.with_data(
@@ -281,8 +295,11 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
-    def _create_sample_data_multiple_dropoffs(self):
+    def _create_sample_data_multiple_dropoffs(self, use_groups=False):
         events = []
+        if use_groups:
+            self._create_groups()
+
         for i in range(5):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             full_funnel = [
@@ -291,42 +308,42 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:00:00",
-                    properties={},
+                    properties={"$group_0": "org:5"} if use_groups else {},
                 ),
                 _create_event(
                     event="between_step_1_a",
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:01:00",
-                    properties={},
+                    properties={"$group_0": "org:5"} if use_groups else {},
                 ),
                 _create_event(
                     event="between_step_1_b",
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:02:00",
-                    properties={},
+                    properties={"$group_0": "org:5"} if use_groups else {},
                 ),
                 _create_event(
                     event="between_step_1_c",
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:03:00",
-                    properties={},
+                    properties={"$group_0": "org:5"} if use_groups else {},
                 ),
                 _create_event(
                     event="step two",
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:04:00",
-                    properties={},
+                    properties={"$group_0": "org:5"} if use_groups else {},
                 ),
                 _create_event(
                     event="step three",
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:05:00",
-                    properties={},
+                    properties={"$group_0": "org:5"} if use_groups else {},
                 ),
             ]
             events.extend(full_funnel)
@@ -387,21 +404,21 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:00:00",
-                    properties={},
+                    properties={"$group_0": "org:6"} if use_groups else {},
                 ),
                 _create_event(
                     event="step dropoff1",
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:01:00",
-                    properties={},
+                    properties={"$group_0": "org:6"} if use_groups else {},
                 ),
                 _create_event(
                     event="step dropoff2",
                     distinct_id=f"user_{i}",
                     team=self.team,
                     timestamp="2021-05-01 00:02:00",
-                    properties={},
+                    properties={"$group_0": "org:6"} if use_groups else {},
                 ),
             ]
             if i % 2 == 0:
@@ -411,7 +428,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                         distinct_id=f"user_{i}",
                         team=self.team,
                         timestamp="2021-05-01 00:03:00",
-                        properties={},
+                        properties={"$group_0": "org:6"} if use_groups else {},
                     )
                 )
             events.extend(funnel_branching)
@@ -747,6 +764,60 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_step one", "target": "2_step dropoff1", "value": 20, "average_conversion_time": 60000.0},
+                {
+                    "source": "2_step dropoff1",
+                    "target": "3_step dropoff2",
+                    "value": 20,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_step dropoff2",
+                    "target": "4_step branch",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+            ],
+        )
+        self.assertEqual(20, len(self._get_people_at_path(path_filter, "1_step one", "2_step dropoff1", funnel_filter)))
+        self.assertEqual(
+            20, len(self._get_people_at_path(path_filter, "2_step dropoff1", "3_step dropoff2", funnel_filter))
+        )
+        self.assertEqual(
+            10, len(self._get_people_at_path(path_filter, "3_step dropoff2", "4_step branch", funnel_filter))
+        )
+        self.assertEqual(
+            0, len(self._get_people_at_path(path_filter, "4_step branch", "3_step dropoff2", funnel_filter))
+        )
+
+    @snapshot_clickhouse_queries
+    def test_path_by_funnel_after_dropoff_with_group_filter(self):
+        # complex case, joins funnel_people and groups
+        self._create_sample_data_multiple_dropoffs(use_groups=True)
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": -2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        # passing group properties to funnel filter defeats purpose of test
+        path_filter = PathFilter(data=data).with_data(
+            {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
+        )
         response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
         self.assertEqual(
             response,
@@ -2563,6 +2634,134 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     "value": 10,
                     "average_conversion_time": 160000,
                 },
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_path_groups_filtering(self):
+        self._create_groups()
+        # P1 for pageview event, org:5
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        p1 = [
+            _create_event(
+                properties={"$current_url": "/1", "$group_0": "org:5"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:21:34",
+            ),
+            _create_event(
+                properties={"$current_url": "/2/", "$group_0": "org:5"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:22:34",
+            ),
+            _create_event(
+                properties={"$current_url": "/3", "$group_0": "org:5"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:24:34",
+            ),
+        ]
+
+        # P2 for screen event, org:6
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        p2 = [
+            _create_event(
+                properties={"$screen_name": "/screen1", "$group_0": "org:6"},
+                distinct_id="p2",
+                event="$screen",
+                team=self.team,
+                timestamp="2012-01-01 03:21:34",
+            ),
+            _create_event(
+                properties={"$screen_name": "/screen2", "$group_0": "org:6"},
+                distinct_id="p2",
+                event="$screen",
+                team=self.team,
+                timestamp="2012-01-01 03:22:34",
+            ),
+            _create_event(
+                properties={"$screen_name": "/screen3", "$group_0": "org:6"},
+                distinct_id="p2",
+                event="$screen",
+                team=self.team,
+                timestamp="2012-01-01 03:24:34",
+            ),
+        ]
+
+        # P3 for custom event, group_0 doesnt' exist, group_1 = company:1
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"])
+        p3 = [
+            _create_event(
+                distinct_id="p3",
+                event="/custom1",
+                team=self.team,
+                timestamp="2012-01-01 03:21:34",
+                properties={"$group_1": "company:1"},
+            ),
+            _create_event(
+                distinct_id="p3",
+                event="/custom2",
+                team=self.team,
+                timestamp="2012-01-01 03:22:34",
+                properties={"$group_1": "company:1"},
+            ),
+            _create_event(
+                distinct_id="p3",
+                event="/custom3",
+                team=self.team,
+                timestamp="2012-01-01 03:24:34",
+                properties={"$group_1": "company:1"},
+            ),
+        ]
+
+        events = [*p1, *p2, *p3]
+        _create_all_events(events)
+
+        filter = PathFilter(
+            data={
+                "step_limit": 4,
+                "date_from": "2012-01-01",
+                "include_event_types": ["$pageview", "$screen", "custom_event"],
+                "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            }
+        )
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data(
+            {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
+        )
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/screen1", "target": "2_/screen2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/screen2", "target": "3_/screen3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data(
+            {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 1}]}
+        )
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/custom2", "target": "3_/custom3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
             ],
         )
 
