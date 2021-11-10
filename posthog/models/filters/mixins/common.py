@@ -152,9 +152,7 @@ class BreakdownMixin(BaseParamMixin):
     @cached_property
     def breakdown_group_type_index(self) -> Optional[int]:
         value = self._data.get(BREAKDOWN_GROUP_TYPE_INDEX, None)
-        validate_group_type_index(BREAKDOWN_GROUP_TYPE_INDEX, value)
-
-        return value
+        return validate_group_type_index(BREAKDOWN_GROUP_TYPE_INDEX, value)
 
     @include_dict
     def breakdown_type_and_group_to_dict(self):
