@@ -24,8 +24,8 @@
 .Breadcrumbs__breadcrumb {
     display: flex;
     align-items: center;
-    color: var(--primary);
-    font-weight: 500;
+    color: $text_default;
+    font-weight: $medium;
     white-space: pre;
     &--current {
         font-weight: bold;
