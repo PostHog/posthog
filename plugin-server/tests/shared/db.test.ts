@@ -73,7 +73,6 @@ describe('DB', () => {
         return selectResult.rows[0]
     }
 
-
     describe('createPerson', () => {
         let team: Team
         let person: Person
@@ -150,7 +149,7 @@ describe('DB', () => {
             expect(fetched_person.team_id).toEqual(team.id)
         })
     })
-  
+
     describe('updatePersonProperties', () => {
         //  How we expect this query to behave:
         //    | value exists | method   | previous method | previous TS is ___ call TS | write/override
@@ -178,7 +177,7 @@ describe('DB', () => {
 
         beforeEach(async () => {
             team = await getFirstTeam(hub)
-            person = await db.createPerson(PAST_TIMESTAMP, {}, team.id, null, false, uuid, [distinctId])
+            person = await db.createPerson(PAST_TIMESTAMP, {}, {}, team.id, null, false, uuid, [distinctId])
         })
 
         // util to get the new props after an update
