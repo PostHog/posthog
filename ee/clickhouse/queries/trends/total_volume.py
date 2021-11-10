@@ -9,7 +9,7 @@ from ee.clickhouse.queries.util import deep_dump_object, get_interval_func_ch, g
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.volume import ACTIVE_USER_SQL, VOLUME_SQL, VOLUME_TOTAL_AGGREGATE_SQL
-from posthog.constants import MONTHLY_ACTIVE, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
+from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -109,7 +109,7 @@ class ClickhouseTrendsTotalVolume:
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
-                "date_from": date,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
                 "date_to": date,
             }
             parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
