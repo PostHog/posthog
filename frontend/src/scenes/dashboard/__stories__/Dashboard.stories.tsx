@@ -3,10 +3,35 @@ import { Meta } from '@storybook/react'
 import { keaStory } from 'lib/storybook/kea-story'
 import { worker } from '../../../mocks/browser'
 import { rest } from 'msw'
-
 import { Dashboard } from '../Dashboard'
+import originalDashboardState from './dashboard.json'
 
-import dashboardState from './dashboard.json'
+const dashboardItems = [
+    require('./items/trends-pageviews.json'),
+    require('./items/retention.json'),
+    require('./items/funnel-time-to-convert.json'),
+]
+
+const dashboardState = {
+    ...originalDashboardState,
+    scenes: {
+        ...originalDashboardState.scenes,
+        dashboard: {
+            ...originalDashboardState.scenes.dashboard,
+            dashboardLogic: {
+                ...originalDashboardState.scenes.dashboard.dashboardLogic,
+                1: {
+                    ...originalDashboardState.scenes.dashboard.dashboardLogic['1'],
+                    allItems: {
+                        ...originalDashboardState.scenes.dashboard.dashboardLogic['1'].allItems,
+                        items: dashboardItems.map((item) => ({ ...item, layouts: null })),
+                    },
+                },
+            },
+        },
+    },
+}
+//;(dashboardState.scenes.dashboard.dashboardLogic['1'].allItems as any) = [pageviews])
 
 export default {
     title: 'PostHog/Scenes/Dashboard',
