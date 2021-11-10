@@ -3,7 +3,6 @@ import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { average, eventToName, successToast, sum } from 'lib/utils'
-import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -12,7 +11,7 @@ import {
     FunnelStep,
     FunnelsTimeConversionBins,
     PersonType,
-    ViewType,
+    InsightType,
     FunnelStepWithNestedBreakdown,
     FunnelTimeConversionMetrics,
     FlattenedFunnelStep,
@@ -103,7 +102,7 @@ export const funnelLogic = kea<funnelLogicType>({
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -394,10 +393,10 @@ export const funnelLogic = kea<funnelLogicType>({
 
     selectors: ({ selectors }) => ({
         isLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
-        loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === ViewType.FUNNELS ? filters : {})],
+        loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): FunnelAPIResponse => (filters?.insight === ViewType.FUNNELS ? result : []),
+            ({ filters, result }): FunnelAPIResponse => (filters?.insight === InsightType.FUNNELS ? result : []),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         conversionWindow: [
@@ -1025,7 +1024,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         loadResultsSuccess: async ({ insight }) => {
-            if (insight.filters?.insight !== ViewType.FUNNELS) {
+            if (insight.filters?.insight !== InsightType.FUNNELS) {
                 return
             }
             // hide all but the first five breakdowns for each step
@@ -1115,7 +1114,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 name,
                 saved: true,
             })
-            actions.loadFunnels()
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
             personsModalLogic.actions.loadPeople({

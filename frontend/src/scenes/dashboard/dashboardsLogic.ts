@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
 import { dashboardsLogicType } from './dashboardsLogicType'
@@ -11,6 +12,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
     actions: {
         addNewDashboard: true,
         setNewDashboardDrawer: (shown: boolean) => ({ shown }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
     reducers: {
         newDashboardDrawer: [
@@ -19,14 +21,28 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                 setNewDashboardDrawer: (_, { shown }) => shown,
             },
         ],
+        searchTerm: {
+            setSearchTerm: (_, { searchTerm }) => searchTerm,
+        },
     },
     selectors: {
         dashboards: [
-            () => [dashboardsModel.selectors.nameSortedDashboards],
-            (dashboards: DashboardType[]) =>
-                dashboards
+            (selectors) => [dashboardsModel.selectors.nameSortedDashboards, selectors.searchTerm],
+            (dashboards: DashboardType[], searchTerm: string) => {
+                dashboards = dashboards
                     .filter((d) => !d.deleted)
-                    .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')),
+                    .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
+
+                if (!searchTerm) {
+                    return dashboards
+                }
+                return new Fuse(dashboards, {
+                    keys: ['key', 'name'],
+                    threshold: 0.3,
+                })
+                    .search(searchTerm)
+                    .map((result) => result.item)
+            },
         ],
         dashboardTags: [
             () => [dashboardsModel.selectors.nameSortedDashboards],

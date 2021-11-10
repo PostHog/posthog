@@ -7,27 +7,30 @@ from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 
-def validate_group_type_index(param_name: str, value: Any, required=False):
+def validate_group_type_index(param_name: str, value: Any, required=False) -> Optional[int]:
     error = ValidationError(
-        {
-            param_name: f"This field is required if breakdown_type is group and must be greater than 0 and less than {GROUP_TYPES_LIMIT}"
-        }
+        f"{param_name} is required to be greater than 0 and less than {GROUP_TYPES_LIMIT}", code="invalid"
     )
 
     if required and value is None:
         raise error
 
-    if value is not None and not (isinstance(value, int) and 0 <= value < GROUP_TYPES_LIMIT):
-        raise error
+    if value is not None:
+        try:
+            value = int(value)
+        except:
+            raise error
+        if not (0 <= value < GROUP_TYPES_LIMIT):
+            raise error
+
+    return value
 
 
 class GroupsAggregationMixin(BaseParamMixin):
     @cached_property
     def aggregation_group_type_index(self) -> Optional[int]:
         value = self._data.get(AGGREGATION_GROUP_TYPE_INDEX)
-        validate_group_type_index(AGGREGATION_GROUP_TYPE_INDEX, value)
-
-        return value
+        return validate_group_type_index(AGGREGATION_GROUP_TYPE_INDEX, value)
 
     @include_dict
     def aggregation_group_type_index_to_dict(self):

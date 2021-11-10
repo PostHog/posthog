@@ -5,10 +5,10 @@ import { useValues, useActions } from 'kea'
 import { disableHourFor, disableMinuteFor } from 'lib/utils'
 import { CalendarOutlined } from '@ant-design/icons'
 import { defaultInterval, IntervalKeyType, intervals } from 'lib/components/IntervalFilter/intervals'
-import { ViewType } from '~/types'
+import { InsightType } from '~/types'
 
 interface InvertalFilterProps {
-    view: ViewType
+    view: InsightType
     disabled?: boolean
 }
 
@@ -26,7 +26,7 @@ export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Ele
             ) : (
                 label
             ),
-        disabled: (key === 'minute' || key === 'hour') && view === ViewType.SESSIONS,
+        disabled: (key === 'minute' || key === 'hour') && view === InsightType.SESSIONS,
     }))
     return (
         <Select

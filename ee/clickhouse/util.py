@@ -55,7 +55,7 @@ class ClickhouseTestMixin:
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
-                    if sqlparse.format(query, strip_comments=True).strip().startswith("SELECT"):
+                    if sqlparse.format(query, strip_comments=True).strip().startswith(("SELECT", "WITH")):
                         queries.append(query)
                     return original_client_execute(query, *args, **kwargs)
 
