@@ -23,7 +23,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         any(session_recordings.start_time) as start_time,
         any(session_recordings.end_time) as end_time,
         any(session_recordings.duration) as duration,
-        any(filtered_events.distinct_id) as distinct_id,
+        any(session_recordings.distinct_id) as distinct_id,
         arrayElement(groupArray(current_url), 1) as start_url,
         arrayElement(groupArray(current_url), -1) as end_url
         {event_filter_aggregate_select_clause}
@@ -40,7 +40,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             team_id = %(team_id)s
             {events_timestamp_clause}
     ) AS filtered_events
-    JOIN (
+    RIGHT OUTER JOIN (
         SELECT
             session_id,
             MIN(timestamp) AS start_time,
@@ -58,11 +58,17 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         {duration_clause} 
     ) AS session_recordings
     ON session_recordings.distinct_id = filtered_events.distinct_id
-    JOIN (SELECT * FROM person_distinct_id WHERE person_distinct_id.team_id = %(team_id)s) as person_distinct_id ON person_distinct_id.distinct_id = session_recordings.distinct_id 
+    JOIN (
+        SELECT * FROM person_distinct_id WHERE person_distinct_id.team_id = %(team_id)s
+    ) as person_distinct_id 
+    ON person_distinct_id.distinct_id = session_recordings.distinct_id 
     JOIN ({person_query}) as person ON person.id = person_distinct_id.person_id 
     WHERE
-        filtered_events.timestamp >= session_recordings.start_time
-        AND filtered_events.timestamp <= session_recordings.end_time
+        empty(filtered_events.event) OR
+        (
+            filtered_events.timestamp >= session_recordings.start_time
+            AND filtered_events.timestamp <= session_recordings.end_time
+        )
         {person_id_clause}
     GROUP BY session_recordings.session_id
     {event_filter_aggregate_having_clause}
@@ -215,3 +221,6 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         query_results = sync_execute(query, query_params)
         session_recordings = self._data_to_return(query_results)
         return self._paginate_results(session_recordings)
+
+
+"\n            SELECT id\n            FROM person\n            WHERE team_id = %(team_id)s\n            GROUP BY id\n            HAVING max(is_deleted) = 0 \n        "

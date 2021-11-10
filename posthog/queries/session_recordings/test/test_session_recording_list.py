@@ -51,6 +51,8 @@ def factory_session_recordings_list_test(
             )
 
         def test_basic_query(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
             self.create_snapshot("user", "1", self.base_time)
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=10))
             self.create_snapshot("user", "2", self.base_time + relativedelta(seconds=20))
@@ -70,6 +72,8 @@ def factory_session_recordings_list_test(
 
         def test_recordings_dont_leak_data_between_teams(self):
             another_team = Team.objects.create(organization=self.organization)
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+            Person.objects.create(team=another_team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time, team_id=another_team.pk)
             self.create_snapshot("user", "2", self.base_time)
 
@@ -82,6 +86,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["distinct_id"], "user")
 
         def test_all_sessions_recording_object_keys(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time)
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
             filter = SessionRecordingsFilter(data={"no_filter": None})
@@ -95,6 +100,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["duration"], 30)
 
         def test_event_filter(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time)
             self.create_event("user", self.base_time)
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
@@ -114,6 +120,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 0)
 
         def test_event_filter_with_properties(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time)
             self.create_event("user", self.base_time, properties={"$browser": "Chrome"})
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
@@ -157,6 +164,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 0)
 
         def test_multiple_event_filters(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time)
             self.create_event("user", self.base_time)
             self.create_event("user", self.base_time, event_name="new-event")
@@ -188,6 +196,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 0)
 
         def test_action_filter(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             action1 = self.create_action("custom-event", properties=[{"key": "$browser", "value": "Firefox"}])
             action2 = self.create_action(name="custom-event")
 
@@ -236,6 +245,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 0)
 
         def test_all_sessions_recording_object_keys_with_entity_filter(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time)
             self.create_event("user", self.base_time)
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
@@ -252,6 +262,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["duration"], 30)
 
         def test_duration_filter(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time)
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
 
@@ -274,6 +285,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         def test_date_from_filter(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time - relativedelta(days=3))
             self.create_snapshot("user", "1", self.base_time - relativedelta(days=3) + relativedelta(seconds=30))
 
@@ -291,6 +303,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         def test_date_to_filter(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time - relativedelta(days=3))
             self.create_snapshot("user", "1", self.base_time - relativedelta(days=3) + relativedelta(seconds=30))
 
@@ -308,6 +321,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         def test_recording_that_spans_time_bounds(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             day_line = datetime(2021, 11, 5)
             self.create_snapshot("user", "1", day_line - relativedelta(hours=3))
             self.create_snapshot("user", "1", day_line + relativedelta(hours=3))
@@ -369,9 +383,10 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         def test_pagination(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time)
-            self.create_snapshot("user2", "2", self.base_time + relativedelta(seconds=10))
-            self.create_snapshot("user3", "3", self.base_time + relativedelta(seconds=20))
+            self.create_snapshot("user", "2", self.base_time + relativedelta(seconds=10))
+            self.create_snapshot("user", "3", self.base_time + relativedelta(seconds=20))
 
             filter = SessionRecordingsFilter(data={"limit": 2,})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
@@ -405,6 +420,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(more_recordings_available, False)
 
         def test_recording_without_fullsnapshot_dont_appear(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time, type=1)
             filter = SessionRecordingsFilter(data={"no-filter": True})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
@@ -412,6 +428,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 0)
 
         def test_teams_dont_leak_event_filter(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             another_team = Team.objects.create(organization=self.organization)
 
             self.create_snapshot("user", "1", self.base_time)
