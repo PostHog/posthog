@@ -1024,12 +1024,12 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.groupTypes],
-            (filters, groupTypes): string => {
+            (filters, groupTypes): { singular: string; plural: string } => {
                 if (filters.aggregation_group_type_index != undefined && groupTypes.length > 0) {
                     const groupType = groupTypes[filters.aggregation_group_type_index]
-                    return `${groupType.group_type}(s)`
+                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
                 }
-                return 'users'
+                return { singular: 'user', plural: 'users' }
             },
         ],
     }),

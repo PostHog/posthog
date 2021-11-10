@@ -134,7 +134,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         <InsightLabel
                             seriesColor={color}
                             fallbackName={formatBreakdownLabel(
-                                isOnlySeries ? `Unique ${aggregationTargetLabel}` : breakdown.breakdown_value,
+                                isOnlySeries ? `Unique ${aggregationTargetLabel.plural}` : breakdown.breakdown_value,
                                 cohorts
                             )}
                             hasMultipleSeries={steps.length > 1}
@@ -203,7 +203,9 @@ export function FunnelStepTable(): JSX.Element | null {
                             ),
                             renderSubColumnTitle(
                                 <>
-                                    <UserOutlined title={`Unique ${aggregationTargetLabel} who completed this step`} />{' '}
+                                    <UserOutlined
+                                        title={`Unique ${aggregationTargetLabel.plural} who completed this step`}
+                                    />{' '}
                                     Completed
                                 </>
                             ),
@@ -286,7 +288,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 renderSubColumnTitle(
                                     <>
                                         <UserDeleteOutlined
-                                            title={`Unique ${aggregationTargetLabel} who dropped off on this step`}
+                                            title={`Unique ${aggregationTargetLabel.plural} who dropped off on this step`}
                                         />{' '}
                                         Dropped
                                     </>
