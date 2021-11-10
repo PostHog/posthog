@@ -1,7 +1,7 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import useSize from '@react-hook/size'
-import { humanFriendlyDuration, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyDuration, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -45,6 +45,7 @@ interface BarProps {
     breakdownSumPercentage?: number
     popoverTitle?: string | JSX.Element | null
     popoverMetrics?: { title: string; value: number | string; visible?: boolean }[]
+    aggregationTargetLabel: { singular: string; plural: string }
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -221,6 +222,7 @@ function Bar({
     breakdownSumPercentage,
     popoverTitle = null,
     popoverMetrics = [],
+    aggregationTargetLabel,
 }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
@@ -320,7 +322,9 @@ function Bar({
                     <div
                         ref={labelRef}
                         className={`funnel-bar-percentage ${labelPosition}`}
-                        title={name ? `Users who did ${name}` : undefined}
+                        title={
+                            name ? `${capitalizeFirstLetter(aggregationTargetLabel.plural)} who did ${name}` : undefined
+                        }
                         role="progressbar"
                         aria-valuemin={0}
                         aria-valuemax={100}
@@ -623,6 +627,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                             visible: !!breakdown.average_conversion_time,
                                                         },
                                                     ]}
+                                                    aggregationTargetLabel={aggregationTargetLabel}
                                                 />
                                             )
                                         })}
@@ -696,6 +701,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                     visible: !!step.average_conversion_time,
                                                 },
                                             ]}
+                                            aggregationTargetLabel={aggregationTargetLabel}
                                         />
                                         <div
                                             className="funnel-bar-empty-space"
