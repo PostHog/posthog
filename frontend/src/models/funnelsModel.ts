@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { SavedFunnel, ViewType } from '~/types'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModelType } from './funnelsModelType'
 import { teamLogic } from '../scenes/teamLogic'
 
@@ -42,9 +41,6 @@ export const funnelsModel = kea<funnelsModelType>({
             },
         },
     }),
-    connect: {
-        actions: [insightHistoryLogic, ['updateInsight']],
-    },
     reducers: () => ({
         next: [
             null as null | string,
@@ -78,7 +74,6 @@ export const funnelsModel = kea<funnelsModelType>({
             actions.setNext(response.next)
             actions.appendFunnels(results)
         },
-        updateInsight: () => actions.loadFunnels(),
     }),
     events: ({ actions }) => ({
         afterMount: actions.loadFunnels,
