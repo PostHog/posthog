@@ -79,15 +79,9 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         result = ClickhousePathsPersons(person_filter, self.team, funnel_filter)._exec_query()
         return [row[0] for row in result]
 
-    @test_with_materialized_columns(["$current_url", "$screen_name"])
+    @test_with_materialized_columns(["$current_url", "$screen_name"], person_properties=["email"])
     def test_denormalized_properties(self):
-
-        query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
-        self.assertNotIn("json", query.lower())
-
-        query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
-        self.assertNotIn("json", query.lower())
-
+        # override base test to test with materialized columns
         self.test_current_url_paths_and_logic()
 
     def test_step_limit(self):
@@ -1298,7 +1292,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             5, len(self._get_people_at_path(path_filter, "4_between_step_1_c", "5_step two", funnel_filter))
         )
 
-    @test_with_materialized_columns(["$current_url"])
+    @test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_paths_end(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"])
         p1 = [
