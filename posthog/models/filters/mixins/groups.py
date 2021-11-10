@@ -16,7 +16,10 @@ def validate_group_type_index(param_name: str, value: Any, required=False) -> Op
         raise error
 
     if value is not None:
-        value = int(value)
+        try:
+            value = int(value)
+        except:
+            raise error
         if not (0 <= value < GROUP_TYPES_LIMIT):
             raise error
 
