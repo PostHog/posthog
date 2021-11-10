@@ -30,9 +30,7 @@ class GroupsAggregationMixin(BaseParamMixin):
     @cached_property
     def aggregation_group_type_index(self) -> Optional[int]:
         value = self._data.get(AGGREGATION_GROUP_TYPE_INDEX)
-        value = validate_group_type_index(AGGREGATION_GROUP_TYPE_INDEX, value)
-
-        return value
+        return validate_group_type_index(AGGREGATION_GROUP_TYPE_INDEX, value)
 
     @include_dict
     def aggregation_group_type_index_to_dict(self):
