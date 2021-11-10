@@ -8,6 +8,7 @@ import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from '../scenes/teamLogic'
 
 export const annotationsModel = kea<annotationsModelType>({
+    path: ['models', 'annotationsModel'],
     actions: {
         createGlobalAnnotation: (content: string, date_marker: string, dashboard_item?: number) => ({
             content,

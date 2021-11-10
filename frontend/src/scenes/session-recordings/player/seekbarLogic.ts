@@ -21,6 +21,7 @@ import {
 import dayjs from 'dayjs'
 
 export const seekbarLogic = kea<seekbarLogicType>({
+    path: ['scenes', 'session-recordings', 'player', 'seekbarLogic'],
     connect: {
         values: [
             sessionRecordingPlayerLogic,

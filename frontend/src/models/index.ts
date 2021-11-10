@@ -11,6 +11,7 @@ import { modelsType } from './indexType'
 
 /** "Models" are logics that are persistently mounted (start with app) */
 export const models = kea<modelsType>({
+    path: ['models', 'index'],
     connect: [
         actionsModel,
         annotationsModel,

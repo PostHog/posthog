@@ -270,6 +270,7 @@ export interface PropertyFilter {
     operator: PropertyOperator | null
     type: string
     value: PropertyFilterValue
+    group_type_index?: number | null
 }
 
 export type EmptyPropertyFilter = Partial<PropertyFilter>
@@ -503,7 +504,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
-    type: ViewType
+    type: InsightType
 }
 
 export interface SavedFunnel extends InsightHistory {
@@ -766,10 +767,7 @@ export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `rem
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
-// NB! Keep InsightType and ViewType in sync!
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-
-export enum ViewType {
+export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
@@ -777,8 +775,6 @@ export enum ViewType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    // Views that are not insights:
-    HISTORY = 'HISTORY',
 }
 
 export enum PathType {
@@ -867,6 +863,7 @@ export interface FilterType {
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
 export interface SystemStatusSubrows {
@@ -936,6 +933,7 @@ export type SetupState = EnabledSetupState | DisabledSetupState
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
+    math_group_type_index?: number | null
     properties: PropertyFilter[]
     type: EntityType
 }
@@ -1342,7 +1340,9 @@ export interface FunnelCorrelation {
     event: Pick<EventType, 'elements' | 'event' | 'properties'>
     odds_ratio: number
     success_count: number
+    success_people_url: string
     failure_count: number
+    failure_people_url: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
         | FunnelCorrelationResultsType.Events

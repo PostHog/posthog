@@ -98,16 +98,13 @@ urlpatterns = [
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
+    opt_slash_path("robots.txt", robots_txt),
     # auth
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
     path("login", login_view),
 ]
-
-# Allow crawling on PostHog Cloud, disable for all self-hosted installations
-if not settings.MULTI_TENANCY:
-    urlpatterns.append(opt_slash_path("robots.txt", robots_txt))
 
 if settings.TEST:
 
@@ -122,7 +119,13 @@ if settings.TEST:
 
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "reset"]
+frontend_unauthenticated_routes = [
+    "preflight",
+    "signup",
+    r"signup\/[A-Za-z0-9\-]*",
+    "reset",
+    "organization/billing/subscribed",
+]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 

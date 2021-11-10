@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { ViewType } from '~/types'
+import { InsightType } from '~/types'
 
 export const urls = {
     default: () => '/',
@@ -13,7 +13,7 @@ export const urls = {
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
     insights: () => '/insights',
-    insightView: (view: ViewType) => `/insights?insight=${view}`,
+    newInsight: (insight?: InsightType) => `/insights/new${insight ? `?insight=${encodeURIComponent(insight)}` : ``}`,
     insightRouter: (id: string) => `/i/${id}`,
     savedInsights: () => '/saved_insights',
     sessions: () => '/sessions',
@@ -30,11 +30,7 @@ export const urls = {
     projectSettings: () => '/project/settings',
     mySettings: () => '/me/settings',
     organizationSettings: () => '/organization/settings',
-    organizationBilling: () => '/organization/billing',
     organizationCreateFirst: () => '/organization/create',
-    instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
     // Onboarding / setup routes
     login: () => '/login',
     passwordReset: () => '/reset',
@@ -45,4 +41,11 @@ export const urls = {
     personalization: () => '/personalization',
     ingestion: () => '/ingestion',
     onboardingSetup: () => '/setup',
+    // Cloud only
+    organizationBilling: () => '/organization/billing',
+    billingSubscribed: () => '/organization/billing/subscribed',
+    // Self-hosted only
+    instanceLicenses: () => '/instance/licenses',
+    systemStatus: () => '/instance/status',
+    systemStatusPage: (page: string) => `/instance/status/${page}`,
 }

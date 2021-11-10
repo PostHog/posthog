@@ -45,7 +45,16 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    return server.db.createPerson(DateTime.utc(), properties, team.id, null, false, new UUIDT().toString(), distinctIds)
+    return server.db.createPerson(
+        DateTime.utc(),
+        properties,
+        {},
+        team.id,
+        null,
+        false,
+        new UUIDT().toString(),
+        distinctIds
+    )
 }
 
 export type ReturnWithHub = { hub?: Hub; closeHub?: () => Promise<void> }
@@ -78,7 +87,6 @@ export const createProcessEventTests = (
     extraServerConfig?: Partial<PluginsServerConfig>,
     createTests?: (response: ReturnWithHub) => void
 ): ReturnWithHub => {
-    let queryCounter = 0
     let processEventCounter = 0
     let mockClientEventCounter = 0
     let team: Team
@@ -102,8 +110,6 @@ export const createProcessEventTests = (
         await redis.del(hub.PLUGINS_CELERY_QUEUE)
         await redis.del(hub.CELERY_DEFAULT_QUEUE)
 
-        onQuery(hub, () => queryCounter++)
-
         return [hub, closeHub]
     }
 
@@ -117,16 +123,7 @@ export const createProcessEventTests = (
         sentAt: DateTime | null,
         eventUuid: string
     ): Promise<EventProcessingResult | void> {
-        const response = await eventsProcessor.processEvent(
-            distinctId,
-            ip,
-            siteUrl,
-            data,
-            teamId,
-            now,
-            sentAt,
-            eventUuid
-        )
+        const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
         if (database === 'clickhouse') {
             await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
         }
@@ -145,7 +142,6 @@ export const createProcessEventTests = (
         returned.hub = hub
         returned.closeHub = closeHub
         eventsProcessor = new EventsProcessor(hub)
-        queryCounter = 0
         processEventCounter = 0
         mockClientEventCounter = 0
         team = await getFirstTeam(hub)
@@ -292,6 +288,7 @@ export const createProcessEventTests = (
     })
 
     test('capture new person', async () => {
+        const updatePersonSpy = jest.spyOn(hub.db, 'updatePerson')
         await hub.db.postgresQuery(
             `UPDATE posthog_team
              SET ingested_event = $1
@@ -332,13 +329,7 @@ export const createProcessEventTests = (
             DateTime.now(),
             new UUIDT().toString()
         )
-
-        // TODO: Make this test actually useful and not flaky
-        if (database === 'clickhouse') {
-            expect(queryCounter).toBe(11 + 14 /* event & prop definitions */)
-        } else if (database === 'postgresql') {
-            expect(queryCounter).toBe(14 + 14 /* event & prop definitions */)
-        }
+        expect(updatePersonSpy).not.toHaveBeenCalled()
 
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
@@ -401,6 +392,7 @@ export const createProcessEventTests = (
             DateTime.now(),
             new UUIDT().toString()
         )
+        expect(updatePersonSpy).toHaveBeenCalledTimes(1)
 
         events = await hub.db.fetchEvents()
         persons = await hub.db.fetchPersons()
@@ -1129,7 +1121,6 @@ export const createProcessEventTests = (
         await eventsProcessor.processEvent(
             'some-id',
             '',
-            '',
             {
                 event: '$snapshot',
                 properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
@@ -1156,7 +1147,6 @@ export const createProcessEventTests = (
     test('$snapshot event creates new person if needed', async () => {
         await eventsProcessor.processEvent(
             'some_new_id',
-            '',
             '',
             {
                 event: '$snapshot',

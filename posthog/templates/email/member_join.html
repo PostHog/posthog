@@ -1,7 +1,7 @@
 {% extends "email/base_transactional.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block section %}
+<!-- prettier-ignore -->
 <p>
-    {{ invitee.first_name }} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{
-    organization.name }}.
+    {{ invitee.first_name }} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{ organization.name }}.
 </p>
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri %}">View PostHog insights</a>

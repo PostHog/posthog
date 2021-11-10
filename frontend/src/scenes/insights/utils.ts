@@ -2,6 +2,7 @@ import { EntityFilter, ActionFilter, FilterType, DashboardItemType } from '~/typ
 import { ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -9,7 +10,10 @@ export const getDisplayNameFromEntityFilter = (
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
-    const name = ensureStringIsNotBlank(filter?.name)
+    let name = ensureStringIsNotBlank(filter?.name)
+    if (name && keyMapping.event[name]) {
+        name = keyMapping.event[name].label
+    }
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)

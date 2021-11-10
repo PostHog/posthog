@@ -38,6 +38,7 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>({
+    path: ['scenes', 'feature-flags', 'featureFlagLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
     },
@@ -238,7 +239,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     closeOnClick: true,
                 }
             )
-
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
@@ -246,6 +246,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.name, id: featureFlag.id },
                 callback: () => {
+                    featureFlag.id && featureFlagsLogic.findMounted()?.actions.deleteFlag(featureFlag.id)
                     router.actions.push(urls.featureFlags())
                 },
             })

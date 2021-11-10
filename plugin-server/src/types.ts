@@ -666,6 +666,7 @@ export interface SessionRecordingEvent {
     team_id: number
     distinct_id: string
     session_id: string
+    window_id: string
     snapshot_data: string
     created_at: string
 }
@@ -721,3 +722,8 @@ export enum CeleryTriggeredJobOperation {
 }
 
 export type GroupTypeToColumnIndex = Record<string, number>
+
+export enum PersonPropertyUpdateOperation {
+    Set = 'set',
+    SetOnce = 'set_once',
+}

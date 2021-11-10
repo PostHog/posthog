@@ -5,15 +5,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import {
-    ActionFilter,
-    FilterType,
-    ViewType,
-    FunnelVizType,
-    PropertyFilter,
-    PersonType,
-    FunnelCorrelationResultsType,
-} from '~/types'
+import { ActionFilter, FilterType, InsightType, FunnelVizType, PropertyFilter, PersonType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -60,11 +52,11 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     })
 
     // casting here is not the best
-    if (filters.insight === ViewType.STICKINESS) {
+    if (filters.insight === InsightType.STICKINESS) {
         params.stickiness_days = date_from as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = date_from as string
-    } else if (filters.insight === ViewType.LIFECYCLE) {
+    } else if (filters.insight === InsightType.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
@@ -87,11 +79,36 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toParams({ ...params, ...restParams })
 }
 
-export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
+// Props for the `loadPeopleFromUrl` action.
+// NOTE: this interface isn't particularly clean. Separation of concerns of load
+// and displaying of people and the display of the modal would be helpful to
+// keep this interfaces smaller.
+type LoadPeopleFromUrlProps = {
+    // The url from which we can load urls
+    url: string
+    // The funnel step the dialog should display as the complete/dropped step
+    funnelStep: number
+    // Used to display in the modal title the property value we're filtering
+    // with
+    breakdown_value?: string // NOTE: using snake case to be consistent with the rest of the file
+    // This label is used in the modal title. It's usage depends on the
+    // filter.insight attribute. For insight=FUNNEL we use it as a person
+    // property name
+    label: string
+}
+
+export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProps, PersonModalParams>>({
+    path: ['scenes', 'trends', 'personsModalLogic'],
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
+        loadPeopleFromUrl: ({ url, funnelStep, breakdown_value, label }: LoadPeopleFromUrlProps) => ({
+            url,
+            funnelStep,
+            breakdown_value,
+            label,
+        }),
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
@@ -129,6 +146,13 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     day: date_from,
                     breakdown_value,
                 }),
+                loadPeopleFromUrl: (_, { label }) => ({
+                    people: [],
+                    count: 0,
+                    day: '',
+                    label,
+                    action: 'session',
+                }),
                 setFilters: () => null,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
             },
@@ -151,6 +175,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             false,
             {
                 loadPeople: () => true,
+                loadPeopleFromUrl: () => true,
                 hidePeople: () => false,
             },
         ],
@@ -174,7 +199,10 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
-                let people: PaginatedResponse<{ people: PersonType[]; count: number }> | null = null
+                let people: PaginatedResponse<{
+                    people: PersonType[]
+                    count: number
+                }> | null = null
                 const {
                     label,
                     action,
@@ -189,16 +217,13 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 } = peopleParams
                 const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
 
-                if (filters.funnel_correlation_person_entity) {
-                    const cleanedParams = cleanFilters(filters)
-                    people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
-                } else if (filters.insight === ViewType.LIFECYCLE) {
+                if (filters.insight === InsightType.LIFECYCLE) {
                     const filterParams = parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                         filters
                     )
                     people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
-                } else if (filters.insight === ViewType.STICKINESS) {
+                } else if (filters.insight === InsightType.STICKINESS) {
                     const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
                         filters
@@ -217,20 +242,11 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                             funnel_step: funnelStep,
                             ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
                         }
-
-                        // getting property correlations from funnel
-                        if (params.funnel_custom_steps) {
-                            eventUsageLogic.actions.reportCorrelationInteraction(
-                                FunnelCorrelationResultsType.Properties,
-                                'person modal',
-                                filters.funnel_correlation_person_entity
-                            )
-                        }
                     }
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
-                } else if (filters.insight === ViewType.PATHS) {
+                } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                 } else {
@@ -260,6 +276,19 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }
 
                 return peopleResult
+            },
+            loadPeopleFromUrl: async ({ url, funnelStep, breakdown_value = '', label }) => {
+                const people = await (await fetch(url)).json()
+
+                return {
+                    people: people?.results[0]?.people,
+                    count: people?.results[0]?.count || 0,
+                    label,
+                    funnelStep,
+                    breakdown_value,
+                    day: '',
+                    action: 'session',
+                }
             },
             loadMorePeople: async ({}, breakpoint) => {
                 if (values.people) {

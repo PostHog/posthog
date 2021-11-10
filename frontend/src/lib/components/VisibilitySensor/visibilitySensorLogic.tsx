@@ -2,6 +2,7 @@ import { kea } from 'kea'
 
 import { visibilitySensorLogicType } from './visibilitySensorLogicType'
 export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
+    path: (key) => ['lib', 'components', 'VisibilitySensor', 'visibilitySensorLogic', key],
     props: {} as {
         id: string
         offset?: number
@@ -39,11 +40,10 @@ export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
         },
     }),
 
-    selectors: ({ props }) => ({
+    selectors: () => ({
         checkIsVisible: [
-            (selectors) => [selectors.innerHeight],
-            (windowHeight) => (element: HTMLElement) => {
-                const offset = props.offset || 0
+            (selectors) => [selectors.innerHeight, (_, props) => props.offset || 0],
+            (windowHeight, offset) => (element: HTMLElement) => {
                 if (!element) {
                     return false
                 }

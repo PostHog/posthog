@@ -22,6 +22,7 @@ function newAction(element: HTMLElement | null, dataAttributes: string[] = []): 
 type ActionFormInstance = FormInstance<ActionForm>
 
 export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
+    path: ['toolbar', 'actions', 'actionsTabLogic'],
     actions: {
         setForm: (form: ActionFormInstance) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),

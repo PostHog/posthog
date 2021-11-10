@@ -106,8 +106,8 @@ export const sceneLogic = kea<sceneLogicType>({
     selectors: {
         sceneConfig: [
             (s) => [s.scene],
-            (scene: Scene): SceneConfig => {
-                return sceneConfigurations[scene] ?? {}
+            (scene: Scene): SceneConfig | null => {
+                return sceneConfigurations[scene] || null
             },
         ],
         activeScene: [
@@ -271,6 +271,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 const timeout = window.setTimeout(() => actions.setScene(scene, params, true), 500)
                 let importedScene
                 try {
+                    window.ESBUILD_LOAD_CHUNKS?.(scene)
                     importedScene = await props.scenes[scene]()
                 } catch (error) {
                     if (

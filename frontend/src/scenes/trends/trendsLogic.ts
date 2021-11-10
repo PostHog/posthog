@@ -2,7 +2,7 @@ import { kea } from 'kea'
 
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
-import { InsightLogicProps, FilterType, ViewType, TrendResult } from '~/types'
+import { InsightLogicProps, FilterType, InsightType, TrendResult } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -10,6 +10,7 @@ import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/shared
 export const trendsLogic = kea<trendsLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('all_trends'),
+    path: (key) => ['scenes', 'trends', 'trendsLogic', key],
 
     connect: (props: InsightLogicProps) => ({
         values: [insightLogic(props), ['filters', 'insight', 'insightLoading']],
@@ -103,10 +104,22 @@ export const trendsLogic = kea<trendsLogicType>({
             (s) => [s.filters, s.results, s.toggledLifecycles],
             (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
                 let results = _results || []
-                if (filters.insight === ViewType.LIFECYCLE) {
+                if (filters.insight === InsightType.LIFECYCLE) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
                 return results.map((result, index) => ({ ...result, id: index }))
+            },
+        ],
+        showPersonsModal: [
+            (s) => [s.filters],
+            (filters): boolean => {
+                const isNotAggregatingByGroup = (entity: Record<string, any>): boolean =>
+                    entity.math_group_type_index == undefined
+
+                return (
+                    (filters.events || []).every(isNotAggregatingByGroup) &&
+                    (filters.actions || []).every(isNotAggregatingByGroup)
+                )
             },
         ],
     },
