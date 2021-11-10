@@ -45,7 +45,9 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             ? [
                   <>
                       <span className="text-muted-alt">
-                          <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
+                          <Tooltip
+                              title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
+                          >
                               <InfoCircleOutlined className="info-indicator left" />
                           </Tooltip>
                           Average time to convert{' '}
