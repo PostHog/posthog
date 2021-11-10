@@ -4,7 +4,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SessionFilter } from 'lib/components/SessionsFilter'
 import { trendsLogic } from '../../trends/trendsLogic'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
-import { FilterType, ViewType } from '~/types'
+import { FilterType, InsightType } from '~/types'
 import { Col, Row } from 'antd'
 import { TestAccountFilter } from '../TestAccountFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -35,7 +35,7 @@ export function SessionTab(): JSX.Element {
                 <ActionFilter
                     filters={filters}
                     setFilters={(payload: Partial<FilterType>) => setFilters(payload)}
-                    typeKey={'sessions' + ViewType.SESSIONS}
+                    typeKey={'sessions' + InsightType.SESSIONS}
                     hideMathSelector={true}
                     buttonCopy="Add action or event"
                     showOr={true}

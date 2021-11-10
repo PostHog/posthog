@@ -5,7 +5,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
-import { ViewType } from '~/types'
+import { InsightType } from '~/types'
 import { router } from 'kea-router'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -28,7 +28,7 @@ export function ActionsLineGraph({
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
         <LineGraph
             data-attr="trend-line-graph"
-            type={filters.insight === ViewType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
+            type={filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
             color={color}
             datasets={indexedResults}
             visibilityMap={visibilityMap}
@@ -38,7 +38,7 @@ export function ActionsLineGraph({
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
-            tooltipPreferAltTitle={filters.insight === ViewType.STICKINESS}
+            tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
             onClick={
                 dashboardItemId || isMultiSeriesFormula(filters.formula)
                     ? null

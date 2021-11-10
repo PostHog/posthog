@@ -2,7 +2,7 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightTabs/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { FunnelVizType, ItemMode, ViewType } from '~/types'
+import { FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -33,13 +33,13 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
 
 const VIEW_MAP = {
-    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-    [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-    [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-    [`${ViewType.RETENTION}`]: <RetentionContainer />,
-    [`${ViewType.PATHS}`]: <Paths />,
+    [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
+    [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
+    [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
+    [`${InsightType.SESSIONS}`]: <TrendInsight view={InsightType.SESSIONS} />,
+    [`${InsightType.FUNNELS}`]: <FunnelInsight />,
+    [`${InsightType.RETENTION}`]: <RetentionContainer />,
+    [`${InsightType.PATHS}`]: <Paths />,
 }
 
 export function InsightContainer(): JSX.Element {
@@ -70,7 +70,7 @@ export function InsightContainer(): JSX.Element {
             return <Loading />
         }
         // Insight specific empty states - note order is important here
-        if (loadedView === ViewType.FUNNELS) {
+        if (loadedView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
                 return <FunnelInvalidFiltersEmptyState />
             }
@@ -107,7 +107,7 @@ export function InsightContainer(): JSX.Element {
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
-            activeView === ViewType.FUNNELS &&
+            activeView === InsightType.FUNNELS &&
             filters?.display === FUNNEL_VIZ
         ) {
             return <People />
@@ -115,7 +115,7 @@ export function InsightContainer(): JSX.Element {
 
         if (
             preflight?.is_clickhouse_enabled &&
-            activeView === ViewType.FUNNELS &&
+            activeView === InsightType.FUNNELS &&
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
@@ -127,7 +127,7 @@ export function InsightContainer(): JSX.Element {
         if (
             (!filters.display ||
                 (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
-            (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS)
+            (activeView === InsightType.TRENDS || activeView === InsightType.SESSIONS)
         ) {
             /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
     Exclusions:
@@ -139,9 +139,9 @@ export function InsightContainer(): JSX.Element {
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <h3 className="l3">Details table</h3>
                         <InsightsTable
-                            showTotalCount={activeView !== ViewType.SESSIONS}
-                            filterKey={activeView === ViewType.TRENDS ? `trends_${activeView}` : ''}
-                            canEditSeriesNameInline={activeView === ViewType.TRENDS && insightMode === ItemMode.Edit}
+                            showTotalCount={activeView !== InsightType.SESSIONS}
+                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
                         />
                     </BindLogic>
                 </Card>
@@ -157,7 +157,7 @@ export function InsightContainer(): JSX.Element {
             <Card
                 title={
                     <InsightDisplayConfig
-                        activeView={activeView as ViewType}
+                        activeView={activeView as InsightType}
                         insightMode={insightMode}
                         filters={filters}
                         annotationsToCreate={annotationsToCreate}
@@ -166,13 +166,13 @@ export function InsightContainer(): JSX.Element {
                 }
                 data-attr="insights-graph"
                 className={clsx('insights-graph-container', {
-                    funnels: activeView === ViewType.FUNNELS,
+                    funnels: activeView === InsightType.FUNNELS,
                 })}
             >
                 <div>
                     <Row
                         className={clsx('insights-graph-header', {
-                            funnels: activeView === ViewType.FUNNELS,
+                            funnels: activeView === InsightType.FUNNELS,
                         })}
                         align="middle"
                         justify="space-between"
@@ -196,7 +196,7 @@ export function InsightContainer(): JSX.Element {
             {renderTable()}
 
             {preflight?.is_clickhouse_enabled &&
-            activeView === ViewType.FUNNELS &&
+            activeView === InsightType.FUNNELS &&
             featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
                 <FunnelCorrelation />
             ) : null}

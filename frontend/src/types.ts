@@ -504,7 +504,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
-    type: ViewType
+    type: InsightType
 }
 
 export interface SavedFunnel extends InsightHistory {
@@ -767,10 +767,7 @@ export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `rem
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
-// NB! Keep InsightType and ViewType in sync!
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-
-export enum ViewType {
+export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',

@@ -5,7 +5,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Collapse, InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathType, ViewType, FunnelPathType, PathEdgeParameters, AvailableFeature } from '~/types'
+import { PathType, InsightType, FunnelPathType, PathEdgeParameters, AvailableFeature } from '~/types'
 import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -165,7 +165,7 @@ export function NewPathTab(): JSX.Element {
         <>
             <PersonModal
                 visible={showingPeople && !cohortModalVisible}
-                view={ViewType.PATHS}
+                view={InsightType.PATHS}
                 filters={filter}
                 onSaveCohort={() => {
                     setCohortModalVisible(true)

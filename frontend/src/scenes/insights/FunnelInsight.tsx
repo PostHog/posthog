@@ -5,7 +5,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { FunnelVizType, ViewType } from '~/types'
+import { FunnelVizType, InsightType } from '~/types'
 import { PersonModal } from 'scenes/trends/PersonModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,7 +21,7 @@ export function FunnelInsight(): JSX.Element {
         <>
             <PersonModal
                 visible={showingPeople && !cohortModalVisible}
-                view={ViewType.FUNNELS}
+                view={InsightType.FUNNELS}
                 filters={filters}
                 onSaveCohort={() => {
                     setCohortModalVisible(true)
