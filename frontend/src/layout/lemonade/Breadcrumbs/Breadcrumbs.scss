@@ -1,0 +1,44 @@
+@import '~/vars.scss';
+
+.Breadcrumbs {
+    display: flex;
+    align-items: center;
+    width: 100vw;
+    // Make the container full width to aid horizontal scroll while automatically retaining proper padding
+    padding: 0 calc((100vw - 100%) / 2);
+    margin-left: calc((100vw - 100%) / -2);
+    margin-top: 1.5rem;
+    cursor: default;
+    overflow-x: auto;
+    &--loading {
+        margin-top: 0.75rem;
+    }
+    @media (max-width: $md) {
+        margin-top: 1rem;
+        &--loading {
+            margin-top: 0.25rem;
+        }
+    }
+}
+
+.Breadcrumbs__breadcrumb {
+    display: flex;
+    align-items: center;
+    color: var(--primary);
+    font-weight: 500;
+    white-space: pre;
+    &--current {
+        font-style: italic;
+    }
+    > :first-child {
+        margin-right: 0.5rem;
+    }
+}
+
+.Breadcrumbs__separator {
+    flex-shrink: 0;
+    margin: 0 0.5rem;
+    font-size: 1rem;
+    color: var(--primary-alt);
+    transform: rotate(-90deg);
+}
