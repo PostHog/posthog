@@ -29,6 +29,7 @@
     white-space: pre;
     &--current {
         font-style: italic;
+        color: red; // TODO
     }
     > :first-child {
         margin-right: 0.5rem;
