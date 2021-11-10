@@ -183,7 +183,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
     },
     loaders: ({ actions, values }) => ({
         people: {
-            loadPeople: async ({ peopleParams, url }, breakpoint) => {
+            loadPeople: async ({ peopleParams }, breakpoint) => {
                 let people: PaginatedResponse<{
                     people: PersonType[]
                     count: number
@@ -201,62 +201,58 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     pathsDropoff,
                 } = peopleParams
 
-                if (url) {
-                    people = await api.get(url)
-                } else {
-                    const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
+                const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
 
-                    if (filters.funnel_correlation_person_entity) {
-                        const cleanedParams = cleanFilters(filters)
-                        people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
-                    } else if (filters.insight === InsightType.LIFECYCLE) {
-                        const filterParams = parsePeopleParams(
-                            { label, action, target_date: date_from, lifecycle_type: breakdown_value },
-                            filters
-                        )
-                        people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
-                    } else if (filters.insight === InsightType.STICKINESS) {
-                        const filterParams = parsePeopleParams(
-                            { label, action, date_from, date_to, breakdown_value },
-                            filters
-                        )
-                        people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
-                    } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
-                        let params
-                        if (filters.funnel_viz_type === FunnelVizType.Trends) {
-                            // funnel trends
-                            const entrance_period_start = dayjs(date_from).format('YYYY-MM-DD HH:mm:ss')
-                            params = { ...filters, entrance_period_start, drop_off: false }
-                        } else {
-                            // regular funnel steps
-                            params = {
-                                ...filters,
-                                funnel_step: funnelStep,
-                                ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
-                            }
-
-                            // getting property correlations from funnel
-                            if (params.funnel_custom_steps) {
-                                eventUsageLogic.actions.reportCorrelationInteraction(
-                                    FunnelCorrelationResultsType.Properties,
-                                    'person modal',
-                                    filters.funnel_correlation_person_entity
-                                )
-                            }
-                        }
-                        const cleanedParams = cleanFilters(params)
-                        const funnelParams = toParams(cleanedParams)
-                        people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
-                    } else if (filters.insight === InsightType.PATHS) {
-                        const cleanedParams = cleanFilters(filters)
-                        people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+                if (filters.funnel_correlation_person_entity) {
+                    const cleanedParams = cleanFilters(filters)
+                    people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
+                } else if (filters.insight === InsightType.LIFECYCLE) {
+                    const filterParams = parsePeopleParams(
+                        { label, action, target_date: date_from, lifecycle_type: breakdown_value },
+                        filters
+                    )
+                    people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
+                } else if (filters.insight === InsightType.STICKINESS) {
+                    const filterParams = parsePeopleParams(
+                        { label, action, date_from, date_to, breakdown_value },
+                        filters
+                    )
+                    people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
+                } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
+                    let params
+                    if (filters.funnel_viz_type === FunnelVizType.Trends) {
+                        // funnel trends
+                        const entrance_period_start = dayjs(date_from).format('YYYY-MM-DD HH:mm:ss')
+                        params = { ...filters, entrance_period_start, drop_off: false }
                     } else {
-                        people = await api.actions.getPeople(
-                            { label, action, date_from, date_to, breakdown_value },
-                            filters,
-                            searchTerm
-                        )
+                        // regular funnel steps
+                        params = {
+                            ...filters,
+                            funnel_step: funnelStep,
+                            ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
+                        }
+
+                        // getting property correlations from funnel
+                        if (params.funnel_custom_steps) {
+                            eventUsageLogic.actions.reportCorrelationInteraction(
+                                FunnelCorrelationResultsType.Properties,
+                                'person modal',
+                                filters.funnel_correlation_person_entity
+                            )
+                        }
                     }
+                    const cleanedParams = cleanFilters(params)
+                    const funnelParams = toParams(cleanedParams)
+                    people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
+                } else if (filters.insight === InsightType.PATHS) {
+                    const cleanedParams = cleanFilters(filters)
+                    people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+                } else {
+                    people = await api.actions.getPeople(
+                        { label, action, date_from, date_to, breakdown_value },
+                        filters,
+                        searchTerm
+                    )
                 }
                 breakpoint()
                 const peopleResult = {
@@ -288,7 +284,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 label,
                 pathsDropoff,
             }) => {
-                const people = await (await fetch(url)).json()
+                const people = await api.get(url)
 
                 return {
                     people: people?.results[0]?.people,
