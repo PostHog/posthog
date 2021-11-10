@@ -128,8 +128,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = Filter(request=request)
 
-        base_uri = request.build_absolute_uri("/")
-        result = FunnelCorrelation(filter=filter, team=team, base_uri=base_uri).run()
+        result = FunnelCorrelation(filter=filter, team=team).run()
 
         return {"result": result}
 
