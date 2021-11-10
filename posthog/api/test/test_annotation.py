@@ -101,7 +101,7 @@ class TestAnnotation(APIBaseTest):
         )
 
     @patch("posthoganalytics.capture")
-    def test_creating_annotation_with_team_override(self, mock_capture):
+    def test_legacy_creating_annotation_with_team_override(self, mock_capture):
         team2 = Organization.objects.bootstrap(self.user)[2]
 
         self.client.force_login(self.user)

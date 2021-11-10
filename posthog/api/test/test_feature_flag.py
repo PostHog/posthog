@@ -5,6 +5,7 @@ from rest_framework import response, status
 from posthog.api import feature_flag
 from posthog.models import FeatureFlag, User
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest
 
 
@@ -112,6 +113,19 @@ class TestFeatureFlag(APIBaseTest):
                 "created_at": instance.created_at,
             },
         )
+
+    def test_legacy_create_feature_flag_with_token_override(self):
+        team2 = Organization.objects.bootstrap(self.user)[2]
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            f"/api/feature_flag/?token={team2.api_token}",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.team, team2)
 
     @patch("posthoganalytics.capture")
     def test_create_minimal_feature_flag(self, mock_capture):

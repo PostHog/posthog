@@ -42,7 +42,7 @@ class TestDashboard(APIBaseTest):
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
 
-    def test_create_dashboard_token_override(self):
+    def test_legacy_create_dashboard_token_override(self):
         team2 = Organization.objects.bootstrap(self.user)[2]
         self.client.force_login(self.user)
 
