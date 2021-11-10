@@ -33,7 +33,13 @@ from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
 )
-from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
+from posthog.constants import (
+    MONTHLY_ACTIVE,
+    TREND_FILTER_TYPE_ACTIONS,
+    TRENDS_CUMULATIVE,
+    TRENDS_DISPLAY_BY_VALUE,
+    WEEKLY_ACTIVE,
+)
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -267,7 +273,7 @@ class ClickhouseTrendsBreakdown:
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
-                "date_from": date,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
                 "date_to": date,
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",

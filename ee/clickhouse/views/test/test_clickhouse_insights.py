@@ -84,12 +84,12 @@ class ClickhouseTestInsights(
         with freeze_time("2012-01-13T03:21:34.000Z"):
             _create_person(distinct_ids=["1"], team=self.team)
             _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
+            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
+            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
             _create_person(distinct_ids=["3"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="3")
+            _create_event(team=self.team, event="$pageview", distinct_id="3", properties={"key": "val"})
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             data = deep_dump_object(
@@ -110,6 +110,29 @@ class ClickhouseTestInsights(
             response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
 
         self.assertEqual(len(response["results"][0]["people"]), 3)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            data = deep_dump_object(
+                {
+                    "date_from": "-14d",
+                    "breakdown": "key",
+                    "display": "ActionsLineGraphCumulative",
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
+                }
+            )
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
+
+        self.assertEqual(response["result"][1]["count"], 2)
+        self.assertEqual(response["result"][1]["breakdown_value"], "val")
+        self.assertEqual(response["result"][1]["action"]["name"], "$pageview")
+
+        self.assertEqual(response["result"][1]["data"][-3], 1)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.get("/" + response["result"][1]["persons_urls"][-1]["url"]).json()
+
+        self.assertEqual(len(response["results"][0]["people"]), 2)
 
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
