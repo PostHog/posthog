@@ -554,14 +554,14 @@ describe('insightLogic', () => {
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
-            filters: { insight: 'FUNNELS' },
+            filters: { insight: InsightType.FUNNELS },
         })
         logic.mount()
 
         logic.actions.saveInsight()
         await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
 
-        logic.actions.updateInsight({ filters: { insight: 'FUNNELS' } })
+        logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
         await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
     })
 })
