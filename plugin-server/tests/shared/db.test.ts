@@ -1,8 +1,11 @@
-import { Hub, PropertyOperator } from '../../src/types'
+import { DateTime } from 'luxon'
+
+import { Hub, Person, PersonPropertyUpdateOperation, PropertyOperator, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
+import { UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
-import { resetTestDatabase } from '../helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 
@@ -56,6 +59,93 @@ describe('DB', () => {
                     ],
                 },
             },
+        })
+    })
+
+    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person> {
+        const selectResult = await db.postgresQuery(
+            `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
+            [teamId, personId],
+            'fetchPersonByPersonId'
+        )
+
+        return selectResult.rows[0]
+    }
+
+    describe('createPerson', () => {
+        let team: Team
+        let person: Person
+        const uuid = new UUIDT().toString()
+        const distinctId = 'distinct_id1'
+
+        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
+
+        beforeEach(async () => {
+            team = await getFirstTeam(hub)
+        })
+
+        test('without properties', async () => {
+            const person = await db.createPerson(TIMESTAMP, {}, {}, team.id, null, false, uuid, [distinctId])
+            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+
+            expect(fetched_person.is_identified).toEqual(false)
+            expect(fetched_person.properties).toEqual({})
+            expect(fetched_person.properties_last_operation).toEqual({})
+            expect(fetched_person.properties_last_updated_at).toEqual({})
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
+        })
+
+        test('without properties indentified true', async () => {
+            const person = await db.createPerson(TIMESTAMP, {}, {}, team.id, null, true, uuid, [distinctId])
+            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            expect(fetched_person.is_identified).toEqual(true)
+            expect(fetched_person.properties).toEqual({})
+            expect(fetched_person.properties_last_operation).toEqual({})
+            expect(fetched_person.properties_last_updated_at).toEqual({})
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
+        })
+
+        test('with properties', async () => {
+            const person = await db.createPerson(
+                TIMESTAMP,
+                { a: 123, b: false },
+                { c: 'bbb' },
+                team.id,
+                null,
+                false,
+                uuid,
+                [distinctId]
+            )
+            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            expect(fetched_person.is_identified).toEqual(false)
+            expect(fetched_person.properties).toEqual({ a: 123, b: false, c: 'bbb' })
+            expect(fetched_person.properties_last_operation).toEqual({
+                a: PersonPropertyUpdateOperation.Set,
+                b: PersonPropertyUpdateOperation.Set,
+                c: PersonPropertyUpdateOperation.SetOnce,
+            })
+            expect(fetched_person.properties_last_updated_at).toEqual({
+                a: TIMESTAMP.toISO(),
+                b: TIMESTAMP.toISO(),
+                c: TIMESTAMP.toISO(),
+            })
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
+        })
+
+        test('with set and set_once for the same key', async () => {
+            const person = await db.createPerson(TIMESTAMP, { a: 1 }, { a: 2 }, team.id, null, false, uuid, [
+                distinctId,
+            ])
+            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            expect(fetched_person.is_identified).toEqual(false)
+            expect(fetched_person.properties).toEqual({ a: 1 })
+            expect(fetched_person.properties_last_operation).toEqual({ a: PersonPropertyUpdateOperation.Set })
+            expect(fetched_person.properties_last_updated_at).toEqual({ a: TIMESTAMP.toISO() })
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
         })
     })
 
