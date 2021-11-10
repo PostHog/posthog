@@ -3,7 +3,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
-from posthog.models import Action, ActionStep, Event, Person, SessionRecordingEvent, Team
+from posthog.models import Action, ActionStep, Cohort, Event, Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from posthog.tasks.calculate_action import calculate_action
@@ -162,6 +162,65 @@ def factory_session_recordings_list_test(
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
+
+        def test_event_filter_with_person_properties(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+            Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
+            self.create_snapshot("user", "1", self.base_time)
+            self.create_event("user", self.base_time)
+            self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
+            self.create_snapshot("user2", "2", self.base_time)
+            self.create_event("user2", self.base_time)
+            self.create_snapshot("user2", "2", self.base_time + relativedelta(seconds=30))
+            filter = SessionRecordingsFilter(
+                data={
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "name": "$pageview",
+                            "properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}],
+                        },
+                    ]
+                }
+            )
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "1")
+
+        def test_event_filter_with_cohort_properties(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+            Person.objects.create(
+                team=self.team, distinct_ids=["user2"], properties={"email": "bla2", "$some_prop": "some_val"}
+            )
+            cohort = Cohort.objects.create(
+                team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
+            )
+            self.create_snapshot("user", "1", self.base_time)
+            self.create_event("user", self.base_time)
+            self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
+            self.create_snapshot("user2", "2", self.base_time)
+            self.create_event("user2", self.base_time)
+            self.create_snapshot("user2", "2", self.base_time + relativedelta(seconds=30))
+            filter = SessionRecordingsFilter(
+                data={
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "name": "$pageview",
+                            "properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],
+                        },
+                    ]
+                }
+            )
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "2")
 
         def test_multiple_event_filters(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
