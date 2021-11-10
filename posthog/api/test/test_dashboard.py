@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Dashboard, Filter, Insight, Team, User
+from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key
 
@@ -40,6 +41,16 @@ class TestDashboard(APIBaseTest):
 
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
+
+    def test_create_dashboard_token_override(self):
+        team2 = Organization.objects.bootstrap(self.user)[2]
+        self.client.force_login(self.user)
+
+        response = self.client.post(f"/api/dashboard/?token={team2.api_token}", {"name": "My new dashboard"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        dash = Dashboard.objects.get(name="My new dashboard")
+        self.assertEqual(dash.team, team2)
 
     def test_update_dashboard(self):
         dashboard = Dashboard.objects.create(
