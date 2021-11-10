@@ -45,7 +45,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
 
     @action(methods=["GET"], detail=False)
     def property_values(self, request: request.Request, **kw):
-        values = sync_execute(
+        rows = sync_execute(
             f"""
             SELECT trim(BOTH '"' FROM tupleElement(keysAndValues, 2)) as value
             FROM groups
@@ -57,4 +57,4 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
             {"team_id": self.team.pk, "group_type_index": request.GET["group_type_index"], "key": request.GET["key"]},
         )
 
-        return response.Response([{"name": convert_property_value(name[0])} for name in values])
+        return response.Response([{"name": name[0]} for name in rows])
