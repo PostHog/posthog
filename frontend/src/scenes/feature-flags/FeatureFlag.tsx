@@ -158,6 +158,9 @@ export function FeatureFlag(): JSX.Element {
                         if (featureFlagId !== 'new' && newValues.key) {
                             setHasKeyChanged(newValues.key !== featureFlag.key)
                         }
+                        if (newValues.key) {
+                            newValues.key = newValues.key.replace(' ', '-')
+                        }
                         setFeatureFlag({ ...featureFlag, ...newValues })
                     }}
                     onFinish={(values) =>
@@ -264,6 +267,7 @@ export function FeatureFlag(): JSX.Element {
                                     autoCorrect="off"
                                     spellCheck={false}
                                 />
+                                <small>Only letters, numbers, hyphens (-) & underscores (_) are allowed.</small>
                             </Form.Item>
 
                             <Form.Item name="name" label="Description">

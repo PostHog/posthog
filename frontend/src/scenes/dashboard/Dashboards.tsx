@@ -187,7 +187,7 @@ export function Dashboards(): JSX.Element {
 
             {dashboardsLoading ? (
                 <Spin />
-            ) : dashboards.length > 0 ? (
+            ) : dashboards.length > 0 || searchTerm ? (
                 <Table
                     dataSource={dashboards}
                     rowKey="id"
@@ -197,9 +197,10 @@ export function Dashboards(): JSX.Element {
                 />
             ) : (
                 <div>
+                    <br />
                     <p>Create your first dashboard:</p>
 
-                    <Row gutter={24}>
+                    <Row gutter={24} gutter={[16, 16]}>
                         <Col xs={24} xl={6}>
                             <Card
                                 title="Empty"

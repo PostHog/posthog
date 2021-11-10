@@ -480,3 +480,12 @@ class TestDashboard(APIBaseTest):
         self.assertDictEqual(
             response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
         )
+
+    def test_insights_with_no_insight_set(self):
+        # We were saving some insights on the default dashboard with no insight
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        Insight.objects.create(
+            dashboard=dashboard, filters={"events": [{"id": "$pageview"}]}, team=self.team, last_refresh=now(),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
+        self.assertEqual(response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS"})
