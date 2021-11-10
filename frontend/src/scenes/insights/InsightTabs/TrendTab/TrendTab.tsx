@@ -17,7 +17,6 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export interface TrendTabProps {
@@ -29,7 +28,6 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
-    groupPropertiesModel.mount()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
