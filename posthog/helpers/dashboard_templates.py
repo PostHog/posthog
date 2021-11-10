@@ -44,24 +44,6 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
     Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
-        name="Weekly revenue (from Order Completed)",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [
-                {"id": "Order Completed", "math": "sum", "type": TREND_FILTER_TYPE_EVENTS, "math_property": "revenue"}
-            ],
-            INTERVAL: "week",
-            DATE_FROM: "-60d",
-            INSIGHT: INSIGHT_TRENDS,
-        },
-        last_refresh=now(),
-        color=random.choice(DASHBOARD_COLORS),
-        description="Shows how much revenue your app is capturing from orders every week. "
-        'Sales should be registered with an "Order Completed" event.',
-    )
-
-    Insight.objects.create(
-        team=dashboard.team,
-        dashboard=dashboard,
         name="Cumulative DAUs",
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
