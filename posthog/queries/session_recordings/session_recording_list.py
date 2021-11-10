@@ -110,7 +110,7 @@ class SessionRecordingList:
 
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
-    def _get_events_timestamp_clause(self) -> Tuple[Dict[str, Any], str]:
+    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
@@ -119,9 +119,9 @@ class SessionRecordingList:
         if self._filter.date_to:
             timestamp_clause += "\nAND timestamp <= %(event_end_time)s"
             timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
-        return timestamp_params, timestamp_clause
+        return timestamp_clause, timestamp_params
 
-    def _get_recording_start_time_clause(self) -> Tuple[Dict[str, Any], str]:
+    def _get_recording_start_time_clause(self) -> Tuple[str, Dict[str, Any]]:
         start_time_clause = ""
         start_time_params = {}
         if self._filter.date_from:
@@ -130,18 +130,18 @@ class SessionRecordingList:
         if self._filter.date_to:
             start_time_clause += "\nAND start_time <= %(end_time)s"
             start_time_params["end_time"] = self._filter.date_to
-        return start_time_params, start_time_clause
+        return start_time_clause, start_time_params
 
-    def _get_distinct_id_clause(self) -> Tuple[Dict[str, Any], str]:
+    def _get_distinct_id_clause(self) -> Tuple[str, Dict[str, Any]]:
         distinct_id_clause = ""
         distinct_id_params = {}
         if self._filter.person_uuid:
             person = Person.objects.get(uuid=self._filter.person_uuid)
             distinct_id_clause = f"AND distinct_id IN (SELECT distinct_id from posthog_persondistinctid WHERE person_id = %(person_id)s AND team_id = %(team_id)s)"
             distinct_id_params = {"person_id": person.pk, "team_id": self._team.pk}
-        return distinct_id_params, distinct_id_clause
+        return distinct_id_clause, distinct_id_params
 
-    def _get_duration_clause(self) -> Tuple[Dict[str, Any], str]:
+    def _get_duration_clause(self) -> Tuple[str, Dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
         if self._filter.recording_duration_filter:
@@ -153,7 +153,7 @@ class SessionRecordingList:
             duration_params = {
                 "recording_duration": self._filter.recording_duration_filter.value,
             }
-        return duration_params, duration_clause
+        return duration_clause, duration_params
 
     def _get_events_query(self) -> Tuple[str, list]:
         events: Union[EventManager, QuerySet] = Event.objects.filter(team=self._team).order_by("-timestamp").only(
@@ -204,10 +204,10 @@ class SessionRecordingList:
         limit = self._get_limit() + 1
         offset = self._filter.offset or 0
         base_params = {"team_id": self._team.pk, "limit": limit, "offset": offset}
-        events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
-        recording_start_time_params, recording_start_time_clause = self._get_recording_start_time_clause()
-        distinct_id_params, distinct_id_clause = self._get_distinct_id_clause()
-        duration_params, duration_clause = self._get_duration_clause()
+        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
+        recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()
+        distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
+        duration_clause, duration_params = self._get_duration_clause()
 
         core_session_recording_query = self._core_session_recording_query.format(
             recording_duration_select_statement=self._recording_duration_select_statement,
