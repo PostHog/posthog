@@ -75,6 +75,10 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             interval: autocorrectInterval(filters),
             breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
             breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
+            breakdown_group_type_index:
+                breakdownEnabled && filters.breakdown_group_type_index != undefined
+                    ? filters.breakdown_group_type_index
+                    : undefined,
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
             funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
             funnel_custom_steps: filters.funnel_custom_steps || undefined,
