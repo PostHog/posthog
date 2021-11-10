@@ -12,6 +12,7 @@ describe('Person Visualization Check', () => {
         cy.get('[data-row-key="email"] > :nth-child(1)').should('contain', 'email')
 
         cy.get('.events').should('exist')
+        cy.get('[data-attr="manage-events-table"] .ant-tabs-top').should('not.exist')
         cy.get('[data-row-key="email"] .anticon-copy').click()
         cy.window()
             .then((win) => {
@@ -66,6 +67,7 @@ describe('Merge person', () => {
         cy.contains('merritt.humphrey@gmail.com').click()
         cy.contains('Merge persons').click()
 
+        cy.contains('Automatically load new events').click()
         cy.contains('$create_alias').should('exist')
         cy.get('span:contains(Pageview)').should('have.length', 2)
         cy.get('span:contains(clicked)').should('have.length', 2)

@@ -195,7 +195,7 @@ function Pages(): JSX.Element {
                     <PageButton
                         title="Setup"
                         icon={<IconSettings />}
-                        identifier="onboardingSetup"
+                        identifier={Scene.OnboardingSetup}
                         to={urls.onboardingSetup()}
                     />
                     <Spacer />
@@ -204,7 +204,7 @@ function Pages(): JSX.Element {
             <PageButton
                 title="Dashboards"
                 icon={<IconGauge />}
-                identifier="dashboards"
+                identifier={Scene.Dashboards}
                 to={urls.dashboards()}
                 sideAction={{
                     icon: <IconArrowDropDown />,
@@ -234,36 +234,51 @@ function Pages(): JSX.Element {
             <PageButton
                 title="Insights"
                 icon={<IconBarChart />}
-                identifier="savedInsights"
+                identifier={Scene.SavedInsights}
                 to={urls.savedInsights()}
                 sideAction={{
                     icon: <IconPlus />,
                     to: urls.newInsight(ViewType.TRENDS),
                     tooltip: 'New insight',
-                    identifier: 'insights',
+                    identifier: Scene.Insights,
                 }}
             />
             <PageButton
                 title="Recordings"
                 icon={<IconRecording />}
-                identifier="sessionRecordings"
+                identifier={Scene.SessionRecordings}
                 to={urls.sessionRecordings()}
             />
-            <PageButton title="Feature flags" icon={<IconFlag />} identifier="featureFlags" to={urls.featureFlags()} />
+            <PageButton
+                title="Feature flags"
+                icon={<IconFlag />}
+                identifier={Scene.FeatureFlags}
+                to={urls.featureFlags()}
+            />
             <Spacer />
-            <PageButton title="Events & actions" icon={<IconGroupedEvents />} identifier="events" to={urls.events()} />
-            <PageButton title="Persons" icon={<IconPerson />} identifier="persons" to={urls.persons()} />
-            <PageButton title="Cohorts" icon={<IconCohort />} identifier="cohorts" to={urls.cohorts()} />
-            <PageButton title="Annotations" icon={<IconComment />} identifier="annotations" to={urls.annotations()} />
+            <PageButton
+                title="Events & actions"
+                icon={<IconGroupedEvents />}
+                identifier={Scene.Events}
+                to={urls.events()}
+            />
+            <PageButton title="Persons" icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
+            <PageButton title="Cohorts" icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
+            <PageButton
+                title="Annotations"
+                icon={<IconComment />}
+                identifier={Scene.Annotations}
+                to={urls.annotations()}
+            />
             <Spacer />
             {canViewPlugins(currentOrganization) && (
-                <PageButton title="Plugins" icon={<IconExtension />} identifier="plugins" to={urls.plugins()} />
+                <PageButton title="Plugins" icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
             )}
-            <PageButton title="Toolbar" icon={<IconTools />} identifier="toolbar" onClick={showToolbarModal} />
+            <PageButton title="Toolbar" icon={<IconTools />} identifier="Toolbar" onClick={showToolbarModal} />
             <PageButton
                 title="Project settings"
                 icon={<IconSettings />}
-                identifier="projectSettings"
+                identifier={Scene.ProjectSettings}
                 to={urls.projectSettings()}
             />
         </div>

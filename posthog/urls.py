@@ -50,6 +50,10 @@ def authorize_and_redirect(request):
     )
 
 
+def static_not_found(request):
+    return HttpResponse("Static file not found", status=404)
+
+
 # Try to include EE endpoints
 ee_urlpatterns: List[Any] = []
 if settings.EE_AVAILABLE:
@@ -132,4 +136,5 @@ frontend_unauthenticated_routes = [
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
+urlpatterns.append(re_path(r"static/.*", static_not_found))
 urlpatterns.append(re_path(r"^.*", login_required(home)))

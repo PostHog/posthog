@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 describe('Invite Signup', () => {
     it('Authenticated user can invite user but cannot use invite for someone else', () => {
         cy.get('[data-attr=top-navigation-whoami]').click()
@@ -52,7 +54,7 @@ describe('Invite Signup', () => {
         cy.get('#first_name').type('Bob')
         cy.get('[data-attr=password-signup]').click()
         cy.get('.Toastify__toast-body').should('contain', 'You have joined')
-        cy.location('pathname').should('include', '/insights')
+        cy.location('pathname').should('include', urls.savedInsights())
     })
 
     it('can navigate to organization settings and invite/change users', () => {
@@ -78,7 +80,7 @@ describe('Invite Signup', () => {
         cy.get('#first_name').type('Bob')
         cy.get('[data-attr=password-signup]').click()
         cy.get('.Toastify__toast-body').should('contain', 'You have joined')
-        cy.location('pathname').should('include', '/insights')
+        cy.location('pathname').should('include', urls.savedInsights())
 
         // Log out, log in as main
         cy.get('[data-attr=top-navigation-whoami]').click()

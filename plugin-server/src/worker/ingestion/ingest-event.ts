@@ -17,7 +17,6 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
         const result = await hub.eventsProcessor.processEvent(
             distinctId,
             ip,
-            site_url,
             event,
             team_id,
             DateTime.fromISO(now),

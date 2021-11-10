@@ -162,7 +162,9 @@ describe('insightLogic', () => {
                             properties: [partial({ value: 'a' })],
                         }),
                     })
-                    .toDispatchActions(['updateInsight', 'updateInsightSuccess'])
+                    .delay(1)
+                    // do not override the insight if querying with different filters
+                    .toNotHaveDispatchedActions(['updateInsight', 'updateInsightSuccess'])
             })
         })
 
@@ -357,6 +359,9 @@ describe('insightLogic', () => {
         })
 
         it('sets the URL when changing filters', async () => {
+            // make sure we're on the right page
+            router.actions.push('/insights')
+
             logic.actions.setFilters({ insight: 'TRENDS', interval: 'minute' })
             await expectLogic()
                 .toDispatchActions(logic, [logic.actionCreators.setFilters({ insight: 'TRENDS', interval: 'minute' })])
@@ -469,10 +474,6 @@ describe('insightLogic', () => {
 
     test('keeps saved filters', async () => {
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SAVED_INSIGHTS], {
-            [FEATURE_FLAGS.SAVED_INSIGHTS]: true,
-        })
-
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: 'FUNNELS' },

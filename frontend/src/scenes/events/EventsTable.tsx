@@ -27,8 +27,8 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
-import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
+import { urls } from 'scenes/urls'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -44,12 +44,7 @@ interface EventsTable {
     filtersEnabled?: boolean
     pageKey?: string
     hidePersonColumn?: boolean
-}
-
-export const scene: SceneExport = {
-    component: EventsTable,
-    logic: eventsTableLogic,
-    paramsToProps: ({ params: { fixedFilters, pageKey } }) => ({ fixedFilters, key: pageKey }),
+    sceneUrl?: string
 }
 
 export function EventsTable({
@@ -57,8 +52,9 @@ export function EventsTable({
     filtersEnabled = true,
     pageKey,
     hidePersonColumn,
+    sceneUrl,
 }: EventsTable = {}): JSX.Element {
-    const logic = eventsTableLogic({ fixedFilters, key: pageKey })
+    const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events() })
 
     const {
         properties,
@@ -71,6 +67,7 @@ export function EventsTable({
         automaticLoadEnabled,
         exportUrl,
         highlightEvents,
+        sceneIsEventsPage,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
 
@@ -297,8 +294,8 @@ export function EventsTable({
     )
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <EventsTabs tab={EventsTab.Events} />
+        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 32 } : {}}>
+            {sceneIsEventsPage ? <EventsTabs tab={EventsTab.Events} /> : null}
             <div className="events" data-attr="events-table">
                 <PageHeader
                     title="Events"

@@ -130,7 +130,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
-    '/': urls.insights(),
+    '/': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
     '/actions': '/events/actions',
@@ -165,7 +165,7 @@ export const routes: Record<string, Scene> = {
     [urls.organizationBilling()]: Scene.Billing,
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
-    [urls.instanceLicenses()]: Scene.InstanceLicenses,
+    [urls.instanceLicenses()]: Scene.Licenses,
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.mySettings()]: Scene.MySettings,

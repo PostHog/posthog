@@ -705,7 +705,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2020-01-14",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)

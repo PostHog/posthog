@@ -1,11 +1,16 @@
-import { CacheExtension, PluginEvent } from '@posthog/plugin-scaffold'
+import { CacheExtension, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Plugin, PluginMeta } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
-import { ClickHouseEvent, Event, PluginConfig, TimestampFormat } from '../../../../types'
+import { ClickHouseEvent, Element, Event, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
-import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
+import { chainToElements } from '../../../../utils/db/utils'
+import { castTimestampToClickhouseFormat, UUIDT } from '../../../../utils/utils'
+
+export interface RawElement extends Element {
+    $el_text?: string
+}
 export interface TimestampBoundaries {
     min: Date | null
     max: Date | null
@@ -25,12 +30,16 @@ export interface ExportEventsJobPayload extends Record<string, any> {
     incrementTimestampCursor: boolean
 }
 
-export type ExportEventsFromTheBeginningUpgrade = Plugin<{
+export interface HistoricalExportEvent extends PluginEvent {
+    properties: Properties // can't be undefined
+}
+
+export type ExportHistoricalEventsUpgrade = Plugin<{
     global: {
         pgClient: Client
         eventsToIgnore: Set<string>
         sanitizedTableName: string
-        exportEventsFromTheBeginning: (payload: ExportEventsJobPayload) => Promise<void>
+        exportHistoricalEvents: (payload: ExportEventsJobPayload) => Promise<void>
         initTimestampsAndCursor: (payload: Record<string, any> | undefined) => Promise<void>
         setTimestampBoundaries: () => Promise<void>
         updateProgressBar: (incrementedCursor: number) => void
@@ -86,7 +95,7 @@ export const fetchEventsForInterval = async (
     offset: number,
     eventsTimeInterval: number,
     eventsPerRun: number
-): Promise<PluginEvent[]> => {
+): Promise<HistoricalExportEvent[]> => {
     const timestampUpperBound = new Date(timestampLowerBound.getTime() + eventsTimeInterval)
 
     if (db.kafkaProducer) {
@@ -111,7 +120,7 @@ export const fetchEventsForInterval = async (
         const clickhouseFetchEventsResult = await db.clickhouseQuery(fetchEventsQuery)
 
         return clickhouseFetchEventsResult.data.map((event) =>
-            convertDatabaseEventToPluginEvent({
+            convertClickhouseEventToPluginEvent({
                 ...(event as ClickHouseEvent),
                 properties: JSON.parse(event.properties || '{}'),
             })
@@ -123,15 +132,18 @@ export const fetchEventsForInterval = async (
             'fetchEventsForInterval'
         )
 
-        return postgresFetchEventsResult.rows.map(convertDatabaseEventToPluginEvent)
+        return postgresFetchEventsResult.rows.map(convertPostgresEventToPluginEvent)
     }
 }
 
-export const convertDatabaseEventToPluginEvent = (
-    event: Omit<Event, 'id' | 'elements' | 'elements_hash'>
-): PluginEvent => {
-    const { event: eventName, properties, timestamp, team_id, distinct_id, created_at } = event
-    return {
+export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
+    const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
+    if (eventName === '$autocapture' && elements_chain) {
+        properties['$elements'] = convertDatabaseElementsToRawElements(chainToElements(elements_chain))
+    }
+    properties['$$historical_export_source_db'] = 'clickhouse'
+    const parsedEvent = {
+        uuid,
         team_id,
         distinct_id,
         properties,
@@ -142,4 +154,47 @@ export const convertDatabaseEventToPluginEvent = (
         site_url: '',
         sent_at: created_at,
     }
+    return addHistoricalExportEventProperties(parsedEvent)
+}
+
+export const convertPostgresEventToPluginEvent = (event: Event): HistoricalExportEvent => {
+    const { event: eventName, timestamp, team_id, distinct_id, created_at, properties, elements, id } = event
+    properties['$$postgres_event_id'] = id
+    if (eventName === '$autocapture' && elements) {
+        properties['$elements'] = convertDatabaseElementsToRawElements(elements)
+    }
+    console.log(properties)
+
+    properties['$$historical_export_source_db'] = 'postgres'
+    const parsedEvent = {
+        uuid: new UUIDT().toString(), // postgres events don't store a uuid
+        team_id,
+        distinct_id,
+        properties,
+        timestamp,
+        now: DateTime.now().toISO(),
+        event: eventName || '',
+        ip: properties?.['$ip'] || '',
+        site_url: '',
+        sent_at: created_at,
+    }
+    return addHistoricalExportEventProperties(parsedEvent)
+}
+
+const addHistoricalExportEventProperties = (event: HistoricalExportEvent): HistoricalExportEvent => {
+    event.properties['$$is_historical_export_event'] = true
+    event.properties['$$historical_export_timestamp'] = new Date().toISOString()
+    return event
+}
+
+const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
+    for (const element of elements) {
+        if (element.attributes && element.attributes.attr__class) {
+            element.attr_class = element.attributes.attr__class
+        }
+        if (element.text) {
+            element.$el_text = element.text
+        }
+    }
+    return elements
 }
