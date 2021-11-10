@@ -538,10 +538,6 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight and updateInsight reload the saved insights list', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SAVED_INSIGHTS], {
-            [FEATURE_FLAGS.SAVED_INSIGHTS]: true,
-        })
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
