@@ -14,4 +14,9 @@ describe('Paths', () => {
 
         cy.get('[data-attr=paths-viz]').should('exist')
     })
+
+    it('can save paths', () => {
+        cy.get('[data-attr="insight-save-button"]').click()
+        cy.get('[data-attr="success-toast"]').should('have.text', 'Insight saved!')
+    })
 })
