@@ -366,9 +366,11 @@ const sampleContextData = {
     current_team: {
         id: 2,
     },
+    current_user: { organization: { available_features: ['correlation_analysis'] } },
     preflight: {
         is_clickhouse_enabled: true,
+        instance_preferences: { disable_paid_fs: false },
     },
     default_event_name: '$pageview',
-    persisted_feature_flags: [],
+    persisted_feature_flags: ['correlation-analysis'],
 }
