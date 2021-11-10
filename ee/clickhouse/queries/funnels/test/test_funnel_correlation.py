@@ -348,7 +348,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValidationError):
             FunnelCorrelation(filter, self.team)._run()
 
-    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
+    @test_with_materialized_columns(event_properties=[], person_properties=["$browser", "$nice"])
     def test_correlation_with_multiple_properties(self):
         filters = {
             "events": [
@@ -642,7 +642,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @test_with_materialized_columns(["blah", "signup_source"])
+    @test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
     def test_funnel_correlation_with_event_properties(self):
         filters = {
             "events": [
