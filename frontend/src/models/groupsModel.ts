@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { GroupType } from '~/types'
+import { Group, GroupType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,13 +20,29 @@ export const groupsModel = kea<groupsModelType>({
             ['clickhouseEnabled'],
         ],
     },
+    actions: () => ({
+        loadGroupList: (groupTypeIndex: string) => ({ groupTypeIndex }),
+    }),
     loaders: ({ values }) => ({
         groupTypes: [
             [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
                     if (values.groupsEnabled) {
-                        return await api.get(`api/projects/${values.currentTeamId}/groups`)
+                        return await api.get(`api/projects/${values.currentTeamId}/groups/types`)
+                    }
+                    return []
+                },
+            },
+        ],
+        groupList: [
+            [] as Array<Group>,
+            {
+                loadGroupList: async ({ groupTypeIndex }) => {
+                    if (values.groupsEnabled) {
+                        return await api.get(
+                            `api/projects/${values.currentTeamId}/groups/?group_type_index=${groupTypeIndex}`
+                        )
                     }
                     return []
                 },
