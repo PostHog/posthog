@@ -29,6 +29,7 @@ from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
+    BREAKDOWN_CUMULATIVE_INNER_SQL,
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
@@ -154,6 +155,16 @@ class ClickhouseTrendsBreakdown:
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
                     **active_user_params,
+                    **breakdown_filter_params,
+                )
+            elif self.filter.display == TRENDS_CUMULATIVE and self.entity.math == "dau":
+                inner_sql = BREAKDOWN_CUMULATIVE_INNER_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    breakdown_value=breakdown_value,
                     **breakdown_filter_params,
                 )
             else:

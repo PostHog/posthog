@@ -158,6 +158,30 @@ class ClickhouseTestInsights(
 
         self.assertEqual(len(response["results"][0]["people"]), 2)
 
+        # breakdown dau
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            data = deep_dump_object(
+                {
+                    "date_from": "-14d",
+                    "breakdown": "key",
+                    "display": "ActionsLineGraphCumulative",
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0, "math": "dau"}],
+                }
+            )
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
+
+        self.assertEqual(response["result"][1]["count"], 2)
+        self.assertEqual(response["result"][1]["breakdown_value"], "val")
+        self.assertEqual(response["result"][1]["action"]["name"], "$pageview")
+
+        self.assertEqual(response["result"][1]["data"][-3], 1)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.get("/" + response["result"][1]["persons_urls"][-1]["url"]).json()
+
+        self.assertEqual(len(response["results"][0]["people"]), 2)
+
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})

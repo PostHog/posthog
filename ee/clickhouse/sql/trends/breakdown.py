@@ -71,6 +71,32 @@ FROM events e
 GROUP BY day_start, breakdown_value
 """
 
+BREAKDOWN_CUMULATIVE_INNER_SQL = """
+SELECT
+    {aggregate_operation} as total,
+    toDateTime({interval_annotation}(timestamp), 'UTC') as day_start,
+    breakdown_value
+FROM (
+    SELECT 
+        person_id,
+        min(timestamp) as timestamp,
+        breakdown_value
+    FROM (
+        SELECT
+        person_id,
+        timestamp,
+        {breakdown_value} as breakdown_value 
+        FROM
+        events e
+        {person_join}
+        {groups_join}
+        {breakdown_filter}
+    )
+    GROUP BY person_id, breakdown_value
+)
+GROUP BY day_start, breakdown_value
+"""
+
 BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts as total, timestamp as day_start, breakdown_value
 FROM (
