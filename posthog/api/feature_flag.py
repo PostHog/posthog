@@ -7,7 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import ProjectScopedHyperlinkedModelSerializer, StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
@@ -16,7 +16,7 @@ from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
-class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+class FeatureFlagSerializer(ProjectScopedHyperlinkedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -57,7 +57,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False)
+            FeatureFlag.objects.filter(key=value, team_id=self.team.id, deleted=False)
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -68,7 +68,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        validated_data["team_id"] = self.context["team_id"]
+        validated_data["team_id"] = self.team.id
         self._update_filters(validated_data)
 
         variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
@@ -81,7 +81,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
             )
 
-        FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
+        FeatureFlag.objects.filter(key=validated_data["key"], team=self.team.id, deleted=True).delete()
         instance = super().create(validated_data)
 
         posthoganalytics.capture(

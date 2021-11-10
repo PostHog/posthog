@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from sentry_sdk.api import capture_exception
 
 from posthog.api.action import calculate_people, filter_by_type
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import ProjectScopedModelSerializer, StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.constants import TRENDS_STICKINESS
@@ -28,7 +28,7 @@ from posthog.tasks.calculate_cohort import calculate_cohort, calculate_cohort_ch
 from posthog.utils import is_clickhouse_enabled
 
 
-class CohortSerializer(serializers.ModelSerializer):
+class CohortSerializer(ProjectScopedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     count = serializers.SerializerMethodField()
     earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
@@ -70,7 +70,7 @@ class CohortSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
-        cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
+        cohort = Cohort.objects.create(team_id=self.team.id, **validated_data)
 
         if cohort.is_static:
             self._handle_static(cohort, request)
@@ -89,7 +89,7 @@ class CohortSerializer(serializers.ModelSerializer):
         else:
             try:
                 filter = Filter(request=request)
-                team = cast(User, request.user).team
+                team = self.team or cast(User, request.user).team
                 target_entity = get_target_entity(request)
                 if filter.shown_as == TRENDS_STICKINESS:
                     stickiness_filter = StickinessFilter(

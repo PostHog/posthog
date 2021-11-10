@@ -11,7 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import ProjectScopedModelSerializer, StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import format_next_url
 from posthog.celery import update_cache_item_task
@@ -36,7 +36,7 @@ from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 
-class InsightBasicSerializer(serializers.ModelSerializer):
+class InsightBasicSerializer(ProjectScopedModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
@@ -102,7 +102,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
-        team = Team.objects.get(id=self.context["team_id"])
+        team = self.team
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):

@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import ProjectScopedModelSerializer, StructuredViewSetMixin
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager

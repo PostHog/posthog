@@ -15,7 +15,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated, OperandH
 from rest_framework.request import Request
 from sentry_sdk.api import capture_exception
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import ProjectScopedModelSerializer, StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.helpers import create_dashboard_from_template
@@ -25,7 +25,7 @@ from posthog.tasks.update_cache import update_dashboard_item_cache, update_dashb
 from posthog.utils import get_safe_cache, render_template, str_to_bool
 
 
-class DashboardSerializer(serializers.ModelSerializer):
+class DashboardSerializer(ProjectScopedModelSerializer):
     items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
@@ -55,7 +55,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = Team.objects.get(id=self.context["team_id"])
+        team = self.team
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
@@ -213,7 +213,7 @@ class SharedDashboardsViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet
 
 
 # TODO: Delete this class, as it's been replaced by InsightSerializer
-class DashboardItemSerializer(serializers.ModelSerializer):
+class DashboardItemSerializer(ProjectScopedModelSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     _get_result: Optional[Dict[str, Any]] = None
@@ -245,7 +245,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
-        team = Team.objects.get(id=self.context["team_id"])
+        team = self.team
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):

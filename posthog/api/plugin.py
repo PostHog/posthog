@@ -15,7 +15,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import ProjectScopedModelSerializer, StructuredViewSetMixin
 from posthog.celery import app as celery_app
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
@@ -222,7 +222,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class PluginConfigSerializer(serializers.ModelSerializer):
+class PluginConfigSerializer(ProjectScopedModelSerializer):
     config = serializers.SerializerMethodField()
 
     class Meta:
@@ -265,9 +265,9 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return new_plugin_config
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
+        if not can_configure_plugins(Team.objects.get(id=self.team.id).organization_id):
             raise ValidationError("Plugin configuration is not available for the current organization!")
-        validated_data["team"] = Team.objects.get(id=self.context["team_id"])
+        validated_data["team"] = Team.objects.get(id=self.team.id)
         _fix_formdata_config_json(self.context["request"], validated_data)
         plugin_config = super().create(validated_data)
         _update_plugin_attachments(self.context["request"], plugin_config)

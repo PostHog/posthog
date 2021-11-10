@@ -42,11 +42,11 @@ def format_next_url(request: request.Request, offset: int, page_size: int):
 
 def get_token(data, request) -> Optional[str]:
     token = None
-    if request.method == "GET":
-        if request.GET.get("token"):
-            token = request.GET.get("token")  # token passed as query param
-        elif request.GET.get("api_key"):
-            token = request.GET.get("api_key")  # api_key passed as query param
+
+    if request.GET.get("token"):
+        token = request.GET.get("token")  # token passed as query param
+    elif request.GET.get("api_key"):
+        token = request.GET.get("api_key")  # api_key passed as query param
 
     if not token:
         if request.POST.get("api_key"):

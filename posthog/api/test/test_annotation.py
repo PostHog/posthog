@@ -101,6 +101,22 @@ class TestAnnotation(APIBaseTest):
         )
 
     @patch("posthoganalytics.capture")
+    def test_creating_annotation_with_team_override(self, mock_capture):
+        team2 = Organization.objects.bootstrap(self.user)[2]
+
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            f"/api/annotation/?token={team2.api_token}",
+            {"content": "Marketing campaign", "scope": "organization", "date_marker": "2020-01-01T00:00:00.000000Z",},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        instance = Annotation.objects.get(pk=response.json()["id"])
+        self.assertEqual(instance.content, "Marketing campaign")
+        self.assertEqual(instance.team, team2)  # not self.team!
+
+    @patch("posthoganalytics.capture")
     def test_updating_annotation(self, mock_capture):
         instance = self.annotation
         self.client.force_login(self.user)

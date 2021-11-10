@@ -1,6 +1,9 @@
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
+from rest_framework.fields import empty
+from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
@@ -156,6 +159,38 @@ class StructuredViewSetMixin(_GenericViewSet):
                 raise AuthenticationFailed()
 
         return team_found
+
+
+class ProjectScopedSerializerMixin:
+    team: Team = None
+    request: Request
+
+    def __init__(self, instance=None, data=empty, **kwargs):
+        super().__init__(instance=instance, data=data, **kwargs)
+
+        context = kwargs.get("context")
+
+        if context:
+            request = context.get("request")
+            if request:
+                self.request = request
+                token = get_token(None, request)
+
+                if token:
+                    team = Team.objects.get_team_from_token(token)
+                    if team:
+                        self.team = team
+
+            if not self.team and context.get("team_id"):
+                self.team = Team.objects.get(id=self.context["team_id"])
+
+
+class ProjectScopedModelSerializer(ProjectScopedSerializerMixin, serializers.ModelSerializer):
+    pass
+
+
+class ProjectScopedHyperlinkedModelSerializer(ProjectScopedSerializerMixin, serializers.HyperlinkedModelSerializer):
+    pass
 
     # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
     # TODO: Delete below when no legacy endpoints are used anymore

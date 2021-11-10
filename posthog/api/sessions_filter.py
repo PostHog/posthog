@@ -1,17 +1,17 @@
 from typing import Any, Dict
 
 import posthoganalytics
-from rest_framework import serializers, viewsets
+from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import ProjectScopedModelSerializer, StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
-class SessionsFilterSerializer(serializers.ModelSerializer):
+class SessionsFilterSerializer(ProjectScopedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -26,9 +26,7 @@ class SessionsFilterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> SessionsFilter:
         request = self.context["request"]
-        instance = SessionsFilter.objects.create(
-            team_id=self.context["team_id"], created_by=request.user, **validated_data,
-        )
+        instance = SessionsFilter.objects.create(team_id=self.team.id, created_by=request.user, **validated_data,)
         posthoganalytics.capture(instance.created_by.distinct_id, "sessions filter created")
         return instance
 
