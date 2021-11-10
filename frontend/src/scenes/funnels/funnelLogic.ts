@@ -1116,6 +1116,10 @@ export const funnelLogic = kea<funnelLogicType>({
             })
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
+            // :TODO: Support 'person' modal for groups
+            if (values.filters.aggregation_group_type_index != undefined) {
+                return
+            }
             personsModalLogic.actions.loadPeople({
                 action: 'session',
                 breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
@@ -1128,6 +1132,10 @@ export const funnelLogic = kea<funnelLogicType>({
             })
         },
         openCorrelationPersonsModal: ({ entity, converted, resultType }) => {
+            // :TODO: Support 'person' modal for groups
+            if (values.filters.aggregation_group_type_index != undefined) {
+                return
+            }
             personsModalLogic.actions.loadPeople({
                 action: { id: entity.id, name: entity.name, properties: entity.properties, type: entity.type },
                 label: entity.id,

@@ -40,7 +40,7 @@ export function ActionsLineGraph({
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
             onClick={
-                dashboardItemId || isMultiSeriesFormula(filters.formula)
+                dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
                     ? null
                     : (point) => {
                           const { dataset, day, value: pointValue } = point
