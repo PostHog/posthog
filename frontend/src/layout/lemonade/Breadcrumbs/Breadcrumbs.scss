@@ -28,8 +28,8 @@
     font-weight: 500;
     white-space: pre;
     &--current {
-        font-style: italic;
-        color: red; // TODO
+        font-weight: bold;
+        color: $text_muted;
     }
     > :first-child {
         margin-right: 0.5rem;
