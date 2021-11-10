@@ -84,10 +84,16 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 // and displaying of people and the display of the modal would be helpful to
 // keep this interfaces smaller.
 type LoadPeopleFromUrlProps = {
+    // The url from which we can load urls
     url: string
-    stepNumber: number
-    breakdown: string
-    breakdown_value: string // NOTE: using snake case to be consistent with the rest of the file
+    // The funnel step the dialog should display as the complete/dropped step
+    funnelStep: number
+    // Used to display in the modal title the property value we're filtering
+    // with
+    breakdown_value?: string // NOTE: using snake case to be consistent with the rest of the file
+    // This label is used in the modal title. It's usage depends on the
+    // filter.insight attribute. For insight=FUNNEL we use it as a person
+    // property name
     label: string
 }
 
@@ -97,10 +103,9 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
-        loadPeopleFromUrl: ({ url, stepNumber, breakdown, breakdown_value, label }: LoadPeopleFromUrlProps) => ({
+        loadPeopleFromUrl: ({ url, funnelStep, breakdown_value, label }: LoadPeopleFromUrlProps) => ({
             url,
-            stepNumber,
-            breakdown,
+            funnelStep,
             breakdown_value,
             label,
         }),
@@ -272,16 +277,15 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
 
                 return peopleResult
             },
-            loadPeopleFromUrl: async ({ url, stepNumber, breakdown, breakdown_value, label }) => {
+            loadPeopleFromUrl: async ({ url, funnelStep, breakdown_value = '', label }) => {
                 const people = await (await fetch(url)).json()
 
                 return {
                     people: people?.results[0]?.people,
                     count: people?.results[0]?.count || 0,
                     label,
-                    stepNumber,
+                    funnelStep,
                     breakdown_value,
-                    breakdown,
                     day: '',
                     action: 'session',
                 }

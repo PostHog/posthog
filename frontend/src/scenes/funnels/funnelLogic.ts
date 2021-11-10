@@ -1131,13 +1131,12 @@ export const funnelLogic = kea<funnelLogicType>({
         openCorrelationPersonsModal: ({ correlation, success }) => {
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
-
                 personsModalLogic.actions.loadPeopleFromUrl({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
-                    // I'm not sure why this is -2, I'm just copying from what was here previously
-                    stepNumber: success ? values.stepsWithCount.length : -2,
+                    // just display that we either completed the last step, or
+                    // dropped at the second to last step
+                    funnelStep: success ? values.stepsWithCount.length : -2,
                     label: breakdown,
-                    breakdown,
                     breakdown_value,
                 })
 
@@ -1151,10 +1150,8 @@ export const funnelLogic = kea<funnelLogicType>({
 
                 personsModalLogic.actions.loadPeopleFromUrl({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
-                    stepNumber: success ? values.stepsWithCount.length : -2,
+                    funnelStep: success ? values.stepsWithCount.length : -2,
                     label: name,
-                    breakdown: '',
-                    breakdown_value: '',
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
