@@ -140,12 +140,13 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     day: date_from,
                     breakdown_value,
                 }),
-                loadPeopleFromUrl: (_, { label }) => ({
+                loadPeopleFromUrl: (_, { label, date_from, action, breakdown_value }) => ({
                     people: [],
                     count: 0,
-                    day: '',
+                    day: date_from,
                     label,
-                    action: 'session',
+                    action,
+                    breakdown_value,
                 }),
                 setFilters: () => null,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
@@ -218,13 +219,13 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     if (filters.funnel_correlation_person_entity) {
                         const cleanedParams = cleanFilters(filters)
                         people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
-                    } else if (filters.insight === ViewType.LIFECYCLE) {
+                    } else if (filters.insight === InsightType.LIFECYCLE) {
                         const filterParams = parsePeopleParams(
                             { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                             filters
                         )
                         people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
-                    } else if (filters.insight === ViewType.STICKINESS) {
+                    } else if (filters.insight === InsightType.STICKINESS) {
                         const filterParams = parsePeopleParams(
                             { label, action, date_from, date_to, breakdown_value },
                             filters
@@ -256,7 +257,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         const cleanedParams = cleanFilters(params)
                         const funnelParams = toParams(cleanedParams)
                         people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
-                    } else if (filters.insight === ViewType.PATHS) {
+                    } else if (filters.insight === InsightType.PATHS) {
                         const cleanedParams = cleanFilters(filters)
                         people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                     } else {
@@ -288,7 +289,15 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
 
                 return peopleResult
             },
-            loadPeopleFromUrl: async ({ url, funnelStep, breakdown_value = '', label }) => {
+            loadPeopleFromUrl: async ({
+                url,
+                funnelStep,
+                breakdown_value = '',
+                date_from,
+                action,
+                label,
+                pathsDropoff,
+            }) => {
                 const people = await (await fetch(url)).json()
 
                 return {
@@ -297,8 +306,10 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     label,
                     funnelStep,
                     breakdown_value,
-                    day: '',
-                    action: 'session',
+                    day: date_from,
+                    action: action,
+                    next: people?.next,
+                    pathsDropoff,
                 }
             },
             loadMorePeople: async ({}, breakpoint) => {

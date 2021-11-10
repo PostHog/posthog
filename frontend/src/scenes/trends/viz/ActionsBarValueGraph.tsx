@@ -29,7 +29,7 @@ export function ActionsBarValueGraph({
     const [total, setTotal] = useState(0)
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { loadPeople } = useActions(personsModalLogic)
+    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
     function updateData(): void {
@@ -98,7 +98,10 @@ export function ActionsBarValueGraph({
                               pointValue,
                           }
                           if (dataset.persons_urls?.[index].url) {
-                              loadPeople(params, dataset.persons_urls?.[index].url)
+                              loadPeopleFromUrl({
+                                  ...params,
+                                  url: dataset.persons_urls?.[index].url,
+                              })
                           } else {
                               loadPeople(params)
                           }

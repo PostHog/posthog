@@ -20,7 +20,7 @@ export function ActionsLineGraph({
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
-    const { loadPeople } = useActions(personsModalLogic)
+    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
 
     return indexedResults &&
@@ -57,7 +57,10 @@ export function ActionsLineGraph({
                               pointValue,
                           }
                           if (dataset.persons_urls?.[index].url) {
-                              loadPeople(params, dataset.persons_urls[index].url)
+                              loadPeopleFromUrl({
+                                  ...params,
+                                  url: dataset.persons_urls[index].url,
+                              })
                           } else {
                               loadPeople(params)
                           }
