@@ -16,20 +16,20 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
         response = self.client.get(f"/api/projects/{self.team.id}/groups/property_definitions").json()
-        self.assertEqual(response["0"][0]["name"], "industry")
-        self.assertEqual(response["0"][0]["count"], 2)
-        self.assertEqual(response["1"][0]["name"], "name")
-        self.assertEqual(response["1"][0]["count"], 1)
+        self.assertEqual(
+            response,
+            {
+                "0": [{"name": "industry", "count": 2}, {"name": "name", "count": 1}],
+                "1": [{"name": "name", "count": 1}],
+            },
+        )
 
     def test_property_values(self):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
         create_group(team_id=self.team.pk, group_type_index=1, group_key="org:1", properties={"industry": "finance"})
-        group_type_index = 0
-        key = "industry"
         response = self.client.get(
-            f"/api/projects/{self.team.id}/groups/property_values/?key={key}&group_type_index={group_type_index}"
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0"
         ).json()
         self.assertEqual(len(response), 2)
-        self.assertIn("finance", response[0]["name"])
-        self.assertIn("technology", response[1]["name"])
+        self.assertEqual(response, [{"name": "finance"}, {"name": "technology"}])
