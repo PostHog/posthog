@@ -70,7 +70,7 @@ class ClickhouseTrendsTotalVolume:
                 )
                 parsed_results.append(parsed_result)
 
-            parsed_result.update({"filter": filter.to_dict()})
+                parsed_result.update({"filter": filter.to_dict()})
             return parsed_results
 
         return _parse
