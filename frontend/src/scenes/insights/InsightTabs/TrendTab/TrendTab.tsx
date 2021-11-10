@@ -38,20 +38,19 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     ]
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
-    const formulaAvailable =
-        (!filters.insight || filters.insight === InsightType.TRENDS) && preflight?.is_clickhouse_enabled
+    const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
+    const formulaAvailable = isTrends && preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
-    const taxonomicTypes =
-        filters.insight === InsightType.TRENDS
-            ? [
-                  TaxonomicFilterGroupType.EventProperties,
-                  TaxonomicFilterGroupType.PersonProperties,
-                  ...groupsTaxonomicTypes,
-                  TaxonomicFilterGroupType.Cohorts,
-                  TaxonomicFilterGroupType.Elements,
-              ]
-            : undefined
+    const taxonomicTypes = isTrends
+        ? [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.Cohorts,
+              TaxonomicFilterGroupType.Elements,
+          ]
+        : undefined
 
     return (
         <>
@@ -169,7 +168,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             )}
                         </>
                     )}
-                    {filters.insight !== InsightType.LIFECYCLE && filters.insight !== InsightType.STICKINESS && (
+                    {isTrends && (
                         <>
                             <hr />
                             <h4 className="secondary">
