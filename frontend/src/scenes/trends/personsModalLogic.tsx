@@ -278,7 +278,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 return peopleResult
             },
             loadPeopleFromUrl: async ({ url, funnelStep, breakdown_value = '', label }) => {
-                const people = await (await fetch(url)).json()
+                const people = await api.get(url)
 
                 return {
                     people: people?.results[0]?.people,
