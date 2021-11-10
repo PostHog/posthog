@@ -44,6 +44,7 @@ export function ActionsBarValueGraph({
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
+                persons: _data.map((item) => item.persons),
                 days,
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 backgroundColor: colorList,
@@ -77,7 +78,7 @@ export function ActionsBarValueGraph({
                 dashboardItemId
                     ? null
                     : (point) => {
-                          const { dataset, value: pointValue } = point
+                          const { dataset, value: pointValue, index } = point
                           const action = dataset.actions[point.index]
                           const label = dataset.labels[point.index]
                           const date_from = filtersParam?.date_from || ''
@@ -85,7 +86,7 @@ export function ActionsBarValueGraph({
                           const breakdown_value = dataset.breakdownValues[point.index]
                               ? dataset.breakdownValues[point.index]
                               : null
-                          loadPeople({
+                          const params = {
                               action,
                               label,
                               date_from,
@@ -93,7 +94,12 @@ export function ActionsBarValueGraph({
                               filters: filtersParam,
                               breakdown_value,
                               pointValue,
-                          })
+                          }
+                          if (dataset.persons_urls?.[index].url) {
+                              loadPeople(params, dataset.persons_urls?.[index].url)
+                          } else {
+                              loadPeople(params)
+                          }
                       }
             }
         />
