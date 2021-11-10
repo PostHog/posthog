@@ -1,6 +1,8 @@
+import { urls } from 'scenes/urls'
+
 describe('System Status', () => {
     it('System Status loaded', () => {
-        cy.location('pathname').should('eq', '/insights')
+        cy.location('pathname').should('eq', urls.savedInsights())
         cy.wait(500)
         cy.get('[data-attr=system-status-badge]').click()
         cy.get('h1').should('contain', 'System Status')

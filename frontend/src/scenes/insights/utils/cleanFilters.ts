@@ -182,8 +182,8 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
         }
 
         return cleanSearchParams
-    } else if ((filters.insight as ViewType) === ViewType.HISTORY) {
-        return { insight: filters.insight }
+    } else if ((filters.insight as string) === 'HISTORY') {
+        return cleanFilters({ insight: 'TRENDS' })
     }
 
     throw new Error(`Unknown insight type "${filters.insight}" given to cleanFilters`)

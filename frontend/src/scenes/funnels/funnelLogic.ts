@@ -3,7 +3,6 @@ import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { average, eventToName, successToast, sum } from 'lib/utils'
-import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -103,7 +102,7 @@ export const funnelLogic = kea<funnelLogicType>({
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -1115,7 +1114,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 name,
                 saved: true,
             })
-            actions.loadFunnels()
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
             personsModalLogic.actions.loadPeople({
