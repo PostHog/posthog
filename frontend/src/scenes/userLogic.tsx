@@ -9,6 +9,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from './teamLogic'
 
 export const userLogic = kea<userLogicType>({
+    path: ['scenes', 'userLogic'],
     connect: {
         values: [teamLogic, ['currentTeam']],
     },

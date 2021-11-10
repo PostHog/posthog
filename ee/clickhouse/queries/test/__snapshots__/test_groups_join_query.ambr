@@ -1,0 +1,21 @@
+# name: test_groups_join_query_filtering
+  <class 'tuple'> (
+    '
+      
+                      INNER JOIN (
+                          SELECT
+                              group_key,
+                              argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = %(team_id)s AND group_type_index = %(group_index_0)s
+                          GROUP BY group_key
+                      ) groups_0
+                      ON $group_0 == groups_0.group_key
+                      
+    ',
+    <class 'dict'> {
+      'group_index_0': 0,
+      'team_id': 2,
+    },
+  )
+---

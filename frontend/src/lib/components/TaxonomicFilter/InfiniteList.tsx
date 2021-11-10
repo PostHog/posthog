@@ -50,7 +50,8 @@ const renderItemContents = ({
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
-        listGroupType === TaxonomicFilterGroupType.CustomEvents ? (
+        listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+        listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <PropertyKeyInfo value={item.name ?? ''} disablePopover />
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
@@ -71,7 +72,7 @@ const renderItemPopup = (
     if (value) {
         if (listGroupType === TaxonomicFilterGroupType.Actions && 'id' in item) {
             return (
-                <div style={{ width }}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <AimOutlined /> Actions
                     <Link
                         to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
@@ -104,7 +105,7 @@ const renderItemPopup = (
 
         if (data) {
             return (
-                <div style={{ width }}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <PropertyKeyTitle data={data} />
                     {data.description ? <hr /> : null}
                     <PropertyKeyDescription data={data} value={value.toString()} />
@@ -164,7 +165,6 @@ export function InfiniteList(): JSX.Element {
 
     const { styles, attributes } = usePopper(referenceElement, popperElement, {
         placement: 'right',
-
         modifiers: [
             {
                 name: 'offset',
@@ -181,11 +181,11 @@ export function InfiniteList(): JSX.Element {
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
 
-        return item ? (
+        return item && group ? (
             <div
                 key={`item_${rowIndex}`}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => selectItem(listGroupType, itemValue ?? null, item)}
+                onClick={() => selectItem(group, itemValue ?? null, item)}
                 onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
                 style={style}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
@@ -246,7 +246,7 @@ export function InfiniteList(): JSX.Element {
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip click-outside-block"
+                          className="popper-tooltip click-outside-block Popup"
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}

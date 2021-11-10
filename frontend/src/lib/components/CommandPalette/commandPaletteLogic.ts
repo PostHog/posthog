@@ -35,7 +35,7 @@ import {
     ApiOutlined,
     DatabaseOutlined,
 } from '@ant-design/icons'
-import { DashboardType, ViewType } from '~/types'
+import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
 import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -121,6 +121,7 @@ export const commandPaletteLogic = kea<
         RegExpCommandPairs
     >
 >({
+    path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
@@ -429,7 +430,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Trends',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.TRENDS))
+                            push(urls.newInsight(InsightType.TRENDS))
                         },
                     },
                     {
@@ -437,7 +438,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Sessions',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.SESSIONS))
+                            push(urls.newInsight(InsightType.SESSIONS))
                         },
                     },
                     {
@@ -445,7 +446,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Funnels',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.FUNNELS))
+                            push(urls.newInsight(InsightType.FUNNELS))
                         },
                     },
                     {
@@ -453,7 +454,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Retention',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.RETENTION))
+                            push(urls.newInsight(InsightType.RETENTION))
                         },
                     },
                     {
@@ -461,7 +462,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to User Paths',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.PATHS))
+                            push(urls.newInsight(InsightType.PATHS))
                         },
                     },
                     {

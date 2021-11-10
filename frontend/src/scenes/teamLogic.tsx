@@ -10,6 +10,7 @@ import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 
 export const teamLogic = kea<teamLogicType>({
+    path: ['scenes', 'teamLogic'],
     actions: {
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
@@ -100,6 +101,12 @@ export const teamLogic = kea<teamLogicType>({
             (selectors) => [selectors.currentTeam],
             (currentTeam): Record<string, any>[] => {
                 return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
+            },
+        ],
+        funnelCorrelationConfig: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): Partial<TeamType['correlation_config']> => {
+                return currentTeam?.correlation_config || {}
             },
         ],
     },

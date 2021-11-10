@@ -2,13 +2,14 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { chartFilterLogicType } from './chartFilterLogicType'
-import { ChartDisplayType, FunnelVizType, ViewType } from '~/types'
+import { ChartDisplayType, FunnelVizType, InsightType } from '~/types'
 
 function isFunnelVizType(filter: FunnelVizType | ChartDisplayType): filter is FunnelVizType {
     return Object.values(FunnelVizType).includes(filter as FunnelVizType)
 }
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
+    path: ['lib', 'components', 'ChartFilter', 'chartFilterLogic'],
     actions: () => ({
         setChartFilter: (filter: ChartDisplayType | FunnelVizType) => ({ filter }),
     }),
@@ -44,9 +45,9 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 actions.setChartFilter(FunnelVizType.Steps)
             } else if (display && !funnel_viz_type) {
                 actions.setChartFilter(display)
-            } else if (insight === ViewType.RETENTION) {
+            } else if (insight === InsightType.RETENTION) {
                 actions.setChartFilter(ChartDisplayType.ActionsTable)
-            } else if (insight === ViewType.FUNNELS) {
+            } else if (insight === InsightType.FUNNELS) {
                 actions.setChartFilter(funnel_viz_type || FunnelVizType.Steps)
             }
         },

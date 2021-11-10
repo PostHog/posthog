@@ -20,6 +20,7 @@ export interface SavedFilter {
 type FilterPropertyType = SessionsPropertyFilter['type']
 
 export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<FilterPropertyType, FilterSelector, SavedFilter>>({
+    path: ['scenes', 'sessions', 'filters', 'sessionsFiltersLogic'],
     actions: () => ({
         openFilterSelect: (selector: FilterSelector) => ({ selector }),
         closeFilterSelect: true,

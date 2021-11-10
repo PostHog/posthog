@@ -1,7 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import { router } from 'kea-router'
+import React, { useState } from 'react'
 import {
+    IconArrowDropDown,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -19,28 +21,123 @@ import {
     LemonButton,
     LemonButtonProps,
     LemonButtonWithSideAction,
-    LemonButtonWithSideActionProps,
     SideAction,
 } from '../../../lib/components/LemonButton'
+import { LemonRow } from '../../../lib/components/LemonRow'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
+import { dashboardsModel } from '../../../models/dashboardsModel'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { canViewPlugins } from '../../../scenes/plugins/access'
 import { sceneLogic } from '../../../scenes/sceneLogic'
+import { Scene } from '../../../scenes/sceneTypes'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
-import { ViewType } from '../../../types'
+import { userLogic } from '../../../scenes/userLogic'
+import { AvailableFeature, TeamBasicType, InsightType } from '../../../types'
 import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './SideBar.scss'
 
+function CurrentProjectButton(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { push } = useActions(router)
+    const { hideProjectSwitcher } = useActions(lemonadeLogic)
+
+    return (
+        <LemonRow
+            status="highlighted"
+            sideIcon={
+                <LemonButton
+                    compact
+                    onClick={() => {
+                        hideProjectSwitcher()
+                        push(urls.projectSettings())
+                    }}
+                    icon={<IconSettings />}
+                />
+            }
+            fullWidth
+        >
+            <strong>{currentTeam?.name}</strong>
+        </LemonRow>
+    )
+}
+
+function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
+    const { updateCurrentTeam } = useActions(userLogic)
+    const { hideProjectSwitcher } = useActions(lemonadeLogic)
+
+    return (
+        <LemonButtonWithSideAction
+            onClick={() => {
+                hideProjectSwitcher()
+                updateCurrentTeam(team.id, '/')
+            }}
+            sideAction={{
+                icon: <IconSettings />,
+                tooltip: `Go to ${team.name} settings`,
+                onClick: () => {
+                    hideProjectSwitcher()
+                    updateCurrentTeam(team.id, '/project/settings')
+                },
+            }}
+            title={`Switch to project ${team.name}`}
+            type="stealth"
+            fullWidth
+        >
+            {team.name}
+        </LemonButtonWithSideAction>
+    )
+}
+
 export function ProjectSwitcher(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
+    const { isProjectSwitcherShown } = useValues(lemonadeLogic)
+    const { showCreateProjectModal, toggleProjectSwitcher, hideProjectSwitcher } = useActions(lemonadeLogic)
+    const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (
         <div className="ProjectSwitcher">
             <div className="SideBar__heading">Project</div>
-            <LemonButton icon={<Lettermark name={currentOrganization?.name} />} fullWidth type="stealth">
+            <LemonButton
+                icon={<Lettermark name={currentOrganization?.name} />}
+                fullWidth
+                type="stealth"
+                onClick={toggleProjectSwitcher}
+                popup={{
+                    visible: isProjectSwitcherShown,
+                    onClickOutside: hideProjectSwitcher,
+                    sameWidth: true,
+                    overlay: (
+                        <>
+                            <CurrentProjectButton />
+                            {currentOrganization?.teams &&
+                                currentOrganization.teams
+                                    .filter((team) => team.id !== currentTeam?.id)
+                                    .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                    .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+
+                            <LemonButton
+                                icon={<IconPlus />}
+                                fullWidth
+                                disabled={isProjectCreationForbidden}
+                                onClick={() => {
+                                    hideProjectSwitcher()
+                                    guardAvailableFeature(
+                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                        'multiple projects',
+                                        'Projects allow you to separate data and configuration for different products or environments.',
+                                        showCreateProjectModal
+                                    )
+                                }}
+                            >
+                                New project
+                            </LemonButton>
+                        </>
+                    ),
+                }}
+            >
                 <strong>{currentTeam?.name}</strong>
             </LemonButton>
         </div>
@@ -51,39 +148,45 @@ function Spacer(): JSX.Element {
     return <div className="SideBar__spacer" />
 }
 
-interface PageButtonProps extends Pick<LemonButtonProps, 'title' | 'icon'> {
-    identifier: string
-    onClick: (() => void) | string
-    sideAction?: Omit<SideAction, 'type'> & { identifier: string }
+interface PageButtonProps extends Pick<LemonButtonProps, 'title' | 'icon' | 'onClick' | 'popup' | 'to'> {
+    /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
+    identifier: string | number
+    sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
 }
 
-function PageButton({ title, icon, sideAction, identifier, onClick }: PageButtonProps): JSX.Element {
-    const { aliasedActiveScene } = useValues(sceneLogic)
+function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButtonProps): JSX.Element {
+    const { aliasedActiveScene, activeScene } = useValues(sceneLogic)
+    const { lastDashboardId } = useValues(dashboardsModel)
 
     const isActiveSide: boolean = sideAction?.identifier === aliasedActiveScene
-    const isActive: boolean = isActiveSide || identifier === aliasedActiveScene
+    const isActive: boolean =
+        isActiveSide ||
+        (typeof identifier === 'string'
+            ? identifier === aliasedActiveScene
+            : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
-    let sideActionInternal: LemonButtonWithSideActionProps['sideAction']
-    if (sideAction) {
-        sideActionInternal = { ...sideAction, type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth' }
-    }
-
-    return (
+    return sideAction ? (
         <LemonButtonWithSideAction
-            icon={icon}
             fullWidth
             type={isActive ? 'highlighted' : 'stealth'}
-            onClick={onClick}
-            sideAction={sideActionInternal}
+            sideAction={{ ...sideAction, type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth' }}
+            {...buttonProps}
         >
             {title}
         </LemonButtonWithSideAction>
+    ) : (
+        <LemonButton fullWidth type={isActive ? 'highlighted' : 'stealth'} {...buttonProps}>
+            {title}
+        </LemonButton>
     )
 }
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { showToolbarModal } = useActions(lemonadeLogic)
+    const { pinnedDashboards } = useValues(dashboardsModel)
+
+    const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
     return (
         <div className="Pages">
@@ -92,62 +195,91 @@ function Pages(): JSX.Element {
                     <PageButton
                         title="Setup"
                         icon={<IconSettings />}
-                        identifier="onboardingSetup"
-                        onClick={urls.onboardingSetup()}
+                        identifier={Scene.OnboardingSetup}
+                        to={urls.onboardingSetup()}
                     />
                     <Spacer />
                 </>
             )}
-            <PageButton title="Dashboards" icon={<IconGauge />} identifier="dashboards" onClick={urls.dashboards()} />
+            <PageButton
+                title="Dashboards"
+                icon={<IconGauge />}
+                identifier={Scene.Dashboards}
+                to={urls.dashboards()}
+                sideAction={{
+                    icon: <IconArrowDropDown />,
+                    tooltip: 'Pinned dashboards',
+                    onClick: () => setArePinnedDashboardsShown((state) => !state),
+                    popup: {
+                        visible: arePinnedDashboardsShown,
+                        onClickOutside: () => setArePinnedDashboardsShown(false),
+                        overlay: (
+                            <div className="SideBar__pinned-dashboards">
+                                <h5>Pinned dashboards</h5>
+                                <Spacer />
+                                {pinnedDashboards.map((dashboard) => (
+                                    <PageButton
+                                        key={dashboard.id}
+                                        title={dashboard.name}
+                                        identifier={dashboard.id}
+                                        onClick={() => setArePinnedDashboardsShown(false)}
+                                        to={urls.dashboard(dashboard.id)}
+                                    />
+                                ))}
+                            </div>
+                        ),
+                    },
+                }}
+            />
             <PageButton
                 title="Insights"
                 icon={<IconBarChart />}
-                identifier="savedInsights"
-                onClick={urls.savedInsights()}
+                identifier={Scene.SavedInsights}
+                to={urls.savedInsights()}
                 sideAction={{
                     icon: <IconPlus />,
-                    onClick: urls.insightView(ViewType.TRENDS),
+                    to: urls.newInsight(InsightType.TRENDS),
                     tooltip: 'New insight',
-                    identifier: 'insights',
+                    identifier: Scene.Insights,
                 }}
             />
             <PageButton
                 title="Recordings"
                 icon={<IconRecording />}
-                identifier="sessionRecordings"
-                onClick={urls.sessionRecordings()}
+                identifier={Scene.SessionRecordings}
+                to={urls.sessionRecordings()}
             />
             <PageButton
                 title="Feature flags"
                 icon={<IconFlag />}
-                identifier="featureFlags"
-                onClick={urls.featureFlags()}
+                identifier={Scene.FeatureFlags}
+                to={urls.featureFlags()}
             />
             <Spacer />
             <PageButton
                 title="Events & actions"
                 icon={<IconGroupedEvents />}
-                identifier="events"
-                onClick={urls.events()}
+                identifier={Scene.Events}
+                to={urls.events()}
             />
-            <PageButton title="Persons" icon={<IconPerson />} identifier="persons" onClick={urls.persons()} />
-            <PageButton title="Cohorts" icon={<IconCohort />} identifier="cohorts" onClick={urls.cohorts()} />
+            <PageButton title="Persons" icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
+            <PageButton title="Cohorts" icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
             <PageButton
                 title="Annotations"
                 icon={<IconComment />}
-                identifier="annotations"
-                onClick={urls.annotations()}
+                identifier={Scene.Annotations}
+                to={urls.annotations()}
             />
             <Spacer />
             {canViewPlugins(currentOrganization) && (
-                <PageButton title="Plugins" icon={<IconExtension />} identifier="plugins" onClick={urls.plugins()} />
+                <PageButton title="Plugins" icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
             )}
-            <PageButton title="Toolbar" icon={<IconTools />} identifier="toolbar" onClick={showToolbarModal} />
+            <PageButton title="Toolbar" icon={<IconTools />} identifier="Toolbar" onClick={showToolbarModal} />
             <PageButton
                 title="Project settings"
                 icon={<IconSettings />}
-                identifier="projectSettings"
-                onClick={urls.projectSettings()}
+                identifier={Scene.ProjectSettings}
+                to={urls.projectSettings()}
             />
         </div>
     )

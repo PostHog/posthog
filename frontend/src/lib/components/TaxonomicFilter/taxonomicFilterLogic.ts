@@ -14,11 +14,15 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from '../../../scenes/teamLogic'
+import { groupsModel } from '~/models/groupsModel'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
+    path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
-    connect: { values: [teamLogic, ['currentTeamId']] },
+    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']] },
     actions: () => ({
         moveUp: true,
         moveDown: true,
@@ -28,8 +32,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue | null, item: any) => ({
-            groupType,
+        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
+            group,
             value,
             item,
         }),
@@ -70,8 +74,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         taxonomicGroups: [
-            (selectors) => [selectors.currentTeamId],
-            (teamId): TaxonomicFilterGroup[] => [
+            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups],
+            (teamId, groupAnalyticsTaxonomicGroups): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     type: TaxonomicFilterGroupType.Events,
@@ -158,12 +162,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: (option: SimpleOption): string => option.name,
                     getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
                 },
+                ...groupAnalyticsTaxonomicGroups,
             ],
         ],
         taxonomicGroupTypes: [
             (selectors) => [(_, props) => props.taxonomicGroupTypes, selectors.taxonomicGroups],
             (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
                 groupTypes || taxonomicGroups.map((g) => g.type),
+        ],
+        groupAnalyticsTaxonomicGroups: [
+            (selectors) => [selectors.groupTypes],
+            (groupTypes): TaxonomicFilterGroup[] =>
+                groupTypes.map((type, index) => ({
+                    name: capitalizeFirstLetter(type.group_type),
+                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${index}` as TaxonomicFilterGroupType,
+                    logic: groupPropertiesModel,
+                    value: `groupProperties_${index}`,
+                    getName: (group) => capitalizeFirstLetter(group.name),
+                    getValue: (group) => group.name,
+                    groupTypeIndex: index,
+                })),
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
@@ -174,9 +192,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     },
 
     listeners: ({ actions, values, props }) => ({
-        selectItem: ({ groupType, value, item }) => {
+        selectItem: ({ group, value, item }) => {
             if (item && value) {
-                props.onChange?.(groupType, value, item)
+                props.onChange?.(group, value, item)
             }
         },
 

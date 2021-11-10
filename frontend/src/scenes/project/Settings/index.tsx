@@ -193,9 +193,6 @@ export function ProjectSettings(): JSX.Element {
                 hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS) ? (
                     <>
                         <Divider />
-                        <h2 className="subtitle" id="internal-users-filtering">
-                            Filter Out Correlation Person Property Noise
-                        </h2>
                         <CorrelationConfig />
                     </>
                 ) : null}

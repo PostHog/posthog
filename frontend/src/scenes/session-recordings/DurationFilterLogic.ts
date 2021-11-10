@@ -18,6 +18,7 @@ export interface DurationFilterProps {
 const TIME_MULTIPLIERS = { seconds: 1, minutes: 60, hours: 3600 }
 
 export const DurationFilterLogic = kea<DurationFilterLogicType<DurationFilterProps, TimeUnit>>({
+    path: (key) => ['scenes', 'session-recordings', 'DurationFilterLogic', key],
     key: (props) => props.pageKey || 'global',
     props: {} as DurationFilterProps,
     actions: {

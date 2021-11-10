@@ -14,7 +14,6 @@ import {
     GlobalHotKeys,
     EntityType,
     DashboardItemType,
-    ViewType,
     InsightType,
     PropertyFilter,
     HelpType,
@@ -146,6 +145,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 export const eventUsageLogic = kea<
     eventUsageLogicType<DashboardEventSource, GraphSeriesAddedSource, RecordingWatchedSource>
 >({
+    path: ['lib', 'utils', 'eventUsageLogic'],
     connect: () => [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -263,6 +263,10 @@ export const eventUsageLogic = kea<
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
+        reportSavedInsightTabChanged: (tab: string) => ({ tab }),
+        reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
+        reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
+        reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
@@ -437,7 +441,7 @@ export const eventUsageLogic = kea<
             }
 
             for (const item of dashboard.items) {
-                const key = `${item.filters?.insight?.toLowerCase() || ViewType.TRENDS}_count`
+                const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {
@@ -629,7 +633,20 @@ export const eventUsageLogic = kea<
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
         },
+        reportSavedInsightFilterUsed: ({ filterKeys }) => {
+            posthog.capture('saved insights list page filter used', { filter_keys: filterKeys })
+        },
+        reportSavedInsightTabChanged: ({ tab }) => {
+            posthog.capture('saved insights list page tab changed', { tab })
+        },
+        reportSavedInsightLayoutChanged: ({ layout }) => {
+            posthog.capture('saved insights list page layout changed', { layout })
+        },
+        reportSavedInsightNewInsightClicked: ({ insightType }) => {
+            posthog.capture('saved insights new insight clicked', { insight_type: insightType })
+        },
         reportRecording: ({ recordingData, source, loadTime, type }) => {
+            // @ts-ignore
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
@@ -674,11 +691,10 @@ export const eventUsageLogic = kea<
             posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
         },
         reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
-            // TODO: This event is still buggy (see relevant PR #6788 for details)
             if (delay === 0) {
-                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
             } else {
-                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} analyzed`, {
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, {
                     filters,
                     delay,
                 })

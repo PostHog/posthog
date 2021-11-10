@@ -79,7 +79,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
         return f"""
             SELECT
-                person_id,
+                aggregation_target,
                 {trunc_func}(timestamp) AS entrance_period_start,
                 max(steps) AS steps_completed
                 {breakdown_clause}
@@ -87,7 +87,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                 {steps_per_person_query}
             )
             {"WHERE toDateTime(entrance_period_start) = %(entrance_period_start)s" if specific_entrance_period_start else ""}
-            GROUP BY person_id, entrance_period_start {breakdown_clause}"""
+            GROUP BY aggregation_target, entrance_period_start {breakdown_clause}"""
 
     def get_query(self) -> str:
         step_counts = self.get_step_counts_without_aggregation_query()

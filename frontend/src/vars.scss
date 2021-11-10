@@ -33,10 +33,10 @@ $bg_overlay: #333333;
 $bg_shaded: rgba(0, 0, 0, 0.05);
 
 // Border colors
-$border_light: #f0f0f0;
+$border_light: rgba(0, 0, 0, 0.08);
 $border: rgba(0, 0, 0, 0.15);
-$border_dark: #bdbdbd;
-$border_active: #969696;
+$border_dark: rgba(0, 0, 0, 0.24);
+$border_active: rgba(0, 0, 0, 0.36);
 
 // Lfecycle series
 $lifecycle_new: #99c5ff;
@@ -53,9 +53,9 @@ $funnel_axis: $border_dark;
 $funnel_axis_label: $text_muted;
 $antd_table_background_dark: #fafafa;
 
-.bg-mid {
-    background-color: $bg_mid !important;
-}
+// Session Recording
+$recording_player_container_bg: #797973;
+$recording_buffer_bg: #faaf8c;
 
 // Blue Swatch
 $blue_700: #35416b;
@@ -89,9 +89,10 @@ $space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
 $medium: 500;
 
 // Additional style configurations
-.mixin-base-bordered-card {
-    border-radius: 4px;
-    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.04);
+%mixin-base-bordered-card {
+    border-radius: var(--radius);
+    box-shadow: none;
+    border: 1px solid var(--border);
 }
 
 %mixin-elevated {
@@ -119,7 +120,7 @@ $medium: 500;
     bottom: 0;
 }
 
-$default_spacing: 16px;
+$default_spacing: 1rem;
 $radius: 4px;
 $top_nav_height: 50px;
 
@@ -138,7 +139,7 @@ $z_ant_select_dropdown: 1065;
 $z_ant_message: 1070;
 $z_ant_modal_wrap: 1060;
 $z_ant_modal_mask: 1050;
-$z_popup: 1060;
+$z_popup: 1049;
 $z_plugins-popconfirm: 1001;
 $z_pinned_dashboards_popup: 962;
 $z_graph_tooltip: 951;

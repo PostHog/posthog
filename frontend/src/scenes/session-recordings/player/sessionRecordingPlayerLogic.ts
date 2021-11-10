@@ -11,14 +11,15 @@ export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
 const BUFFER_TIME_BUFFER_MS = 5 * 1000 // The length of time player has to have loaded to get out of buffering state
 
-function getZeroOffsetTime(time: number, meta: playerMetaData): number {
+export function getZeroOffsetTime(time: number, meta: playerMetaData): number {
     return Math.max(Math.min(time - meta.startTime, meta.totalTime), 0)
 }
-function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): number {
+export function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): number {
     return Math.max(Math.min(zeroOffsetTime + meta.startTime, meta.endTime), meta.startTime)
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>({
+    path: ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic'],
     connect: {
         logic: [eventUsageLogic],
         values: [
@@ -151,6 +152,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 skipInactive: true,
                 triggerFocus: false,
                 speed: values.speed,
+                insertStyleRules: [
+                    `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
+                ],
             })
             replayer.on('finish', () => {
                 // Use 500ms buffer because current time is not always exactly identical to end time.
@@ -192,10 +196,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentEvents = values.replayer?.service.state.context.events ?? []
             const eventsToAdd = values.snapshots.slice(currentEvents.length) ?? []
 
-            if (eventsToAdd.length < 1) {
-                return
-            }
-
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
             if (!!values.replayer) {
                 eventsToAdd.forEach((event: eventWithTime) => {
@@ -203,8 +203,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 })
             }
 
+            // replayer should be updated with new events.
+            const finalEvents = [...currentEvents, ...eventsToAdd]
+            if (finalEvents.length < 1) {
+                return
+            }
+
             // Update last buffered point
-            const lastEvent = eventsToAdd[eventsToAdd.length - 1]
+            const lastEvent = finalEvents[finalEvents.length - 1]
             actions.setLastBufferedTime(lastEvent.timestamp)
 
             // If buffering has completed, resume last playing state
@@ -223,7 +229,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Sometimes replayer doesn't update with events we recently added.
                 const endTime = Math.max(
                     meta.endTime,
-                    eventsToAdd.length ? eventsToAdd[eventsToAdd.length - 1]?.timestamp : 0
+                    finalEvents.length ? finalEvents[finalEvents.length - 1]?.timestamp : 0
                 )
                 const finalMeta = {
                     ...meta,
@@ -265,13 +271,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setCurrentTime(time ?? 0)
 
             // If next time is greater than last buffered time, set to buffering
-            if (nextTime > values.zeroOffsetTime.lastBuffered) {
+            if (!values.zeroOffsetTime.lastBuffered || nextTime > values.zeroOffsetTime.lastBuffered) {
                 values.replayer?.pause()
                 actions.setBuffer()
             }
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                values.replayer?.pause()
+                values.replayer?.pause(nextTime)
                 actions.clearLoadingState()
             }
             // Otherwise play

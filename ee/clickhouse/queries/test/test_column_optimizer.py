@@ -48,6 +48,11 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         filter = BASE_FILTER.with_data({"breakdown": [11], "breakdown_type": "cohort"})
         self.assertEqual(properties_used_in_filter(filter), {})
 
+        filter = BASE_FILTER.with_data(
+            {"breakdown": "some_prop", "breakdown_type": "group", "breakdown_group_type_index": 1}
+        )
+        self.assertEqual(properties_used_in_filter(filter), {("some_prop", "group", 1): 1})
+
         # Funnel Correlation cases
         filter = BASE_FILTER.with_data(
             {"funnel_correlation_type": "events", "funnel_correlation_names": ["random_column"]}
@@ -88,6 +93,23 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 ("tag_name", "element", None): 1,
                 ("group_prop", "group", 2): 1,
             },
+        )
+
+        filter = Filter(
+            data={
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "math": "unique_group",
+                        "math_group_type_index": 1,
+                    }
+                ]
+            }
+        )
+        self.assertEqual(
+            properties_used_in_filter(filter), {("$group_1", "event", None): 1,},
         )
 
     def test_properties_used_in_filter_with_actions(self):

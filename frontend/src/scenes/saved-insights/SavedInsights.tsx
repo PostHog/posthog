@@ -4,8 +4,8 @@ import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
-import { savedInsightsLogic } from './savedInsightsLogic'
+import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~/types'
+import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import {
     AppstoreFilled,
     ArrowDownOutlined,
@@ -25,11 +25,10 @@ import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/Da
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 
 import { PageHeader } from 'lib/components/PageHeader'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
     InsightsFunnelsIcon,
@@ -44,62 +43,64 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { ColumnsType } from 'antd/lib/table'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { TabPane } = Tabs
 
-interface InsightType {
-    type: ViewType
+interface SavedInsightType {
+    type: InsightType
     name: string
     description?: string
     icon?: (props?: any) => JSX.Element
     inMenu: boolean
 }
 
-const insightTypes: InsightType[] = [
+const insightTypes: SavedInsightType[] = [
     {
-        type: ViewType.TRENDS,
+        type: InsightType.TRENDS,
         name: 'Trends',
         description: 'Understand how users are spending their time in your product',
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
     {
-        type: ViewType.FUNNELS,
+        type: InsightType.FUNNELS,
         name: 'Funnels',
         description: 'Visualize completion and dropoff between events',
         icon: InsightsFunnelsIcon,
         inMenu: true,
     },
     {
-        type: ViewType.SESSIONS,
+        type: InsightType.SESSIONS,
         name: 'Sessions',
         description: 'Understand how users are spending their time in your product',
         icon: InsightsSessionsIcon,
         inMenu: false,
     },
     {
-        type: ViewType.RETENTION,
+        type: InsightType.RETENTION,
         name: 'Retention',
         description: 'Visualize how many users return on subsequent days after a session',
         icon: InsightsRetentionIcon,
         inMenu: true,
     },
     {
-        type: ViewType.PATHS,
+        type: InsightType.PATHS,
         name: 'Paths',
         description: 'Understand how traffic is flowing through your product',
         icon: InsightsPathsIcon,
         inMenu: true,
     },
     {
-        type: ViewType.STICKINESS,
+        type: InsightType.STICKINESS,
         name: 'Stickiness',
         description: 'See how many days users performed an action within a timeframe',
         icon: InsightsStickinessIcon,
         inMenu: true,
     },
     {
-        type: ViewType.LIFECYCLE,
+        type: InsightType.LIFECYCLE,
         name: 'Lifecycle',
         description: 'See new, resurrected, returning, and dormant users',
         icon: InsightsLifecycleIcon,
@@ -120,34 +121,17 @@ const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
 )
 
 export function SavedInsights(): JSX.Element {
-    const {
-        loadInsights,
-        updateFavoritedInsight,
-        loadPaginatedInsights,
-        renameInsight,
-        duplicateInsight,
-        addGraph,
-        setSavedInsightsFilters,
-    } = useActions(savedInsightsLogic)
-    const { insights, count, offset, nextResult, previousResult, insightsLoading, filters } =
-        useValues(savedInsightsLogic)
+    const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
+        useActions(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters } = useValues(savedInsightsLogic)
 
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
-    const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo } = filters
+    const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
-    const pageLimit = 15
-    const paginationCount = (): number => {
-        if (!previousResult) {
-            // no previous url means it's the first result set
-            return 1
-        }
-        if (nextResult) {
-            return offset - pageLimit
-        }
-        return count - (insights?.results.length || 0)
-    }
+    const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
+    const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
     const columns: ColumnsType<DashboardItemType> = [
         {
@@ -156,7 +140,7 @@ export function SavedInsights(): JSX.Element {
             key: 'id',
             className: 'icon-column',
             render: function renderType(_, insight) {
-                const selectedType = insight.filters?.insight || ViewType.TRENDS
+                const selectedType = insight.filters?.insight || InsightType.TRENDS
                 const type = insightTypes.find(({ type: _type }) => _type === selectedType)
                 if (type && type.icon) {
                     return <type.icon />
@@ -174,7 +158,7 @@ export function SavedInsights(): JSX.Element {
                     <Col>
                         <Row wrap={false}>
                             <Link to={link} style={{ marginRight: 12 }}>
-                                <strong>{name || `Insight #${insight.id}`}</strong>
+                                <strong>{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</strong>
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content' }}
@@ -190,7 +174,9 @@ export function SavedInsights(): JSX.Element {
                             </div>
                         </Row>
                         {hasDashboardCollaboration && (
-                            <div className="text-muted-alt">{insight.description || 'No description provided'}</div>
+                            <div className="text-muted-alt">
+                                {insight.description || <i>No description provided</i>}
+                            </div>
                         )}
                     </Col>
                 )
@@ -317,23 +303,40 @@ export function SavedInsights(): JSX.Element {
                             {insightTypes
                                 .filter((i) => i.inMenu)
                                 .map((menuItem) => (
-                                    <Menu.Item onClick={() => addGraph(menuItem.type)} key={menuItem.type}>
-                                        <Row className="icon-menu">
-                                            <Col>
-                                                {menuItem.icon ? <menuItem.icon color="#747EA2" noBackground /> : null}
-                                            </Col>
-                                            <Col>
-                                                <strong>{menuItem.name}</strong>
-                                                <p>{menuItem.description}</p>
-                                            </Col>
-                                        </Row>
+                                    <Menu.Item key={menuItem.type}>
+                                        <Link
+                                            to={urls.newInsight(menuItem.type)}
+                                            data-attr="saved-insights-create-new-insight"
+                                            data-attr-insight-type={menuItem.type}
+                                            onClick={() =>
+                                                eventUsageLogic.actions.reportSavedInsightNewInsightClicked(
+                                                    menuItem.type
+                                                )
+                                            }
+                                        >
+                                            <Row className="icon-menu">
+                                                <Col>
+                                                    {menuItem.icon ? (
+                                                        <menuItem.icon color="#747EA2" noBackground />
+                                                    ) : null}
+                                                </Col>
+                                                <Col>
+                                                    <strong>{menuItem.name}</strong>
+                                                    <p>{menuItem.description}</p>
+                                                </Col>
+                                            </Row>
+                                        </Link>
                                     </Menu.Item>
                                 ))}
                         </Menu>
                     }
                     trigger={['click']}
                 >
-                    <button className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
+                    <button
+                        className="new-insight-dropdown-btn"
+                        onClick={(e) => e.preventDefault()}
+                        data-attr="saved-insights-new-insight-button"
+                    >
                         New Insight <CaretDownFilled style={{ paddingLeft: 12 }} />
                     </button>
                 </Dropdown>
@@ -368,22 +371,23 @@ export function SavedInsights(): JSX.Element {
                         style={{ paddingLeft: 8, width: 140 }}
                         onChange={(it) => setSavedInsightsFilters({ insightType: it })}
                     >
-                        {[{ name: 'All types', type: 'All types' as ViewType, inMenu: false }, ...insightTypes].map(
-                            (insight: InsightType, index) => (
-                                <Select.Option key={index} value={insight.type}>
-                                    <div className="insight-type-icon-wrapper">
-                                        {insight.icon ? (
-                                            <div className="icon-container">
-                                                <div className="icon-container-inner">
-                                                    {<insight.icon color="#747EA2" noBackground />}
-                                                </div>
+                        {[
+                            { name: 'All types', type: 'All types' as InsightType, inMenu: false } as SavedInsightType,
+                            ...insightTypes,
+                        ].map((insight, index) => (
+                            <Select.Option key={index} value={insight.type}>
+                                <div className="insight-type-icon-wrapper">
+                                    {insight.icon ? (
+                                        <div className="icon-container">
+                                            <div className="icon-container-inner">
+                                                {<insight.icon color="#747EA2" noBackground />}
                                             </div>
-                                        ) : null}
-                                        <div>{insight.name}</div>
-                                    </div>
-                                </Select.Option>
-                            )
-                        )}
+                                        </div>
+                                    ) : null}
+                                    <div>{insight.name}</div>
+                                </div>
+                            </Select.Option>
+                        ))}
                     </Select>
                 </Col>
                 <Col>
@@ -419,7 +423,7 @@ export function SavedInsights(): JSX.Element {
             </Row>
             {insights.count > 0 && (
                 <Row className="list-or-card-layout">
-                    Showing {paginationCount()} - {nextResult ? offset : count} of {count} insights
+                    Showing {startCount} - {endCount} of {count} insights
                     <div>
                         <Radio.Group
                             onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
@@ -453,21 +457,27 @@ export function SavedInsights(): JSX.Element {
                                 <Row className="footer-pagination">
                                     <span className="text-muted-alt">
                                         {insights.count > 0 &&
-                                            `Showing ${paginationCount()} - ${
-                                                nextResult ? offset : count
-                                            } of ${count} insights`}
+                                            `Showing ${startCount} - ${endCount} of ${count} insights`}
                                     </span>
                                     <LeftOutlined
                                         style={{ paddingRight: 16 }}
-                                        className={`${!previousResult ? 'paginate-disabled' : ''}`}
+                                        className={`${page === 1 ? 'paginate-disabled' : ''}`}
                                         onClick={() => {
-                                            previousResult && loadPaginatedInsights(previousResult)
+                                            if (page > 1) {
+                                                setSavedInsightsFilters({
+                                                    page: page - 1,
+                                                })
+                                            }
                                         }}
                                     />
                                     <RightOutlined
-                                        className={`${!nextResult ? 'paginate-disabled' : ''}`}
+                                        className={`${page * INSIGHTS_PER_PAGE >= count ? 'paginate-disabled' : ''}`}
                                         onClick={() => {
-                                            nextResult && loadPaginatedInsights(nextResult)
+                                            if (page * INSIGHTS_PER_PAGE < count) {
+                                                setSavedInsightsFilters({
+                                                    page: page + 1,
+                                                })
+                                            }
                                         }}
                                     />
                                 </Row>

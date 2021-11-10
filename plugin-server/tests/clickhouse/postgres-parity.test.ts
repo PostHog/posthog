@@ -2,7 +2,15 @@ import { DateTime } from 'luxon'
 import { PoolClient } from 'pg'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { Database, Hub, LogLevel, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
+import {
+    Database,
+    Hub,
+    LogLevel,
+    PersonPropertyUpdateOperation,
+    PluginsServerConfig,
+    Team,
+    TimestampFormat,
+} from '../../src/types'
 import { castTimestampOrNow, delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -54,10 +62,16 @@ describe('postgres parity', () => {
 
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
-        const person = await hub.db.createPerson(DateTime.utc(), { userProp: 'propValue' }, team.id, null, true, uuid, [
-            'distinct1',
-            'distinct2',
-        ])
+        const person = await hub.db.createPerson(
+            DateTime.utc(),
+            { userProp: 'propValue' },
+            { userPropOnce: 'propOnceValue' },
+            team.id,
+            null,
+            true,
+            uuid,
+            ['distinct1', 'distinct2']
+        )
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
@@ -67,7 +81,7 @@ describe('postgres parity', () => {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
                 team_id: team.id,
-                properties: '{"userProp":"propValue"}',
+                properties: '{"userPropOnce":"propOnceValue","userProp":"propValue"}',
                 is_identified: 1,
                 is_deleted: 0,
                 _timestamp: expect.any(String),
@@ -84,13 +98,21 @@ describe('postgres parity', () => {
                 created_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',
+                    userPropOnce: 'propOnceValue',
                 },
-                properties_last_updated_at: {},
-                properties_last_operation: null,
+                properties_last_updated_at: {
+                    userProp: expect.any(String),
+                    userPropOnce: expect.any(String),
+                },
+                properties_last_operation: {
+                    userProp: PersonPropertyUpdateOperation.Set,
+                    userPropOnce: PersonPropertyUpdateOperation.SetOnce,
+                },
                 team_id: 2,
                 is_user_id: null,
                 is_identified: true,
                 uuid: uuid,
+                version: null,
             },
         ])
         const postgresDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.Postgres)
@@ -104,6 +126,7 @@ describe('postgres parity', () => {
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            {},
             team.id,
             null,
             false,
@@ -161,12 +184,20 @@ describe('postgres parity', () => {
     test('addDistinctId', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const person = await hub.db.createPerson(DateTime.utc(), { userProp: 'propValue' }, team.id, null, true, uuid, [
-            'distinct1',
-        ])
+        const person = await hub.db.createPerson(
+            DateTime.utc(),
+            { userProp: 'propValue' },
+            {},
+            team.id,
+            null,
+            true,
+            uuid,
+            ['distinct1']
+        )
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            {},
             team.id,
             null,
             true,
@@ -233,6 +264,7 @@ describe('postgres parity', () => {
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            {},
             team.id,
             null,
             false,
@@ -242,6 +274,7 @@ describe('postgres parity', () => {
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            {},
             team.id,
             null,
             true,

@@ -900,8 +900,11 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
         def _create_events(self, user_and_timestamps, event="$pageview"):
             i = 0
-            for distinct_id, timestamp in user_and_timestamps:
+            for (distinct_id, timestamp, *properties_args) in user_and_timestamps:
                 properties = {"$some_property": "value"} if i % 2 == 0 else {}
+                if len(properties_args) == 1:
+                    properties.update(properties_args[0])
+
                 event_factory(
                     team=self.team, event=event, distinct_id=distinct_id, timestamp=timestamp, properties=properties,
                 )

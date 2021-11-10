@@ -2,6 +2,7 @@ import { EntityFilter, ActionFilter, FilterType, DashboardItemType } from '~/typ
 import { ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -9,7 +10,10 @@ export const getDisplayNameFromEntityFilter = (
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
-    const name = ensureStringIsNotBlank(filter?.name)
+    let name = ensureStringIsNotBlank(filter?.name)
+    if (name && keyMapping.event[name]) {
+        name = keyMapping.event[name].label
+    }
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
@@ -26,37 +30,33 @@ export function extractObjectDiffKeys(
 
     let changedKeys: Record<string, any> = {}
     for (const [key, value] of Object.entries(newObj)) {
-        // @ts-ignore
-        if (!objectsEqual(value, oldObj[key])) {
+        const valueOrArray = value || []
+        const oldValue = (oldObj as Record<string, any>)[key] || []
+        if (!objectsEqual(value, oldValue)) {
             if (key === 'events') {
-                if (value.length !== oldObj.events?.length) {
-                    changedKeys['changed_events_length'] = oldObj.events?.length
+                if (valueOrArray.length !== oldValue.length) {
+                    changedKeys['changed_events_length'] = oldValue?.length
                 } else {
-                    value.forEach((event: Record<string, any>, idx: number) => {
-                        // @ts-ignore
-                        const _k = extractObjectDiffKeys(oldObj[key][idx], event, `event_${idx}_`)
+                    valueOrArray.forEach((event: Record<string, any>, idx: number) => {
                         changedKeys = {
                             ...changedKeys,
-                            ..._k,
+                            ...extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`),
                         }
                     })
                 }
             } else if (key === 'actions') {
-                if (value.length !== oldObj.actions?.length) {
-                    changedKeys['changed_actions_length'] = oldObj.actions?.length
+                if (valueOrArray.length !== oldValue.length) {
+                    changedKeys['changed_actions_length'] = oldValue.length
                 } else {
-                    value.forEach((action: Record<string, any>, idx: number) => {
-                        // @ts-ignore
-                        const _k = extractObjectDiffKeys(oldObj[key][idx], action, `action_${idx}_`)
+                    valueOrArray.forEach((action: Record<string, any>, idx: number) => {
                         changedKeys = {
                             ...changedKeys,
-                            ..._k,
+                            ...extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`),
                         }
                     })
                 }
             } else {
-                // @ts-ignore
-                changedKeys[`changed_${prefix}${key}`] = oldObj[key]
+                changedKeys[`changed_${prefix}${key}`] = oldValue
             }
         }
     }

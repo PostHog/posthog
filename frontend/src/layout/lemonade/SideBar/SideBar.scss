@@ -13,19 +13,19 @@
     position: absolute;
     flex-shrink: 0;
     height: 100%;
-    width: 15rem;
+    width: 15.5rem;
     background: var(--bg-side);
     border-right: 1px solid var(--border);
     .SideBar--hidden & {
         // As an optimization we use transform instead of margin on mobile,
         // because the sidebar does not affect the rest of the layout on mobile
-        transform: translateX(-15rem);
+        transform: translateX(-15.5rem);
     }
-    @media screen and (min-width: $sm) {
+    @media screen and (min-width: $lg) {
         height: initial;
         position: relative;
         .SideBar--hidden & {
-            margin-left: -15rem;
+            margin-left: -15.5rem;
         }
     }
 }
@@ -42,7 +42,7 @@
         opacity: 0;
         pointer-events: none;
     }
-    @media screen and (min-width: $sm) {
+    @media screen and (min-width: $lg) {
         display: none;
     }
 }
@@ -84,4 +84,9 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+.SideBar__pinned-dashboards {
+    max-height: calc(100vh - 20rem);
+    max-width: calc(100vw - 14rem);
 }

@@ -28,7 +28,9 @@ from posthog.utils import (
 )
 from posthog.version import VERSION
 
-ROBOTS_TXT_CONTENT = "User-agent: *\nDisallow: /"
+ROBOTS_TXT_CONTENT = (
+    "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
+)
 
 
 def noop(*args, **kwargs) -> None:

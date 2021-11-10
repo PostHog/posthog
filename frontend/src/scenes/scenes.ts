@@ -34,12 +34,20 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Insights]: {
         projectBased: true,
-        dark: true,
     },
     [Scene.Cohorts]: {
         projectBased: true,
     },
     [Scene.Events]: {
+        projectBased: true,
+    },
+    [Scene.Actions]: {
+        projectBased: true,
+    },
+    [Scene.EventStats]: {
+        projectBased: true,
+    },
+    [Scene.EventPropertyStats]: {
         projectBased: true,
     },
     [Scene.Sessions]: {
@@ -78,7 +86,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.InsightRouter]: {
         projectBased: true,
-        dark: true,
     },
     [Scene.Personalization]: {
         projectBased: true,
@@ -97,11 +104,12 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
+    [Scene.OrganizationSettings]: {
+        organizationBased: true,
+    },
     [Scene.ProjectCreateFirst]: {
         plain: true,
-    },
-    [Scene.Billing]: {
-        hideDemoWarnings: true,
+        organizationBased: true,
     },
     // Onboarding/setup routes
     [Scene.Login]: {
@@ -123,10 +131,31 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         allowUnauthenticated: true,
         plain: true,
     },
+    // Instance management routes
+    [Scene.SystemStatus]: {
+        instanceLevel: true,
+    },
+    [Scene.Licenses]: {
+        instanceLevel: true,
+    },
+    // Personal routes
+    [Scene.MySettings]: {
+        personal: true,
+    },
+    // Cloud-only routes
+    [Scene.Billing]: {
+        hideDemoWarnings: true,
+        organizationBased: true,
+    },
+    [Scene.BillingSubscribed]: {
+        plain: true,
+        hideTopNav: true,
+        allowUnauthenticated: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
-    '/': urls.insights(),
+    '/': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
     '/actions': '/events/actions',
@@ -138,6 +167,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
+    [urls.newInsight()]: Scene.InsightRouter,
     [urls.insights()]: Scene.Insights,
     [urls.insightRouter(':id')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
@@ -158,8 +188,9 @@ export const routes: Record<string, Scene> = {
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
+    [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
-    [urls.instanceLicenses()]: Scene.InstanceLicenses,
+    [urls.instanceLicenses()]: Scene.Licenses,
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.mySettings()]: Scene.MySettings,

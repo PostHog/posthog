@@ -190,7 +190,9 @@ export interface TeamType extends TeamBasicType {
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
     correlation_config: {
-        excluded_person_property_names: string[]
+        excluded_person_property_names?: string[]
+        excluded_event_property_names?: string[]
+        excluded_event_names?: string[]
     }
 }
 
@@ -268,6 +270,7 @@ export interface PropertyFilter {
     operator: PropertyOperator | null
     type: string
     value: PropertyFilterValue
+    group_type_index?: number | null
 }
 
 export type EmptyPropertyFilter = Partial<PropertyFilter>
@@ -501,7 +504,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
-    type: ViewType
+    type: InsightType
 }
 
 export interface SavedFunnel extends InsightHistory {
@@ -541,6 +544,11 @@ export interface EventType {
     timestamp: string
     person?: Partial<PersonType> | null
     event: string
+}
+
+export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+    percentage: number
+    timestamp: number
 }
 
 export interface EventsTableRowItem {
@@ -759,10 +767,7 @@ export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `rem
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
-// NB! Keep InsightType and ViewType in sync!
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-
-export enum ViewType {
+export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
@@ -770,8 +775,6 @@ export enum ViewType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    // Views that are not insights:
-    HISTORY = 'HISTORY',
 }
 
 export enum PathType {
@@ -860,6 +863,7 @@ export interface FilterType {
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
 export interface SystemStatusSubrows {
@@ -929,6 +933,7 @@ export type SetupState = EnabledSetupState | DisabledSetupState
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
+    math_group_type_index?: number | null
     properties: PropertyFilter[]
     type: EntityType
 }
@@ -1116,7 +1121,7 @@ export interface FeatureFlagType {
     deleted: boolean
     active: boolean
     created_by: UserBasicType | null
-    created_at: string
+    created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
 }
@@ -1271,6 +1276,13 @@ export interface PersonProperty {
     name: string
     count: number
 }
+
+export interface GroupType {
+    group_type: string
+    group_type_index: number
+}
+
+export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface SelectOption {
     value: string

@@ -4,6 +4,7 @@ import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 import { lemonadeLogicType } from './lemonadeLogicType'
 
 export const lemonadeLogic = kea<lemonadeLogicType>({
+    path: ['layout', 'lemonade', 'lemonadeLogic'],
     connect: {
         values: [featureFlagLogic, ['featureFlags']],
     },
@@ -18,14 +19,18 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideInviteModal: true,
         showCreateOrganizationModal: true,
         hideCreateOrganizationModal: true,
+        showCreateProjectModal: true,
+        hideCreateProjectModal: true,
         showChangelogModal: true,
         hideChangelogModal: true,
         showToolbarModal: true,
         hideToolbarModal: true,
+        toggleProjectSwitcher: true,
+        hideProjectSwitcher: true,
     },
     reducers: {
-        isSideBarShown: [
-            window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
+        isSideBarShownRaw: [
+            window.innerWidth >= 992, // Sync width threshold with Sass variable $lg!
             {
                 toggleSideBar: (state) => !state,
                 hideSideBar: () => false,
@@ -59,6 +64,13 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
                 hideCreateOrganizationModal: () => false,
             },
         ],
+        isCreateProjectModalShown: [
+            false,
+            {
+                showCreateProjectModal: () => true,
+                hideCreateProjectModal: () => false,
+            },
+        ],
         isChangelogModalShown: [
             false,
             {
@@ -73,8 +85,20 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
                 hideToolbarModal: () => false,
             },
         ],
+        isProjectSwitcherShown: [
+            false,
+            {
+                toggleProjectSwitcher: (state) => !state,
+                hideProjectSwitcher: () => false,
+            },
+        ],
     },
     selectors: {
+        isSideBarForciblyHidden: [() => [() => document.fullscreenElement], (fullscreenElement) => !!fullscreenElement],
+        isSideBarShown: [
+            (s) => [s.isSideBarShownRaw, s.isSideBarForciblyHidden],
+            (isSideBarShownRaw, isSideBarForciblyHidden) => isSideBarShownRaw && !isSideBarForciblyHidden,
+        ],
         announcementMessage: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {

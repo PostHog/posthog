@@ -19,6 +19,7 @@ const tabUrls: Record<EventsTab, string> = {
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType<EventsTab>>({
+    path: ['scenes', 'events', 'eventsTabsLogic'],
     actions: {
         setTab: (tab: EventsTab) => ({ tab }),
     },

@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightType } from '~/types'
 
 jest.mock('lib/api')
 
@@ -29,7 +30,7 @@ describe('retentionTableLogic', () => {
 
         it('setFilters calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ insight: 'RETENTION', period: 'Week' })
+                logic.actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
             })
                 .toDispatchActions([
                     (action) =>
@@ -50,7 +51,7 @@ describe('retentionTableLogic', () => {
 
         it('insightLogic.setFilters updates filters', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ insight: 'RETENTION', period: 'Week' })
+                insightLogic(props).actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
             })
                 .toMatchValues(logic, {
                     filters: expect.objectContaining({

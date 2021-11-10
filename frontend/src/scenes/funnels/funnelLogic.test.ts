@@ -5,10 +5,15 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, ViewType } from '~/types'
+import {
+    AvailableFeature,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    TeamType,
+    InsightType,
+} from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -16,13 +21,9 @@ import { userLogic } from 'scenes/userLogic'
 jest.mock('lib/api')
 jest.mock('posthog-js')
 
-type CorrelationConfig = {
-    excluded_person_property_names?: string[]
-}
-
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
-    let correlationConfig: CorrelationConfig = {}
+    let correlationConfig: TeamType['correlation_config'] = {}
 
     mockAPI(async (url) => {
         if (['api/projects/@current', `api/projects/${MOCK_TEAM_ID}`].includes(url.pathname)) {
@@ -88,11 +89,69 @@ describe('funnelLogic', () => {
                 last_refresh: '2021-09-16T13:41:41.297295Z',
                 result: {
                     events: [
-                        { event: { event: 'some event' }, success_count: 1, failure_count: 1 },
-                        { event: { event: 'another event' }, success_count: 1, failure_count: 1 },
+                        {
+                            event: { event: 'some event' },
+                            success_count: 1,
+                            failure_count: 1,
+                            odds_ratio: 1,
+                            correlation_type: 'success',
+                        },
+                        {
+                            event: { event: 'another event' },
+                            success_count: 1,
+                            failure_count: 1,
+                            odds_ratio: 1,
+                            correlation_type: 'failure',
+                        },
                     ],
                 },
                 type: 'Funnel',
+            }
+        } else if (
+            url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+            url.data?.funnel_correlation_type === 'event_with_properties'
+        ) {
+            const targetEvent = url.data?.funnel_correlation_event_names[0]
+            const excludedProperties = url.data?.funnel_correlation_event_exclude_property_names
+            return {
+                result: {
+                    events: [
+                        {
+                            success_count: 1,
+                            failure_count: 0,
+                            odds_ratio: 29,
+                            correlation_type: 'success',
+                            event: { event: `some event::name::Hester` },
+                        },
+                        {
+                            success_count: 1,
+                            failure_count: 0,
+                            odds_ratio: 29,
+                            correlation_type: 'success',
+                            event: { event: `some event::Another name::Alice` },
+                        },
+                        {
+                            success_count: 1,
+                            failure_count: 0,
+                            odds_ratio: 25,
+                            correlation_type: 'success',
+                            event: { event: `another event::name::Aloha` },
+                        },
+                        {
+                            success_count: 1,
+                            failure_count: 0,
+                            odds_ratio: 25,
+                            correlation_type: 'success',
+                            event: { event: `another event::Another name::Bob` },
+                        },
+                    ].filter(
+                        (record) =>
+                            record.event.event.split('::')[0] === targetEvent &&
+                            !excludedProperties.includes(record.event.event.split('::')[1])
+                    ),
+                    last_refresh: '2021-11-05T09:26:16.175923Z',
+                    is_cached: false,
+                },
             }
         } else if (url.pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
             return { results: [], next: null }
@@ -103,7 +162,7 @@ describe('funnelLogic', () => {
                 { name: 'third property', count: 5 },
             ]
         }
-        return defaultAPIMocks(url)
+        return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS] })
     })
 
     initKeaTestLogic({
@@ -111,7 +170,7 @@ describe('funnelLogic', () => {
         props: {
             dashboardItemId: undefined,
             filters: {
-                insight: ViewType.FUNNELS,
+                insight: InsightType.FUNNELS,
                 actions: [
                     { id: '$pageview', order: 0 },
                     { id: '$pageview', order: 1 },
@@ -126,12 +185,9 @@ describe('funnelLogic', () => {
             await expectLogic(logic).toMount([
                 eventUsageLogic,
                 insightLogic({ dashboardItemId: undefined }),
-                insightHistoryLogic,
                 preflightLogic,
-                funnelsModel,
             ])
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await expectLogic(funnelsModel).toDispatchActions(['loadFunnelsSuccess'])
         })
 
         it('has clickhouse enabled once preflight loads', async () => {
@@ -156,7 +212,7 @@ describe('funnelLogic', () => {
                         result: null,
                     }),
                     filters: {
-                        insight: ViewType.FUNNELS,
+                        insight: InsightType.FUNNELS,
                         actions: [
                             { id: '$pageview', order: 0 },
                             { id: '$pageview', order: 1 },
@@ -168,7 +224,7 @@ describe('funnelLogic', () => {
                 .toMatchValues({
                     insight: expect.objectContaining({
                         filters: {
-                            insight: ViewType.FUNNELS,
+                            insight: InsightType.FUNNELS,
                             actions: [
                                 { id: '$pageview', order: 0 },
                                 { id: '$pageview', order: 1 },
@@ -177,7 +233,7 @@ describe('funnelLogic', () => {
                         result: ['result from api'],
                     }),
                     filters: {
-                        insight: ViewType.FUNNELS,
+                        insight: InsightType.FUNNELS,
                         actions: [
                             { id: '$pageview', order: 0 },
                             { id: '$pageview', order: 1 },
@@ -439,7 +495,7 @@ describe('funnelLogic', () => {
 
         it('Deselecting all returns empty result', async () => {
             await expectLogic(logic, () => logic.actions.setPropertyNames([]))
-                .toFinishListeners()
+                .toDispatchActions(logic, ['loadPropertyCorrelationsSuccess'])
                 .toMatchValues({
                     propertyCorrelations: {
                         events: [],
@@ -452,7 +508,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
             })
                 .toFinishListeners()
                 .toMatchValues({
@@ -488,12 +544,12 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
                 logic.actions.excludePropertyFromProject('another property')
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    propertyNames: ['some property', 'another property', 'third property'],
+                    propertyNames: ['some property', 'third property'],
                     excludedPropertyNames: DEFAULT_EXCLUDED_PERSON_PROPERTIES.concat(['another property']),
                     allProperties: ['some property', 'third property'],
                 })
@@ -546,7 +602,7 @@ describe('funnelLogic', () => {
             })
         })
 
-        it('loads exclude list from Project settings', async () => {
+        it('loads property exclude list from Project settings', async () => {
             featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
             correlationConfig = { excluded_person_property_names: ['some property'] }
 
@@ -563,7 +619,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -576,6 +632,73 @@ describe('funnelLogic', () => {
                                 odds_ratio: 1,
                                 correlation_type: 'failure',
                                 result_type: FunnelCorrelationResultsType.Properties,
+                            },
+                        ],
+                    },
+                })
+        })
+
+        it('loads event exclude list from Project settings', async () => {
+            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
+            correlationConfig = { excluded_event_names: ['some event'] }
+
+            // TODO: move api mocking to this test. I couldn't seem to figure
+            // out how that would work with mockApi.
+            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam())
+                .toFinishListeners()
+                .toMatchValues({
+                    currentTeam: {
+                        ...MOCK_DEFAULT_TEAM,
+                        correlation_config: { excluded_event_names: ['some event'] },
+                    },
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    correlationValues: [
+                        {
+                            event: { event: 'another event' },
+                            success_count: 1,
+                            failure_count: 1,
+                            odds_ratio: 1,
+                            correlation_type: 'failure',
+                            result_type: FunnelCorrelationResultsType.Events,
+                        },
+                    ],
+                })
+        })
+
+        it('loads event property exclude list from Project settings', async () => {
+            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
+            correlationConfig = { excluded_event_property_names: ['name'] }
+
+            await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam())
+                .toFinishListeners()
+                .toMatchValues({
+                    currentTeam: {
+                        ...MOCK_DEFAULT_TEAM,
+                        correlation_config: { excluded_event_property_names: ['name'] },
+                    },
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadEventWithPropertyCorrelations('some event')
+            })
+                .toDispatchActions(logic, ['loadEventWithPropertyCorrelationsSuccess'])
+                .toFinishListeners()
+                .toMatchValues({
+                    eventWithPropertyCorrelations: {
+                        'some event': [
+                            {
+                                event: { event: 'some event::Another name::Alice' },
+                                success_count: 1,
+                                failure_count: 0,
+                                odds_ratio: 29,
+                                correlation_type: 'success',
+                                result_type: FunnelCorrelationResultsType.EventWithProperties,
                             },
                         ],
                     },

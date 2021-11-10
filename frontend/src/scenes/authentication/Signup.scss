@@ -1,17 +1,12 @@
 @import '~/vars';
 @import './bridgePagesShared';
 
-.signup {
+.bridge-page.signup {
     // bridgePagesShared overrides
     .auth-main-content {
         min-height: calc(100vh - 54px); // To account for the footer
         flex-direction: row;
         padding-bottom: 32px;
-    }
-
-    .main-art {
-        width: 300px;
-        padding-right: 48px;
     }
 
     footer {
