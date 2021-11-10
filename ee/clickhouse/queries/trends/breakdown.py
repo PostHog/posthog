@@ -258,8 +258,7 @@ class ClickhouseTrendsBreakdown:
                     }
                 )
                 parsed_results.append(parsed_result)
-
-            parsed_result.update({"filter": filter.to_dict()})
+                parsed_result.update({"filter": filter.to_dict()})
             return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
 
         return _parse
