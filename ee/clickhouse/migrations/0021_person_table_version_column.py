@@ -23,7 +23,6 @@ operations = [
         ON CLUSTER {CLICKHOUSE_CLUSTER}
     """
     ),
-    # migrations.RunSQL("OPTIMIZE TABLE person FINAL") # TODO: Investigate - do we need this?
     migrations.RunSQL(KAFKA_PERSONS_TABLE_SQL),
     migrations.RunSQL(PERSONS_TABLE_MV_SQL),
 ]
