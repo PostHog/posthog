@@ -15,7 +15,9 @@ import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelS
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, filters, activeView } = useValues(insightLogic)
-    const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
+    const { conversionMetrics, clickhouseFeaturesEnabled, aggregationTargetLabel } = useValues(
+        funnelLogic(insightProps)
+    )
     const { setChartFilter } = useActions(chartFilterLogic)
 
     if (activeView !== InsightType.FUNNELS) {
@@ -27,7 +29,9 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             ? [
                   <>
                       <span className="text-muted-alt">
-                          <Tooltip title="Overall conversion rate for all users on the entire funnel.">
+                          <Tooltip
+                              title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
+                          >
                               <InfoCircleOutlined className="info-indicator left" />
                           </Tooltip>
                           Total conversion rate
