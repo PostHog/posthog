@@ -102,7 +102,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
-        loadPeople: (peopleParams: PersonModalParams, url?: string) => ({ peopleParams, url }),
+        loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
