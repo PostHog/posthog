@@ -114,7 +114,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 return searchTerm
                     ? new Fuse(userFlagsWithCalculatedInfo, {
                           threshold: 0.3,
-                          keys: ['feature_flag.key'],
+                          keys: ['feature_flag.key', 'feature_flag.name'],
                       })
                           .search(searchTerm)
                           .map(({ item }) => item)

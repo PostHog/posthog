@@ -7,11 +7,13 @@ import { CombinedFeatureFlagAndOverrideType } from '~/types'
 const featureFlags = [
     { feature_flag: { key: 'flag 1' } },
     { feature_flag: { key: 'flag 2' } },
+    { feature_flag: { key: 'flag 3', name: 'mentions 2' } },
 ] as CombinedFeatureFlagAndOverrideType[]
 
 const featureFlagsWithExtraInfo = [
     { currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 1' } },
     { currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 2' } },
+    { currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 3', name: 'mentions 2' } },
 ]
 
 describe('toolbar featureFlagsLogic', () => {
@@ -45,7 +47,17 @@ describe('toolbar featureFlagsLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchTerm('2')
         }).toMatchValues({
-            filteredFlags: [{ currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 2' } }],
+            filteredFlags: [
+                { currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 2' } },
+                {
+                    currentValue: undefined,
+                    feature_flag: {
+                        key: 'flag 3',
+                        name: 'mentions 2',
+                    },
+                    hasVariants: false,
+                },
+            ],
         })
     })
 
