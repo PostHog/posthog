@@ -41,6 +41,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Events]: {
         projectBased: true,
     },
+    [Scene.Actions]: {
+        projectBased: true,
+    },
+    [Scene.EventStats]: {
+        projectBased: true,
+    },
+    [Scene.EventPropertyStats]: {
+        projectBased: true,
+    },
     [Scene.Sessions]: {
         projectBased: true,
     },
@@ -95,8 +104,12 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
+    [Scene.OrganizationSettings]: {
+        organizationBased: true,
+    },
     [Scene.ProjectCreateFirst]: {
         plain: true,
+        organizationBased: true,
     },
     // Onboarding/setup routes
     [Scene.Login]: {
@@ -118,9 +131,21 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         allowUnauthenticated: true,
         plain: true,
     },
+    // Instance management routes
+    [Scene.SystemStatus]: {
+        instanceLevel: true,
+    },
+    [Scene.Licenses]: {
+        instanceLevel: true,
+    },
+    // Personal routes
+    [Scene.MySettings]: {
+        personal: true,
+    },
     // Cloud-only routes
     [Scene.Billing]: {
         hideDemoWarnings: true,
+        organizationBased: true,
     },
     [Scene.BillingSubscribed]: {
         plain: true,
@@ -130,7 +155,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
-    '/': urls.insights(),
+    '/': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
     '/actions': '/events/actions',

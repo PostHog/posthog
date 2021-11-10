@@ -97,7 +97,7 @@ body strong {
 }
 
 .page-title-row {
-    margin-top: 16px;
+    margin-top: 0.5rem;
 }
 
 .page-title {
@@ -296,12 +296,12 @@ code.code {
     min-width: 0;
     padding: 0 2rem 2rem;
 
-    @media (min-width: 480px) and (max-width: 639px) {
-        padding: $default_spacing $default_spacing * 2 !important;
+    @media (min-width: $sm) and (max-width: $lg) {
+        padding: 0 1rem 2rem;
     }
 
-    @media (max-width: 480px) {
-        padding: $default_spacing $default_spacing !important;
+    @media (max-width: $sm) {
+        padding: 0 1rem;
     }
 }
 

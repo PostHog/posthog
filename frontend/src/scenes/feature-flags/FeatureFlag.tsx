@@ -29,6 +29,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -581,6 +582,10 @@ export function FeatureFlag(): JSX.Element {
                                             propertyFilters={group?.properties}
                                             onChange={(properties) => updateMatchGroup(index, undefined, properties)}
                                             endpoint="person"
+                                            taxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.PersonProperties,
+                                                TaxonomicFilterGroupType.Cohorts,
+                                            ]}
                                             showConditionBadge
                                         />
                                     </Form.Item>

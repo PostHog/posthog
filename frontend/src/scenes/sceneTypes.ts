@@ -87,6 +87,12 @@ export interface SceneConfig {
     hideTopNav?: boolean
     /** Hides demo project warnings (DemoWarning.tsx) */
     hideDemoWarnings?: boolean
-    /** Route requires project access */
+    /** Personal account management (used e.g. by breadcrumbs) */
+    personal?: boolean
+    /** Instance management (used e.g. by breadcrumbs) */
+    instanceLevel?: boolean
+    /** Route requires organization access (used e.g. by breadcrumbs) */
+    organizationBased?: boolean
+    /** Route requires project access (used e.g. by breadcrumbs). `true` implies `organizationBased` */
     projectBased?: boolean
 }

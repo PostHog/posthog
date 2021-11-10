@@ -5,15 +5,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import {
-    ActionFilter,
-    FilterType,
-    ViewType,
-    FunnelVizType,
-    PropertyFilter,
-    PersonType,
-    FunnelCorrelationResultsType,
-} from '~/types'
+import { ActionFilter, FilterType, InsightType, FunnelVizType, PropertyFilter, PersonType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -60,11 +52,11 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     })
 
     // casting here is not the best
-    if (filters.insight === ViewType.STICKINESS) {
+    if (filters.insight === InsightType.STICKINESS) {
         params.stickiness_days = date_from as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = date_from as string
-    } else if (filters.insight === ViewType.LIFECYCLE) {
+    } else if (filters.insight === InsightType.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
@@ -85,6 +77,24 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     }
 
     return toParams({ ...params, ...restParams })
+}
+
+// Props for the `loadPeopleFromUrl` action.
+// NOTE: this interface isn't particularly clean. Separation of concerns of load
+// and displaying of people and the display of the modal would be helpful to
+// keep this interfaces smaller.
+type LoadPeopleFromUrlProps = {
+    // The url from which we can load urls
+    url: string
+    // The funnel step the dialog should display as the complete/dropped step
+    funnelStep: number
+    // Used to display in the modal title the property value we're filtering
+    // with
+    breakdown_value?: string // NOTE: using snake case to be consistent with the rest of the file
+    // This label is used in the modal title. It's usage depends on the
+    // filter.insight attribute. For insight=FUNNEL we use it as a person
+    // property name
+    label: string
 }
 
 export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
@@ -130,6 +140,13 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     day: date_from,
                     breakdown_value,
                 }),
+                loadPeopleFromUrl: (_, { label }) => ({
+                    people: [],
+                    count: 0,
+                    day: '',
+                    label,
+                    action: 'session',
+                }),
                 setFilters: () => null,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
             },
@@ -152,6 +169,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             false,
             {
                 loadPeople: () => true,
+                loadPeopleFromUrl: () => true,
                 hidePeople: () => false,
             },
         ],
@@ -175,7 +193,10 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams, url }, breakpoint) => {
-                let people: PaginatedResponse<{ people: PersonType[]; count: number }> | null = null
+                let people: PaginatedResponse<{
+                    people: PersonType[]
+                    count: number
+                }> | null = null
                 const {
                     label,
                     action,
@@ -266,6 +287,19 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }
 
                 return peopleResult
+            },
+            loadPeopleFromUrl: async ({ url, funnelStep, breakdown_value = '', label }) => {
+                const people = await (await fetch(url)).json()
+
+                return {
+                    people: people?.results[0]?.people,
+                    count: people?.results[0]?.count || 0,
+                    label,
+                    funnelStep,
+                    breakdown_value,
+                    day: '',
+                    action: 'session',
+                }
             },
             loadMorePeople: async ({}, breakpoint) => {
                 if (values.people) {

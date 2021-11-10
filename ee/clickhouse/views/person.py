@@ -106,7 +106,8 @@ class ClickhousePersonViewSet(PersonViewSet):
             return {"result": ([], None, None)}
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        people, should_paginate = FunnelCorrelationPersons(filter=filter, team=self.team).run()
+        base_uri = request.build_absolute_uri("/")
+        people, should_paginate = FunnelCorrelationPersons(filter=filter, team=self.team, base_uri=base_uri).run()
 
         limit = filter.correlation_person_limit if filter.correlation_person_limit else 100
         next_url = (

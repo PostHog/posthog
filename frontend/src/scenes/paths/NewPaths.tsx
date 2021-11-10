@@ -271,7 +271,10 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
 
         const svg = createCanvas(width, height)
         const sankey = createSankey(width, height)
-        const { nodes, links } = sankey(paths)
+        const { nodes, links } = sankey({
+            nodes: paths.nodes.map((d) => ({ ...d })),
+            links: paths.links.map((d) => ({ ...d })),
+        })
 
         setPathItemCards(
             nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT }))

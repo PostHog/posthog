@@ -30,6 +30,7 @@ export interface TaxonomicFilterGroup {
     logic?: LogicWrapper
     value?: string
     searchAlias?: string
+    valuesEndpoint?: (key: string) => string
     getName: (instance: any) => string
     getValue: (instance: any) => TaxonomicFilterValue
     groupTypeIndex?: number

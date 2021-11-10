@@ -24,7 +24,7 @@ import {
     DashboardMode,
     DashboardType,
     ChartDisplayType,
-    ViewType,
+    InsightType,
     FilterType,
     InsightLogicProps,
 } from '~/types'
@@ -131,7 +131,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
-                { insight: ViewType.FUNNELS, ...filters },
+                { insight: InsightType.FUNNELS, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },
@@ -143,7 +143,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
-                { insight: ViewType.RETENTION, ...filters },
+                { insight: InsightType.RETENTION, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },
@@ -155,7 +155,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
-                { insight: ViewType.PATHS, ...filters },
+                { insight: InsightType.PATHS, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },
@@ -164,11 +164,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
 
 export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
     return (
-        filters.insight === ViewType.RETENTION
+        filters.insight === InsightType.RETENTION
             ? 'RetentionContainer'
-            : filters.insight === ViewType.PATHS
+            : filters.insight === InsightType.PATHS
             ? 'PathsViz'
-            : filters.insight === ViewType.FUNNELS
+            : filters.insight === InsightType.FUNNELS
             ? 'FunnelViz'
             : filters.display || 'ActionsLineGraph'
     ) as DisplayedType
@@ -210,15 +210,15 @@ export function DashboardItem({
     const _type = getDisplayedType(item.filters)
 
     const insightTypeDisplayName =
-        item.filters.insight === ViewType.RETENTION
+        item.filters.insight === InsightType.RETENTION
             ? 'Retention'
-            : item.filters.insight === ViewType.PATHS
+            : item.filters.insight === InsightType.PATHS
             ? 'Paths'
-            : item.filters.insight === ViewType.FUNNELS
+            : item.filters.insight === InsightType.FUNNELS
             ? 'Funnel'
-            : item.filters.insight === ViewType.SESSIONS
+            : item.filters.insight === InsightType.SESSIONS
             ? 'Sessions'
-            : item.filters.insight === ViewType.STICKINESS
+            : item.filters.insight === InsightType.STICKINESS
             ? 'Stickiness'
             : 'Trends'
 
@@ -264,7 +264,7 @@ export function DashboardItem({
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         // Insight specific empty states - note order is important here
-        if (item.filters.insight === ViewType.FUNNELS) {
+        if (item.filters.insight === InsightType.FUNNELS) {
             if (!areFiltersValid) {
                 return <FunnelInvalidFiltersEmptyState />
             }

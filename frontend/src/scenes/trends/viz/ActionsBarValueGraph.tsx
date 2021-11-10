@@ -14,6 +14,7 @@ interface Props {
     color?: string
     inSharedMode?: boolean | null
     cachedResults?: any
+    showPersonsModal?: boolean
 }
 
 type DataSet = any
@@ -22,6 +23,7 @@ export function ActionsBarValueGraph({
     dashboardItemId = null,
     filters: filtersParam,
     color = 'white',
+    showPersonsModal = true,
 }: Props): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
@@ -75,7 +77,7 @@ export function ActionsBarValueGraph({
             totalValue={total}
             interval={filtersParam?.interval}
             onClick={
-                dashboardItemId
+                dashboardItemId || filtersParam.formula || !showPersonsModal
                     ? null
                     : (point) => {
                           const { dataset, value: pointValue, index } = point

@@ -10,7 +10,7 @@ import { NewActionButton } from './NewActionButton'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { ActionType, ViewType } from '~/types'
+import { ActionType, InsightType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
@@ -21,6 +21,7 @@ import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab, EventsTabs } from 'scenes/events'
 import api from '../../lib/api'
+import { urls } from '../urls'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -53,10 +54,7 @@ export function ActionsTable(): JSX.Element {
             sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
             render: function RenderName(_: any, action: ActionType, index: number): JSX.Element {
                 return (
-                    <Link
-                        data-attr={'action-link-' + index}
-                        to={'/action/' + action.id + '#backTo=Actions&backToURL=' + window.location.pathname}
-                    >
+                    <Link data-attr={'action-link-' + index} to={urls.action(action.id)}>
                         {action.name}
                     </Link>
                 )
@@ -139,7 +137,7 @@ export function ActionsTable(): JSX.Element {
             title: '',
             render: function RenderActions(action: ActionType): JSX.Element {
                 const params = {
-                    insight: ViewType.TRENDS,
+                    insight: InsightType.TRENDS,
                     interval: 'day',
                     display: 'ActionsLineGraph',
                     actions: [
@@ -157,7 +155,7 @@ export function ActionsTable(): JSX.Element {
 
                 return (
                     <span>
-                        <Link to={'/action/' + action.id + '#backTo=Actions&backToURL=' + window.location.pathname}>
+                        <Link to={urls.action(action.id)}>
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo

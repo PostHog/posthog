@@ -14,7 +14,6 @@ import {
     GlobalHotKeys,
     EntityType,
     DashboardItemType,
-    ViewType,
     InsightType,
     PropertyFilter,
     HelpType,
@@ -442,7 +441,7 @@ export const eventUsageLogic = kea<
             }
 
             for (const item of dashboard.items) {
-                const key = `${item.filters?.insight?.toLowerCase() || ViewType.TRENDS}_count`
+                const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {
@@ -693,9 +692,9 @@ export const eventUsageLogic = kea<
         },
         reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
             if (delay === 0) {
-                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
             } else {
-                posthog.capture(`beta - correlation${propertiesTable ? ' properties' : ''} analyzed`, {
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, {
                     filters,
                     delay,
                 })

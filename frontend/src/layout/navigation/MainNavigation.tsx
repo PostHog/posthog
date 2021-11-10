@@ -33,7 +33,7 @@ import {
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, HotKeys, ViewType } from '~/types'
+import { DashboardType, HotKeys, InsightType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { canViewPlugins } from 'scenes/plugins/access'
@@ -220,29 +220,21 @@ function MenuItems(): JSX.Element {
                     hotkey="u"
                 />
             )}
-            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
-                <MenuItem
-                    title="New Insight"
-                    icon={<IconExplore />}
-                    identifier={Scene.Insights}
-                    to={urls.newInsight(ViewType.TRENDS)}
-                    hotkey="x"
-                    tooltip="Answers to all your analytics questions"
-                />
-            )}
+            <MenuItem
+                title="New Insight"
+                icon={<IconExplore />}
+                identifier={Scene.Insights}
+                to={urls.newInsight(InsightType.TRENDS)}
+                hotkey="x"
+                tooltip="Answers to all your analytics questions"
+            />
             <MenuItem
                 title="Insights"
                 icon={<IconInsights />}
-                identifier={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? Scene.SavedInsights : Scene.Insights}
-                to={
-                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? urls.savedInsights() : urls.newInsight(ViewType.TRENDS)
-                }
+                identifier={Scene.SavedInsights}
+                to={urls.savedInsights()}
                 hotkey="i"
-                tooltip={
-                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
-                        ? 'See your saved insights'
-                        : 'Answers to all your analytics questions'
-                }
+                tooltip="See your saved insights"
             />
             <Popover
                 content={PinnedDashboards}
