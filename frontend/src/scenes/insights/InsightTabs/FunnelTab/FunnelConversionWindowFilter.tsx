@@ -49,9 +49,8 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     title={
                         <>
                             <b>Recommended!</b> Limit to {aggregationTargetLabel.plural} who converted within a specific
-                            time frame.
-                            {capitalizeFirstLetter(aggregationTargetLabel.plural)} who do not convert in this time frame
-                            will be considered as drop-offs.
+                            time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)} who do not convert in
+                            this time frame will be considered as drop-offs.
                         </>
                     }
                 >
