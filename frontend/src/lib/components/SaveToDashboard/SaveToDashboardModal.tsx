@@ -45,8 +45,8 @@ export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDas
             afterClose={closeModal}
             confirmLoading={insightLoading}
             visible={visible}
-            title="Add graph to dashboard"
-            okText="Add panel to dashboard"
+            title="Add to dashboard"
+            okText="Add insight to dashboard"
         >
             <form onSubmit={(e) => void save(e)}>
                 <label>Dashboard</label>
