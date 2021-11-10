@@ -370,8 +370,6 @@ describe('funnelLogic', () => {
                 correlation_type: FunnelCorrelationType.Success,
                 success_count: 1,
                 failure_count: 1,
-                success_people_url: '/some/people/url',
-                failure_people_url: '/some/people/url',
                 result_type: FunnelCorrelationResultsType.Events,
             }
             it('chooses the correct name based on Event type', async () => {

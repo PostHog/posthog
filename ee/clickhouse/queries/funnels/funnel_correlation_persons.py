@@ -16,8 +16,8 @@ from posthog.models.team import Team
 
 
 class FunnelCorrelationPersons:
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
-        self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
+    def __init__(self, filter: Filter, team: Team) -> None:
+        self._funnel_correlation = FunnelCorrelation(filter, team)
         self._filter = filter
         self._team = team
 

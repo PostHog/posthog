@@ -5,13 +5,21 @@ import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
+import {
+    EntityTypes,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    PropertyFilter,
+    PropertyOperator,
+} from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './FunnelCorrelationTable.scss'
 import { Tooltip } from 'lib/components/Tooltip'
+import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 
@@ -34,9 +42,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     const {
         setCorrelationTypes,
         loadEventWithPropertyCorrelations,
+        openCorrelationPersonsModal,
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
-        openCorrelationPersonsModal,
     } = useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
@@ -97,11 +105,49 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         )
     }
 
+    const parseEventAndProperty = (
+        event: FunnelCorrelation['event']
+    ): { name: string; properties?: PropertyFilter[] } => {
+        const components = event.event.split('::')
+        /*
+          The `event` is either an event name, or event::property::property_value
+        */
+        if (components.length === 1) {
+            return { name: components[0] }
+        } else if (components[0] === '$autocapture') {
+            // We use elementsToAction to generate the required property filters
+            const elementData = elementsToAction(event.elements)
+            return {
+                name: components[0],
+                properties: Object.entries(elementData)
+                    .filter(([, propertyValue]) => !!propertyValue)
+                    .map(([propertyKey, propertyValue]) => ({
+                        key: propertyKey,
+                        operator: PropertyOperator.Exact,
+                        type: 'element',
+                        value: [propertyValue as string],
+                    })),
+            }
+        } else {
+            return {
+                name: components[0],
+                properties: [
+                    { key: components[1], operator: PropertyOperator.Exact, value: components[2], type: 'event' },
+                ],
+            }
+        }
+    }
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
+        const { name, properties } = parseEventAndProperty(record.event)
+
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openCorrelationPersonsModal(record, true)
+                    openCorrelationPersonsModal(
+                        { id: name, type: EntityTypes.EVENTS, properties },
+                        true,
+                        record.result_type
+                    )
                 }}
             >
                 {record.success_count}
@@ -110,10 +156,16 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
+        const { name, properties } = parseEventAndProperty(record.event)
+
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openCorrelationPersonsModal(record, false)
+                    openCorrelationPersonsModal(
+                        { id: name, type: EntityTypes.EVENTS, properties },
+                        false,
+                        record.result_type
+                    )
                 }}
             >
                 {record.failure_count}
