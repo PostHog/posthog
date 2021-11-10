@@ -38,6 +38,10 @@ export const groupsModel = kea<groupsModelType>({
             (s) => [s.featureFlags, s.clickhouseEnabled],
             (featureFlags, clickhouseEnabled) => featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] && clickhouseEnabled,
         ],
+        showGroupsOptions: [
+            (s) => [s.groupsEnabled, s.groupTypes],
+            (enabled, groupTypes) => enabled && groupTypes.length > 1,
+        ],
         groupsTaxonomicTypes: [
             (s) => [s.groupTypes],
             (groupTypes): TaxonomicFilterGroupType[] => {

@@ -549,4 +549,19 @@ describe('insightLogic', () => {
             filtersChanged: false,
         })
     })
+
+    test('saveInsight and updateInsight reload the saved insights list', async () => {
+        savedInsightsLogic.mount()
+        logic = insightLogic({
+            dashboardItemId: 42,
+            filters: { insight: 'FUNNELS' },
+        })
+        logic.mount()
+
+        logic.actions.saveInsight()
+        await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
+
+        logic.actions.updateInsight({ filters: { insight: 'FUNNELS' } })
+        await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
+    })
 })

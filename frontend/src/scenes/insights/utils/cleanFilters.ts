@@ -35,6 +35,9 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+            ...(filters.aggregation_group_type_index != undefined
+                ? { aggregation_group_type_index: filters.aggregation_group_type_index }
+                : {}),
         }
     } else if (filters.insight === InsightType.FUNNELS) {
         const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
@@ -75,6 +78,9 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
             funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
             funnel_custom_steps: filters.funnel_custom_steps || undefined,
+            ...(filters.aggregation_group_type_index != undefined
+                ? { aggregation_group_type_index: filters.aggregation_group_type_index }
+                : {}),
         }
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
