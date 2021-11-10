@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, InsightLogicProps, FilterType, ViewType } from '~/types'
+import { ActionType, InsightLogicProps, FilterType, InsightType } from '~/types'
 import {
     RetentionTablePayload,
     RetentionTrendPayload,
@@ -70,12 +70,12 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     selectors: {
         loadedFilters: [
             (s) => [s.insight],
-            ({ filters }): Partial<FilterType> => (filters?.insight === ViewType.RETENTION ? filters ?? {} : {}),
+            ({ filters }): Partial<FilterType> => (filters?.insight === InsightType.RETENTION ? filters ?? {} : {}),
         ],
         results: [
             (s) => [s.insight],
             ({ filters, result }): RetentionTablePayload[] | RetentionTrendPayload[] => {
-                return filters?.insight === ViewType.RETENTION &&
+                return filters?.insight === InsightType.RETENTION &&
                     result &&
                     (result.length === 0 ||
                         (!result[0].values && filters.display === ACTIONS_LINE_GRAPH_LINEAR) ||

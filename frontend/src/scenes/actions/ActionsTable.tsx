@@ -10,7 +10,7 @@ import { NewActionButton } from './NewActionButton'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { ActionType, ViewType } from '~/types'
+import { ActionType, InsightType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
@@ -139,7 +139,7 @@ export function ActionsTable(): JSX.Element {
             title: '',
             render: function RenderActions(action: ActionType): JSX.Element {
                 const params = {
-                    insight: ViewType.TRENDS,
+                    insight: InsightType.TRENDS,
                     interval: 'day',
                     display: 'ActionsLineGraph',
                     actions: [

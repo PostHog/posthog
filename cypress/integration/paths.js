@@ -1,6 +1,6 @@
 describe('Paths', () => {
     beforeEach(() => {
-        cy.visit('/')
+        cy.visit('/insights/new')
         cy.get('[data-attr=insight-path-tab]').click()
     })
 

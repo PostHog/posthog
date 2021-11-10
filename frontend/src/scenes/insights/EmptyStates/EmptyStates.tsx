@@ -12,6 +12,8 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+export const UNNAMED_INSIGHT_NAME = 'Unnamed insight'
+
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
         <>

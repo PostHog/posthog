@@ -5,7 +5,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { ActionFilter, FilterType, ViewType, FunnelVizType, PropertyFilter, PersonType } from '~/types'
+import { ActionFilter, FilterType, InsightType, FunnelVizType, PropertyFilter, PersonType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -52,11 +52,11 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     })
 
     // casting here is not the best
-    if (filters.insight === ViewType.STICKINESS) {
+    if (filters.insight === InsightType.STICKINESS) {
         params.stickiness_days = date_from as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = date_from as string
-    } else if (filters.insight === ViewType.LIFECYCLE) {
+    } else if (filters.insight === InsightType.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
@@ -217,13 +217,13 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 } = peopleParams
                 const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
 
-                if (filters.insight === ViewType.LIFECYCLE) {
+                if (filters.insight === InsightType.LIFECYCLE) {
                     const filterParams = parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                         filters
                     )
                     people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
-                } else if (filters.insight === ViewType.STICKINESS) {
+                } else if (filters.insight === InsightType.STICKINESS) {
                     const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
                         filters
@@ -246,7 +246,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
-                } else if (filters.insight === ViewType.PATHS) {
+                } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                 } else {

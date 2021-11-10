@@ -8,7 +8,7 @@ import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemType, DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType } from '~/types'
+import { DashboardItemType, DashboardLayoutSize, DashboardMode, DashboardType, FilterType, InsightType } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -335,7 +335,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         ?.filter((i) => !i.deleted)
                         .map((item) => {
                             const isRetention =
-                                item.filters.insight === ViewType.RETENTION &&
+                                item.filters.insight === InsightType.RETENTION &&
                                 item.filters.display === ACTIONS_LINE_GRAPH_LINEAR
                             const defaultWidth = isRetention || item.filters.display === PATHS_VIZ ? 8 : 6
                             const defaultHeight = isRetention ? 8 : item.filters.display === PATHS_VIZ ? 12.5 : 5
