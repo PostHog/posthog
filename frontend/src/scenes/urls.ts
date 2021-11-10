@@ -20,6 +20,7 @@ export const urls = {
     sessionRecordings: () => '/recordings',
     person: (id: string) => `/person/${id}`,
     persons: () => '/persons',
+    groups: (groupTypeIndex: string) => `/persons/groups/${groupTypeIndex}`,
     cohort: (id: string | number) => `/cohorts/${id}`,
     cohorts: () => '/cohorts',
     featureFlags: () => '/feature_flags',

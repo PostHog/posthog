@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsModelType } from './groupsModelType'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { urls } from 'scenes/urls'
 
 export const groupsModel = kea<groupsModelType>({
     path: ['models', 'groupsModel'],
@@ -22,6 +23,7 @@ export const groupsModel = kea<groupsModelType>({
     },
     actions: () => ({
         loadGroupList: (groupTypeIndex: string) => ({ groupTypeIndex }),
+        setTab: (tab: string) => ({ tab }),
     }),
     loaders: ({ values }) => ({
         groupTypes: [
@@ -68,6 +70,14 @@ export const groupsModel = kea<groupsModelType>({
             },
         ],
     },
+    actionToUrl: () => ({
+        setTab: ({ tab }) => {
+            if (tab !== 'persons') {
+                return urls.groups(tab)
+            }
+            return urls.persons()
+        },
+    }),
     events: ({ actions }) => ({
         afterMount: actions.loadAllGroupTypes,
     }),

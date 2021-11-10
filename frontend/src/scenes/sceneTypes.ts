@@ -18,6 +18,7 @@ export enum Scene {
     SessionRecordings = 'SessionsRecordings',
     Person = 'Person',
     Persons = 'Persons',
+    Groups = 'Groups',
     Action = 'Action',
     Actions = 'ActionsTable',
     FeatureFlags = 'FeatureFlags',
