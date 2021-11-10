@@ -81,12 +81,12 @@ class ClickhouseTrendsTotalVolume:
                 filter.interval, filter.date_from, filter.date_to, team_id=team_id
             )
             time_range = enumerate_time_range(filter, seconds_in_interval)
-            filter_params = filter.to_dict()
+            filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
             }
-            parsed_params = deep_dump_object({**filter_params, **extra_params})
+            parsed_params = {**filter_params, **extra_params}
             return [
                 {
                     "aggregated_value": result[0][0] if result and len(result) else 0,
@@ -104,14 +104,14 @@ class ClickhouseTrendsTotalVolume:
     def _get_persons_url(self, filter: Filter, entity: Entity, team_id: int, dates: List[str]) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
-            filter_params = filter.to_dict()
+            filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "date_from": date,
                 "date_to": date,
             }
-            parsed_params = deep_dump_object({**filter_params, **extra_params})
+            parsed_params = {**filter_params, **extra_params}
             persons_url.append(
                 {
                     "filter": extra_params,
