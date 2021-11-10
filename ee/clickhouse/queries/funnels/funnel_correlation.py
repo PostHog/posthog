@@ -105,7 +105,7 @@ class FunnelCorrelation:
         self,
         filter: Filter,  #  Used to filter people
         team: Team,  # Used to partition by team
-        base_uri: str,  # Used to generate absolute urls
+        base_uri: str = "/",  # Used to generate absolute urls
     ) -> None:
         self._filter = filter
         self._team = team
