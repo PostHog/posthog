@@ -9,6 +9,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import utc from 'dayjs/plugin/utc'
+dayjs.extend(utc)
 
 type WarningType =
     | 'welcome'
@@ -153,9 +155,17 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             null as string | null,
             {
                 loadLatestVersion: async () => {
-                    const versions = (await api.get('https://update.posthog.com/versions')) as VersionType[]
+                    const versions = (await api.get('https://update.posthog.com')) as VersionType[]
                     for (const version of versions) {
-                        if (version?.release_date && dayjs(version.release_date) > dayjs()) {
+                        if (
+                            version?.release_date &&
+                            dayjs
+                                .utc(version.release_date)
+                                .set('hour', 0)
+                                .set('minute', 0)
+                                .set('second', 0)
+                                .set('millisecond', 0) > dayjs()
+                        ) {
                             // Release date is in the future
                             continue
                         }
