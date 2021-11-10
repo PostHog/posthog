@@ -12,7 +12,7 @@ interface OperatorValueSelectProps {
     value?: string | number | Array<string | number> | null
     columnOptions?: ColProps | [ColProps, ColProps]
     placeholder?: string
-    valuesEndpoint?: string
+    endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
 }
@@ -30,7 +30,7 @@ export function OperatorValueSelect({
     value,
     columnOptions,
     placeholder,
-    valuesEndpoint,
+    endpoint,
     onChange,
     operatorSelectProps,
 }: OperatorValueSelectProps): JSX.Element {
@@ -67,7 +67,7 @@ export function OperatorValueSelect({
                         type={type}
                         key={propkey}
                         propertyKey={propkey}
-                        endpoint={valuesEndpoint}
+                        endpoint={endpoint}
                         operator={currentOperator || PropertyOperator.Exact}
                         placeholder={placeholder}
                         value={value}

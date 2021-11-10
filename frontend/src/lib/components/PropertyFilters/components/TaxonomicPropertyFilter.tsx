@@ -107,7 +107,7 @@ export function TaxonomicPropertyFilter({
                             operator={filter?.operator}
                             value={filter?.value}
                             placeholder="Enter value..."
-                            valuesEndpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
+                            endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
                             onChange={(newOperator, newValue) => {
                                 if (filter?.key && filter?.type) {
                                     setFilter(
