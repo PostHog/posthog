@@ -9,6 +9,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.utils import convert_property_value
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -44,7 +45,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
 
     @action(methods=["GET"], detail=False)
     def property_values(self, request: request.Request, **kw):
-        rows = sync_execute(
+        values = sync_execute(
             f"""
             SELECT trim(BOTH '"' FROM tupleElement(keysAndValues, 2)) as value
             FROM groups
@@ -56,4 +57,4 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
             {"team_id": self.team.pk, "group_type_index": request.GET["group_type_index"], "key": request.GET["key"]},
         )
 
-        return response.Response([{"name": name} for name in rows])
+        return response.Response([{"name": convert_property_value(name[0])} for name in values])
