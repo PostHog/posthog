@@ -9,7 +9,7 @@ export interface SimpleOption {
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    onChange?: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue, item: any) => void
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
     taxonomicGroupTypes?: (TaxonomicFilterGroupType | string)[]
     taxonomicFilterLogicKey?: string
@@ -24,7 +24,7 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 
 export interface TaxonomicFilterGroup {
     name: string
-    type: TaxonomicFilterGroupType | string
+    type: TaxonomicFilterGroupType
     endpoint?: string
     options?: Record<string, any>[]
     logic?: LogicWrapper
@@ -32,6 +32,7 @@ export interface TaxonomicFilterGroup {
     searchAlias?: string
     getName: (instance: any) => string
     getValue: (instance: any) => TaxonomicFilterValue
+    groupTypeIndex?: number
 }
 
 export enum TaxonomicFilterGroupType {
@@ -46,7 +47,7 @@ export enum TaxonomicFilterGroupType {
     Screens = 'screens',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
-    Groups = 'groups',
+    GroupsPrefix = 'groups',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

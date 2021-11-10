@@ -11,7 +11,6 @@ import {
     InsightType,
     ItemMode,
     SetInsightOptions,
-    ViewType,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -27,11 +26,12 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys, findInsightFromMountedLogic } from './utils'
-import * as Sentry from '@sentry/browser'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { urls } from 'scenes/urls'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -56,17 +56,22 @@ export const insightLogic = kea<insightLogicType>({
     },
 
     actions: () => ({
-        setActiveView: (type: ViewType) => ({ type }),
-        updateActiveView: (type: ViewType) => ({ type }),
+        setActiveView: (type: InsightType) => ({ type }),
+        updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
-        endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
+        endQuery: (
+            queryId: string,
+            view: InsightType,
+            lastRefresh: string | null,
+            exception?: Record<string, any>
+        ) => ({
             queryId,
             view,
             lastRefresh,
             exception,
         }),
-        abortQuery: (queryId: string, view: ViewType, scene: Scene | null, exception?: Record<string, any>) => ({
+        abortQuery: (queryId: string, view: InsightType, scene: Scene | null, exception?: Record<string, any>) => ({
             queryId,
             view,
             scene,
@@ -124,6 +129,7 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
                     const updatedInsight = { ...response, result: response.result || values.insight.result }
                     callback?.(updatedInsight)
+                    savedInsightsLogic.findMounted()?.actions.loadInsights()
                     return updatedInsight
                 },
                 // using values.filters, query for new insight results
@@ -139,7 +145,7 @@ export const insightLogic = kea<insightLogicType>({
                     cache.abortController = new AbortController()
 
                     const { filters } = values
-                    const insight = (filters.insight as ViewType | undefined) || ViewType.TRENDS
+                    const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                     const params = { ...filters, ...(refresh ? { refresh: true } : {}) }
 
                     const dashboardItemId = props.dashboardItemId
@@ -155,9 +161,9 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     try {
                         if (
-                            insight === ViewType.TRENDS ||
-                            insight === ViewType.STICKINESS ||
-                            insight === ViewType.LIFECYCLE
+                            insight === InsightType.TRENDS ||
+                            insight === InsightType.STICKINESS ||
+                            insight === InsightType.LIFECYCLE
                         ) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/trend/?${toParams(
@@ -165,21 +171,21 @@ export const insightLogic = kea<insightLogicType>({
                                 )}`,
                                 cache.abortController.signal
                             )
-                        } else if (insight === ViewType.SESSIONS || filters?.session) {
+                        } else if (insight === InsightType.SESSIONS || filters?.session) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/session/?${toParams(
                                     filterTrendsClientSideParams(params)
                                 )}`,
                                 cache.abortController.signal
                             )
-                        } else if (insight === ViewType.RETENTION) {
+                        } else if (insight === InsightType.RETENTION) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
                                 cache.abortController.signal
                             )
-                        } else if (insight === ViewType.FUNNELS) {
+                        } else if (insight === InsightType.FUNNELS) {
                             response = await pollFunnel(currentTeamId, params)
-                        } else if (insight === ViewType.PATHS) {
+                        } else if (insight === InsightType.PATHS) {
                             response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
@@ -194,7 +200,7 @@ export const insightLogic = kea<insightLogicType>({
                         if (dashboardItemId && dashboardsModel.isMounted()) {
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                         }
-                        if (filters.insight === ViewType.FUNNELS) {
+                        if (filters.insight === InsightType.FUNNELS) {
                             eventUsageLogic.actions.reportFunnelCalculated(
                                 filters.events?.length || 0,
                                 filters.actions?.length || 0,
@@ -210,7 +216,7 @@ export const insightLogic = kea<insightLogicType>({
                     cache.abortController = null
                     actions.endQuery(
                         queryId,
-                        (values.filters.insight as ViewType) || ViewType.TRENDS,
+                        (values.filters.insight as InsightType) || InsightType.TRENDS,
                         response.last_refresh
                     )
                     if (dashboardItemId && dashboardsModel.isMounted()) {
@@ -220,7 +226,7 @@ export const insightLogic = kea<insightLogicType>({
                             response.last_refresh
                         )
                     }
-                    if (filters.insight === ViewType.FUNNELS) {
+                    if (filters.insight === InsightType.FUNNELS) {
                         eventUsageLogic.actions.reportFunnelCalculated(
                             filters.events?.length || 0,
                             filters.actions?.length || 0,
@@ -359,10 +365,10 @@ export const insightLogic = kea<insightLogicType>({
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
-        activeView: [(s) => [s.filters], (filters) => filters.insight || ViewType.TRENDS],
+        activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],
         loadedView: [
             (s) => [s.insight, s.activeView],
-            ({ filters }, activeView) => filters?.insight || activeView || ViewType.TRENDS,
+            ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
         ],
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
@@ -374,12 +380,12 @@ export const insightLogic = kea<insightLogicType>({
                 filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
         ],
         metadataEditable: [
-            () => [featureFlagLogic.selectors.featureFlags, userLogic.selectors.user],
-            (featureFlags, user) =>
-                !!(
-                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                    user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION)
-                ),
+            () => [userLogic.selectors.user],
+            (user) => user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
+        ],
+        syncWithUrl: [
+            () => [(_, props: InsightLogicProps) => props.syncWithUrl, router.selectors.location],
+            (syncWithUrl, { pathname }) => syncWithUrl && pathname.startsWith('/insights'),
         ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
@@ -414,7 +420,7 @@ export const insightLogic = kea<insightLogicType>({
             // Auto-reload when setting filters
             if (
                 backendFilterChanged &&
-                (values.filters.insight !== ViewType.FUNNELS ||
+                (values.filters.insight !== InsightType.FUNNELS ||
                     // Auto-reload on funnels if with clickhouse
                     values.clickhouseFeaturesEnabled ||
                     // Or if tabbing to the funnels insight
@@ -532,6 +538,7 @@ export const insightLogic = kea<insightLogicType>({
                     <Link to={'/saved_insights'}>Click here to see your list of saved insights</Link>
                 </div>
             )
+            savedInsightsLogic.findMounted()?.actions.loadInsights()
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
@@ -553,44 +560,11 @@ export const insightLogic = kea<insightLogicType>({
                     { ...insight, ...createdInsight, result: createdInsight.result || insight.result },
                     {}
                 )
-                if (props.syncWithUrl) {
+                if (values.syncWithUrl) {
                     router.actions.replace('/insights', router.values.searchParams, {
                         ...router.values.hashParams,
                         fromItem: createdInsight.id,
                     })
-                }
-            } else if (insight.filters) {
-                // This auto-saves new filters into the insight.
-                // Exceptions:
-                if (
-                    // - not saved if "saved insights" feature flag is enabled
-                    !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                    // - not saved if on the history "insight" for some reason
-                    (insight.filters.insight as ViewType) !== ViewType.HISTORY &&
-                    // - not saved if we came from a dashboard --> there's a separate "save" button for that
-                    !router.values.hashParams.fromDashboard &&
-                    // - not saved if we come from the "saved funnels" list, TO BE REMOVED with release of "3408-saved-insights"
-                    !router.values.hashParams.fromSavedFunnels
-                ) {
-                    const filterLength = Object.keys(insight.filters).length
-                    if (filterLength === 0 || (filterLength === 1 && 'from_dashboard' in insight.filters)) {
-                        Sentry.captureException(
-                            new Error(
-                                filterLength === 0
-                                    ? 'Would save empty filters'
-                                    : `Would save filters with just "from_dashboard"`
-                            ),
-                            {
-                                extra: {
-                                    filters_to_save: JSON.stringify(insight.filters),
-                                    insight: JSON.stringify(insight),
-                                    filters: JSON.stringify(values.filters),
-                                },
-                            }
-                        )
-                    } else {
-                        actions.updateInsight({ filters: insight.filters })
-                    }
                 }
             }
         },
@@ -602,14 +576,14 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
     }),
-    actionToUrl: ({ values, props }) => ({
+    actionToUrl: ({ values }) => ({
         setFilters: () => {
-            if (props.syncWithUrl) {
+            if (values.syncWithUrl) {
                 return ['/insights', values.filters, router.values.hashParams, { replace: true }]
             }
         },
         setInsightMode: () => {
-            if (props.syncWithUrl) {
+            if (values.syncWithUrl) {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { edit: _discard, ...otherHashParams } = router.values.hashParams
                 return [
@@ -621,15 +595,16 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
     }),
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
-            if (props.syncWithUrl) {
+            if (values.syncWithUrl) {
+                if (searchParams.insight === 'HISTORY') {
+                    // Legacy redirect because the insight history scene was toggled via the insight type.
+                    router.actions.replace(urls.savedInsights())
+                    return
+                }
                 let loadedFromAnotherLogic = false
-                if (searchParams.insight === 'HISTORY' || !hashParams.fromItem) {
-                    if (values.insightMode !== ItemMode.Edit) {
-                        actions.setInsightMode(ItemMode.Edit, null)
-                    }
-                } else if (hashParams.fromItem) {
+                if (hashParams.fromItem) {
                     const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
 
                     if (
@@ -654,6 +629,9 @@ export const insightLogic = kea<insightLogicType>({
                     if (insightModeFromUrl !== values.insightMode) {
                         actions.setInsightMode(insightModeFromUrl, null)
                     }
+                } else if (values.insightMode !== ItemMode.Edit) {
+                    // Always stay in edit mode if there's no insight ID in the URL
+                    actions.setInsightMode(ItemMode.Edit, null)
                 }
 
                 const cleanSearchParams = cleanFilters(searchParams, values.filters)

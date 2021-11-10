@@ -2,12 +2,12 @@ import { Row } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ViewType } from '~/types'
+import { InsightType } from '~/types'
 
 export function PathCanvasLabel(): JSX.Element | null {
     const { activeView } = useValues(insightLogic)
 
-    if (activeView !== ViewType.PATHS) {
+    if (activeView !== InsightType.PATHS) {
         return null
     }
 

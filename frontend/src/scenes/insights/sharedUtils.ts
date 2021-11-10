@@ -1,6 +1,6 @@
 // This is separate from utils.ts because here we don't include `funnelLogic`, `retentionTableLogic`, etc
 
-import { FilterType, InsightLogicProps, InsightType, ViewType } from '~/types'
+import { FilterType, InsightLogicProps, InsightType } from '~/types'
 
 /**
  * Get a key function for InsightLogicProps.
@@ -29,11 +29,11 @@ export function filterTrendsClientSideParams(filters: Partial<FilterType>): Part
     return newFilters
 }
 
-export function isTrendsInsight(insight?: ViewType | InsightType): boolean {
+export function isTrendsInsight(insight?: InsightType | InsightType): boolean {
     return (
-        insight === ViewType.TRENDS ||
-        insight === ViewType.LIFECYCLE ||
-        insight === ViewType.STICKINESS ||
-        insight === ViewType.SESSIONS
+        insight === InsightType.TRENDS ||
+        insight === InsightType.LIFECYCLE ||
+        insight === InsightType.STICKINESS ||
+        insight === InsightType.SESSIONS
     )
 }

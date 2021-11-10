@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { InsightType, ViewType } from '~/types'
+import { InsightType } from '~/types'
 import { compareFilterLogicType } from './compareFilterLogicType'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
@@ -56,7 +56,7 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
             if (compare !== undefined) {
                 actions.setCompare(compare)
             }
-            if (insight === ViewType.LIFECYCLE || date_from === 'all') {
+            if (insight === InsightType.LIFECYCLE || date_from === 'all') {
                 actions.setDisabled(true)
             } else {
                 actions.setDisabled(false)

@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import Fuse from 'fuse.js'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
@@ -11,6 +12,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     },
     actions: {
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
+        deleteFlag: (id: number) => ({ id }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
     loaders: ({ values }) => ({
         featureFlags: {
@@ -25,7 +28,26 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         },
     }),
+    selectors: {
+        searchedFeatureFlags: [
+            (selectors) => [selectors.featureFlags, selectors.searchTerm],
+            (featureFlags, searchTerm) => {
+                if (!searchTerm) {
+                    return featureFlags
+                }
+                return new Fuse(featureFlags, {
+                    keys: ['key', 'name'],
+                    threshold: 0.3,
+                })
+                    .search(searchTerm)
+                    .map((result) => result.item)
+            },
+        ],
+    },
     reducers: {
+        searchTerm: {
+            setSearchTerm: (_, { searchTerm }) => searchTerm,
+        },
         featureFlags: {
             updateFlag: (state, { flag }) => {
                 if (state.find(({ id }) => id === flag.id)) {
@@ -34,6 +56,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     return [flag, ...state]
                 }
             },
+            deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
         },
     },
     events: ({ actions }) => ({

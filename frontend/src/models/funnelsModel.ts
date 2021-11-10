@@ -1,15 +1,14 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { SavedFunnel, ViewType } from '~/types'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+import { SavedFunnel, InsightType } from '~/types'
 import { funnelsModelType } from './funnelsModelType'
 import { teamLogic } from '../scenes/teamLogic'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     return {
         filters: result.filters,
-        type: ViewType.FUNNELS,
+        type: InsightType.FUNNELS,
         id: result.id,
         createdAt: result.created_at,
         name: result.name,
@@ -29,7 +28,7 @@ export const funnelsModel = kea<funnelsModelType>({
                         order: '-created_at',
                         saved: true,
                         limit: 5,
-                        insight: ViewType.FUNNELS,
+                        insight: InsightType.FUNNELS,
                     })}`
                 )
                 const results = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
@@ -42,9 +41,6 @@ export const funnelsModel = kea<funnelsModelType>({
             },
         },
     }),
-    connect: {
-        actions: [insightHistoryLogic, ['updateInsight']],
-    },
     reducers: () => ({
         next: [
             null as null | string,
@@ -78,7 +74,6 @@ export const funnelsModel = kea<funnelsModelType>({
             actions.setNext(response.next)
             actions.appendFunnels(results)
         },
-        updateInsight: () => actions.loadFunnels(),
     }),
     events: ({ actions }) => ({
         afterMount: actions.loadFunnels,
