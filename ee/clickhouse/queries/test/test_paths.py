@@ -79,9 +79,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         result = ClickhousePathsPersons(person_filter, self.team, funnel_filter)._exec_query()
         return [row[0] for row in result]
 
+    @test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_denormalized_properties(self):
-        materialize("events", "$current_url")
-        materialize("events", "$screen_name")
 
         query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
