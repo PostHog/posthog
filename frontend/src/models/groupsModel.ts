@@ -51,6 +51,17 @@ export const groupsModel = kea<groupsModelType>({
             },
         ],
     }),
+    reducers: {
+        currentGroup: [
+            0,
+            {
+                setTab: (_, { tab }) => {
+                    console.log('tab', tab)
+                    return tab
+                },
+            },
+        ],
+    },
     selectors: {
         groupsEnabled: [
             (s) => [s.featureFlags, s.clickhouseEnabled],
@@ -72,10 +83,16 @@ export const groupsModel = kea<groupsModelType>({
     },
     actionToUrl: () => ({
         setTab: ({ tab }) => {
-            if (tab !== 'persons') {
+            if (tab !== '-1') {
                 return urls.groups(tab)
             }
             return urls.persons()
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/persons/groups/:id': ({ id }) => {
+            actions.loadGroupList(id)
+            actions.setTab(id)
         },
     }),
     events: ({ actions }) => ({

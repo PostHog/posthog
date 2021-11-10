@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Button, Row, Radio, Alert, Tabs } from 'antd'
@@ -14,9 +14,6 @@ import { PersonsSearch } from './PersonsSearch'
 import { IconExternalLink } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupsModel } from '~/models/groupsModel'
-import { GroupsTable } from '../groups/Groups'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Persons,
@@ -30,7 +27,7 @@ interface PersonsProps {
 export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
-    const { groupsEnabled, groupTypes } = useValues(groupsModel)
+    const { groupsEnabled, groupTypes, currentGroup } = useValues(groupsModel)
     const { setTab } = useActions(groupsModel)
 
     useEffect(() => {
@@ -44,8 +41,8 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
         <div className="persons-list">
             {!cohort && !groupsEnabled && <PageHeader title="Persons" />}
             {groupsEnabled && (
-                <Tabs defaultActiveKey="1" onChange={(activeKey) => setTab(activeKey)}>
-                    <Tabs.TabPane tab="Persons" key="persons" />
+                <Tabs defaultActiveKey={currentGroup} onChange={(activeKey) => setTab(activeKey)}>
+                    <Tabs.TabPane tab="Persons" key="-1" />
                     {groupTypes.map((groupType) => (
                         <Tabs.TabPane
                             tab={capitalizeFirstLetter(groupType.group_type)}
