@@ -188,9 +188,7 @@ export function InsightContainer(): JSX.Element {
                         {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
                     {!BlockingEmptyState && CoexistingEmptyState}
-                    <div style={{ display: 'block' }}>
-                        {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
-                    </div>
+                    {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
                 </div>
             </Card>
             {renderTable()}

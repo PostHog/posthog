@@ -10,7 +10,6 @@ import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
 import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrganizationModal'
 import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInviteModal'
-import { ChangelogModal } from '../../ChangelogModal'
 import { Link } from '../../../lib/components/Link'
 import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
 import { RedesignOptIn } from '../RedesignOptIn'
@@ -25,16 +24,9 @@ export function TopBar(): JSX.Element {
         isInviteModalShown,
         isCreateOrganizationModalShown,
         isCreateProjectModalShown,
-        isChangelogModalShown,
     } = useValues(lemonadeLogic)
-    const {
-        toggleSideBar,
-        hideAnnouncement,
-        hideInviteModal,
-        hideCreateOrganizationModal,
-        hideCreateProjectModal,
-        hideChangelogModal,
-    } = useActions(lemonadeLogic)
+    const { toggleSideBar, hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
+        useActions(lemonadeLogic)
 
     return (
         <>
@@ -60,7 +52,6 @@ export function TopBar(): JSX.Element {
                 </div>
             </header>
             <CommandPalette />
-            <ChangelogModal onDismiss={hideChangelogModal} visible={isChangelogModalShown} />
             <BulkInviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />

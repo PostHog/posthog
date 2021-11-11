@@ -49,11 +49,11 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
     }
 
     return (
-        <div className="pay-card" onClick={handleClick}>
+        <div className="pay-card">
             <div className="close-button" onClick={close}>
                 <CloseOutlined />
             </div>
-            <Row>
+            <Row onClick={handleClick}>
                 <Col span={23}>
                     <h3>{title}</h3>
                     <p>

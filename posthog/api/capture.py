@@ -20,7 +20,6 @@ from posthog.helpers.session_recording import preprocess_session_recording_event
 from posthog.models import Team
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.settings import EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC
 from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled
 
 if is_clickhouse_enabled():
@@ -86,7 +85,7 @@ if is_clickhouse_enabled():
 
         try:
             KafkaProducer().produce(topic=topic, data=data)
-            statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
+            statsd.incr(settings.EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
         except Exception as e:
             capture_exception(e)
             statsd.incr("events_dead_letter_queue_produce_error")
