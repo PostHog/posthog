@@ -7,7 +7,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsModelType } from './groupsModelType'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { urls } from 'scenes/urls'
 
 export const groupsModel = kea<groupsModelType>({
     path: ['models', 'groupsModel'],
@@ -37,31 +36,7 @@ export const groupsModel = kea<groupsModelType>({
                 },
             },
         ],
-        groupList: [
-            [] as Array<Group>,
-            {
-                loadGroupList: async ({ groupTypeIndex }) => {
-                    if (values.groupsEnabled) {
-                        return await api.get(
-                            `api/projects/${values.currentTeamId}/groups/?group_type_index=${groupTypeIndex}`
-                        )
-                    }
-                    return []
-                },
-            },
-        ],
     }),
-    reducers: {
-        currentGroup: [
-            0,
-            {
-                setTab: (_, { tab }) => {
-                    console.log('tab', tab)
-                    return tab
-                },
-            },
-        ],
-    },
     selectors: {
         groupsEnabled: [
             (s) => [s.featureFlags, s.clickhouseEnabled],
@@ -81,20 +56,6 @@ export const groupsModel = kea<groupsModelType>({
             },
         ],
     },
-    actionToUrl: () => ({
-        setTab: ({ tab }) => {
-            if (tab !== '-1') {
-                return urls.groups(tab)
-            }
-            return urls.persons()
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/persons/groups/:id': ({ id }) => {
-            actions.loadGroupList(id)
-            actions.setTab(id)
-        },
-    }),
     events: ({ actions }) => ({
         afterMount: actions.loadAllGroupTypes,
     }),

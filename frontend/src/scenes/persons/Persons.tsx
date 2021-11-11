@@ -14,6 +14,7 @@ import { PersonsSearch } from './PersonsSearch'
 import { IconExternalLink } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupsModel } from '~/models/groupsModel'
+import { groupsListLogic } from 'scenes/groups/groupsListLogic'
 
 export const scene: SceneExport = {
     component: Persons,
@@ -27,8 +28,9 @@ interface PersonsProps {
 export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
-    const { groupsEnabled, groupTypes, currentGroup } = useValues(groupsModel)
-    const { setTab } = useActions(groupsModel)
+    const { groupsEnabled, groupTypes } = useValues(groupsModel)
+    const { currentGroup } = useValues(groupsListLogic)
+    const { setTab } = useActions(groupsListLogic)
 
     useEffect(() => {
         if (cohort) {

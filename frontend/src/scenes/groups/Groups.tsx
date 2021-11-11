@@ -5,10 +5,12 @@ import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { Group } from '~/types'
+import { groupsListLogic } from './groupsListLogic'
 
 export function Groups(): JSX.Element {
-    const { setTab, loadGroupList } = useActions(groupsModel)
-    const { groupTypes, groupList, currentGroup } = useValues(groupsModel)
+    const { setTab, loadGroupList } = useActions(groupsListLogic)
+    const { groupList, currentGroup } = useValues(groupsListLogic)
+    const { groupTypes } = useValues(groupsModel)
 
     const columns: ResizableColumnType<Partial<Group>>[] = [
         {
