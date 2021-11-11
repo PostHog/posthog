@@ -11,6 +11,7 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import deep_dump_object
 from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.views.test.test_clickhouse_funnel_correlation import create_events
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
 from posthog.models.organization import OrganizationMembership
@@ -279,6 +280,63 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
             {"name": "step one", "converted": ["1", "2"], "dropped": []},
             {"name": "step two", "converted": ["1"], "dropped": ["2"]},
+        ]
+
+    def test_funnel_step_breakdown_event(self):
+        # Setup three funnel people, with two different $browser values
+        # NOTE: this is mostly copied from
+        # https://github.com/PostHog/posthog/blob/a0f5a0a46a0deca2e17a66dfb530ca18ac99e58c/ee/clickhouse/queries/funnels/test/breakdown_cases.py#L24:L24
+        #
+        person1_properties = {"key": "val", "$browser": "Chrome"}
+        person2_properties = {"key": "val", "$browser": "Safari"}
+        person3_properties = person2_properties
+
+        events = {
+            "person1": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": person1_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": person1_properties},
+                {"event": "buy", "timestamp": "2020-01-03", "properties": person1_properties},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": person2_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": person2_properties},
+                {"event": "buy", "timestamp": "2020-01-03", "properties": person2_properties},
+            ],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
+        }
+
+        create_events(team=self.team, events_by_person=events)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/funnel/",
+            {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "insight": "FUNNELS",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            },
+        ).json()
+
+        assert get_funnel_breakdown_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {
+                "breakdown_value": "Chrome",
+                "steps": [
+                    {"name": "sign up", "converted": ["person1"], "dropped": []},
+                    {"name": "play movie", "converted": ["person1"], "dropped": []},
+                    {"name": "buy", "converted": ["person1"], "dropped": []},
+                ],
+            },
+            {
+                "breakdown_value": "Safari",
+                "steps": [
+                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
+                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
+                    {"name": "buy", "converted": ["person2"], "dropped": []},
+                ],
+            },
         ]
 
     def test_funnel_trends_basic_post(self):
@@ -737,29 +795,42 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         }
 
 
+def get_converted_and_dropped_people(client: Client, step):
+    # Helper for fetching converted/dropped people for a specified funnel step response
+    converted_people_response = client.get(step["converted_people_url"])
+    assert converted_people_response.status_code == status.HTTP_200_OK
+
+    converted_people = converted_people_response.json()["results"][0]["people"]
+    converted_distinct_ids = [distinct_id for people in converted_people for distinct_id in people["distinct_ids"]]
+
+    if step["order"] == 0:
+        #  If it's the first step, we don't expect a dropped people url
+        dropped_distinct_ids = []
+    else:
+        dropped_people_response = client.get(step["dropped_people_url"])
+        assert dropped_people_response.status_code == status.HTTP_200_OK
+
+        dropped_people = dropped_people_response.json()["results"][0]["people"]
+        dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
+
+    return {
+        "name": step["name"],
+        "converted": converted_distinct_ids,
+        "dropped": dropped_distinct_ids,
+    }
+
+
 def get_funnel_people_breakdown_by_step(client: Client, funnel_response):
-    def get_converted_and_dropped_people(step):
-        # assert step["converted_people_url"] is  None
-        converted_people_response = client.get(step["converted_people_url"])
-        assert converted_people_response.status_code == status.HTTP_200_OK
+    # Helper to fetch converted/dropped people for a non-breakdown funnel response
+    return [get_converted_and_dropped_people(client=client, step=step) for step in funnel_response["result"]]
 
-        converted_people = converted_people_response.json()["results"][0]["people"]
-        converted_distinct_ids = [distinct_id for people in converted_people for distinct_id in people["distinct_ids"]]
 
-        if step["order"] == 0:
-            #  If it's the first step, we don't expect a dropped people url
-            dropped_distinct_ids = []
-        else:
-            dropped_people_response = client.get(step["dropped_people_url"])
-            assert dropped_people_response.status_code == status.HTTP_200_OK
-
-            dropped_people = dropped_people_response.json()["results"][0]["people"]
-            dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
-
-        return {
-            "name": step["name"],
-            "converted": converted_distinct_ids,
-            "dropped": dropped_distinct_ids,
+def get_funnel_breakdown_people_breakdown_by_step(client: Client, funnel_response):
+    # Helper to fetch converted/dropped people for a breakdown funnel response
+    return [
+        {
+            "breakdown_value": breakdown_steps[0]["breakdown_value"],
+            "steps": [get_converted_and_dropped_people(client=client, step=step) for step in breakdown_steps],
         }
-
-    return [get_converted_and_dropped_people(step) for step in funnel_response["result"]]
+        for breakdown_steps in funnel_response["result"]
+    ]
