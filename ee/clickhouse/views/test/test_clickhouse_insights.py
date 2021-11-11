@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.test.client import Client
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -237,6 +238,12 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["count"], 2)
         self.assertEqual(response["result"][1]["count"], 2)
 
+        # Should have 2 people, all got to the end of the funnel
+        assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {"name": "step one", "converted": ["1", "2"], "dropped": []},
+            {"name": "step two", "converted": ["1", "2"], "dropped": []},
+        ]
+
     def test_funnel_strict_basic_post(self):
         _create_person(distinct_ids=["1"], team=self.team)
         _create_event(team=self.team, event="step one", distinct_id="1")
@@ -265,6 +272,14 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][1]["name"], "step two")
         self.assertEqual(response["result"][0]["count"], 2)
         self.assertEqual(response["result"][1]["count"], 1)
+
+        # Should have 2 people, all got through step one, but as this is a
+        # strict funnel, person with distinct_id "2" is not converted as they
+        # performed bleh in between step one and step two
+        assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {"name": "step one", "converted": ["1", "2"], "dropped": []},
+            {"name": "step two", "converted": ["1"], "dropped": ["2"]},
+        ]
 
     def test_funnel_trends_basic_post(self):
         _create_person(distinct_ids=["user_one"], team=self.team)
@@ -597,6 +612,14 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["count"], 1)
         self.assertEqual(response["result"][1]["count"], 1)
 
+        # Should only pick up the person with distinct id "2" as the "1" person
+        # performed the "step x" event, which we're explicitly asking to be
+        # excluded in the request payload
+        assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {"name": "step one", "converted": ["2"], "dropped": []},
+            {"name": "step two", "converted": ["2"], "dropped": []},
+        ]
+
     def test_funnel_invalid_exclusions(self):
         _create_person(distinct_ids=["1"], team=self.team)
         _create_event(team=self.team, event="step one", distinct_id="1")
@@ -712,3 +735,25 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "breakdown": breakdown_properties,
             "breakdown_value": breakdown_properties,
         }
+
+
+def get_funnel_people_breakdown_by_step(client: Client, funnel_response):
+    def get_converted_and_dropped_people(step):
+        converted_people_response = client.get(step["converted_people_url"])
+        assert converted_people_response.status_code == status.HTTP_200_OK
+
+        converted_people = converted_people_response.json()["results"][0]["people"]
+        converted_distinct_ids = [distinct_id for people in converted_people for distinct_id in people["distinct_ids"]]
+
+        dropped_people_response = client.get(step["dropped_people_url"])
+        assert dropped_people_response.status_code == status.HTTP_200_OK
+
+        dropped_people = dropped_people_response.json()["results"][0]["people"]
+        dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
+
+        return {
+            "converted": converted_distinct_ids,
+            "dropped": dropped_distinct_ids,
+        }
+
+    return {step["name"]: get_converted_and_dropped_people(step) for step in funnel_response["result"]}
