@@ -2,7 +2,7 @@
 
 .ph-graph-tooltip,
 .ant-popover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-z-2);
     font-size: 14px;
     overflow-x: hidden;
     z-index: $z_graph_tooltip;

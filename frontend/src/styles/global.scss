@@ -35,6 +35,9 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-dark: #{$border_dark};
     --border-active: #{$border_active};
     --radius: #{$radius};
+    // Shadows
+    --shadow-z-2: #{$shadow_z_2};
+    --shadow-z-8: #{$shadow_z_8};
     // Used for graph series
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};

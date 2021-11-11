@@ -6,7 +6,7 @@
     height: 100%;
     padding: 0;
     position: relative;
-    box-shadow: $shadow_elevation;
+    box-shadow: var(--shadow-z-2);
     border-radius: var(--radius);
     border: 1px solid $border;
     overflow: hidden;
