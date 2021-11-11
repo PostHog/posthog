@@ -319,7 +319,7 @@ export function SitePopover(): JSX.Element {
                 </>
             }
         >
-            <div className="SitePopover__crumb" onClick={toggleSitePopover}>
+            <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div
                     className="SitePopover__profile-picture"
                     title={systemStatus ? undefined : 'Potential system issue'}
