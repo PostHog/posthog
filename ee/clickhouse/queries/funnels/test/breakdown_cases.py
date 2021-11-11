@@ -227,11 +227,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             result = funnel.run()
 
-            people = result[0][0].pop("people")
-            self.assertCountEqual(
-                people, [person1.uuid, person4.uuid, person5.uuid] if Funnel == ClickhouseFunnel else []
-            )
-
             self.assertEqual(
                 result[0],
                 [
@@ -240,7 +235,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        # popped people because flakey ordering for assertEqual
+                        "people": [],
                         "count": 3,
                         "type": "events",
                         "average_conversion_time": None,

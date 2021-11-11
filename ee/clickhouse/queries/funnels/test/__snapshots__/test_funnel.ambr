@@ -3,12 +3,8 @@
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
-         groupArrayIf(100)(DISTINCT aggregation_target,
-                                    steps = 1) step_people_1,
-                          groupArrayIf(100)(DISTINCT aggregation_target,
-                                                     steps = 2) step_people_2,
-                                           avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
-                                           median(step_1_median_conversion_time_inner) step_1_median_conversion_time
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time
   FROM
     (SELECT aggregation_target,
             steps,
@@ -81,12 +77,8 @@
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
-         groupArrayIf(100)(DISTINCT aggregation_target,
-                                    steps = 1) step_people_1,
-                          groupArrayIf(100)(DISTINCT aggregation_target,
-                                                     steps = 2) step_people_2,
-                                           avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
-                                           median(step_1_median_conversion_time_inner) step_1_median_conversion_time
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time
   FROM
     (SELECT aggregation_target,
             steps,
@@ -161,12 +153,8 @@
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
-         groupArrayIf(100)(DISTINCT aggregation_target,
-                                    steps = 1) step_people_1,
-                          groupArrayIf(100)(DISTINCT aggregation_target,
-                                                     steps = 2) step_people_2,
-                                           avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
-                                           median(step_1_median_conversion_time_inner) step_1_median_conversion_time
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time
   FROM
     (SELECT aggregation_target,
             steps,
@@ -239,12 +227,8 @@
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
-         groupArrayIf(100)(DISTINCT aggregation_target,
-                                    steps = 1) step_people_1,
-                          groupArrayIf(100)(DISTINCT aggregation_target,
-                                                     steps = 2) step_people_2,
-                                           avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
-                                           median(step_1_median_conversion_time_inner) step_1_median_conversion_time
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time
   FROM
     (SELECT aggregation_target,
             steps,
