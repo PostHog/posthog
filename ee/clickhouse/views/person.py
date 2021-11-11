@@ -66,6 +66,8 @@ class ClickhousePersonViewSet(PersonViewSet):
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
+        funnel_class: Callable
+
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             funnel_class = ClickhouseFunnelTrendsPersons
         else:
