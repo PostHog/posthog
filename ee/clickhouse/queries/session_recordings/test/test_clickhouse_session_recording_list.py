@@ -24,7 +24,6 @@ def _create_session_recording_event(**kwargs):
 
 
 class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_recordings_list_test(ClickhouseSessionRecordingList, _create_event, _create_session_recording_event, Action.objects.create, ActionStep.objects.create)):  # type: ignore
-    @snapshot_clickhouse_queries
     def test_event_filter_with_person_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
@@ -52,7 +51,6 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
 
-    @snapshot_clickhouse_queries
     def test_event_filter_with_cohort_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(
