@@ -50,7 +50,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
-                "breakdown": "$browser",
+                "breakdown": ["$browser"],
             }
 
             filter = Filter(data=filters)
@@ -93,8 +93,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                     {
                         "action_id": "play movie",
@@ -106,8 +106,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 3600.0,
                         "median_conversion_time": 3600.0,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                     {
                         "action_id": "buy",
@@ -119,8 +119,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                 ],
             )
@@ -141,8 +141,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "play movie",
@@ -154,8 +154,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "buy",
@@ -167,8 +167,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                 ],
             )
@@ -186,7 +186,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
-                "breakdown": "$browser",
+                "breakdown": ["$browser"],
                 "breakdown_limit": 1,
             }
 
@@ -229,62 +229,10 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             result = funnel.run()
 
-            people = result[0][0].pop("people")
-            self.assertCountEqual(
-                people, [person1.uuid, person4.uuid, person5.uuid] if Funnel == ClickhouseFunnel else []
-            )
+            self.assertCountEqual(self._get_people_at_step(filter, 2, ["Other"]), [person1.uuid])
 
             self.assertEqual(
                 result[0],
-                [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        # popped people because flakey ordering for assertEqual
-                        "count": 3,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": "Other",
-                        "breakdown_value": "Other",
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 3600.0,
-                        "median_conversion_time": 3600.0,
-                        "breakdown": "Other",
-                        "breakdown_value": "Other",
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": "Other",
-                        "breakdown_value": "Other",
-                    },
-                ],
-            )
-            self.assertCountEqual(
-                self._get_people_at_step(filter, 1, "Other"), [person1.uuid, person4.uuid, person5.uuid]
-            )
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Other"), [person1.uuid])
-
-            self.assertEqual(
-                result[1],
                 [
                     {
                         "action_id": "sign up",
@@ -298,8 +246,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "play movie",
@@ -311,8 +259,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "buy",
@@ -324,14 +272,67 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                 ],
             )
 
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, ["Safari"]), [person2.uuid, person3.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, ["Safari"]), [person2.uuid])
+
+            people = sorted(result[1][0].pop("people"))
+            self.assertCountEqual(
+                people, [person1.uuid, person4.uuid, person5.uuid] if Funnel == ClickhouseFunnel else []
+            )
+
+            self.assertEqual(
+                result[1],
+                [
+                    {
+                        "action_id": "sign up",
+                        "name": "sign up",
+                        "custom_name": None,
+                        "order": 0,
+                        # popped people because flakey ordering for assertEqual
+                        "count": 3,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "median_conversion_time": None,
+                        "breakdown": ["Other"],
+                        "breakdown_value": ["Other"],
+                    },
+                    {
+                        "action_id": "play movie",
+                        "name": "play movie",
+                        "custom_name": None,
+                        "order": 1,
+                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": 3600.0,
+                        "median_conversion_time": 3600.0,
+                        "breakdown": ["Other"],
+                        "breakdown_value": ["Other"],
+                    },
+                    {
+                        "action_id": "buy",
+                        "name": "buy",
+                        "custom_name": None,
+                        "order": 2,
+                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": 7200.0,
+                        "median_conversion_time": 7200.0,
+                        "breakdown": ["Other"],
+                        "breakdown_value": ["Other"],
+                    },
+                ],
+            )
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1, ["Other"]), [person1.uuid, person4.uuid, person5.uuid]
+            )
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_no_type(self):
@@ -342,7 +343,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
-                "breakdown": "$browser",
+                "breakdown": ["$browser"],
             }
 
             filter = Filter(data=filters)
@@ -385,8 +386,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                     {
                         "action_id": "play movie",
@@ -398,8 +399,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 3600.0,
                         "median_conversion_time": 3600.0,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                     {
                         "action_id": "buy",
@@ -411,8 +412,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                 ],
             )
@@ -433,8 +434,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "play movie",
@@ -446,8 +447,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "buy",
@@ -459,8 +460,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                 ],
             )
@@ -478,7 +479,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
                 "breakdown_type": "person",
-                "breakdown": "$browser",
+                "breakdown": ["$browser"],
             }
 
             filter = Filter(data=filters)
@@ -516,8 +517,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                     {
                         "action_id": "play movie",
@@ -529,8 +530,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 3600.0,
                         "median_conversion_time": 3600.0,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                     {
                         "action_id": "buy",
@@ -542,8 +543,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                 ],
             )
@@ -563,8 +564,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "play movie",
@@ -576,8 +577,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "buy",
@@ -589,8 +590,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                 ],
             )
@@ -607,7 +608,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
-                "breakdown": "some_breakdown_val",
+                "breakdown": ["some_breakdown_val"],
                 "breakdown_limit": 5,
             }
 
@@ -632,7 +633,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             # assert that we give 5 at a time at most and that those values are the most popular ones
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
-            self.assertEqual(["5", "6", "7", "8", "9", "Other"], breakdown_vals)
+            self.assertEqual([["5"], ["6"], ["7"], ["8"], ["9"], ["Other"]], breakdown_vals)
 
         @test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls(self):
@@ -645,7 +646,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
                 "breakdown_limit": 3,
-                "breakdown": "some_breakdown_val",
+                "breakdown": ["some_breakdown_val"],
             }
 
             filter = Filter(data=filters)
@@ -680,7 +681,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = funnel.run()
 
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
-            self.assertEqual(["2", "3", "4", "Other"], breakdown_vals)
+            self.assertEqual([["2"], ["3"], ["4"], ["Other"]], breakdown_vals)
             # skipped 1 and '' because the limit was 3.
             self.assertTrue(person0.uuid in self._get_people_at_step(filter, 1, "Other"))
 
@@ -695,7 +696,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
                 "breakdown_limit": 6,
-                "breakdown": "some_breakdown_val",
+                "breakdown": ["some_breakdown_val"],
             }
 
             filter = Filter(data=filters)
@@ -730,7 +731,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = funnel.run()
 
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
-            self.assertEqual(["", "1", "2", "3", "4"], breakdown_vals)
+            self.assertEqual([[""], ["1"], ["2"], ["3"], ["4"]], breakdown_vals)
             # included 1 and '' because the limit was 6.
 
             for i in range(1, 5):
@@ -749,7 +750,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
-                "breakdown": "$browser",
+                "breakdown": ["$browser"],
             }
 
             filter = Filter(data=filters)
@@ -802,8 +803,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "0",
-                        "breakdown_value": "0",
+                        "breakdown": ["0"],
+                        "breakdown_value": ["0"],
                     },
                 ],
             )
@@ -822,8 +823,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                 ],
             )
@@ -842,8 +843,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Mac",
-                        "breakdown_value": "Mac",
+                        "breakdown": ["Mac"],
+                        "breakdown_value": ["Mac"],
                     },
                 ],
             )
@@ -862,8 +863,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                 ],
             )
@@ -878,7 +879,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
-                "breakdown": "$browser",
+                "breakdown": ["$browser"],
             }
 
             filter = Filter(data=filters)
@@ -929,8 +930,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                     {
                         "action_id": "play movie",
@@ -942,8 +943,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Chrome",
-                        "breakdown_value": "Chrome",
+                        "breakdown": ["Chrome"],
+                        "breakdown_value": ["Chrome"],
                     },
                 ],
             )
@@ -963,8 +964,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                     {
                         "action_id": "play movie",
@@ -976,8 +977,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "type": "events",
                         "average_conversion_time": 3600,
                         "median_conversion_time": 3600,
-                        "breakdown": "Safari",
-                        "breakdown_value": "Safari",
+                        "breakdown": ["Safari"],
+                        "breakdown_value": ["Safari"],
                     },
                 ],
             )
@@ -1088,7 +1089,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-14",
-                "breakdown": "$current_url",
+                "breakdown": ["$current_url"],
                 "breakdown_type": "event",
             }
 
@@ -1101,8 +1102,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         {
                             "action_id": "user signed up",
                             "average_conversion_time": None,
-                            "breakdown": "https://posthog.com/docs/x",
-                            "breakdown_value": "https://posthog.com/docs/x",
+                            "breakdown": ["https://posthog.com/docs/x"],
+                            "breakdown_value": ["https://posthog.com/docs/x"],
                             "count": 1,
                             "median_conversion_time": None,
                             "name": "user signed up",
@@ -1114,8 +1115,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         {
                             "action_id": "paid",
                             "average_conversion_time": 691200.0,
-                            "breakdown": "https://posthog.com/docs/x",
-                            "breakdown_value": "https://posthog.com/docs/x",
+                            "breakdown": ["https://posthog.com/docs/x"],
+                            "breakdown_value": ["https://posthog.com/docs/x"],
                             "count": 1,
                             "median_conversion_time": 691200.0,
                             "name": "paid",
@@ -1168,7 +1169,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-14",
-                "breakdown": "$current_url",
+                "breakdown": ["$current_url"],
                 "breakdown_type": "event",
             }
 
@@ -1181,8 +1182,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         {
                             "action_id": user_signed_up_action.id,
                             "average_conversion_time": None,
-                            "breakdown": "https://posthog.com/docs/x",
-                            "breakdown_value": "https://posthog.com/docs/x",
+                            "breakdown": ["https://posthog.com/docs/x"],
+                            "breakdown_value": ["https://posthog.com/docs/x"],
                             "count": 1,
                             "median_conversion_time": None,
                             "name": "user signed up",
@@ -1194,8 +1195,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         {
                             "action_id": "paid",
                             "average_conversion_time": 691200.0,
-                            "breakdown": "https://posthog.com/docs/x",
-                            "breakdown_value": "https://posthog.com/docs/x",
+                            "breakdown": ["https://posthog.com/docs/x"],
+                            "breakdown_value": ["https://posthog.com/docs/x"],
                             "count": 1,
                             "median_conversion_time": 691200.0,
                             "name": "paid",

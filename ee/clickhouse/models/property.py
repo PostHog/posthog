@@ -5,11 +5,13 @@ from typing import (
     Counter,
     Dict,
     List,
+    Literal,
     Optional,
     Tuple,
     cast,
 )
 
+from clickhouse_driver.util.escape import escape_param
 from django.utils import timezone
 from rest_framework import exceptions
 
@@ -25,14 +27,7 @@ from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import (
-    NEGATED_OPERATORS,
-    OperatorType,
-    Property,
-    PropertyIdentifier,
-    PropertyName,
-    PropertyType,
-)
+from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -252,6 +247,29 @@ def property_table(property: Property) -> TableWithProperties:
         return "groups"
     else:
         raise ValueError(f"Property type does not have a table: {property.type}")
+
+
+def get_single_or_multi_property_string_expr(
+    breakdown, table: TableWithProperties, prop_var: str, identifier: Literal["prop", "value"]
+):
+    """
+    When querying for breakdown properties:
+     * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
+     * If it is an array of strings, we extract each of those properties and concatenate them into a single value
+    clickhouse parameterizes into a query template from a flat list using % string formatting
+    values are escaped and inserted in the query here instead of adding new items to the flat list of values
+    """
+    if isinstance(breakdown, str):
+        expression, _ = get_property_string_expr(table, breakdown, escape_param(breakdown), prop_var)
+    else:
+        expressions = []
+        for b in breakdown:
+            expr, _ = get_property_string_expr(table, b, escape_param(b), prop_var)
+            expressions.append(expr)
+
+        expression = f"array({','.join(expressions)})"
+
+    return f"{expression} AS {identifier}"
 
 
 def get_property_string_expr(
