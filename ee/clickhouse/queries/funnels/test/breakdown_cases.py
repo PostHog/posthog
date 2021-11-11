@@ -1,4 +1,5 @@
 from string import ascii_lowercase
+from typing import List, Tuple, TypedDict
 from uuid import UUID
 
 from ee.clickhouse.materialized_columns import materialize
@@ -19,6 +20,28 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
             result = FunnelPerson(person_filter, self.team)._exec_query()
             return [row[0] for row in result]
+
+        class EventTestCase(TypedDict):
+            event: str
+            day: int
+            hour: int
+
+        def a_journey_for(self, person: str, events: List[EventTestCase], breakdown_properties: List[Tuple]) -> None:
+            for event in events:
+                day = f"{event['day']:02d}"
+                hour = f"{event['hour']:02d}"
+                timestamp = f"2020-01-{day}T{hour}:00:00Z"
+
+                properties = dict((k, v) for (k, v) in breakdown_properties)
+                properties["key"] = "val"
+
+                _create_event(
+                    team=self.team,
+                    event=event["event"],
+                    distinct_id=person,
+                    properties=properties,
+                    timestamp=timestamp,
+                )
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
