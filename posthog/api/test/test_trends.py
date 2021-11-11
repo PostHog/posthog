@@ -66,7 +66,7 @@ def test_includes_only_intervals_within_range(client: Client):
 
         trends = get_trends_ok(
             client,
-            request=TrendsRequest(
+            request=TrendsRequestBreakdown(
                 date_from="-14days",
                 date_to="2021-09-21",
                 interval="week",
@@ -131,7 +131,7 @@ class TrendsRequestBreakdown(TrendsRequest):
 
 
 def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], team: Team):
-    data = {
+    data: Dict[str, Any] = {
         "date_from": request.date_from,
         "date_to": request.date_to,
         "interval": request.interval,
@@ -185,7 +185,10 @@ def get_trends_aggregate_ok(client: Client, request: TrendsRequest, team: Team) 
     res = {}
     for item in data["result"]:
         res[item["label"]] = NormalizedTrendResult(
-            value=item["aggregated_value"], label=item["action"]["name"], person_url=item["persons"]["url"],
+            value=item["aggregated_value"],
+            label=item["action"]["name"],
+            person_url=item["persons"]["url"],
+            breakdown_value=item.get("breakdown_value", None),
         )
 
     return res

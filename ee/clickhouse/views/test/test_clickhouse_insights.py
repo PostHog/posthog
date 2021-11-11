@@ -129,74 +129,15 @@ class ClickhouseTestInsights(
             _create_event(team=self.team, event="$pageview", distinct_id="3", properties={"key": "val"})
             _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
 
-        params = {
-            "date_from": "-14d",
-            "date_to": "2012-01-15",
-            "interval": "day",
-            "insight": "TRENDS",
-            "display": "ActionsLineGraphCumulative",
-            "events": [
-                {
-                    "id": "$pageview",
-                    "math": None,
-                    "name": "$pageview",
-                    "custom_name": None,
-                    "type": "events",
-                    "order": 0,
-                    "properties": [],
-                    "math_property": None,
-                }
-            ],
-        }
         # Total Volume
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequest(**params)
-            data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
-
-        assert data_response["$pageview"]["2012-01-13"].value == 2
-        assert data_response["$pageview"]["2012-01-14"].value == 4
-        assert data_response["$pageview"]["2012-01-15"].value == 4
-        assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
-
-        assert len(person_response) == 3
-
-        # # DAU
-        params.update(
-            {
-                "events": [
-                    {
-                        "id": "$pageview",
-                        "math": "dau",
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [],
-                        "math_property": None,
-                    }
-                ]
-            }
-        )
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequest(**params)
-            data_response = get_trends_time_series_ok(self.client, request, self.team)
-            people = self.client.get("/" + data_response["$pageview"]["2012-01-14"].person_url).json()
-
-        assert data_response["$pageview"]["2012-01-13"].value == 2
-        assert data_response["$pageview"]["2012-01-14"].value == 3
-        assert data_response["$pageview"]["2012-01-15"].value == 3
-        assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
-
-        assert len(people) == 3
-
-        # # breakdown
-        params.update(
-            {
-                "breakdown": "key",
-                "breakdown_type": "event",
-                "events": [
+            request = TrendsRequest(
+                date_from="-14d",
+                date_to="2012-01-15",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraphCumulative",
+                events=[
                     {
                         "id": "$pageview",
                         "math": None,
@@ -208,27 +149,27 @@ class ClickhouseTestInsights(
                         "math_property": None,
                     }
                 ],
-            }
-        )
+            )
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
+            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
+
+        assert data_response["$pageview"]["2012-01-13"].value == 2
+        assert data_response["$pageview"]["2012-01-14"].value == 4
+        assert data_response["$pageview"]["2012-01-15"].value == 4
+        assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
+
+        assert len(person_response) == 3
+
+        # DAU
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequestBreakdown(**params)
-            data_response = get_trends_time_series_ok(self.client, request, self.team)
-            people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
-
-        assert data_response["$pageview - val"]["2012-01-13"].value == 1
-        assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
-        assert data_response["$pageview - val"]["2012-01-14"].value == 3
-        assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
-
-        assert len(people) == 2
-
-        # breakdown dau
-        params.update(
-            {
-                "breakdown": "key",
-                "breakdown_type": "event",
-                "events": [
+            request = TrendsRequest(
+                date_from="-14d",
+                date_to="2012-01-15",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraphCumulative",
+                events=[
                     {
                         "id": "$pageview",
                         "math": "dau",
@@ -240,11 +181,73 @@ class ClickhouseTestInsights(
                         "math_property": None,
                     }
                 ],
-            }
-        )
+            )
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
+            people = self.client.get("/" + data_response["$pageview"]["2012-01-14"].person_url).json()
 
+        assert data_response["$pageview"]["2012-01-13"].value == 2
+        assert data_response["$pageview"]["2012-01-14"].value == 3
+        assert data_response["$pageview"]["2012-01-15"].value == 3
+        assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
+
+        assert len(people) == 3
+
+        # breakdown
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequestBreakdown(**params)
+            request = TrendsRequestBreakdown(
+                date_from="-14d",
+                date_to="2012-01-15",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraphCumulative",
+                breakdown="key",
+                breakdown_type="event",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": None,
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+            )
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
+            people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
+
+        assert data_response["$pageview - val"]["2012-01-13"].value == 1
+        assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
+        assert data_response["$pageview - val"]["2012-01-14"].value == 3
+        assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
+
+        assert len(people) == 2
+
+        # breakdown dau
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            request = TrendsRequestBreakdown(
+                date_from="-14d",
+                date_to="2012-01-15",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraphCumulative",
+                breakdown="key",
+                breakdown_type="event",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+            )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
             people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
 
