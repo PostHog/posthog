@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
+from freezegun.api import freeze_time
 
 from ee.clickhouse.models.action import Action, ActionStep
 from ee.clickhouse.models.event import create_event
@@ -24,6 +25,8 @@ def _create_session_recording_event(**kwargs):
 
 
 class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_recordings_list_test(ClickhouseSessionRecordingList, _create_event, _create_session_recording_event, Action.objects.create, ActionStep.objects.create)):  # type: ignore
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
     def test_event_filter_with_person_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
@@ -34,6 +37,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         self.create_event("user2", self.base_time)
         self.create_snapshot("user2", "2", self.base_time + relativedelta(seconds=30))
         filter = SessionRecordingsFilter(
+            team=self.team,
             data={
                 "events": [
                     {
@@ -44,13 +48,15 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                         "properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}],
                     },
                 ]
-            }
+            },
         )
         session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
 
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
     def test_event_filter_with_cohort_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(
@@ -60,13 +66,15 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
         )
         self.create_snapshot("user", "1", self.base_time)
-        self.create_event("user", self.base_time)
+        self.create_event("user", self.base_time, team=self.team)
         self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
         self.create_snapshot("user2", "2", self.base_time)
-        self.create_event("user2", self.base_time)
+        self.create_event("user2", self.base_time, team=self.team)
         self.create_snapshot("user2", "2", self.base_time + relativedelta(seconds=30))
         filter = SessionRecordingsFilter(
+            team=self.team,
             data={
+                "is_simplified": True,
                 "events": [
                     {
                         "id": "$pageview",
@@ -75,8 +83,8 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                         "name": "$pageview",
                         "properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],
                     },
-                ]
-            }
+                ],
+            },
         )
         session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
