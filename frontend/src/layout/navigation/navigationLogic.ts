@@ -2,13 +2,15 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { navigationLogicType } from './navigationLogicType'
-import { SystemStatus } from '~/types'
+import { SystemStatus, VersionType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import utc from 'dayjs/plugin/utc'
+dayjs.extend(utc)
 
 type WarningType =
     | 'welcome'
@@ -154,8 +156,23 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             null as string | null,
             {
                 loadLatestVersion: async () => {
-                    const versions = await api.get('https://update.posthog.com/versions')
-                    return versions[0].version
+                    const versions = (await api.get('https://update.posthog.com')) as VersionType[]
+                    for (const version of versions) {
+                        if (
+                            version?.release_date &&
+                            dayjs
+                                .utc(version.release_date)
+                                .set('hour', 0)
+                                .set('minute', 0)
+                                .set('second', 0)
+                                .set('millisecond', 0) > dayjs()
+                        ) {
+                            // Release date is in the future
+                            continue
+                        }
+                        return version.version
+                    }
+                    return null
                 },
             },
         ],

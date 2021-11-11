@@ -1372,3 +1372,8 @@ export enum HelpType {
     Email = 'email',
     Docs = 'docs',
 }
+
+export interface VersionType {
+    version: string
+    release_date?: string
+}
