@@ -168,6 +168,8 @@ class ProjectScopedSerializerMixin:
     def __init__(self, instance=None, data=empty, **kwargs):
         super().__init__(instance=instance, data=data, **kwargs)  # type: ignore
 
+        team = None
+
         context = kwargs.get("context")
 
         if context:
@@ -178,11 +180,11 @@ class ProjectScopedSerializerMixin:
 
                 if token:
                     team = Team.objects.get_team_from_token(token)
-                    if team:
-                        self.team = team
 
-            if not self.team and context.get("team_id"):
-                self.team = Team.objects.get(id=context["team_id"])
+            if not team and context.get("team_id"):
+                team = Team.objects.get(id=context["team_id"])
+
+        self.team = team  # type: ignore
 
 
 class ProjectScopedModelSerializer(ProjectScopedSerializerMixin, serializers.ModelSerializer):
