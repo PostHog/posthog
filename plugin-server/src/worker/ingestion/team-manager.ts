@@ -92,6 +92,10 @@ export class TeamManager {
                     sdk: properties.$lib,
                     realm: properties.realm,
                     host: properties.$host,
+                    $groups: {
+                        project: team.id,
+                        organization: team.organization_id,
+                    },
                 })
             }
         }
