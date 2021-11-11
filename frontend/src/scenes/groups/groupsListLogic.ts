@@ -5,23 +5,31 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Group } from '~/types'
 
+interface GroupsPaginatedResponse {
+    next_url: string | null
+    previous_url: string | null
+    results: Group[]
+}
+
 export const groupsListLogic = kea<groupsListLogic>({
     path: ['groups', 'groupsListLogic'],
     connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled', 'groupTypes']] },
     actions: () => ({
-        loadGroupList: (groupTypeIndex: string) => ({ groupTypeIndex }),
+        loadGroups: (url?: string) => ({ url }),
         setTab: (tab: string) => ({ tab }),
     }),
     loaders: ({ values }) => ({
-        groupList: [
-            [] as Array<Group>,
+        groups: [
+            { next_url: null, previous_url: null, results: [] } as GroupsPaginatedResponse,
             {
-                loadGroupList: async ({ groupTypeIndex }) => {
+                loadGroups: async ({ url }) => {
                     if (values.groupsEnabled) {
-                        const groups = await api.get(
-                            `api/projects/${values.currentTeamId}/groups/?group_type_index=${groupTypeIndex}`
-                        )
-                        return groups.results
+                        if (!url) {
+                            return await api.get(
+                                `api/projects/${values.currentTeamId}/groups/?group_type_index=${values.currentGroup}`
+                            )
+                        }
+                        return await api.get(url)
                     }
                     return []
                 },
@@ -46,8 +54,8 @@ export const groupsListLogic = kea<groupsListLogic>({
     }),
     urlToAction: ({ actions }) => ({
         '/groups/:id': ({ id }) => {
-            actions.loadGroupList(id)
             actions.setTab(id)
+            actions.loadGroups()
         },
     }),
 })

@@ -20,10 +20,6 @@ export const groupsModel = kea<groupsModelType>({
             ['clickhouseEnabled'],
         ],
     },
-    actions: () => ({
-        loadGroupList: (groupTypeIndex: string) => ({ groupTypeIndex }),
-        setTab: (tab: string) => ({ tab }),
-    }),
     loaders: ({ values }) => ({
         groupTypes: [
             [] as Array<GroupType>,

@@ -1,15 +1,17 @@
-import { Tabs } from 'antd'
+import React from 'react'
+import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
-import React, { useEffect } from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { Group } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
 import { GroupsTabs } from './GroupsTabs'
+import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 
 export function Groups(): JSX.Element {
-    const { groupList, currentGroup, groupListLoading } = useValues(groupsListLogic)
+    const { groups, currentGroup, groupsLoading } = useValues(groupsListLogic)
+    const { loadGroups } = useActions(groupsListLogic)
     const { groupTypes } = useValues(groupsModel)
 
     const columns: ResizableColumnType<Partial<Group>>[] = [
@@ -38,9 +40,27 @@ export function Groups(): JSX.Element {
                 size="small"
                 columns={columns}
                 rowKey="group_key"
-                loading={groupListLoading}
-                dataSource={groupList}
+                loading={groupsLoading}
+                dataSource={groups.results}
             ></ResizableTable>
+            {(groups.previous_url || groups.next_url) && (
+                <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
+                    <Button
+                        type="link"
+                        disabled={!groups.previous_url}
+                        onClick={() => loadGroups(groups.previous_url) && window.scrollTo(0, 0)}
+                    >
+                        <LeftOutlined /> Previous
+                    </Button>
+                    <Button
+                        type="link"
+                        disabled={!groups.next_url}
+                        onClick={() => loadGroups(groups.next_urk) && window.scrollTo(0, 0)}
+                    >
+                        Next <RightOutlined />
+                    </Button>
+                </div>
+            )}
         </>
     )
 }

@@ -23,19 +23,19 @@ def get_target_entity(request: request.Request) -> Entity:
         raise ValueError("An entity must be provided for target entity to be determined")
 
 
-def format_next_url(request: request.Request, offset: int, page_size: int):
+def format_next_url(request: request.Request, offset: int, page_size: int, previous: bool):
     next_url = request.get_full_path()
     if not next_url:
         return None
 
-    new_offset = str(offset + page_size)
+    new_offset = str(offset - page_size if previous else offset + page_size)
 
     if "offset" in next_url:
         next_url = next_url[1:]
         next_url = next_url.replace(f"offset={str(offset)}", f"offset={new_offset}")
     else:
         next_url = request.build_absolute_uri(
-            "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + page_size)
+            "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", new_offset)
         )
     return next_url
 

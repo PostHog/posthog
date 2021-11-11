@@ -9,12 +9,11 @@ import { Link } from 'lib/components/Link'
 import { CohortType } from '~/types'
 import { LinkButton } from 'lib/components/LinkButton'
 import { ClockCircleFilled } from '@ant-design/icons'
-import { capitalizeFirstLetter, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import { PersonsSearch } from './PersonsSearch'
 import { IconExternalLink } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupsModel } from '~/models/groupsModel'
-import { groupsListLogic } from 'scenes/groups/groupsListLogic'
 import { GroupsTabs } from 'scenes/groups/GroupsTabs'
 
 export const scene: SceneExport = {

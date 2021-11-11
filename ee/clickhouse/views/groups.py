@@ -32,7 +32,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
     def list(self, request, *args, **kwargs):
         is_csv_request = self.request.accepted_renderer.format == "csv"
         limit = 100
-        offset = request.GET.get("offset", 0)
+        offset = int(request.GET.get("offset", 0))
 
         query_result = sync_execute(
             """
@@ -54,10 +54,12 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
         )
         results = ClickhouseGroupSerializer(query_result, many=True).data
         next_url: Optional[str] = None
+        previous_url: Optional[str] = None
         if not is_csv_request and len(query_result) > limit:
-            next_url = format_next_url(request, offset, 100)
+            next_url = format_next_url(request, offset, limit)
+            previous_url = format_next_url(request, offset, limit, True)
 
-        return response.Response({"next_url": next_url, "results": results})
+        return response.Response({"next_url": next_url, "previous_url": previous_url, "results": results})
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):
