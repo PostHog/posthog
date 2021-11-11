@@ -75,6 +75,9 @@ class FunnelCorrelationPersons:
             JOIN ({person_query}) person
                 ON person.id = funnel_people.person_id
             WHERE {conversion_filter}
+            ORDER BY person_id
+            LIMIT {self._filter.correlation_person_limit}
+            OFFSET {self._filter.correlation_person_offset}
         """
         params = {
             **funnel_persons_params,
