@@ -23,7 +23,7 @@ def get_target_entity(request: request.Request) -> Entity:
         raise ValueError("An entity must be provided for target entity to be determined")
 
 
-def format_next_url(request: request.Request, offset: int, page_size: int, previous: bool):
+def format_next_url(request: request.Request, offset: int, page_size: int, previous: Optional[bool] = None):
     next_url = request.get_full_path()
     if not next_url:
         return None
