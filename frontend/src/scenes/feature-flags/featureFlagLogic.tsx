@@ -40,7 +40,8 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export const featureFlagLogic = kea<featureFlagLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagsLogic, ['featureFlags']],
+        actions: [featureFlagsLogic, ['updateFlag', 'deleteFlag']],
     },
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
@@ -239,14 +240,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     closeOnClick: true,
                 }
             )
-            featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
+            actions.updateFlag(featureFlag)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.name, id: featureFlag.id },
                 callback: () => {
-                    featureFlag.id && featureFlagsLogic.findMounted()?.actions.deleteFlag(featureFlag.id)
+                    featureFlag.id && actions.deleteFlag(featureFlag.id)
                     router.actions.push(urls.featureFlags())
                 },
             })
@@ -288,16 +289,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             if (id && id !== values.featureFlagId) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 actions.setFeatureFlagId(parsedId)
-
-                const foundFlag = featureFlagsLogic
-                    .findMounted()
-                    ?.values.featureFlags.find((flag) => flag.id === parsedId)
-                if (foundFlag) {
-                    actions.setFeatureFlag(foundFlag)
-                    actions.loadFeatureFlag() // reload cache
-                } else {
-                    actions.setFeatureFlag(NEW_FLAG)
-                }
+                actions.loadFeatureFlag()
             }
         },
     }),
