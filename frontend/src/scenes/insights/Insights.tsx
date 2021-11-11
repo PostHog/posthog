@@ -10,7 +10,7 @@ import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './Insigh
 import { insightLogic } from './insightLogic'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, ViewType } from '~/types'
+import { HotKeys, ItemMode, InsightType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -71,34 +71,34 @@ export function Insights(): JSX.Element {
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
-    const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
+    const verticalLayout = activeView === InsightType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
-    const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
+    const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
         setActiveView(view)
         reportHotkeyNavigation('insights', hotkey)
     }
 
     useKeyboardHotkeys({
         t: {
-            action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
+            action: () => handleHotkeyNavigation(InsightType.TRENDS, 't'),
         },
         f: {
-            action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
+            action: () => handleHotkeyNavigation(InsightType.FUNNELS, 'f'),
         },
         o: {
-            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 'o'),
+            action: () => handleHotkeyNavigation(InsightType.SESSIONS, 'o'),
         },
         r: {
-            action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
+            action: () => handleHotkeyNavigation(InsightType.RETENTION, 'r'),
         },
         p: {
-            action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
+            action: () => handleHotkeyNavigation(InsightType.PATHS, 'p'),
         },
         i: {
-            action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'i'),
+            action: () => handleHotkeyNavigation(InsightType.STICKINESS, 'i'),
         },
         l: {
-            action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
+            action: () => handleHotkeyNavigation(InsightType.LIFECYCLE, 'l'),
         },
         escape: {
             // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
@@ -227,13 +227,13 @@ export function Insights(): JSX.Element {
                                     {/* These are insight specific filters. They each have insight specific logics */}
                                     {
                                         {
-                                            [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
-                                            [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
-                                            [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
-                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                            [`${ViewType.PATHS}`]: <PathTab />,
+                                            [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
+                                            [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
+                                            [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
+                                            [`${InsightType.SESSIONS}`]: <SessionTab />,
+                                            [`${InsightType.FUNNELS}`]: <FunnelTab />,
+                                            [`${InsightType.RETENTION}`]: <RetentionTab />,
+                                            [`${InsightType.PATHS}`]: <PathTab />,
                                         }[activeView]
                                     }
                                 </div>

@@ -2,7 +2,7 @@ import { Row, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { isMobile } from 'lib/utils'
 import React from 'react'
-import { HotKeys, ViewType } from '~/types'
+import { HotKeys, InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 
@@ -24,7 +24,7 @@ export function InsightsNav(): JSX.Element {
                     overflow: 'visible',
                 }}
                 className="top-bar"
-                onChange={(key) => setActiveView(key as ViewType)}
+                onChange={(key) => setActiveView(key as InsightType)}
                 animated={false}
             >
                 <TabPane
@@ -34,7 +34,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="t" />
                         </span>
                     }
-                    key={ViewType.TRENDS}
+                    key={InsightType.TRENDS}
                 />
                 <TabPane
                     tab={
@@ -43,7 +43,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="f" />
                         </span>
                     }
-                    key={ViewType.FUNNELS}
+                    key={InsightType.FUNNELS}
                 />
                 <TabPane
                     tab={
@@ -52,7 +52,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="r" />
                         </span>
                     }
-                    key={ViewType.RETENTION}
+                    key={InsightType.RETENTION}
                 />
                 <TabPane
                     tab={
@@ -61,7 +61,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="p" />
                         </span>
                     }
-                    key={ViewType.PATHS}
+                    key={InsightType.PATHS}
                 />
                 <TabPane
                     tab={
@@ -74,7 +74,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="o" />
                         </Tooltip>
                     }
-                    key={ViewType.SESSIONS}
+                    key={InsightType.SESSIONS}
                 />
                 <TabPane
                     tab={
@@ -98,7 +98,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="i" />
                         </Tooltip>
                     }
-                    key={ViewType.STICKINESS}
+                    key={InsightType.STICKINESS}
                 />
                 <TabPane
                     tab={
@@ -113,7 +113,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="l" />
                         </Tooltip>
                     }
-                    key={ViewType.LIFECYCLE}
+                    key={InsightType.LIFECYCLE}
                 />
             </Tabs>
         </Row>

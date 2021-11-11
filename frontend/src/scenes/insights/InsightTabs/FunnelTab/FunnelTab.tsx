@@ -25,6 +25,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AggregationSelect } from 'scenes/insights/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function FunnelTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -32,7 +33,7 @@ export function FunnelTab(): JSX.Element {
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showGroupsOptions } = useValues(groupsModel)
+    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const [savingModal, setSavingModal] = useState<boolean>(false)
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
@@ -175,6 +176,13 @@ export function FunnelTab(): JSX.Element {
                                 properties: anyProperties.filter(isValidPropertyFilter),
                             })
                         }}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                     {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (
