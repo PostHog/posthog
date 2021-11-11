@@ -279,7 +279,7 @@ export const LEGACY_sessionsPlayLogic = kea<LEGACY_sessionsPlayLogicType>({
                 }))
                 const highlightedEvents = events.map((event) => ({
                     playerTime: +dayjs(event.timestamp) - startTime,
-                    text: autoCaptureEventToDescription(event) as string,
+                    text: autoCaptureEventToDescription(event),
                     color: 'orange',
                 }))
                 return [...pageChangeEvents, ...highlightedEvents].sort((a, b) => a.playerTime - b.playerTime)

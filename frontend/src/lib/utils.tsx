@@ -619,37 +619,30 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
-    emphasizeEl: boolean = false
-): string | JSX.Element {
+export function eventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
         return event.properties.$pathname
     }
     if (event.event === '$autocapture') {
-        return autoCaptureEventToDescription(event, emphasizeEl, true)
+        return autoCaptureEventToDescription(event)
     }
     // All other events and actions
     return event.event
 }
 
-export function autoCaptureEventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
-    emphasizeEl: boolean = false,
-    capFirstLetter: boolean = false
-): string | JSX.Element {
+export function autoCaptureEventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
     let name: string | JSX.Element = ''
     if (event.properties.$event_type === 'click') {
-        name += (capFirstLetter ? 'C' : 'c') + 'licked '
+        name += 'clicked '
     }
     if (event.properties.$event_type === 'change') {
-        name += (capFirstLetter ? 'T' : 't') + 'yped something into '
+        name += 'typed something into '
     }
     if (event.properties.$event_type === 'submit') {
-        name += (capFirstLetter ? 'S' : 's') + 'ubmitted '
+        name += 'submitted '
     }
 
     if (event.elements.length > 0) {
@@ -661,25 +654,9 @@ export function autoCaptureEventToDescription(
             name += event.elements[0].tag_name
         }
         if (event.elements[0].text) {
-            if (emphasizeEl) {
-                name = (
-                    <span>
-                        {name} with text "<b>{event.elements[0].text}</b>"
-                    </span>
-                )
-            } else {
-                name += ' with text "' + event.elements[0].text + '"'
-            }
+            name += ' with text "' + event.elements[0].text + '"'
         } else if (event.elements[0].attributes['attr__aria-label']) {
-            if (emphasizeEl) {
-                name = (
-                    <span>
-                        {name} with aria label "<b> {event.elements[0].attributes['attr__aria-label']}</b>"
-                    </span>
-                )
-            } else {
-                name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
-            }
+            name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
         }
     }
     return name

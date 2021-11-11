@@ -8,8 +8,8 @@ import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
 import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { eventsListLogic } from 'scenes/session-recordings/player/eventsListLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
-import { eventToDescription } from 'lib/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { capitalizeFirstLetter, eventToDescription } from 'lib/utils'
+import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function PlayerEvents(): JSX.Element {
     const { localFilters, listEvents, cellMeasurerCache } = useValues(eventsListLogic)
@@ -17,6 +17,7 @@ export function PlayerEvents(): JSX.Element {
 
     function Event({ index, style, key, parent }: ListRowProps): JSX.Element {
         const event = listEvents[index]
+        const hasDescription = getKeyMapping(event.event, 'event')
 
         const renderIcon = (): JSX.Element => {
             if (event.event === '$pageview') {
@@ -47,7 +48,11 @@ export function PlayerEvents(): JSX.Element {
                             disablePopover
                             ellipsis={false}
                         />
-                        <span className="event-item-text-subtitle">{eventToDescription(event, true)}</span>
+                        {hasDescription && (
+                            <span className="event-item-text-subtitle">
+                                {capitalizeFirstLetter(eventToDescription(event))}
+                            </span>
+                        )}
                     </Col>
                     <Col>{event.colonTimestamp}</Col>
                 </Row>

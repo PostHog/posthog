@@ -121,7 +121,7 @@ export function EventsTable({
                         return newEventsRender(item, tableWidth)
                     }
                     const { event } = item
-                    return <PropertyKeyInfo value={autoCaptureEventToDescription(event) as string} />
+                    return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
                 },
                 ellipsis: true,
             },

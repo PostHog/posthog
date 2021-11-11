@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
-import { clamp, errorToast, toParams } from 'lib/utils'
+import { clamp, errorToast, eventToDescription, toParams } from 'lib/utils'
 import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
@@ -17,6 +17,7 @@ import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
+import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 
 dayjs.extend(utc)
 
@@ -33,18 +34,10 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
 
 // TODO: Replace this with permanent querying alternative in backend. Filtering on frontend should do for now.
 const makeEventsQueryable = (events: SeekbarEventType[]): SeekbarEventType[] => {
-    return events.map((e) => {
-        let queryValue = e?.event ?? ''
-        if (['$pageview', '$pageleave'].includes(e.event)) {
-            queryValue += e?.properties?.$pathname ?? ''
-        } else if (e.event === '$autocapture') {
-            queryValue += (e?.elements?.[0].tag_name ?? '') + (e?.elements?.[0].text ?? '')
-        }
-        return {
-            ...e,
-            queryValue,
-        }
-    })
+    return events.map((e) => ({
+        ...e,
+        queryValue: `${getKeyMapping(e.event, 'event')?.label ?? e.event ?? ''}${eventToDescription(e)}`,
+    }))
 }
 
 export const sessionRecordingLogic = kea<sessionRecordingLogicType>({

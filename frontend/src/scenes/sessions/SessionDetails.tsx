@@ -34,7 +34,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
             title: 'Event',
             key: 'id',
             render: function RenderEvent(event: EventType) {
-                return <PropertyKeyInfo value={autoCaptureEventToDescription(event) as string} ellipsis={false} />
+                return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} ellipsis={false} />
             },
         },
         {
