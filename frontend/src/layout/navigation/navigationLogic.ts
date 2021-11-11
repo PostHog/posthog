@@ -122,7 +122,12 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             ],
             (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return !latestVersionLoading && !preflight?.cloud && latestVersion !== preflight?.posthog_version
+                return (
+                    !latestVersionLoading &&
+                    !preflight?.cloud &&
+                    latestVersion &&
+                    latestVersion !== preflight?.posthog_version
+                )
             },
         ],
         demoWarning: [

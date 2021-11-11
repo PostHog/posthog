@@ -11,7 +11,7 @@ export interface ChangelogModalProps {
 
 export function ChangelogModal({ onDismiss, visible }: ChangelogModalProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { latestVersion } = useValues(navigationLogic)
+    const { latestVersion, updateAvailable } = useValues(navigationLogic)
 
     if (preflight?.cloud) {
         // The changelog is not available on cloud
@@ -29,7 +29,7 @@ export function ChangelogModal({ onDismiss, visible }: ChangelogModalProps): JSX
             <span>
                 You're on version <b>{preflight?.posthog_version}</b> of PostHog.{' '}
                 {latestVersion &&
-                    (latestVersion === preflight?.posthog_version ? (
+                    (!updateAvailable ? (
                         'This is the newest version.'
                     ) : (
                         <span className="text-warning">
