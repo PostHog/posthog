@@ -64,7 +64,9 @@ function LemonButtonInternal(
 }
 export const LemonButton = React.forwardRef(LemonButtonInternal)
 
-export type SideAction = Pick<LemonButtonProps, 'onClick' | 'popup' | 'to' | 'icon' | 'type' | 'tooltip'>
+export interface SideAction extends Pick<LemonButtonProps, 'onClick' | 'popup' | 'to' | 'icon' | 'type' | 'tooltip'> {
+    'data-attr'?: string
+}
 
 /** A LemonButtonWithSideAction can neither be compact nor have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
