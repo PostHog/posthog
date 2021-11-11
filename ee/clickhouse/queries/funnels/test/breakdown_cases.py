@@ -40,25 +40,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     timestamp=timestamp,
                 )
 
-        def assertEqualWithPeopleInAnyOrder(self, expected: List[Dict], actual: List[Dict]):
-            """
-            When comparing two lists of funner results we are relying on arrays of people being in order for comparison
-            The generated SQL does not order the people and so we cannot rely on that comprison
-            This compares the lists without people, and then compares the people
-            """
-
-            def flatten(list_of_lists):
-                return [item for sublist in list_of_lists for item in sublist]
-
-            expected_copy = [e.copy() for e in expected]
-            expected_people = [e.pop("people") for e in expected_copy]
-
-            actual_copy = [a.copy() for a in actual]
-            actual_people = [a.pop("people") for a in actual_copy]
-
-            self.assertEqual(expected_copy, actual_copy)
-            self.assertEqual(sorted(flatten(expected_people)), sorted(flatten(actual_people)))
-
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
 
@@ -99,7 +80,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             result = funnel.run()
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[0],
                 [
                     {
@@ -145,7 +126,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[1],
                 [
                     {
@@ -248,7 +229,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             result = funnel.run()
 
-            self.assertEqualWithPeopleInAnyOrder(
+            people = result[0][0].pop("people")
+            self.assertCountEqual(
+                people, [person1.uuid, person4.uuid, person5.uuid] if Funnel == ClickhouseFunnel else []
+            )
+
+            self.assertEqual(
                 result[0],
                 [
                     {
@@ -256,7 +242,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid, person4.uuid, person5.uuid] if Funnel == ClickhouseFunnel else [],
+                        # popped people because flakey ordering for assertEqual
                         "count": 3,
                         "type": "events",
                         "average_conversion_time": None,
@@ -297,7 +283,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Other"), [person1.uuid])
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[1],
                 [
                     {
@@ -386,7 +372,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             result = funnel.run()
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[0],
                 [
                     {
@@ -432,7 +418,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[1],
                 [
                     {
@@ -517,7 +503,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             result = funnel.run()
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[0],
                 [
                     {
@@ -564,7 +550,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[1],
                 [
                     {
@@ -803,7 +789,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = funnel.run()
             result = sorted(result, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[0],
                 [
                     {
@@ -823,7 +809,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "0"), [person1.uuid])
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[1],
                 [
                     {
@@ -843,7 +829,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[2],
                 [
                     {
@@ -863,7 +849,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Mac"), [person1.uuid])
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[3],
                 [
                     {
@@ -930,7 +916,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             result = funnel.run()
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[0],
                 [
                     {
@@ -964,7 +950,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[1],
                 [
                     {
@@ -1274,7 +1260,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             filter = Filter(data=filters, team=self.team)
             result = Funnel(filter, self.team).run()
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[0],
                 [
                     {
@@ -1321,7 +1307,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             # Querying persons when aggregating by persons should be ok, despite group breakdown
             self.assertCountEqual(self._get_people_at_step(filter, 1, "finance"), [person1.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "finance"), [person1.uuid])
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[1],
                 [
                     {
@@ -1412,7 +1398,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             result = Funnel(Filter(data=filters, team=self.team), self.team).run()
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[0],
                 [
                     {
@@ -1457,7 +1443,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            self.assertEqualWithPeopleInAnyOrder(
+            self.assertEqual(
                 result[1],
                 [
                     {
