@@ -284,7 +284,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "custom_name": None,
                         "order": 0,
                         "people": [],
-                        "count": 2,
+                        "count": 3,
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
@@ -309,7 +309,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
