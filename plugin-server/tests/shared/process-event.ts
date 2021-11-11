@@ -11,7 +11,7 @@ import { posthog } from '../../src/utils/posthog'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { createUserTeamAndOrganization, getFirstTeam, getTeams, onQuery, resetTestDatabase } from '../helpers/sql'
+import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
@@ -290,7 +290,6 @@ export const createProcessEventTests = (
     })
 
     test('capture new person', async () => {
-        const updatePersonSpy = jest.spyOn(hub.db, 'updatePerson')
         await hub.db.postgresQuery(
             `UPDATE posthog_team
              SET ingested_event = $1
@@ -331,11 +330,10 @@ export const createProcessEventTests = (
             DateTime.now(),
             new UUIDT().toString()
         )
-        expect(updatePersonSpy).not.toHaveBeenCalled()
 
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
-        expect(persons[0].properties).toEqual({
+        let expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
             $initial_utm_medium: 'twitter',
@@ -344,7 +342,14 @@ export const createProcessEventTests = (
             utm_medium: 'twitter',
             $initial_gclid: 'GOOGLE ADS ID',
             gclid: 'GOOGLE ADS ID',
-        })
+        }
+        expect(persons[0].properties).toEqual(expectedProps)
+        if (database === 'clickhouse') {
+            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
+            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
+            expect(chPeople.length).toEqual(1)
+            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+        }
         expect(events[0].properties).toEqual({
             $ip: '127.0.0.1',
             $os: 'Mac OS X',
@@ -394,13 +399,12 @@ export const createProcessEventTests = (
             DateTime.now(),
             new UUIDT().toString()
         )
-        expect(updatePersonSpy).toHaveBeenCalledTimes(1)
 
         events = await hub.db.fetchEvents()
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
         expect(persons.length).toEqual(1)
-        expect(persons[0].properties).toEqual({
+        expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
             $initial_utm_medium: 'twitter',
@@ -409,7 +413,14 @@ export const createProcessEventTests = (
             utm_medium: 'instagram',
             $initial_gclid: 'GOOGLE ADS ID',
             gclid: 'GOOGLE ADS ID',
-        })
+        }
+        expect(persons[0].properties).toEqual(expectedProps)
+        if (database === 'clickhouse') {
+            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
+            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
+            expect(chPeople.length).toEqual(1)
+            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+        }
         expect(events[1].properties.$set).toEqual({
             utm_medium: 'instagram',
         })
@@ -476,6 +487,13 @@ export const createProcessEventTests = (
             $initial_utm_medium: 'instagram',
             $initial_current_url: 'https://test.com/pricing',
         })
+        // check that person properties didn't change
+        expect(persons[0].properties).toEqual(expectedProps)
+        if (database === 'clickhouse') {
+            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
+            expect(chPeople.length).toEqual(1)
+            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+        }
 
         team = await getFirstTeam(hub)
 
@@ -2285,6 +2303,17 @@ export const createProcessEventTests = (
                 await ingest3()
                 await verifyPersonPropertiesSetCorrectly()
             })
+        }
+    })
+
+    test('new person properties update gating', () => {
+        expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(0)).toBeFalsy()
+        if (includeNewPropertiesUpdatesTests) {
+            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(2)).toBeTruthy()
+            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(7)).toBeTruthy()
+            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(25)).toBeTruthy()
+        } else {
+            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(2)).toBeFalsy()
         }
     })
 
