@@ -26,6 +26,15 @@ describe('eventsListLogic', () => {
             })
                 .toDispatchActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
                 .toNotHaveDispatchedActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
+                .toDispatchActions(['clearCellCache'])
+        })
+    })
+
+    describe('cache clearing', () => {
+        it('recalculate row heights when events are loaded', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEventsSuccess({})
+            }).toDispatchActions(['clearCellCache'])
         })
     })
 })

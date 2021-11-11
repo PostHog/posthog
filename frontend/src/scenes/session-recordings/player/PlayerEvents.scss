@@ -16,12 +16,17 @@
     .event-list {
         flex: 1;
 
+        .event-list-virtual {
+            scroll-behavior: smooth;
+        }
+
         .event-list-item {
             padding: $recording_spacing;
             cursor: pointer;
             border-radius: $radius;
 
-            &:hover {
+            &:hover,
+            &.current-event {
                 background-color: $recording_hover_event;
 
                 .event-item-icon {
@@ -35,6 +40,10 @@
                         }
                     }
                 }
+            }
+
+            &.current-event:hover {
+                background-color: $recording_hover_event_mid;
             }
 
             .event-item-icon {
@@ -73,6 +82,31 @@
                 }
 
                 .event-item-text-subtitle {
+                }
+
+                .ant-skeleton {
+                    position: absolute;
+                    display: none;
+
+                    .ant-skeleton-paragraph {
+                        margin: 0;
+
+                        li:not(:first-child) {
+                            margin-top: 14px;
+                        }
+                    }
+                }
+
+                &.rendering {
+                    .event-item-text-title {
+                        visibility: hidden;
+                    }
+                    .event-item-text-subtitle {
+                        visibility: hidden;
+                    }
+                    .ant-skeleton {
+                        display: table;
+                    }
                 }
             }
         }

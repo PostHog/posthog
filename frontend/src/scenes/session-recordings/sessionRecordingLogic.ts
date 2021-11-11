@@ -92,6 +92,14 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 },
             },
         ],
+        sessionEventsDataLoading: [
+            false,
+            {
+                loadEventsSuccess: (_, { sessionEventsData }) => {
+                    return !!sessionEventsData?.next
+                },
+            },
+        ],
         source: [
             RecordingWatchedSource.Unknown as RecordingWatchedSource,
             {

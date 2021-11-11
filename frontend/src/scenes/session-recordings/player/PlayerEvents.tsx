@@ -1,19 +1,23 @@
 import './PlayerEvents.scss'
 import React from 'react'
-import { Col, Input, Row } from 'antd'
+import { Col, Input, Row, Skeleton } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
+import clsx from 'clsx'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
 import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
-import { eventsListLogic } from 'scenes/session-recordings/player/eventsListLogic'
+import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recordings/player/eventsListLogic'
+import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
-import { eventToDescription } from 'lib/utils'
+import { eventToDescription, Loading } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function PlayerEvents(): JSX.Element {
-    const { localFilters, listEvents, cellMeasurerCache } = useValues(eventsListLogic)
-    const { setLocalFilters } = useActions(eventsListLogic)
+    const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
+    const { localFilters, listEvents, cellMeasurerCache, currentEventStartIndex, isRowIndexRendered } =
+        useValues(eventsListLogic)
+    const { setLocalFilters, setRenderedRows } = useActions(eventsListLogic)
 
     function Event({ index, style, key, parent }: ListRowProps): JSX.Element {
         const event = listEvents[index]
@@ -35,11 +39,15 @@ export function PlayerEvents(): JSX.Element {
 
         return (
             <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
-                <Row className="event-list-item" align="top" style={style}>
+                <Row
+                    className={clsx('event-list-item', { 'current-event': currentEventStartIndex === index })}
+                    align="top"
+                    style={style}
+                >
                     <Col className="event-item-icon">
                         <div className="event-item-icon-wrapper">{renderIcon()}</div>
                     </Col>
-                    <Col className="event-item-text">
+                    <Col className={clsx('event-item-text', { rendering: !isRowIndexRendered(index) })}>
                         <PropertyKeyInfo
                             className="event-item-text-title"
                             value={event.event}
@@ -48,6 +56,7 @@ export function PlayerEvents(): JSX.Element {
                             ellipsis={false}
                         />
                         <span className="event-item-text-subtitle">{eventToDescription(event, true)}</span>
+                        <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
                     </Col>
                     <Col>{event.colonTimestamp}</Col>
                 </Row>
@@ -68,9 +77,15 @@ export function PlayerEvents(): JSX.Element {
                     {({ height, width }: { height: number; width: number }) => {
                         return (
                             <VirtualizedList
+                                className="event-list-virtual"
                                 height={height}
                                 width={width}
+                                onRowsRendered={setRenderedRows}
+                                noRowsRenderer={sessionEventsDataLoading ? () => <Loading /> : undefined}
+                                scrollToIndex={currentEventStartIndex}
+                                scrollToAlignment="center"
                                 deferredMeasurementCache={cellMeasurerCache}
+                                overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                 rowCount={listEvents.length}
                                 rowRenderer={Event}
                                 rowHeight={cellMeasurerCache.rowHeight}
