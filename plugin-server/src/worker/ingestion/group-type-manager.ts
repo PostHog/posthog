@@ -9,11 +9,13 @@ export class GroupTypeManager {
     db: DB
     teamManager: TeamManager
     groupTypesCache: Map<number, [GroupTypeToColumnIndex, number]>
+    instanceSiteUrl: string
 
-    constructor(db: DB, teamManager: TeamManager) {
+    constructor(db: DB, teamManager: TeamManager, instanceSiteUrl?: string | null) {
         this.db = db
         this.teamManager = teamManager
         this.groupTypesCache = new Map()
+        this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
 
     public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
@@ -69,6 +71,7 @@ export class GroupTypeManager {
             $groups: {
                 project: team.id,
                 organization: team.organization_id,
+                instance: this.instanceSiteUrl,
             },
         })
     }
