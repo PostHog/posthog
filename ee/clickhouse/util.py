@@ -94,7 +94,7 @@ def snapshot_clickhouse_queries(fn):
     Requires queries to be stable to avoid flakiness.
 
     Snapshots are automatically saved in a __snapshot__/*.ambr file.
-    Update snapshots via --update-snapshots.
+    Update snapshots via --snapshot-update.
     """
 
     @wraps(fn)

@@ -2718,6 +2718,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             data={
                 "step_limit": 4,
                 "date_from": "2012-01-01",
+                "date_to": "2012-02-01",
                 "include_event_types": ["$pageview", "$screen", "custom_event"],
                 "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
             }
