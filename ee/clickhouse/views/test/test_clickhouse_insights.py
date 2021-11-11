@@ -3,8 +3,6 @@ from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from uuid import uuid4
 
-import pytest
-from django.core.cache import cache
 from django.test.client import Client
 from freezegun.api import freeze_time
 from rest_framework import status
@@ -29,16 +27,6 @@ def _create_person(**kwargs):
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
     create_event(**kwargs)
-
-
-@pytest.fixture(autouse=True)
-def clear_cache():
-    """
-    Make sure the cache is purged before each test is run. We cannot guarantee
-    that there will not be another test that is run with the same inputs, but
-    different database state.
-    """
-    cache.clear()
 
 
 class ClickhouseTestInsights(
@@ -351,29 +339,28 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
     def test_strict_funnel_with_breakdown_by_event_property(self):
         # Setup three funnel people, with two different $browser values
-        person1_properties = {"key": "val", "$browser": "Chrome"}
-        person2_properties = {"key": "val", "$browser": "Safari"}
-        person3_properties = person2_properties
+        chrome_properties = {"key": "val", "$browser": "Chrome"}
+        safari_properties = {"key": "val", "$browser": "Safari"}
 
         events = {
             "person1": [
-                {"event": "sign up", "timestamp": "2020-01-01", "properties": person1_properties},
-                {"event": "play movie", "timestamp": "2020-01-02", "properties": person1_properties},
-                {"event": "buy", "timestamp": "2020-01-03", "properties": person1_properties},
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": chrome_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": chrome_properties},
+                {"event": "buy", "timestamp": "2020-01-03", "properties": chrome_properties},
             ],
             "person2": [
-                {"event": "sign up", "timestamp": "2020-01-01", "properties": person2_properties},
-                {"event": "play movie", "timestamp": "2020-01-02", "properties": person2_properties},
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": safari_properties},
                 {
                     # This person should not convert here as we're in strict mode,
                     # and this event is not in the funnel definition
                     "event": "event not in funnel",
-                    "timestamp": "2020-01-02",
-                    "properties": person2_properties,
+                    "timestamp": "2020-01-03",
+                    "properties": safari_properties,
                 },
-                {"event": "buy", "timestamp": "2020-01-03", "properties": person2_properties},
+                {"event": "buy", "timestamp": "2020-01-04", "properties": safari_properties},
             ],
-            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties},],
         }
 
         create_events(team=self.team, events_by_person=events)
