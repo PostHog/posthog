@@ -91,7 +91,6 @@ class Funnel(BaseQuery):
             name = step.get_action().name
         else:
             name = step.id
-
         return {
             "action_id": step.id,
             "name": name,
