@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pytest
 from django.test import Client
@@ -158,6 +158,7 @@ class NormalizedTrendResult:
     value: float
     label: str
     person_url: str
+    breakdown_value: Optional[Union[str, int]]
 
 
 def get_trends_time_series_ok(
@@ -169,7 +170,10 @@ def get_trends_time_series_ok(
         collect_dates = {}
         for idx, date in enumerate(item["days"]):
             collect_dates[date] = NormalizedTrendResult(
-                value=item["data"][idx], label=item["labels"][idx], person_url=item["persons_urls"][idx]["url"],
+                value=item["data"][idx],
+                label=item["labels"][idx],
+                person_url=item["persons_urls"][idx]["url"],
+                breakdown_value=item.get("breakdown_value", None),
             )
         res[item["label"]] = collect_dates
 

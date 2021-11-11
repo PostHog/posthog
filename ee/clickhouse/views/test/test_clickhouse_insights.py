@@ -14,6 +14,7 @@ from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
 from posthog.api.test.test_trends import (
     TrendsRequest,
+    TrendsRequestBreakdown,
     get_trends_aggregate_ok,
     get_trends_people_ok,
     get_trends_time_series_ok,
@@ -86,16 +87,8 @@ class ClickhouseTestInsights(
             _create_person(distinct_ids=["2"], team=self.team)
             _create_event(team=self.team, event="$pageview", distinct_id="2")
 
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "display": "ActionsPie",
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-            }
-        )
-
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            test_req = TrendsRequest(
+            request = TrendsRequest(
                 date_from="-14d",
                 date_to="2012-01-15",
                 interval="day",
@@ -114,7 +107,7 @@ class ClickhouseTestInsights(
                     }
                 ],
             )
-            data = get_trends_aggregate_ok(self.client, test_req, self.team)
+            data = get_trends_aggregate_ok(self.client, request, self.team)
 
         assert data["$pageview"].value == 2
         assert data["$pageview"].label == "$pageview"
@@ -136,70 +129,131 @@ class ClickhouseTestInsights(
             _create_event(team=self.team, event="$pageview", distinct_id="3", properties={"key": "val"})
             _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
 
+        params = {
+            "date_from": "-14d",
+            "date_to": "2012-01-15",
+            "interval": "day",
+            "insight": "TRENDS",
+            "display": "ActionsLineGraphCumulative",
+            "events": [
+                {
+                    "id": "$pageview",
+                    "math": None,
+                    "name": "$pageview",
+                    "custom_name": None,
+                    "type": "events",
+                    "order": 0,
+                    "properties": [],
+                    "math_property": None,
+                }
+            ],
+        }
         # Total Volume
-        data = deep_dump_object(
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            request = TrendsRequest(**params)
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
+            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
+
+        assert data_response["$pageview"]["2012-01-13"].value == 2
+        assert data_response["$pageview"]["2012-01-14"].value == 4
+        assert data_response["$pageview"]["2012-01-15"].value == 4
+        assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
+
+        assert len(person_response) == 3
+
+        # # DAU
+        params.update(
             {
-                "date_from": "-14d",
-                "display": "ActionsLineGraphCumulative",
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ]
             }
         )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            data_response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-            person_response = self.client.get("/" + data_response["result"][0]["persons_urls"][-2]["url"]).json()
-
-        self.assertEqual(data_response["result"][0]["count"], 4)
-        self.assertEqual(data_response["result"][0]["action"]["name"], "$pageview")
-        self.assertEqual(data_response["result"][0]["data"][-3], 2)
-        self.assertEqual(len(person_response["results"][0]["people"]), 3)
-
-        # DAU
-        data.update({"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0, "math": "dau"}]})
-        data = deep_dump_object(data)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            data_response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-            person_response = self.client.get("/" + data_response["result"][0]["persons_urls"][-2]["url"]).json()
+            request = TrendsRequest(**params)
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
+            people = self.client.get("/" + data_response["$pageview"]["2012-01-14"].person_url).json()
 
-        self.assertEqual(data_response["result"][0]["count"], 3)
-        self.assertEqual(data_response["result"][0]["action"]["name"], "$pageview")
-        self.assertEqual(data_response["result"][0]["data"][-3], 2)
-        self.assertEqual(len(person_response["results"][0]["people"]), 3)
+        assert data_response["$pageview"]["2012-01-13"].value == 2
+        assert data_response["$pageview"]["2012-01-14"].value == 3
+        assert data_response["$pageview"]["2012-01-15"].value == 3
+        assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
 
-        # breakdown
-        data.update(
-            {"breakdown": "key", "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
-        )
-        data = deep_dump_object(data)
+        assert len(people) == 3
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            data_response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-            person_response = self.client.get("/" + data_response["result"][1]["persons_urls"][-1]["url"]).json()
-
-        self.assertEqual(data_response["result"][1]["count"], 3)
-        self.assertEqual(data_response["result"][1]["breakdown_value"], "val")
-        self.assertEqual(data_response["result"][1]["action"]["name"], "$pageview")
-        self.assertEqual(data_response["result"][1]["data"][-3], 1)
-        self.assertEqual(len(person_response["results"][0]["people"]), 2)
-
-        # breakdown dau
-        data.update(
+        # # breakdown
+        params.update(
             {
                 "breakdown": "key",
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0, "math": "dau"}],
+                "breakdown_type": "event",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": None,
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
             }
         )
-        data = deep_dump_object(data)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            data_response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-            person_response = self.client.get("/" + data_response["result"][1]["persons_urls"][-1]["url"]).json()
+            request = TrendsRequestBreakdown(**params)
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
+            people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
 
-        self.assertEqual(data_response["result"][1]["count"], 2)
-        self.assertEqual(data_response["result"][1]["breakdown_value"], "val")
-        self.assertEqual(data_response["result"][1]["action"]["name"], "$pageview")
-        self.assertEqual(data_response["result"][1]["data"][-3], 1)
-        self.assertEqual(len(person_response["results"][0]["people"]), 2)
+        assert data_response["$pageview - val"]["2012-01-13"].value == 1
+        assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
+        assert data_response["$pageview - val"]["2012-01-14"].value == 3
+        assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
+
+        assert len(people) == 2
+
+        # breakdown dau
+        params.update(
+            {
+                "breakdown": "key",
+                "breakdown_type": "event",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+            }
+        )
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            request = TrendsRequestBreakdown(**params)
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
+            people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
+
+        assert data_response["$pageview - val"]["2012-01-13"].value == 1
+        assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
+        assert data_response["$pageview - val"]["2012-01-14"].value == 2
+        assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
+
+        assert len(people) == 2
 
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
