@@ -5,6 +5,7 @@ from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 import posthoganalytics
+from django.conf import settings
 from django.db import connection
 from psycopg2 import sql
 
@@ -13,7 +14,6 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import EE_AVAILABLE, SITE_URL
 from posthog.utils import (
     get_helm_info_env,
     get_instance_realm,
@@ -151,10 +151,12 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
     if not dry_run:
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        posthoganalytics.capture(get_machine_id(), name, {**report, "scope": "machine"}, groups={"instance": SITE_URL})
+        posthoganalytics.capture(
+            get_machine_id(), name, {**report, "scope": "machine"}, groups={"instance": settings.SITE_URL}
+        )
 
         if "instance_usage_summary" in report:
-            posthoganalytics.group_identify("instance", SITE_URL, fetch_instance_params(report))
+            posthoganalytics.group_identify("instance", settings.SITE_URL, fetch_instance_params(report))
 
         for user in User.objects.all():
             posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
@@ -163,7 +165,7 @@ def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
 
 
 def fetch_instance_params(report: Dict[str, Any]) -> dict:
-    return {"site_url": SITE_URL, "machine_id": get_machine_id(), **report["instance_usage_summary"]}
+    return {"site_url": settings.SITE_URL, "machine_id": get_machine_id(), **report["instance_usage_summary"]}
 
 
 def fetch_event_counts_by_lib(params: Tuple[Any, ...]) -> dict:
@@ -201,7 +203,7 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
 
 
 def get_instance_licenses() -> List[str]:
-    if EE_AVAILABLE:
+    if settings.EE_AVAILABLE:
         from ee.models import License
 
         return [license.key for license in License.objects.all()]
