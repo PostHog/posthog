@@ -86,7 +86,7 @@ export class EventsProcessor {
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.db)
+        this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager)
     }
 
     public async processEvent(

@@ -1,14 +1,18 @@
-import { GroupTypeToColumnIndex, TeamId } from '../../types'
+import { GroupTypeToColumnIndex, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
+import { posthog } from '../../utils/posthog'
 import { getByAge } from '../../utils/utils'
+import { TeamManager } from './team-manager'
 
 export class GroupTypeManager {
     db: DB
+    teamManager: TeamManager
     groupTypesCache: Map<number, [GroupTypeToColumnIndex, number]>
 
-    constructor(db: DB) {
+    constructor(db: DB, teamManager: TeamManager) {
         this.db = db
+        this.teamManager = teamManager
         this.groupTypesCache = new Map()
     }
 
@@ -42,7 +46,30 @@ export class GroupTypeManager {
             if (groupTypeIndex !== null) {
                 this.groupTypesCache.delete(teamId)
             }
+
+            if (isInsert && groupTypeIndex !== null) {
+                void this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+            }
             return groupTypeIndex
         }
+    }
+
+    private async captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: number) {
+        const team: Team | null = await this.teamManager.fetchTeam(teamId)
+
+        if (!team) {
+            return
+        }
+
+        posthog.identify('plugin-server')
+        posthog.capture('group type ingested', {
+            team: team.uuid,
+            groupType,
+            groupTypeIndex,
+            $groups: {
+                project: team.id,
+                organization: team.organization_id,
+            },
+        })
     }
 }
