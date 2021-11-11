@@ -170,7 +170,14 @@ def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
 
 
 def fetch_instance_params(report: Dict[str, Any]) -> dict:
-    return {"site_url": settings.SITE_URL, "machine_id": get_machine_id(), **report["instance_usage_summary"]}
+    return {
+        "site_url": settings.SITE_URL,
+        "machine_id": get_machine_id(),
+        "posthog_version": report["posthog_version"],
+        "deployment": report["deployment"],
+        "realm": report["realm"],
+        **report["instance_usage_summary"],
+    }
 
 
 def fetch_event_counts_by_lib(params: Tuple[Any, ...]) -> dict:
