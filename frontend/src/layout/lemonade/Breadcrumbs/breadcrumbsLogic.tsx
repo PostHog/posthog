@@ -200,7 +200,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     default:
                         // Current place
                         breadcrumbs.push({
-                            name: identifierToHuman(activeScene),
+                            name: sceneConfig?.name || identifierToHuman(activeScene),
                             here: true,
                         })
                 }

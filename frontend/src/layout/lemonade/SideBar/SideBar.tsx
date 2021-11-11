@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
+import { sceneConfigurations } from 'scenes/scenes'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcherOverlay'
 import {
     IconArrowDropDown,
@@ -67,10 +68,11 @@ function Spacer(): JSX.Element {
     return <div className="SideBar__spacer" />
 }
 
-interface PageButtonProps extends Pick<LemonButtonProps, 'title' | 'icon' | 'onClick' | 'popup' | 'to'> {
+interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
     sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
+    title?: string
 }
 
 function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButtonProps): JSX.Element {
@@ -91,11 +93,11 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
             sideAction={{ ...sideAction, type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth' }}
             {...buttonProps}
         >
-            {title}
+            {title || sceneConfigurations[identifier].name}
         </LemonButtonWithSideAction>
     ) : (
         <LemonButton fullWidth type={isActive ? 'highlighted' : 'stealth'} {...buttonProps}>
-            {title}
+            {title || sceneConfigurations[identifier].name}
         </LemonButton>
     )
 }
@@ -121,7 +123,6 @@ function Pages(): JSX.Element {
                 </>
             )}
             <PageButton
-                title="Dashboards"
                 icon={<IconGauge />}
                 identifier={Scene.Dashboards}
                 to={urls.dashboards()}
@@ -151,7 +152,6 @@ function Pages(): JSX.Element {
                 }}
             />
             <PageButton
-                title="Insights"
                 icon={<IconBarChart />}
                 identifier={Scene.SavedInsights}
                 to={urls.savedInsights()}
@@ -162,44 +162,19 @@ function Pages(): JSX.Element {
                     identifier: Scene.Insights,
                 }}
             />
-            <PageButton
-                title="Recordings"
-                icon={<IconRecording />}
-                identifier={Scene.SessionRecordings}
-                to={urls.sessionRecordings()}
-            />
-            <PageButton
-                title="Feature flags"
-                icon={<IconFlag />}
-                identifier={Scene.FeatureFlags}
-                to={urls.featureFlags()}
-            />
+            <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
+            <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
             <Spacer />
-            <PageButton
-                title="Events &amp; actions"
-                icon={<IconGroupedEvents />}
-                identifier={Scene.Events}
-                to={urls.events()}
-            />
-            <PageButton title="Persons" icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
-            <PageButton title="Cohorts" icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
-            <PageButton
-                title="Annotations"
-                icon={<IconComment />}
-                identifier={Scene.Annotations}
-                to={urls.annotations()}
-            />
+            <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
+            <PageButton icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
+            <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
+            <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
             <Spacer />
             {canViewPlugins(currentOrganization) && (
-                <PageButton title="Plugins" icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
+                <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
             )}
             <PageButton title="Toolbar" icon={<IconTools />} identifier="Toolbar" onClick={showToolbarModal} />
-            <PageButton
-                title="Project settings"
-                icon={<IconSettings />}
-                identifier={Scene.ProjectSettings}
-                to={urls.projectSettings()}
-            />
+            <PageButton icon={<IconSettings />} identifier={Scene.ProjectSettings} to={urls.projectSettings()} />
         </div>
     )
 }
