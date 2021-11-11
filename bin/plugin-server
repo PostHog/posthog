@@ -55,11 +55,11 @@ fi
 
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting plugin server..."
-  yarn start
+  [[ -n $DEBUG ]] && yarn start:dev || yarn start
 else
   echo "🔁 Starting plugin server in a resiliency loop..."
   while true; do
-    yarn start
+    [[ -n $DEBUG ]] && yarn start:dev || yarn start
     echo "💥 Plugin server crashed!"
     echo "⌛️ Waiting 2 seconds before restarting..."
     sleep 2
