@@ -7,7 +7,7 @@ import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardM
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
@@ -624,23 +624,13 @@ export function eventToDescription(
     emphasizeEl: boolean = false
 ): string | JSX.Element {
     if (['$pageview', '$pageleave'].includes(event.event)) {
-        return emphasizeEl ? <b>{event.properties.$pathname}</b> : event.properties.$pathname
+        return event.properties.$pathname
     }
     if (event.event === '$autocapture') {
         return autoCaptureEventToDescription(event, emphasizeEl, true)
     }
-    // PH defined event
-    if (event.event.startsWith('$')) {
-        return emphasizeEl ? (
-            <b>
-                <PropertyKeyInfo value={event.event} disablePopover disableIcon />
-            </b>
-        ) : (
-            <PropertyKeyInfo value={event.event} disablePopover disableIcon />
-        )
-    }
-    // All other custom events + actions
-    return emphasizeEl ? <b>{event.event}</b> : event.event
+    // All other events and actions
+    return event.event
 }
 
 export function autoCaptureEventToDescription(

@@ -41,7 +41,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                                 : 'sessions'}
                         </Button>
                     </Row>
-                    <Row style={{ height: 'calc(100vh - 40px)' }}>
+                    <Row className="session-drawer-body">
                         <SessionRecordingPlayerV2 />
                     </Row>
                 </Col>

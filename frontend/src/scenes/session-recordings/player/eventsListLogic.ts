@@ -26,6 +26,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
         setLocalFilters: async (_, breakpoint) => {
             await breakpoint(250)
             actions.setFilters(values.localFilters)
+            actions.clearCellCache()
         },
         clearCellCache: async (_, breakpoint) => {
             await breakpoint(250)

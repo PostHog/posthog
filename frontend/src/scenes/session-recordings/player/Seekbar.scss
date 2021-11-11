@@ -113,8 +113,8 @@ $tick_hover_size: 5px;
                 border-radius: 50%;
                 right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
                 top: -1 * floor($tick_size / 2);
-                border: 0.5px solid $bg_light;
-                background-color: $recording_player_container_bg;
+                border: 0.5px solid $recording_player_container_bg;
+                background-color: $bg_light;
                 transform-origin: center;
                 transition: transform 200ms;
 

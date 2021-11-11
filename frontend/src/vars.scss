@@ -56,6 +56,8 @@ $antd_table_background_dark: #fafafa;
 // Session Recording
 $recording_player_container_bg: #797973;
 $recording_buffer_bg: #faaf8c;
+$recording_hover_event: rgba($primary, 0.1);
+$recording_hover_event_dark: $primary;
 $recording_current_event: #eef2ff;
 $recording_current_event_dark: #35416b;
 $recording_failure_event: #fee9e2;
@@ -129,6 +131,9 @@ $medium: 500;
 $default_spacing: 1rem;
 $radius: 4px;
 $top_nav_height: 50px;
+
+// Session Recording
+$recording_spacing: $default_spacing * 2 / 3;
 
 .text-ellipsis {
     overflow: hidden;

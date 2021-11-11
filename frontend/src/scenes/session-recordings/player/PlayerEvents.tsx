@@ -1,3 +1,4 @@
+import './PlayerEvents.scss'
 import React from 'react'
 import { Col, Input, Row } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
@@ -8,6 +9,7 @@ import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { eventsListLogic } from 'scenes/session-recordings/player/eventsListLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
 import { eventToDescription } from 'lib/utils'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function PlayerEvents(): JSX.Element {
     const { localFilters, listEvents, cellMeasurerCache } = useValues(eventsListLogic)
@@ -34,8 +36,19 @@ export function PlayerEvents(): JSX.Element {
         return (
             <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
                 <Row className="event-list-item" align="top" style={style}>
-                    <Col className="event-item-icon">{renderIcon()}</Col>
-                    <Col className="event-item-text">{eventToDescription(event, true)}</Col>
+                    <Col className="event-item-icon">
+                        <div className="event-item-icon-wrapper">{renderIcon()}</div>
+                    </Col>
+                    <Col className="event-item-text">
+                        <PropertyKeyInfo
+                            className="event-item-text-title"
+                            value={event.event}
+                            disableIcon
+                            disablePopover
+                            ellipsis={false}
+                        />
+                        <span className="event-item-text-subtitle">{eventToDescription(event, true)}</span>
+                    </Col>
                     <Col>{event.colonTimestamp}</Col>
                 </Row>
             </CellMeasurer>
