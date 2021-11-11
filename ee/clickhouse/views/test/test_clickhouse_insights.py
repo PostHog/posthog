@@ -254,13 +254,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         events = {
             "person1": [
                 {"event": "sign up", "timestamp": "2020-01-01", "properties": person1_properties},
-                {"event": "buy", "timestamp": "2020-01-03", "properties": person1_properties},
-                {"event": "play movie", "timestamp": "2020-01-02", "properties": person1_properties},
+                {"event": "buy", "timestamp": "2020-01-02", "properties": person1_properties},
+                {"event": "play movie", "timestamp": "2020-01-03", "properties": person1_properties},
             ],
             "person2": [
-                {"event": "buy", "timestamp": "2020-01-03", "properties": person2_properties},
-                {"event": "sign up", "timestamp": "2020-01-01", "properties": person2_properties},
-                {"event": "play movie", "timestamp": "2020-01-02", "properties": person2_properties},
+                {"event": "buy", "timestamp": "2020-01-01", "properties": person2_properties},
+                {"event": "sign up", "timestamp": "2020-01-02", "properties": person2_properties},
+                {"event": "play movie", "timestamp": "2020-01-03", "properties": person2_properties},
             ],
             "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
         }
