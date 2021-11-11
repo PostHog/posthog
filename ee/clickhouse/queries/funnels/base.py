@@ -56,7 +56,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self._filter = self._filter.with_data(new_limit)
             self.params.update(new_limit)
         else:
-            self.params.update({"LIMIT": self._filter.limit})
+            self.params.update({LIMIT: self._filter.limit})
 
         self._update_filters()
 
@@ -136,6 +136,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 serialized_result.update({"breakdown": results[-1], "breakdown_value": results[-1]})
                 # important to not try and modify this value any how - as these
                 # are keys for fetching persons
+
+                # Add in the breakdown to people urls as well
+                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": results[-1]})
+                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": results[-1]})
 
             serialized_result.update(
                 {
