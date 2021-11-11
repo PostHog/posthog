@@ -625,7 +625,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             {"event": "play movie", "day": 1, "hour": 13},
                             {"event": "buy", "day": 1, "hour": 15},
                         ],
-                        {"key": "val", "some_breakdown_val": num},
+                        {"key": "val", "some_breakdown_val": str(num)},
                     )
 
             result = funnel.run()
@@ -662,7 +662,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             {"event": "play movie", "day": 1, "hour": 13},
                             {"event": "buy", "day": 1, "hour": 15},
                         ],
-                        {"key": "val", "some_breakdown_val": num},
+                        {"key": "val", "some_breakdown_val": str(num)},
                     )
 
             # no breakdown value for this guy
@@ -712,7 +712,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             {"event": "play movie", "day": 1, "hour": 13},
                             {"event": "buy", "day": 1, "hour": 15},
                         ],
-                        {"key": "val", "some_breakdown_val": num},
+                        {"key": "val", "some_breakdown_val": str(num)},
                     )
 
             # no breakdown value for this guy
