@@ -247,9 +247,6 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
     def test_unordered_funnel_with_breakdown_by_event_property(self):
         # Setup three funnel people, with two different $browser values
-        # NOTE: this is mostly copied from
-        # https://github.com/PostHog/posthog/blob/a0f5a0a46a0deca2e17a66dfb530ca18ac99e58c/ee/clickhouse/queries/funnels/test/breakdown_cases.py#L24:L24
-        #
         person1_properties = {"key": "val", "$browser": "Chrome"}
         person2_properties = {"key": "val", "$browser": "Safari"}
         person3_properties = person2_properties
@@ -338,6 +335,68 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
             {"name": "step one", "converted": ["1", "2"], "dropped": []},
             {"name": "step two", "converted": ["1"], "dropped": ["2"]},
+        ]
+
+    def test_strict_funnel_with_breakdown_by_event_property(self):
+        # Setup three funnel people, with two different $browser values
+        person1_properties = {"key": "val", "$browser": "Chrome"}
+        person2_properties = {"key": "val", "$browser": "Safari"}
+        person3_properties = person2_properties
+
+        events = {
+            "person1": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": person1_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": person1_properties},
+                {"event": "buy", "timestamp": "2020-01-03", "properties": person1_properties},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": person2_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": person2_properties},
+                {
+                    # This person should not convert here as we're in strict mode,
+                    # and this event is not in the funnel definition
+                    "event": "event not in funnel",
+                    "timestamp": "2020-01-02",
+                    "properties": person2_properties,
+                },
+                {"event": "buy", "timestamp": "2020-01-03", "properties": person2_properties},
+            ],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
+        }
+
+        create_events(team=self.team, events_by_person=events)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/funnel/",
+            {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "insight": "FUNNELS",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "funnel_order_type": "strict",
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            },
+        ).json()
+
+        assert get_funnel_breakdown_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {
+                "breakdown_value": "Chrome",
+                "steps": [
+                    {"name": "sign up", "converted": ["person1"], "dropped": []},
+                    {"name": "play movie", "converted": ["person1"], "dropped": []},
+                    {"name": "buy", "converted": ["person1"], "dropped": []},
+                ],
+            },
+            {
+                "breakdown_value": "Safari",
+                "steps": [
+                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
+                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
+                    {"name": "buy", "converted": [], "dropped": ["person2"]},
+                ],
+            },
         ]
 
     def test_funnel_with_breakdown_by_event_property(self):
