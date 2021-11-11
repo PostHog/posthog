@@ -1,13 +1,14 @@
-import json
 from collections import defaultdict
+from typing import Optional
 
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin
 
 from ee.clickhouse.client import sync_execute
-# from ee.clickhouse.models.group import ClickhouseGroupSerializer
+from ee.clickhouse.models.group import ClickhouseGroupSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.utils import format_next_url
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 
@@ -17,21 +18,24 @@ class GroupTypeSerializer(serializers.ModelSerializer):
         fields = ["group_type", "group_type_index"]
 
 
+class ClickhouseGroupsTypesView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = GroupTypeSerializer
+    queryset = GroupTypeMapping.objects.all()
+    pagination_class = None
+
+
 class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
-    # serializer_class = ClickhouseGroupSerializer
-    # queryset = GroupTypeMapping.objects.all()
-    # pagination_class = None
+    serializer_class = ClickhouseGroupSerializer
+    queryset = None
+    pagination_class = None
 
     def list(self, request, *args, **kwargs):
-        instances = (
-            {
-                "group_type_index": row[0],
-                "group_key": row[1],
-                "created_at": row[2],
-                "group_properties": json.loads(row[3]),
-            }
-            for row in sync_execute(
-                """
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        limit = 100
+        offset = request.GET.get("offset", 0)
+
+        query_result = sync_execute(
+            """
                 SELECT group_type_index, group_key, created_at, group_properties FROM groups
                 INNER JOIN (
                     SELECT
@@ -40,15 +44,20 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
                     FROM groups
                     WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
                     GROUP BY group_key
+                    LIMIT 100 OFFSET %(offset)s
                 ) latest_groups
                 ON groups.group_key == latest_groups.group_key AND groups.created_at == latest_groups.created_at
                 WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
+                ORDER BY created_at
             """,
-                {"team_id": self.team_id, "group_type_index": request.GET["group_type_index"]},
-            )
+            {"team_id": self.team_id, "group_type_index": request.GET["group_type_index"], "offset": offset},
         )
-        return response.Response(instances)
-        
+        results = ClickhouseGroupSerializer(query_result, many=True).data
+        next_url: Optional[str] = None
+        if not is_csv_request and len(query_result) > limit:
+            next_url = format_next_url(request, offset, 100)
+
+        return response.Response({"next_url": next_url, "results": results})
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):
@@ -85,8 +94,3 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
         )
 
         return response.Response([{"name": name[0]} for name in rows])
-
-class ClickhouseGroupsTypesView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
-    serializer_class = GroupTypeSerializer
-    queryset = GroupTypeMapping.objects.all()
-    pagination_class = None
