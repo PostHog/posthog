@@ -12,6 +12,12 @@ from ee.clickhouse.queries.util import deep_dump_object
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
+from posthog.api.test.test_trends import (
+    TrendsRequest,
+    get_trends_aggregate_ok,
+    get_trends_people_ok,
+    get_trends_time_series_ok,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
@@ -38,19 +44,37 @@ class ClickhouseTestInsights(
             _create_event(team=self.team, event="$pageview", distinct_id="2")
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-            ).json()
 
-        self.assertEqual(response["result"][0]["count"], 2)
-        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+            request = TrendsRequest(
+                date_from="-14d",
+                date_to="2012-01-15",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
 
-        self.assertEqual(response["result"][0]["data"][-2], 2)
+        assert data["$pageview"]["2012-01-13"].value == 0
+        assert data["$pageview"]["2012-01-14"].value == 2
+        assert data["$pageview"]["2012-01-14"].label == "14-Jan-2012"
+        assert data["$pageview"]["2012-01-15"].value == 0
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
+            people = get_trends_people_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
 
-        self.assertEqual(len(response["results"][0]["people"]), 2)
+        assert len(people) == 2
 
     def test_insight_trends_aggregate(self):
 
@@ -69,16 +93,36 @@ class ClickhouseTestInsights(
                 "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
             }
         )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["aggregated_value"], 2)
-        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
+            test_req = TrendsRequest(
+                date_from="-14d",
+                date_to="2012-01-15",
+                interval="day",
+                insight="TRENDS",
+                display="ActionsPie",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": None,
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+            )
+            data = get_trends_aggregate_ok(self.client, test_req, self.team)
 
-        self.assertEqual(len(response["results"][0]["people"]), 2)
+        assert data["$pageview"].value == 2
+        assert data["$pageview"].label == "$pageview"
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            people = get_trends_people_ok(self.client, data["$pageview"].person_url)
+
+        assert len(people) == 2
 
     def test_insight_trends_cumulative(self):
         with freeze_time("2012-01-13T03:21:34.000Z"):
