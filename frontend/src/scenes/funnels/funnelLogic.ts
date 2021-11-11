@@ -58,6 +58,7 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
+import { groupsModel } from '~/models/groupsModel'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -105,6 +106,8 @@ export const funnelLogic = kea<funnelLogicType>({
             ['hasAvailableFeature'],
             featureFlagLogic,
             ['featureFlags'],
+            groupsModel,
+            ['groupTypes'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -1017,6 +1020,16 @@ export const funnelLogic = kea<funnelLogicType>({
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],
             (inversePropertyNames, excludedPropertyNames): string[] => {
                 return inversePropertyNames(excludedPropertyNames || [])
+            },
+        ],
+        aggregationTargetLabel: [
+            (s) => [s.filters, s.groupTypes],
+            (filters, groupTypes): { singular: string; plural: string } => {
+                if (filters.aggregation_group_type_index != undefined && groupTypes.length > 0) {
+                    const groupType = groupTypes[filters.aggregation_group_type_index]
+                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
+                }
+                return { singular: 'user', plural: 'users' }
             },
         ],
     }),

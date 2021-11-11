@@ -2,6 +2,7 @@ from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from rest_framework.request import Request
@@ -10,7 +11,6 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.models import User
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import Insight
-from posthog.settings import TEMP_CACHE_RESULTS_TTL
 from posthog.utils import should_refresh
 
 from .utils import generate_cache_key, get_safe_cache
@@ -58,7 +58,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                 fresh_result_package["last_refresh"] = now()
                 fresh_result_package["is_cached"] = False
                 cache.set(
-                    cache_key, fresh_result_package, TEMP_CACHE_RESULTS_TTL,
+                    cache_key, fresh_result_package, settings.TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
                     dashboard_items = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)
