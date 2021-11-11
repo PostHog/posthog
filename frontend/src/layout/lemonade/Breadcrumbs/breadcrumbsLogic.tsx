@@ -17,8 +17,9 @@ import { featureFlagLogic } from '../../../scenes/feature-flags/featureFlagLogic
 import { personsLogic } from '../../../scenes/persons/personsLogic'
 import { asDisplay } from '../../../scenes/persons/PersonHeader'
 import { PopupProps } from 'lib/components/Popup/Popup'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcherOverlay'
 
-export interface Breadcrumb extends Partial<Pick<PopupProps, 'overlay'>> {
+export interface Breadcrumb {
     /** Name to display. */
     name: string | null | undefined
     /** Symbol, e.g. a lettermark or a profile picture. */
@@ -29,6 +30,8 @@ export interface Breadcrumb extends Partial<Pick<PopupProps, 'overlay'>> {
     tooltip?: string
     /** Whether this breadcrumb refers to the current location. */
     here?: boolean
+    /** Whether to show a custom popup */
+    popup?: Pick<PopupProps, 'overlay' | 'sameWidth'>
 }
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
@@ -58,18 +61,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
             ['person'],
         ],
     },
-    actions: {
-        toggleProjectSwitcher: true,
-    },
-    reducers: {
-        isProjectSwitcherShown: [
-            false,
-            {
-                toggleProjectSwitcher: (state) => !state,
-            },
-        ],
-    },
-    selectors: {
+    selectors: () => ({
         breadcrumbs: [
             (s) => [
                 s.preflight,
@@ -140,7 +132,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     breadcrumbs.push({
                         name: currentTeam.name,
                         tooltip: 'Current project',
-                        overlay: <>Hey there!</>,
+                        popup: {
+                            overlay: <ProjectSwitcherOverlay />,
+                        },
                     })
                 }
                 // Parent page handling
@@ -244,5 +238,5 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 return false
             },
         ],
-    },
+    }),
 })

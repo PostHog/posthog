@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import React, { useState } from 'react'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcherOverlay'
 import {
     IconArrowDropDown,
     IconBarChart,
@@ -23,7 +23,6 @@ import {
     LemonButtonWithSideAction,
     SideAction,
 } from '../../../lib/components/LemonButton'
-import { LemonRow } from '../../../lib/components/LemonRow'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '../../../models/dashboardsModel'
 import { organizationLogic } from '../../../scenes/organizationLogic'
@@ -32,70 +31,16 @@ import { sceneLogic } from '../../../scenes/sceneLogic'
 import { Scene } from '../../../scenes/sceneTypes'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
-import { userLogic } from '../../../scenes/userLogic'
-import { AvailableFeature, TeamBasicType, InsightType } from '../../../types'
+import { InsightType } from '../../../types'
 import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './SideBar.scss'
 
-function CurrentProjectButton(): JSX.Element {
+function SidebarProjectSwitcher(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { push } = useActions(router)
-    const { hideProjectSwitcher } = useActions(lemonadeLogic)
-
-    return (
-        <LemonRow
-            status="highlighted"
-            sideIcon={
-                <LemonButton
-                    compact
-                    onClick={() => {
-                        hideProjectSwitcher()
-                        push(urls.projectSettings())
-                    }}
-                    icon={<IconSettings />}
-                />
-            }
-            fullWidth
-        >
-            <strong>{currentTeam?.name}</strong>
-        </LemonRow>
-    )
-}
-
-function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
-    const { updateCurrentTeam } = useActions(userLogic)
-    const { hideProjectSwitcher } = useActions(lemonadeLogic)
-
-    return (
-        <LemonButtonWithSideAction
-            onClick={() => {
-                hideProjectSwitcher()
-                updateCurrentTeam(team.id, '/')
-            }}
-            sideAction={{
-                icon: <IconSettings />,
-                tooltip: `Go to ${team.name} settings`,
-                onClick: () => {
-                    hideProjectSwitcher()
-                    updateCurrentTeam(team.id, '/project/settings')
-                },
-            }}
-            title={`Switch to project ${team.name}`}
-            type="stealth"
-            fullWidth
-        >
-            {team.name}
-        </LemonButtonWithSideAction>
-    )
-}
-
-export function ProjectSwitcher(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { isProjectSwitcherShown } = useValues(lemonadeLogic)
-    const { showCreateProjectModal, toggleProjectSwitcher, hideProjectSwitcher } = useActions(lemonadeLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(lemonadeLogic)
 
     return (
         <div className="ProjectSwitcher">
@@ -109,33 +54,7 @@ export function ProjectSwitcher(): JSX.Element {
                     visible: isProjectSwitcherShown,
                     onClickOutside: hideProjectSwitcher,
                     sameWidth: true,
-                    overlay: (
-                        <>
-                            <CurrentProjectButton />
-                            {currentOrganization?.teams &&
-                                currentOrganization.teams
-                                    .filter((team) => team.id !== currentTeam?.id)
-                                    .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                                    .map((team) => <OtherProjectButton key={team.id} team={team} />)}
-
-                            <LemonButton
-                                icon={<IconPlus />}
-                                fullWidth
-                                disabled={isProjectCreationForbidden}
-                                onClick={() => {
-                                    hideProjectSwitcher()
-                                    guardAvailableFeature(
-                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                        'multiple projects',
-                                        'Projects allow you to separate data and configuration for different products or environments.',
-                                        showCreateProjectModal
-                                    )
-                                }}
-                            >
-                                New project
-                            </LemonButton>
-                        </>
-                    ),
+                    overlay: <ProjectSwitcherOverlay />,
                 }}
             >
                 <strong>{currentTeam?.name}</strong>
@@ -257,7 +176,7 @@ function Pages(): JSX.Element {
             />
             <Spacer />
             <PageButton
-                title="Events & actions"
+                title="Events &amp; actions"
                 icon={<IconGroupedEvents />}
                 identifier={Scene.Events}
                 to={urls.events()}
@@ -293,7 +212,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
             <div className="SideBar__slider">
                 <div className="SideBar__content">
-                    <ProjectSwitcher />
+                    <SidebarProjectSwitcher />
                     <Spacer />
                     <Pages />
                 </div>

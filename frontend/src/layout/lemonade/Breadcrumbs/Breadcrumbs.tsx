@@ -1,5 +1,5 @@
-import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useState } from 'react'
+import { useValues } from 'kea'
 import { IconExpandMore } from '../../../lib/components/icons'
 import { Link } from '../../../lib/components/Link'
 import './Breadcrumbs.scss'
@@ -10,29 +10,29 @@ import { Skeleton } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 
 function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
-    const { isProjectSwitcherShown } = useValues(breadcrumbsLogic)
-    const { toggleProjectSwitcher } = useActions(breadcrumbsLogic)
+    const [popoverShown, setPopoverShown] = useState(false)
+
     let breadcrumbContent = (
         <div
-            className={clsx('Breadcrumbs__breadcrumb', breadcrumb.here && 'Breadcrumbs__breadcrumb--current')}
-            onClick={toggleProjectSwitcher}
+            className={clsx(
+                'Breadcrumbs__breadcrumb',
+                breadcrumb.here && 'Breadcrumbs__breadcrumb--current',
+                (breadcrumb.path || breadcrumb.popup) && 'Breadcrumbs__breadcrumb--actionable'
+            )}
+            onClick={() => breadcrumb.popup && setPopoverShown(!popoverShown)}
         >
             {breadcrumb.symbol}
             {breadcrumb.name}
         </div>
     )
+
     if (breadcrumb.path) {
         breadcrumbContent = <Link to={breadcrumb.path}>{breadcrumbContent}</Link>
     }
 
-    if (breadcrumb.overlay) {
+    if (breadcrumb.popup) {
         return (
-            <Popup
-                overlay={breadcrumb.overlay}
-                visible={isProjectSwitcherShown}
-                onClickOutside={toggleProjectSwitcher}
-                sameWidth
-            >
+            <Popup {...breadcrumb.popup} visible={popoverShown} onClickOutside={() => setPopoverShown(false)}>
                 {breadcrumbContent}
             </Popup>
         )
