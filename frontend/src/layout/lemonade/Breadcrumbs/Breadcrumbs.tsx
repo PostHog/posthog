@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 import { IconExpandMore } from '../../../lib/components/icons'
 import { Link } from '../../../lib/components/Link'
@@ -7,10 +7,16 @@ import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
 import { Tooltip } from '../../../lib/components/Tooltip'
 import clsx from 'clsx'
 import { Skeleton } from 'antd'
+import { Popup } from 'lib/components/Popup/Popup'
 
 function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
+    const { isProjectSwitcherShown } = useValues(breadcrumbsLogic)
+    const { toggleProjectSwitcher } = useActions(breadcrumbsLogic)
     let breadcrumbContent = (
-        <div className={clsx('Breadcrumbs__breadcrumb', breadcrumb.here && 'Breadcrumbs__breadcrumb--current')}>
+        <div
+            className={clsx('Breadcrumbs__breadcrumb', breadcrumb.here && 'Breadcrumbs__breadcrumb--current')}
+            onClick={toggleProjectSwitcher}
+        >
             {breadcrumb.symbol}
             {breadcrumb.name}
         </div>
@@ -18,6 +24,20 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
     if (breadcrumb.path) {
         breadcrumbContent = <Link to={breadcrumb.path}>{breadcrumbContent}</Link>
     }
+
+    if (breadcrumb.overlay) {
+        return (
+            <Popup
+                overlay={breadcrumb.overlay}
+                visible={isProjectSwitcherShown}
+                onClickOutside={toggleProjectSwitcher}
+                sameWidth
+            >
+                {breadcrumbContent}
+            </Popup>
+        )
+    }
+
     let { tooltip } = breadcrumb
     if (!tooltip) {
         if (breadcrumb.path) {
@@ -27,7 +47,7 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
         }
     }
     if (tooltip) {
-        breadcrumbContent = <Tooltip title={tooltip}>{breadcrumbContent}</Tooltip>
+        return <Tooltip title={tooltip}>{breadcrumbContent}</Tooltip>
     }
     return breadcrumbContent
 }

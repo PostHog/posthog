@@ -24,12 +24,14 @@
 .Breadcrumbs__breadcrumb {
     display: flex;
     align-items: center;
-    color: $text_default;
+    color: $primary;
     font-weight: $medium;
     white-space: pre;
+    cursor: pointer;
     &--current {
         font-weight: bold;
         color: $text_muted;
+        cursor: default;
     }
     > :first-child {
         margin-right: 0.5rem;

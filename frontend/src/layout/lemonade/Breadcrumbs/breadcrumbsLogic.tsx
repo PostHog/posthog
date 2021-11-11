@@ -16,8 +16,9 @@ import { dashboardsModel } from '../../../models/dashboardsModel'
 import { featureFlagLogic } from '../../../scenes/feature-flags/featureFlagLogic'
 import { personsLogic } from '../../../scenes/persons/personsLogic'
 import { asDisplay } from '../../../scenes/persons/PersonHeader'
+import { PopupProps } from 'lib/components/Popup/Popup'
 
-export interface Breadcrumb {
+export interface Breadcrumb extends Partial<Pick<PopupProps, 'overlay'>> {
     /** Name to display. */
     name: string | null | undefined
     /** Symbol, e.g. a lettermark or a profile picture. */
@@ -55,6 +56,17 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
             ['featureFlag'],
             personsLogic,
             ['person'],
+        ],
+    },
+    actions: {
+        toggleProjectSwitcher: true,
+    },
+    reducers: {
+        isProjectSwitcherShown: [
+            false,
+            {
+                toggleProjectSwitcher: (state) => !state,
+            },
         ],
     },
     selectors: {
@@ -128,6 +140,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     breadcrumbs.push({
                         name: currentTeam.name,
                         tooltip: 'Current project',
+                        overlay: <>Hey there!</>,
                     })
                 }
                 // Parent page handling
