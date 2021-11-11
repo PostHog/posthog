@@ -32,9 +32,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
         no_person_limit: Optional[bool] = False,
+        base_uri: str = "/",
     ) -> None:
         self._filter = filter
         self._team = team
+        self._base_uri = base_uri
         self.params = {
             "team_id": self._team.pk,
             "events": [],  # purely a speed optimization, don't need this for filtering
@@ -143,9 +145,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
             serialized_result.update(
                 {
-                    "converted_people_url": f"/api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
+                    "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
                     "dropped_people_url": (
-                        f"/api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
+                        f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
                         # NOTE: If we are looking at the first step, there is no drop off,
                         # everyone converted, otherwise they would not have been
                         # included in the funnel. What should this mean for

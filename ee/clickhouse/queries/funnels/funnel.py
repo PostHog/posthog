@@ -130,9 +130,9 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
             serialized_result.update(
                 {
-                    "converted_people_url": f"/api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
+                    "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
                     "dropped_people_url": (
-                        f"/api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
+                        f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
                         # NOTE: If we are looking at the first step, there is no drop off,
                         # everyone converted, otherwise they would not have been
                         # included in the funnel. What should this mean for
