@@ -15,6 +15,7 @@ import { IconExternalLink } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsListLogic } from 'scenes/groups/groupsListLogic'
+import { GroupsTabs } from 'scenes/groups/GroupsTabs'
 
 export const scene: SceneExport = {
     component: Persons,
@@ -28,9 +29,7 @@ interface PersonsProps {
 export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
-    const { groupsEnabled, groupTypes } = useValues(groupsModel)
-    const { currentGroup } = useValues(groupsListLogic)
-    const { setTab } = useActions(groupsListLogic)
+    const { groupsEnabled } = useValues(groupsModel)
 
     useEffect(() => {
         if (cohort) {
@@ -42,17 +41,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     return (
         <div className="persons-list">
             {!cohort && !groupsEnabled && <PageHeader title="Persons" />}
-            {groupsEnabled && (
-                <Tabs defaultActiveKey={currentGroup} onChange={(activeKey) => setTab(activeKey)}>
-                    <Tabs.TabPane tab="Persons" key="-1" />
-                    {groupTypes.map((groupType) => (
-                        <Tabs.TabPane
-                            tab={capitalizeFirstLetter(groupType.group_type)}
-                            key={groupType.group_type_index}
-                        />
-                    ))}
-                </Tabs>
-            )}
+            {groupsEnabled && <GroupsTabs />}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
                     <PersonsSearch autoFocus={!cohort} />

@@ -1,12 +1,13 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Group } from '~/types'
 
 export const groupsListLogic = kea<groupsListLogic>({
     path: ['groups', 'groupsListLogic'],
-    connect: { values: [groupsModel, ['groupsEnabled']] },
+    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled', 'groupTypes']] },
     actions: () => ({
         loadGroupList: (groupTypeIndex: string) => ({ groupTypeIndex }),
         setTab: (tab: string) => ({ tab }),
@@ -17,9 +18,10 @@ export const groupsListLogic = kea<groupsListLogic>({
             {
                 loadGroupList: async ({ groupTypeIndex }) => {
                     if (values.groupsEnabled) {
-                        return await api.get(
+                        const groups = await api.get(
                             `api/projects/${values.currentTeamId}/groups/?group_type_index=${groupTypeIndex}`
                         )
+                        return groups.results
                     }
                     return []
                 },
@@ -43,7 +45,7 @@ export const groupsListLogic = kea<groupsListLogic>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/persons/groups/:id': ({ id }) => {
+        '/groups/:id': ({ id }) => {
             actions.loadGroupList(id)
             actions.setTab(id)
         },
