@@ -251,7 +251,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         from posthog.api.user import User, UserSerializer
         from posthog.views import preflight_check
 
-        posthog_app_context: Dict[str, Any] = {
+        posthog_app_context = {
             "current_user": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
