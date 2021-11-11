@@ -86,7 +86,8 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     def _has_entity_filters(self):
         return self._filter.entities and len(self._filter.entities) > 0
 
-    def _get_limit(self):
+    @property
+    def limit(self):
         return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
 
     def _get_person_id_clause(self) -> Tuple[str, Dict[str, Any]]:
@@ -180,10 +181,9 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         return EventFiltersSQL(aggregate_select_clause, aggregate_having_clause, where_conditions, params,)
 
     def _build_query(self) -> Tuple[str, Dict[str, Any]]:
-        # One more is added to the limit to check if there are more results available
-        limit = self._get_limit() + 1
         offset = self._filter.offset or 0
-        base_params = {"team_id": self._team.pk, "limit": limit, "offset": offset}
+        # One more is added to the limit to check if there are more results available
+        base_params = {"team_id": self._team.pk, "limit": self.limit + 1, "offset": offset}
         person_query, person_query_params = self._get_person_query()
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()
@@ -214,11 +214,10 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         )
 
     def _paginate_results(self, session_recordings) -> SessionRecordingQueryResult:
-        limit = self._get_limit()
         more_recordings_available = False
-        if len(session_recordings) > limit:
+        if len(session_recordings) > self.limit:
             more_recordings_available = True
-            session_recordings = session_recordings[0:limit]
+            session_recordings = session_recordings[0 : self.limit]
         return SessionRecordingQueryResult(session_recordings, more_recordings_available)
 
     def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
