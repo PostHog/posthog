@@ -197,7 +197,7 @@ export function BreakdownVerticalBarGroup({
                                     ? `${humanizeStepCount(breakdown.count)} ${pluralize(
                                           breakdown.count,
                                           aggregationTargetLabel.singular,
-                                          aggregationTargetLabel.singular,
+                                          aggregationTargetLabel.plural,
                                           false
                                       )}`
                                     : ''}
