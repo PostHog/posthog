@@ -6,7 +6,7 @@ from ee.clickhouse.models.action import Action, ActionStep
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Cohort, Person
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.test.test_session_recording_list import factory_session_recordings_list_test
@@ -24,6 +24,7 @@ def _create_session_recording_event(**kwargs):
 
 
 class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_recordings_list_test(ClickhouseSessionRecordingList, _create_event, _create_session_recording_event, Action.objects.create, ActionStep.objects.create)):  # type: ignore
+    @snapshot_clickhouse_queries
     def test_event_filter_with_person_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
@@ -51,6 +52,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
 
+    @snapshot_clickhouse_queries
     def test_event_filter_with_cohort_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(
