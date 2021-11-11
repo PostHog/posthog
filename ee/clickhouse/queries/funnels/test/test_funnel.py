@@ -9,7 +9,10 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
-from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
+from ee.clickhouse.queries.funnels.test.breakdown_cases import (
+    assert_funnel_results_equal,
+    funnel_breakdown_test_factory,
+)
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
@@ -189,9 +192,6 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             "funnel_window_interval_unit": "day",
         }
 
-        filter = Filter(data=filters)
-        funnel = ClickhouseFunnel(filter, self.team)
-
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
         _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
@@ -200,7 +200,10 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
         _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup2")
 
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
         result = funnel.run()
+
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
         self.assertEqual(len(result[0]["people"]), 2)
@@ -229,7 +232,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         filter = Filter(data=filters)
         funnel = ClickhouseFunnel(filter, self.team)
         result2 = funnel.run()
-        self.assertEqual(result, result2)
+
+        assert_funnel_results_equal(result, result2)
 
         filters = {
             "events": [
@@ -245,7 +249,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         filter = Filter(data=filters)
         funnel = ClickhouseFunnel(filter, self.team)
         result3 = funnel.run()
-        self.assertEqual(result, result3)
+
+        assert_funnel_results_equal(result, result3)
 
     def test_funnel_exclusions_full_window(self):
         filters = {
