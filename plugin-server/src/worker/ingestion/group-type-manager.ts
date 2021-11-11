@@ -34,11 +34,15 @@ export class GroupTypeManager {
         if (groupType in groupTypes) {
             return groupTypes[groupType]
         } else {
-            const response = await this.db.insertGroupType(teamId, groupType, Object.keys(groupTypes).length)
-            if (response !== null) {
+            const [groupTypeIndex, isInsert] = await this.db.insertGroupType(
+                teamId,
+                groupType,
+                Object.keys(groupTypes).length
+            )
+            if (groupTypeIndex !== null) {
                 this.groupTypesCache.delete(teamId)
             }
-            return response
+            return groupTypeIndex
         }
     }
 }
