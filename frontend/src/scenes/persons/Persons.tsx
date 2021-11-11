@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Button, Row, Radio, Alert, Tabs } from 'antd'
+import { Button, Row, Radio, Alert } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'

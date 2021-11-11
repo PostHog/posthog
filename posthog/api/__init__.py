@@ -105,7 +105,7 @@ if is_clickhouse_enabled():
     from ee.clickhouse.views.cohort import ClickhouseCohortViewSet, LegacyClickhouseCohortViewSet
     from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
     from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
-    from ee.clickhouse.views.groups import ClickhouseGroupsView, ClickhouseGroupsTypesView
+    from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet, LegacyClickhouseInsightsViewSet
     from ee.clickhouse.views.paths import ClickhousePathsViewSet, LegacyClickhousePathsViewSet
     from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhousePersonViewSet

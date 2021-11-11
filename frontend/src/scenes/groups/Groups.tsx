@@ -42,7 +42,7 @@ export function Groups(): JSX.Element {
                 rowKey="group_key"
                 loading={groupsLoading}
                 dataSource={groups.results}
-            ></ResizableTable>
+            />
             {(groups.previous_url || groups.next_url) && (
                 <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
                     <Button
