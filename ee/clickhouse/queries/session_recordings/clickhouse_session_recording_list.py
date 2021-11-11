@@ -6,6 +6,7 @@ from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingQueryResult
 
@@ -13,6 +14,7 @@ from posthog.queries.session_recordings.session_recording_list import SessionRec
 class EventFiltersSQL(NamedTuple):
     aggregate_select_clause: str
     aggregate_having_clause: str
+    where_conditions: str
     params: Dict[str, Any]
 
 
@@ -38,6 +40,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         FROM events
         WHERE
             team_id = %(team_id)s
+            {event_filter_where_conditions}
             {events_timestamp_clause}
     ) AS filtered_events
     RIGHT OUTER JOIN (
@@ -71,6 +74,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         )
         {person_id_clause}
     GROUP BY session_recordings.session_id
+    HAVING 1 = 1
     {event_filter_aggregate_having_clause}
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
@@ -149,25 +153,31 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         return filter_sql, params
 
     def format_event_filters(self) -> EventFiltersSQL:
-        if len(self._filter.entities) == 0:
-            return EventFiltersSQL("", "", {})
 
         aggregate_select_clause = ""
-        aggregate_where_conditions = []
-        event_where_conditions = []
+        aggregate_having_clause = ""
+        where_conditions = "AND event IN %(event_names)s"
+        # Always include $pageview events so the start_url and end_url can be extracted
+        event_names_to_filter = set(["$pageview"])
 
         params: Dict = {}
 
         for index, entity in enumerate(self._filter.entities):
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                action = entity.get_action()
+                for action_step in action.steps.all():
+                    event_names_to_filter.add(action_step.event)
+            else:
+                event_names_to_filter.add(entity.id)
+
             condition_sql, filter_params = self.format_event_filter(entity, prepend=f"event_matcher_{index}")
             aggregate_select_clause += f", sum(if({condition_sql}, 1, 0)) as count_event_match_{index}"
-            aggregate_where_conditions.append(f"count_event_match_{index} > 0")
-            event_where_conditions.append(condition_sql)
+            aggregate_having_clause += f"\nAND count_event_match_{index} > 0"
             params = {**params, **filter_params}
 
-        aggregate_having_clause = f"HAVING {' AND '.join(aggregate_where_conditions)}"
+        params = {**params, "event_names": list(event_names_to_filter)}
 
-        return EventFiltersSQL(aggregate_select_clause, aggregate_having_clause, params,)
+        return EventFiltersSQL(aggregate_select_clause, aggregate_having_clause, where_conditions, params,)
 
     def _build_query(self) -> Tuple[str, Dict[str, Any]]:
         # One more is added to the limit to check if there are more results available
@@ -188,6 +198,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
                 events_timestamp_clause=events_timestamp_clause,
                 recording_start_time_clause=recording_start_time_clause,
                 duration_clause=duration_clause,
+                event_filter_where_conditions=event_filters.where_conditions,
                 event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
                 event_filter_aggregate_having_clause=event_filters.aggregate_having_clause,
             ),
