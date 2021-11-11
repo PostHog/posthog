@@ -10,8 +10,8 @@ import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recordings/player/eventsListLogic'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
-import { eventToDescription, Loading } from 'lib/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { eventToDescription, Loading, capitalizeFirstLetter, eventToDescription } from 'lib/utils'
+import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function PlayerEvents(): JSX.Element {
     const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
@@ -21,6 +21,7 @@ export function PlayerEvents(): JSX.Element {
 
     function Event({ index, style, key, parent }: ListRowProps): JSX.Element {
         const event = listEvents[index]
+        const hasDescription = getKeyMapping(event.event, 'event')
 
         const renderIcon = (): JSX.Element => {
             if (event.event === '$pageview') {
@@ -55,7 +56,11 @@ export function PlayerEvents(): JSX.Element {
                             disablePopover
                             ellipsis={false}
                         />
-                        <span className="event-item-text-subtitle">{eventToDescription(event, true)}</span>
+                        {hasDescription && (
+                            <span className="event-item-text-subtitle">
+                                {capitalizeFirstLetter(eventToDescription(event))}
+                            </span>
+                        )}
                         <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
                     </Col>
                     <Col>{event.colonTimestamp}</Col>

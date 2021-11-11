@@ -55,7 +55,7 @@ export async function createActionFromEvent(
         ],
     }
     if (event.event === '$autocapture') {
-        actionData.name = autoCaptureEventToDescription(event) as string
+        actionData.name = autoCaptureEventToDescription(event)
     } else if (event.event === '$pageview') {
         actionData.name = `Pageview on ${new URL(event.properties.$current_url).pathname}`
     } else {

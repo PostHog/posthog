@@ -218,6 +218,7 @@ function Pages(): JSX.Element {
                 to={urls.dashboards()}
                 sideAction={{
                     icon: <IconArrowDropDown />,
+                    identifier: 'pinned-dashboards',
                     tooltip: 'Pinned dashboards',
                     onClick: () => setArePinnedDashboardsShown((state) => !state),
                     popup: {
