@@ -76,7 +76,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             if result and len(result) > 0:
                 total_people += result[step.order]
 
-            serialized_result = self._serialize_step(step, total_people, [])
+            serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
             if cast(int, step.order) > 0:
 
                 serialized_result.update(
