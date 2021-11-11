@@ -15,7 +15,7 @@ def forward(apps, schema_editor):
     DashboardItem = apps.get_model("posthog", "DashboardItem")
     for item in DashboardItem.objects.filter(filters__isnull=False, dashboard__isnull=False).exclude(filters={}):
         filter = Filter(data=item.filters)
-        item.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
+        item.filters_hash = generate_cache_key(f"{filter.toJSON()}_{item.team_id}")
         item.save()
 
 

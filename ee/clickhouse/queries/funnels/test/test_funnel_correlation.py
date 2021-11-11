@@ -1,4 +1,5 @@
 import unittest
+from typing import List
 from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
@@ -6,11 +7,12 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
+from posthog.models.property import Property
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
@@ -32,6 +34,18 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         person_filter = filter.with_data(
             {
                 "funnel_correlation_person_entity": {"id": event_name, "type": "events", "properties": properties},
+                "funnel_correlation_person_converted": "TrUe" if success else "falSE",
+            }
+        )
+        results, _ = FunnelCorrelationPersons(person_filter, self.team).run()
+        return [row["uuid"] for row in results]
+
+    def _get_people_for_property(self, filter: Filter, property_values: list, success=True):
+        person_filter = filter.with_data(
+            {
+                "funnel_correlation_property_values": [
+                    {"key": prop, "value": value, "type": "person"} for prop, value in property_values
+                ],
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
             }
         )
@@ -145,6 +159,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
 
     @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
+    @snapshot_clickhouse_queries
     def test_basic_funnel_correlation_with_properties(self):
         filters = {
             "events": [
@@ -240,6 +255,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+        self.assertEqual(len(self._get_people_for_property(filter, [("$browser", "Positive")])), 10)
+        self.assertEqual(len(self._get_people_for_property(filter, [("$browser", "Positive")], False)), 1)
+        self.assertEqual(len(self._get_people_for_property(filter, [("$browser", "Negative")])), 1)
+        self.assertEqual(len(self._get_people_for_property(filter, [("$browser", "Negative")], False)), 10)
 
     def test_no_divide_by_zero_errors(self):
         filters = {
@@ -513,6 +533,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             self.assertAlmostEqual(odds, expected_odds)
 
         self.assertEqual(new_result, new_expected_result)
+
+        self.assertEqual(len(self._get_people_for_property(filter, [("$nice", "not")])), 10)
+        self.assertEqual(len(self._get_people_for_property(filter, [("$nice", "")], False)), 1)
+        self.assertEqual(len(self._get_people_for_property(filter, [("$nice", "very")])), 5)
 
     def test_discarding_insignificant_events(self):
         filters = {

@@ -217,7 +217,7 @@ function SystemStatus(): JSX.Element {
 }
 
 function Version(): JSX.Element {
-    const { closeSitePopover, showChangelogModal } = useActions(lemonadeLogic)
+    const { closeSitePopover } = useActions(lemonadeLogic)
     const { updateAvailable, latestVersion } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
     const { preflight } = useValues(preflightLogic)
 
@@ -235,8 +235,13 @@ function Version(): JSX.Element {
                     {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
                 <Link
+                    href={`https://posthog.com/blog/the-posthog-array-${preflight?.posthog_version?.replace(
+                        /\./g,
+                        '-'
+                    )}`}
+                    target="_blank"
+                    rel="noopener"
                     onClick={() => {
-                        showChangelogModal()
                         closeSitePopover()
                     }}
                     className="SitePopover__side-link"
@@ -314,7 +319,7 @@ export function SitePopover(): JSX.Element {
                 </>
             }
         >
-            <div className="SitePopover__crumb" onClick={toggleSitePopover}>
+            <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div
                     className="SitePopover__profile-picture"
                     title={systemStatus ? undefined : 'Potential system issue'}
