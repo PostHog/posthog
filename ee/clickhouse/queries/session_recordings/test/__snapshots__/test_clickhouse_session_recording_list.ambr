@@ -39,9 +39,9 @@
     (SELECT distinct_id,
             event,
             team_id,
-            timestamp,
-            properties,
-            JSONExtractString(properties, '$current_url') as current_url
+            timestamp ,
+            trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$current_url')) as current_url
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -101,9 +101,9 @@
     (SELECT distinct_id,
             event,
             team_id,
-            timestamp,
-            properties,
-            JSONExtractString(properties, '$current_url') as current_url
+            timestamp ,
+            trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$current_url')) as current_url
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']

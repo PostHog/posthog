@@ -3,11 +3,13 @@ from typing import Any, Dict, List, NamedTuple, Set, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
+from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models.entity import Entity
+from posthog.models import Entity, Team
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingQueryResult
 
 
@@ -19,6 +21,15 @@ class EventFiltersSQL(NamedTuple):
 
 
 class ClickhouseSessionRecordingList(SessionRecordingList):
+    _filter: SessionRecordingsFilter
+    _team: Team
+    _column_optimizer: ColumnOptimizer
+
+    def __init__(self, filter: SessionRecordingsFilter, team: Team) -> None:
+        self._filter = filter
+        self._team = team
+        self._column_optimizer = ColumnOptimizer(self._filter, self._team.pk)
+
     _session_recordings_query_with_entity_filter: str = """
     SELECT
         session_recordings.session_id,
@@ -34,9 +45,8 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             distinct_id,
             event,
             team_id,
-            timestamp,
-            properties,
-            JSONExtractString(properties, '$current_url') as current_url
+            timestamp
+            {properties_select_clause}
         FROM events
         WHERE
             team_id = %(team_id)s
@@ -79,6 +89,13 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
+
+    def _get_properties_select_clause(self) -> str:
+        current_url_clause, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
+        clause = f", {current_url_clause} as current_url " + " ".join(
+            f", events.{column_name} as {column_name}" for column_name in self._column_optimizer.event_columns_to_query
+        )
+        return clause
 
     def _get_person_query(self,) -> Tuple[str, Dict[str, Any]]:
         return ClickhousePersonQuery(filter=self._filter, team_id=self._team.pk).get_query()
@@ -190,11 +207,13 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         person_id_clause, person_id_params = self._get_person_id_clause()
         duration_clause, duration_params = self._get_duration_clause()
         event_filters = self.format_event_filters()
+        properties_select_clause = self._get_properties_select_clause()
 
         return (
             self._session_recordings_query_with_entity_filter.format(
                 person_id_clause=person_id_clause,
                 person_query=person_query,
+                properties_select_clause=properties_select_clause,
                 events_timestamp_clause=events_timestamp_clause,
                 recording_start_time_clause=recording_start_time_clause,
                 duration_clause=duration_clause,

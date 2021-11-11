@@ -11,6 +11,7 @@ from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Cohort, Person
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.test.test_session_recording_list import factory_session_recordings_list_test
+from posthog.test.base import test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -27,6 +28,7 @@ def _create_session_recording_event(**kwargs):
 class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_recordings_list_test(ClickhouseSessionRecordingList, _create_event, _create_session_recording_event, Action.objects.create, ActionStep.objects.create)):  # type: ignore
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
     def test_event_filter_with_person_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
@@ -57,6 +59,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
     def test_event_filter_with_cohort_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(
