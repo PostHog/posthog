@@ -1,4 +1,5 @@
 import re
+import urllib.parse
 import uuid
 from collections import defaultdict
 from datetime import timedelta
@@ -91,6 +92,17 @@ class Funnel(BaseQuery):
             name = step.get_action().name
         else:
             name = step.id
+
+        # Construct converted and dropped people urls. Previously this logic was
+        # part of
+        # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+        # NOTE: we default to 0 on order being None. On the frontend the typing
+        # suggests that order is always a number, so hopefully this will never
+        # actually be the case.
+        funnel_step = (step.order or 0) + 1
+        converted_params = self._filter.with_data({"funnel_step": funnel_step}).to_params()
+        dropped_params = self._filter.with_data({"funnel_step": -funnel_step}).to_params()
+
         return {
             "action_id": step.id,
             "name": name,
@@ -99,6 +111,15 @@ class Funnel(BaseQuery):
             "people": people if people else [],
             "count": count,
             "type": step.type,
+            "converted_people_url": f"/api/person/funnel/?{urllib.parse.urlencode(converted_params)}",
+            "dropped_people_url": (
+                f"/api/person/funnel/?{urllib.parse.urlencode(dropped_params)}"
+                # NOTE: If we are looking at the first step, there is no drop off,
+                # everyone converted, otherwise they would not have been
+                # included in the funnel
+                if step.order
+                else None
+            ),
         }
 
     def _build_query(self, within_time: Optional[str] = None):

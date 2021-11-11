@@ -54,6 +54,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             new_limit = {LIMIT: 100}
             self._filter = self._filter.with_data(new_limit)
             self.params.update(new_limit)
+        else:
+            self.params.update({"limit": self._filter.limit})
 
         self._update_filters()
 

@@ -739,21 +739,27 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
 def get_funnel_people_breakdown_by_step(client: Client, funnel_response):
     def get_converted_and_dropped_people(step):
+        # assert step["converted_people_url"] is  None
         converted_people_response = client.get(step["converted_people_url"])
         assert converted_people_response.status_code == status.HTTP_200_OK
 
         converted_people = converted_people_response.json()["results"][0]["people"]
         converted_distinct_ids = [distinct_id for people in converted_people for distinct_id in people["distinct_ids"]]
 
-        dropped_people_response = client.get(step["dropped_people_url"])
-        assert dropped_people_response.status_code == status.HTTP_200_OK
+        if step["order"] == 0:
+            #  If it's the first step, we don't expect a dropped people url
+            dropped_distinct_ids = []
+        else:
+            dropped_people_response = client.get(step["dropped_people_url"])
+            assert dropped_people_response.status_code == status.HTTP_200_OK
 
-        dropped_people = dropped_people_response.json()["results"][0]["people"]
-        dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
+            dropped_people = dropped_people_response.json()["results"][0]["people"]
+            dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
 
         return {
+            "name": step["name"],
             "converted": converted_distinct_ids,
             "dropped": dropped_distinct_ids,
         }
 
-    return {step["name"]: get_converted_and_dropped_people(step) for step in funnel_response["result"]}
+    return [get_converted_and_dropped_people(step) for step in funnel_response["result"]]
