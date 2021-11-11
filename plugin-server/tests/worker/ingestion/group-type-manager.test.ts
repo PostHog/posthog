@@ -2,10 +2,17 @@ import { mocked } from 'ts-jest/utils'
 
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
+import { posthog } from '../../../src/utils/posthog'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/posthog', () => ({
+    posthog: {
+        identify: jest.fn(),
+        capture: jest.fn(),
+    },
+}))
 
 describe('GroupTypeManager()', () => {
     let hub: Hub
@@ -15,7 +22,7 @@ describe('GroupTypeManager()', () => {
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
-        groupTypeManager = new GroupTypeManager(hub.db)
+        groupTypeManager = new GroupTypeManager(hub.db, hub.teamManager)
 
         jest.spyOn(hub.db, 'postgresQuery')
         jest.spyOn(hub.db, 'insertGroupType')
@@ -71,6 +78,7 @@ describe('GroupTypeManager()', () => {
 
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
             expect(hub.db.insertGroupType).toHaveBeenCalledTimes(0)
+            expect(posthog.capture).not.toHaveBeenCalled()
         })
 
         it('inserts value if it does not exist yet at next index, resets cache', async () => {
@@ -82,7 +90,19 @@ describe('GroupTypeManager()', () => {
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 'second')).toEqual(1)
 
             expect(hub.db.insertGroupType).toHaveBeenCalledTimes(1)
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(2)
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
+
+            const team = await hub.db.fetchTeam(2)
+            expect(posthog.capture).toHaveBeenCalledWith('group type ingested', {
+                team: team!.uuid,
+                groupType: 'second',
+                groupTypeIndex: 1,
+                $groups: {
+                    project: team!.uuid,
+                    organization: team!.organization_id,
+                    instance: 'unknown',
+                },
+            })
 
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 'third')).toEqual(2)
             mocked(hub.db.postgresQuery).mockClear()

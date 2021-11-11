@@ -627,25 +627,13 @@ class FunnelCorrelation:
         property_name, property_value = event_definition["event"].split("::")
         params = self._filter.with_data(
             {
-                "breakdown": property_name,
-                "funnel_step_breakdown": property_value,
-                "breakdown_type": "person",
-                "display": "FunnelViz",
-                "funnel_custom_steps": (
-                    [len(self._filter.events)] if success else list(range(1, len(self._filter.events)))
-                ),
-                "name": property_name,
+                "funnel_correlation_person_converted": "true" if success else "false",
+                "funnel_correlation_property_values": [
+                    {"key": property_name, "value": property_value, "type": "person", "operator": "exact"}
+                ],
             }
         ).to_params()
-        params_without_correlation_keys = {
-            key: value
-            for key, value in params.items()
-            # NOTE: we want to filter anything about correlation, as the
-            # funnel persons endpoint does not understand or need these
-            # params.
-            if not key.startswith("funnel_correlation_")
-        }
-        return f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(params_without_correlation_keys)}"
+        return f"{self._base_uri}api/person/funnel/correlation?{urllib.parse.urlencode(params)}"
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         odds_ratios, skewed_totals = results

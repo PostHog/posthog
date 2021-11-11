@@ -240,8 +240,8 @@ def factory_test_person(event_factory, person_factory, get_events):
             person2 = person_factory(team=self.team, properties={"random_prop": "asdf"})
             person_factory(team=self.team, properties={"random_prop": "asdf"})
 
-            response = self.client.get("/api/person/?id={},{}".format(person1.id, person2.id))
-            response_uuid = self.client.get("/api/person/?uuid={},{}".format(person1.uuid, person2.uuid))
+            response = self.client.get(f"/api/person/?id={person1.id},{person2.id}")
+            response_uuid = self.client.get(f"/api/person/?uuid={person1.uuid},{person2.uuid}")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), response_uuid.json())
             self.assertEqual(len(response.json()["results"]), 2)

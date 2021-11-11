@@ -26,7 +26,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
         setSystemStatus: (status: SystemStatus) => ({ status }),
-        setChangelogModalOpen: (isOpen: boolean) => ({ isOpen }),
         setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -39,12 +38,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             typeof window !== 'undefined' && window.innerWidth <= 991,
             {
                 setMenuCollapsed: (_, { collapsed }) => collapsed,
-            },
-        ],
-        changelogModalOpen: [
-            false,
-            {
-                setChangelogModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
         toolbarModalOpen: [
@@ -122,7 +115,12 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             ],
             (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return !latestVersionLoading && !preflight?.cloud && latestVersion !== preflight?.posthog_version
+                return (
+                    !latestVersionLoading &&
+                    !preflight?.cloud &&
+                    latestVersion &&
+                    latestVersion !== preflight?.posthog_version
+                )
             },
         ],
         demoWarning: [

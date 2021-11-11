@@ -1103,6 +1103,11 @@ export const createProcessEventTests = (
         expect(posthog.identify).toHaveBeenCalledWith('plugin_test_user_distinct_id_1001')
         expect(posthog.capture).toHaveBeenCalledWith('first team event ingested', {
             team: team.uuid,
+            $groups: {
+                project: team.uuid,
+                organization: team.organization_id,
+                instance: 'unknown',
+            },
         })
 
         team = await getFirstTeam(hub)

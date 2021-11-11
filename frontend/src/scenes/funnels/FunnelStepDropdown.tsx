@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { propertiesForUrl: filterProps } = useValues(logic)
+    const { propertiesForUrl: filterProps, filters } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
 
@@ -22,6 +22,11 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
 
     if (!user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)) {
         // TODO: Consider showing the options but disabled with a prompt to upgrade
+        return null
+    }
+
+    // Don't show paths modal if aggregating by groups - paths is user-based!
+    if (filters.aggregation_group_type_index != undefined) {
         return null
     }
 
