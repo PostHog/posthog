@@ -29,10 +29,15 @@ class GroupsJoinQuery:
         self._team_id = team_id
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
 
-    def get_join_query(self) -> Tuple[str, Dict]:
+    def get_join_query(self, group_join_keys: Optional[List[str]] = None) -> Tuple[str, Dict]:
         join_queries, params = [], {}
 
-        for group_type_index in self._column_optimizer.group_types_to_query:
+        if group_join_keys:
+            assert len(group_join_keys) == len(self._column_optimizer.group_types_to_query)
+        else:
+            group_join_keys = [f"$group_{index}" for index in self._column_optimizer.group_types_to_query]
+
+        for group_type_index, group_type_join_key in zip(self._column_optimizer.group_types_to_query, group_join_keys):
             var = f"group_index_{group_type_index}"
             join_queries.append(
                 f"""
@@ -44,7 +49,7 @@ class GroupsJoinQuery:
                     WHERE team_id = %(team_id)s AND group_type_index = %({var})s
                     GROUP BY group_key
                 ) groups_{group_type_index}
-                ON $group_{group_type_index} == groups_{group_type_index}.group_key
+                ON {group_type_join_key} == groups_{group_type_index}.group_key
                 """
             )
 
