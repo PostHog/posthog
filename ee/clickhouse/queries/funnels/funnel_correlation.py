@@ -442,7 +442,7 @@ class FunnelCorrelation:
 
     def _get_properties_prop_clause(self):
 
-        group_properties_field = f"groups_0.group_properties_{self._filter.aggregation_group_type_index}"
+        group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
         aggregation_properties_alias = (
             ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS
             if self._filter.aggregation_group_type_index is None
