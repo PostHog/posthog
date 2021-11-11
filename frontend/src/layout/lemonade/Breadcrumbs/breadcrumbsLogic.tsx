@@ -18,6 +18,7 @@ import { personsLogic } from '../../../scenes/persons/personsLogic'
 import { asDisplay } from '../../../scenes/persons/PersonHeader'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcherOverlay'
+import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcherOverlay'
 
 export interface Breadcrumb {
     /** Name to display. */
@@ -46,7 +47,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
             sceneLogic,
             ['sceneConfig', 'activeScene'],
             userLogic,
-            ['user', 'userLoading'],
+            ['user', 'userLoading', 'otherOrganizations'],
             organizationLogic,
             ['currentOrganization', 'currentOrganizationLoading'],
             teamLogic,
@@ -74,6 +75,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 s.lastDashboardId,
                 s.featureFlag,
                 s.person,
+                s.otherOrganizations,
             ],
             (
                 preflight,
@@ -85,7 +87,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 rawDashboards,
                 lastDashboardId,
                 featureFlag,
-                person
+                person,
+                otherOrganizations
             ) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene) {
@@ -121,7 +124,12 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     breadcrumbs.push({
                         name: currentOrganization.name,
                         symbol: <Lettermark name={currentOrganization.name} />,
-                        tooltip: 'Current organization',
+                        popup:
+                            otherOrganizations?.length || preflight?.can_create_org
+                                ? {
+                                      overlay: <OrganizationSwitcherOverlay />,
+                                  }
+                                : undefined,
                     })
                 }
                 // Project
