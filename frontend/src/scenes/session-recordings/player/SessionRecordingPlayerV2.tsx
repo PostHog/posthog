@@ -12,7 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, initReplayer, stopAnimation } =
         useActions(sessionRecordingPlayerLogic)
-    const { isPlayable } = useValues(sessionRecordingPlayerLogic)
+    const { isPlayable, isSmallScreen } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const frame = useRef<HTMLDivElement | null>(null)
 
@@ -27,6 +27,10 @@ export function SessionRecordingPlayerV2(): JSX.Element {
     }, [frame, isPlayable])
 
     const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+        // Don't trigger keydown evens if in input box
+        if ((event.target as HTMLInputElement)?.matches('input')) {
+            return
+        }
         if (event.key === ' ') {
             togglePlayPause()
             event.preventDefault()
@@ -47,21 +51,23 @@ export function SessionRecordingPlayerV2(): JSX.Element {
     return (
         <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
             <Row className="session-player-body" wrap={false}>
-                <Col
-                    className="player-container ph-no-capture"
-                    span={featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] ? 16 : 24}
-                >
+                <div className="player-container ph-no-capture">
                     <PlayerFrame ref={frame} />
-                </Col>
-                {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && (
-                    <Col className="player-events" span={8}>
+                </div>
+                {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && !isSmallScreen && (
+                    <div className="player-events">
                         <PlayerEvents />
-                    </Col>
+                    </div>
                 )}
             </Row>
-            <Row className="session-player-controller" align="middle">
+            <Row className="player-controller" align="middle">
                 <PlayerController />
             </Row>
+            {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && isSmallScreen && (
+                <div className="player-events">
+                    <PlayerEvents />
+                </div>
+            )}
         </Col>
     )
 }

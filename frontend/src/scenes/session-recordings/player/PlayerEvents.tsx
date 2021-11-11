@@ -6,8 +6,8 @@ import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/L
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
 import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { eventsListLogic } from 'scenes/session-recordings/player/eventsListLogic'
-import { ActionIcon, AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
-import { eventToName } from 'lib/utils'
+import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
+import { eventToDescription } from 'lib/utils'
 
 export function PlayerEvents(): JSX.Element {
     const { localFilters, listEvents, cellMeasurerCache } = useValues(eventsListLogic)
@@ -26,17 +26,16 @@ export function PlayerEvents(): JSX.Element {
             if (event.event === '$autocapture') {
                 return <AutocaptureIcon />
             }
-            if (event.event.startsWith('$')) {
-                return <EventIcon />
-            }
-            return <ActionIcon />
+            return <EventIcon />
+            // TODO: Have api/events return `event_type` parameter to help distinguish btwn custom events, events, and actions
+            // return <ActionIcon />
         }
 
         return (
             <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
                 <Row className="event-list-item" align="top" style={style}>
                     <Col className="event-item-icon">{renderIcon()}</Col>
-                    <Col className="event-item-text">{eventToName(event, true)}</Col>
+                    <Col className="event-item-text">{eventToDescription(event, true)}</Col>
                     <Col>{event.colonTimestamp}</Col>
                 </Row>
             </CellMeasurer>

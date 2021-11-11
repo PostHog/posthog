@@ -6,6 +6,7 @@ import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     RecordingEventsFilters,
+    SeekbarEventType,
     SessionPlayerData,
     SessionRecordingId,
     SessionRecordingMeta,
@@ -28,6 +29,22 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
         end_time: metadata?.end_time ? +dayjs(metadata?.end_time) : 0,
         recording_duration: parseFloat(metadata?.recording_duration) * 1000 || 0,
     }
+}
+
+// TODO: Replace this with permanent querying alternative in backend. Filtering on frontend should do for now.
+const makeEventsQueryable = (events: SeekbarEventType[]): SeekbarEventType[] => {
+    return events.map((e) => {
+        let queryValue = e?.event ?? ''
+        if (['$pageview', '$pageleave'].includes(e.event)) {
+            queryValue += e?.properties?.$pathname ?? ''
+        } else if (e.event === '$autocapture') {
+            queryValue += (e?.elements?.[0].tag_name ?? '') + (e?.elements?.[0].text ?? '')
+        }
+        return {
+            ...e,
+            queryValue,
+        }
+    })
 }
 
 export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
@@ -217,9 +234,10 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             (selectors) => [selectors.filters, selectors.sessionEvents],
             (filters, events) => {
                 return filters?.query
-                    ? new Fuse(events, {
+                    ? new Fuse<SeekbarEventType>(makeEventsQueryable(events), {
                           threshold: 0.3,
-                          keys: ['event'],
+                          keys: ['queryValue'],
+                          sortFn: (a, b) => events[a.idx].timestamp - events[b.idx].timestamp || a.score - b.score,
                       })
                           .search(filters.query)
                           .map((result) => result.item)

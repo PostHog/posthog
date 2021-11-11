@@ -27,15 +27,5 @@ describe('eventsListLogic', () => {
                 .toDispatchActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
                 .toNotHaveDispatchedActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
         })
-        it('calls setFilter in parent logic without debounce', async () => {
-            const filters = { query: 'mini pretzels' }
-            await expectLogic(logic, () => {
-                logic.actions.setLocalFilters({ query: 'no mini pretzels' })
-
-                logic.actions.setLocalFilters(filters)
-            })
-                .toDispatchActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
-                .toNotHaveDispatchedActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
-        })
     })
 })

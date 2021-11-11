@@ -2,7 +2,7 @@ import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { average, autoCaptureEventToName, successToast, sum } from 'lib/utils'
+import { average, autoCaptureEventToDescription, successToast, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -954,7 +954,10 @@ export const funnelLogic = kea<funnelLogicType>({
                         return { first_value, second_value }
                     } else if (values[0] === '$autocapture' && values[1] === 'elements_chain') {
                         // special case for autocapture elements_chain
-                        first_value = autoCaptureEventToName({ ...record.event, event: '$autocapture' }) as string
+                        first_value = autoCaptureEventToDescription({
+                            ...record.event,
+                            event: '$autocapture',
+                        }) as string
                         return { first_value, second_value }
                     } else {
                         // FunnelCorrelationResultsType.EventWithProperties

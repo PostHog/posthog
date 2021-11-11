@@ -9,75 +9,102 @@ $recording_spacing: $default_spacing * 2 / 3;
     width: 100%;
 
     .session-player-body {
+        display: flex;
+        flex-wrap: wrap;
+        flex-direction: row;
         flex: 1;
-        overflow: hidden;
         background-color: $bg_light;
 
         .player-container {
+            flex: 1;
+            min-width: 1px;
             position: relative;
-            padding: $recording_spacing;
+            padding: $recording_spacing $recording_spacing 0 $recording_spacing;
+
+            @media (max-width: $md) {
+                width: 100%;
+                height: calc(
+                    100vh - 2 * 40px - 2 * #{$recording_spacing}
+                ); // Subtract controller and top navbar heights + padding
+            }
         }
 
         .player-events {
+            width: 30%;
+            min-width: 300px;
+            max-width: 320px;
+            height: unset;
             position: relative;
-            padding: $recording_spacing $recording_spacing $recording_spacing 0;
+            padding: $recording_spacing $recording_spacing 0 0;
+        }
+    }
 
-            .player-events-container {
-                display: flex;
-                flex-direction: column;
-                background-color: $bg_light;
-                height: 100%;
-                border: 1px solid $border;
-                border-radius: $radius;
-                padding: $recording_spacing;
+    // In small screen view when player events is outside of player body
+    .player-events {
+        width: 100%;
+        min-width: unset;
+        max-width: unset;
+        padding: 0 $recording_spacing $recording_spacing $recording_spacing;
 
-                .event-list {
-                    flex: 1;
+        .player-events-container {
+            display: flex;
+            flex-direction: column;
+            background-color: $bg_light;
+            height: 100%;
+            border: 1px solid $border;
+            border-radius: $radius;
+            padding: $recording_spacing;
 
-                    .event-list-item {
-                        padding: $recording_spacing;
-                        cursor: pointer;
+            @media (max-width: $md) {
+                height: 100vh;
+            }
 
-                        &:hover {
-                            background-color: $recording_current_event;
+            .event-list {
+                flex: 1;
 
-                            .event-item-icon {
-                                svg {
-                                    path {
-                                        fill: $recording_current_event_dark;
-                                    }
-                                }
-                            }
-                        }
+                .event-list-item {
+                    padding: $recording_spacing;
+                    cursor: pointer;
+
+                    &:hover {
+                        background-color: $recording_current_event;
 
                         .event-item-icon {
-                            display: flex;
-                            margin-right: $recording_spacing;
-                            margin-top: 2px;
-
                             svg {
-                                width: 18px;
-                                height: 18px;
-
                                 path {
-                                    fill: $text_muted;
+                                    fill: $recording_current_event_dark;
                                 }
                             }
                         }
+                    }
 
-                        .event-item-text {
-                            display: flex;
-                            flex-direction: column;
-                            flex: 1;
-                            padding-left: $recording_spacing / 2;
-                            min-width: 0;
+                    .event-item-icon {
+                        display: flex;
+                        margin-right: $recording_spacing;
+                        margin-top: 2px;
 
-                            .event-item-text-title {
-                                font-weight: 600;
+                        svg {
+                            width: 18px;
+                            height: 18px;
+
+                            path {
+                                fill: $text_muted;
                             }
+                        }
+                    }
 
-                            .event-item-text-subtitle {
-                            }
+                    .event-item-text {
+                        display: flex;
+                        flex-direction: column;
+                        flex: 1;
+                        padding-left: $recording_spacing / 2;
+                        min-width: 0;
+
+                        .event-item-text-title {
+                            font-weight: 600;
+                        }
+
+                        .event-item-text-subtitle {
                         }
                     }
                 }
@@ -85,8 +112,8 @@ $recording_spacing: $default_spacing * 2 / 3;
         }
     }
 
-    .session-player-controller {
-        padding: 0 $recording_spacing $recording_spacing $recording_spacing;
+    .player-controller {
+        padding: $recording_spacing;
         background-color: $bg_light;
     }
 

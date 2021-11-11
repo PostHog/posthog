@@ -619,7 +619,7 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToName(
+export function eventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
     emphasizeEl: boolean = false
 ): string | JSX.Element {
@@ -627,8 +627,9 @@ export function eventToName(
         return emphasizeEl ? <b>{event.properties.$pathname}</b> : event.properties.$pathname
     }
     if (event.event === '$autocapture') {
-        return autoCaptureEventToName(event, emphasizeEl, true)
+        return autoCaptureEventToDescription(event, emphasizeEl, true)
     }
+    // PH defined event
     if (event.event.startsWith('$')) {
         return emphasizeEl ? (
             <b>
@@ -638,10 +639,11 @@ export function eventToName(
             <PropertyKeyInfo value={event.event} disablePopover disableIcon />
         )
     }
+    // All other custom events + actions
     return emphasizeEl ? <b>{event.event}</b> : event.event
 }
 
-export function autoCaptureEventToName(
+export function autoCaptureEventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     emphasizeEl: boolean = false,
     capFirstLetter: boolean = false

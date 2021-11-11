@@ -538,7 +538,8 @@ export interface EventsTableAction {
 
 export interface EventType {
     elements: ElementType[]
-    elements_hash: string | null
+    elements_hash: string | null // Deprecated for elements_chain
+    elements_chain?: string | null
     id: number | string
     properties: Record<string, any>
     timestamp: string
@@ -550,6 +551,7 @@ export interface EventType {
 export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
     percentage: number
     timestamp: number
+    queryValue?: string
 }
 
 export interface EventsTableRowItem {
