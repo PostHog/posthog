@@ -42,8 +42,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def assertEqualWithPeopleInAnyOrder(self, expected: List[Dict], actual: List[Dict]):
             """
-            When comparing two lists of funnel results we are relying on arrays of people being in order for comparison
-            The generated SQL does not order the people and so we cannot rely on that comparison
+            When comparing two lists of funner results we are relying on arrays of people being in order for comparison
+            The generated SQL does not order the people and so we cannot rely on that comprison
             This compares the lists without people, and then compares the people
             """
 
