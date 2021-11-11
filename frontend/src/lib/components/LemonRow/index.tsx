@@ -18,6 +18,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     status?: 'success' | 'warning' | 'danger' | 'highlighted'
     tooltip?: string
     fullWidth?: boolean
+    'data-attr'?: string
 }
 
 // This is a union so that a LemonRow can be compact OR have a sideIcon, but not both at once

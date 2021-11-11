@@ -90,13 +90,23 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
         <LemonButtonWithSideAction
             fullWidth
             type={isActive ? 'highlighted' : 'stealth'}
-            sideAction={{ ...sideAction, type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth' }}
+            sideAction={{
+                ...sideAction,
+                type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth',
+                'data-attr': sideAction.identifier ? `menu-item-${sideAction.identifier.toLowerCase()}` : undefined,
+            }}
+            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             {...buttonProps}
         >
             {title || sceneConfigurations[identifier].name}
         </LemonButtonWithSideAction>
     ) : (
-        <LemonButton fullWidth type={isActive ? 'highlighted' : 'stealth'} {...buttonProps}>
+        <LemonButton
+            fullWidth
+            type={isActive ? 'highlighted' : 'stealth'}
+            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+            {...buttonProps}
+        >
             {title || sceneConfigurations[identifier].name}
         </LemonButton>
     )
@@ -128,6 +138,7 @@ function Pages(): JSX.Element {
                 to={urls.dashboards()}
                 sideAction={{
                     icon: <IconArrowDropDown />,
+                    identifier: 'pinned-dashboards',
                     tooltip: 'Pinned dashboards',
                     onClick: () => setArePinnedDashboardsShown((state) => !state),
                     popup: {

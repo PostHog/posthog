@@ -75,6 +75,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CAPTURE_INTERNAL_METRICS: false,
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
+        SITE_URL: null,
     }
 }
 
