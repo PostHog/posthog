@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from uuid import uuid4
 
+import pytest
 from django.core.cache import cache
 from django.test.client import Client
 from freezegun.api import freeze_time
@@ -30,13 +31,19 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
+@pytest.fixture(autouse=True)
+def clear_cache():
+    """
+    Make sure the cache is purged before each test is run. We cannot guarantee
+    that there will not be another test that is run with the same inputs, but
+    different database state.
+    """
+    cache.clear()
+
+
 class ClickhouseTestInsights(
     ClickhouseTestMixin, LicensedTestMixin, insight_test_factory(_create_event, _create_person)  # type: ignore
 ):
-    def setUp(self):
-        super().setUp()
-        cache.clear()  #  Clear out the cache, make sure they are isolated
-
     def test_insight_trends_basic(self):
         with freeze_time("2012-01-14T03:21:34.000Z"):
             _create_person(distinct_ids=["1"], team=self.team)
