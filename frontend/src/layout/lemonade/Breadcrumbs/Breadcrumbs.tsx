@@ -38,17 +38,10 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
         )
     }
 
-    let { tooltip } = breadcrumb
-    if (!tooltip) {
-        if (breadcrumb.path) {
-            tooltip = `Go to ${breadcrumb.name}`
-        } else if (breadcrumb.here) {
-            tooltip = 'You are here'
-        }
+    if (breadcrumb.tooltip) {
+        return <Tooltip title={breadcrumb.tooltip}>{breadcrumbContent}</Tooltip>
     }
-    if (tooltip) {
-        return <Tooltip title={tooltip}>{breadcrumbContent}</Tooltip>
-    }
+
     return breadcrumbContent
 }
 
