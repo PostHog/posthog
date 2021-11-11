@@ -234,6 +234,11 @@ $funnel_canvas_background: #fafafa;
     }
 }
 
+.trends-insights-container {
+    position: relative;
+    min-height: min(calc(90vh - 16rem), 36rem);
+}
+
 .funnel-insights-container {
     padding: 24px;
     background-color: $funnel_canvas_background;
