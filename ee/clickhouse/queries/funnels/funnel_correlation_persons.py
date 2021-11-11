@@ -46,10 +46,7 @@ class FunnelCorrelationPersons:
     def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
 
         if not self._filter.correlation_property_values:
-            raise ValidationError("Property Correlation expects atleast one Property Value pair to get persons for")
-
-        if len(self._filter.correlation_property_names) != len(self._filter.correlation_property_values):
-            raise ValidationError("Property Correlation persons expects same number of Property names and values")
+            raise ValidationError("Property Correlation expects atleast one Property to get persons for")
 
         funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_persons_cte()
 
@@ -82,7 +79,6 @@ class FunnelCorrelationPersons:
         params = {
             **funnel_persons_params,
             **person_query_params,
-            # **person_property_params,
             "target_step": len(self._filter.entities),
         }
 
