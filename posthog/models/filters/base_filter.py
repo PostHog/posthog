@@ -1,5 +1,6 @@
 import inspect
 import json
+from enum import Enum
 from typing import Any, Dict, Optional, Union
 
 from rest_framework import request
@@ -52,4 +53,7 @@ class BaseFilter(BaseParamMixin):
 def encode_value_as_param(value: Union[str, list, dict]) -> str:
     if isinstance(value, (list, dict)):
         return json.dumps(value)
-    return value
+    elif isinstance(value, Enum):
+        return value.value
+    else:
+        return value

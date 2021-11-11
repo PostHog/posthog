@@ -354,7 +354,7 @@ def _filter_person_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
         events = events.filter(
             Exists(
                 Person.objects.filter(
-                    **{"id": OuterRef("person_id"), "properties__{}".format(filter.breakdown): filter.breakdown_value,}
+                    **{"id": OuterRef("person_id"), f"properties__{filter.breakdown}": filter.breakdown_value,}
                 ).only("id")
             )
         )
@@ -363,7 +363,7 @@ def _filter_person_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
 
 def _filter_event_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     if filter.breakdown_type == "event":
-        events = events.filter(**{"properties__{}".format(filter.breakdown): filter.breakdown_value,})
+        events = events.filter(**{f"properties__{filter.breakdown}": filter.breakdown_value,})
     return events
 
 

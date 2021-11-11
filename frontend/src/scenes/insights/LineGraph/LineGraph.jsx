@@ -229,8 +229,6 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectPersonsLabel = !dashboardItemId && onClick && showPersonsModal
-
         const tooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
             mode: 'nearest',
@@ -339,7 +337,7 @@ export function LineGraph({
                                 referenceDate={referenceDate}
                                 interval={interval}
                                 bodyLines={bodyLines}
-                                inspectPersonsLabel={inspectPersonsLabel}
+                                inspectPersonsLabel={onClick && showPersonsModal}
                                 preferAltTitle={tooltipPreferAltTitle}
                                 hideHeader={type === 'horizontalBar'}
                             />

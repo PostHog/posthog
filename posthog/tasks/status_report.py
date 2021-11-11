@@ -53,9 +53,9 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 
     plugin_configs = PluginConfig.objects.select_related("plugin").all()
 
-    report["plugins_installed"] = Counter((plugin_config.plugin.name for plugin_config in plugin_configs))
+    report["plugins_installed"] = Counter(plugin_config.plugin.name for plugin_config in plugin_configs)
     report["plugins_enabled"] = Counter(
-        (plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled)
+        plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled
     )
 
     instance_usage_summary: Dict[str, int] = {
