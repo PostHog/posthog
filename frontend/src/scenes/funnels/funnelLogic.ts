@@ -1117,6 +1117,22 @@ export const funnelLogic = kea<funnelLogicType>({
                 saved: true,
             })
         },
+        openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
+            // :TODO: Support 'person' modal for groups
+            if (values.filters.aggregation_group_type_index != undefined) {
+                return
+            }
+            personsModalLogic.actions.loadPeople({
+                action: 'session',
+                breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
+                label: step.name,
+                date_from: '',
+                date_to: '',
+                filters: { ...values.filters, breakdown, breakdown_type, funnel_custom_steps: customSteps },
+                saveOriginal: true,
+                funnelStep: stepNumber,
+            })
+        },
         openCorrelationPersonsModal: ({ correlation, success }) => {
             // :TODO: Support 'person' modal for groups
             if (values.filters.aggregation_group_type_index != undefined) {
@@ -1131,6 +1147,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: breakdown,
                     breakdown_value,
+                    action: 'session',
+                    date_from: '',
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(
@@ -1145,6 +1163,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: name,
+                    action: 'session',
+                    date_from: '',
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {

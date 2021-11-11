@@ -814,6 +814,7 @@ export interface FilterType {
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+    breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -960,6 +961,10 @@ export interface TrendResult {
 
 export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
+    persons: {
+        url: string
+        filter: Partial<FilterType>
+    }
 }
 
 export interface FunnelStep {
@@ -1373,4 +1378,9 @@ export enum HelpType {
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+}
+
+export interface VersionType {
+    version: string
+    release_date?: string
 }
