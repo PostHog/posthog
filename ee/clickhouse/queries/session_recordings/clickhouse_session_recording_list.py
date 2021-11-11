@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, NamedTuple, Tuple
+from typing import Any, Dict, List, NamedTuple, Set, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
@@ -158,7 +158,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         aggregate_having_clause = ""
         where_conditions = "AND event IN %(event_names)s"
         # Always include $pageview events so the start_url and end_url can be extracted
-        event_names_to_filter = set(["$pageview"])
+        event_names_to_filter: Set[Union[int, str]] = set(["$pageview"])
 
         params: Dict = {}
 
