@@ -8,6 +8,7 @@
     position: relative;
     box-shadow: $shadow_elevation;
     border-radius: var(--radius);
+    border: 1px solid $border;
     overflow: hidden;
     z-index: 3;
 
