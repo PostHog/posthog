@@ -95,7 +95,7 @@ export class TeamManager {
                     realm: properties.realm,
                     host: properties.$host,
                     $groups: {
-                        project: team.id,
+                        project: team.uuid,
                         organization: team.organization_id,
                         instance: this.instanceSiteUrl,
                     },

@@ -198,7 +198,7 @@ describe('TeamManager()', () => {
                     sdk: 'python',
                     $groups: {
                         organization: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
-                        project: 2,
+                        project: team!.uuid,
                         instance: 'unknown',
                     },
                 })

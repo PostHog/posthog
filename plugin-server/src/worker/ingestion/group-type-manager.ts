@@ -50,7 +50,7 @@ export class GroupTypeManager {
             }
 
             if (isInsert && groupTypeIndex !== null) {
-                void this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+                await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
             }
             return groupTypeIndex
         }
@@ -69,7 +69,7 @@ export class GroupTypeManager {
             groupType,
             groupTypeIndex,
             $groups: {
-                project: team.id,
+                project: team.uuid,
                 organization: team.organization_id,
                 instance: this.instanceSiteUrl,
             },
