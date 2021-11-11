@@ -183,7 +183,7 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
         <LemonButton
             fullWidth
             type={isActive ? 'highlighted' : 'stealth'}
-            data-attr={`menu-item-dashboard-${identifier.toString().toLowerCase()}`}
+            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             {...buttonProps}
         >
             {title}
