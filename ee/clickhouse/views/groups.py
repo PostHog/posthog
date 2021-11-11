@@ -6,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin
 
 from ee.clickhouse.client import sync_execute
+# from ee.clickhouse.models.group import ClickhouseGroupSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.group_type_mapping import GroupTypeMapping
 
@@ -17,36 +18,37 @@ class GroupTypeSerializer(serializers.ModelSerializer):
 
 
 class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
-    serializer_class = GroupTypeSerializer
-    queryset = GroupTypeMapping.objects.all()
-    pagination_class = None
+    # serializer_class = ClickhouseGroupSerializer
+    # queryset = GroupTypeMapping.objects.all()
+    # pagination_class = None
 
     def list(self, request, *args, **kwargs):
         instances = (
             {
-                "team_id": row[0],
-                "group_type_index": row[1],
-                "group_key": row[2],
-                "created_at": row[3],
-                "group_properties": json.loads(row[4]),
+                "group_type_index": row[0],
+                "group_key": row[1],
+                "created_at": row[2],
+                "group_properties": json.loads(row[3]),
             }
             for row in sync_execute(
                 """
-                SELECT team_id, group_type_index, group_key, created_at, group_properties FROM groups
+                SELECT group_type_index, group_key, created_at, group_properties FROM groups
+                INNER JOIN (
+                    SELECT
+                        group_key,
+                        max(created_at) as created_at
+                    FROM groups
+                    WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
+                    GROUP BY group_key
+                ) latest_groups
+                ON groups.group_key == latest_groups.group_key AND groups.created_at == latest_groups.created_at
                 WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
             """,
                 {"team_id": self.team_id, "group_type_index": request.GET["group_type_index"]},
             )
         )
-
         return response.Response(instances)
-
-    @action(methods=["GET"], detail=False)
-    def types(self, request: request.Request, **kw):
-        queryset = GroupTypeMapping.objects.all()
-        serializer = self.serializer_class(data=queryset, many=True)
-        serializer.is_valid()
-        return response.Response(serializer.data)
+        
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):
@@ -83,3 +85,8 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
         )
 
         return response.Response([{"name": name[0]} for name in rows])
+
+class ClickhouseGroupsTypesView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = GroupTypeSerializer
+    queryset = GroupTypeMapping.objects.all()
+    pagination_class = None
