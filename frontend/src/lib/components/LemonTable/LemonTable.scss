@@ -1,13 +1,13 @@
 .LemonTable {
     width: 100%;
+    background: #fff;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
     table {
         width: 100%;
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-        background: #fff;
-        border-collapse: separate;
+        border-collapse: collapse;
         border-spacing: 0;
-        overflow: hidden;
     }
     thead {
         height: 3rem;
@@ -20,6 +20,10 @@
     tbody {
         tr {
             border-top: 1px solid var(--border);
+        }
+        td {
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
         }
     }
     tr {

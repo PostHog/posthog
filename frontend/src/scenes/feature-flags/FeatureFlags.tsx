@@ -82,14 +82,7 @@ export function FeatureFlags(): JSX.Element {
                             whiteSpace: 'break-spaces',
                         }}
                     >
-                        <Typography.Paragraph
-                            ellipsis={{
-                                rows: 5,
-                            }}
-                            title={featureFlag.name}
-                        >
-                            {featureFlag.name}
-                        </Typography.Paragraph>
+                        {featureFlag.name}
                     </div>
                 )
             },
