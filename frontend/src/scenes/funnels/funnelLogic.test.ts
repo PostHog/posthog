@@ -384,17 +384,19 @@ describe('funnelLogic', () => {
 
         it('setFilters calls personsModalLogic.loadPeople', async () => {
             await expectLogic(logic, () => {
-                logic.actions.openPersonsModal(
-                    {
+                logic.actions.openPersonsModalForStep({
+                    step: {
                         action_id: '$pageview',
                         average_conversion_time: 0,
                         count: 1,
                         name: '$pageview',
                         order: 0,
                         type: 'events',
+                        converted_people_url: '/some/people/url',
+                        dropped_people_url: '/some/people/url',
                     },
-                    2
-                )
+                    converted: true,
+                })
             }).toDispatchActions([
                 (action) => {
                     return (
