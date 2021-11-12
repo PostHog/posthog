@@ -36,7 +36,10 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
 const makeEventsQueryable = (events: SeekbarEventType[]): SeekbarEventType[] => {
     return events.map((e) => ({
         ...e,
-        queryValue: `${getKeyMapping(e.event, 'event')?.label ?? e.event ?? ''}${eventToDescription(e)}`,
+        queryValue: `${getKeyMapping(e.event, 'event')?.label ?? e.event ?? ''} ${eventToDescription(e)}`.replace(
+            /['"]+/g,
+            ''
+        ),
     }))
 }
 
@@ -238,6 +241,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     ? new Fuse<SeekbarEventType>(makeEventsQueryable(events), {
                           threshold: 0.3,
                           keys: ['queryValue'],
+                          findAllMatches: true,
+                          ignoreLocation: true,
                           sortFn: (a, b) => events[a.idx].timestamp - events[b.idx].timestamp || a.score - b.score,
                       })
                           .search(filters.query)

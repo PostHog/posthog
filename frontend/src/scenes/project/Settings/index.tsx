@@ -23,7 +23,7 @@ import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
 import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
-import { AvailableFeature } from '../../../types'
+import { AvailableFeature, InsightType } from '../../../types'
 import { TeamMembers } from './TeamMembers'
 import { teamMembersLogic } from './teamMembersLogic'
 import { AccessControl } from './AccessControl'
@@ -31,6 +31,7 @@ import { PathCleaningFiltersConfig } from './PathCleaningFiltersConfig'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { CorrelationConfig } from './CorrelationConfig'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -89,19 +90,19 @@ export function ProjectSettings(): JSX.Element {
     return (
         <div style={{ marginBottom: 128 }}>
             <PageHeader
-                title="Project Settings"
+                title="Project settings"
                 caption={`Organize your analytics within the project. These settings only apply to ${
                     currentTeam?.name ?? 'the current project'
                 }.`}
             />
             <Card>
                 <h2 id="name" className="subtitle">
-                    Display Name
+                    Display name
                 </h2>
                 {currentTeamLoading && !currentTeam ? loadingComponent : <DisplayName />}
                 <Divider />
                 <h2 id="snippet" className="subtitle">
-                    Website Event Autocapture
+                    Website event autocapture
                 </h2>
                 To integrate PostHog into your website and get event autocapture with no additional work, include the
                 following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
@@ -123,14 +124,14 @@ export function ProjectSettings(): JSX.Element {
                 <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
                 <Divider />
                 <h2 id="custom-events" className="subtitle">
-                    Send Custom Events
+                    Send custom events
                 </h2>
                 To send custom events <a href="https://posthog.com/docs/integrations">visit PostHog Docs</a> and
                 integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
                 Go, PHP, iOS, Android, and more.
                 <Divider />
                 <h2 id="project-api-key" className="subtitle">
-                    Project API Key
+                    Project API key
                 </h2>
                 You can use this write-only key in any one of{' '}
                 <a href="https://posthog.com/docs/integrations">our libraries</a>.
@@ -168,7 +169,7 @@ export function ProjectSettings(): JSX.Element {
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="internal-users-filtering">
-                    Filter Out Internal and Test Users
+                    Filter out internal and test users
                 </h2>
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
@@ -189,8 +190,7 @@ export function ProjectSettings(): JSX.Element {
                     you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
                 </p>
                 <TestAccountFiltersConfig />
-                {featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS) ? (
+                {true ? (
                     <>
                         <Divider />
                         <CorrelationConfig />
@@ -198,14 +198,22 @@ export function ProjectSettings(): JSX.Element {
                 ) : null}
                 <Divider />
                 <h2 className="subtitle" id="path_cleaning_filtering">
-                    Path Cleaning Rules
+                    Path cleaning rules
                 </h2>
-                <p>Reduce noisy parameters in your path results by performing replacement using regex matching.</p>
+                <p>
+                    Make your <Link to={urls.newInsight(InsightType.PATHS)}>Paths</Link> clearer by aliasing one or
+                    multiple URLs.{' '}
+                    <i>
+                        Example: <code>htttp://client1.mydomain.com/accounts</code> and{' '}
+                        <code>htttp://tenant2.mydomain.com/accounts</code> can become a single <code>accounts</code>{' '}
+                        path.
+                    </i>
+                </p>
                 <p>
                     Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name that
-                    matches the regex will be replaced with the alias.
+                    matches the regex will be replaced with the alias. Rules are applied in the order that they're
+                    listed.
                 </p>
-                <p>The rules are applied in the order that they're listed.</p>
                 <p>
                     <b>
                         Rules that you set here will be applied before wildcarding and other regex replacement if the
@@ -215,7 +223,7 @@ export function ProjectSettings(): JSX.Element {
                 <PathCleaningFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">
-                    Permitted Domains/URLs
+                    Permitted domains/URLs
                 </h2>
                 <p>
                     These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
@@ -228,17 +236,17 @@ export function ProjectSettings(): JSX.Element {
                 <EditAppUrls />
                 <Divider />
                 <h2 className="subtitle" id="attributes">
-                    Data Attributes
+                    Data attributes
                 </h2>
                 <DataAttributes />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
-                    Webhook Integration
+                    Webhook integration
                 </h2>
                 <WebhookIntegration />
                 <Divider />
                 <h2 className="subtitle" id="datacapture">
-                    Data Capture Configuration
+                    Data capture configuration
                 </h2>
                 <IPCapture />
                 <Divider />
