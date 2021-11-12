@@ -49,16 +49,7 @@ function LemonButtonInternal(
         workingButton = <Link to={to}>{workingButton}</Link>
     }
     if (popup) {
-        workingButton = (
-            <Popup
-                visible={popup.visible}
-                onClickOutside={popup.onClickOutside}
-                overlay={popup.overlay}
-                sameWidth={popup.sameWidth}
-            >
-                {workingButton}
-            </Popup>
-        )
+        workingButton = <Popup {...popup}>{workingButton}</Popup>
     }
     return workingButton
 }
