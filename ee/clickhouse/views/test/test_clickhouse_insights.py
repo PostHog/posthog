@@ -964,8 +964,8 @@ def get_converted_and_dropped_people(client: Client, step):
 
     return {
         "name": step["name"],
-        "converted": converted_distinct_ids,
-        "dropped": dropped_distinct_ids,
+        "converted": sorted(converted_distinct_ids),
+        "dropped": sorted(dropped_distinct_ids),
     }
 
 
