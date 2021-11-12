@@ -22,6 +22,7 @@ export function PlayerEvents(): JSX.Element {
     function Event({ index, style, key, parent }: ListRowProps): JSX.Element {
         const event = listEvents[index]
         const hasDescription = getKeyMapping(event.event, 'event')
+        const renderAllRows = listEvents.length <= OVERSCANNED_ROW_COUNT
 
         const renderIcon = (): JSX.Element => {
             if (event.event === '$pageview') {
@@ -48,25 +49,28 @@ export function PlayerEvents(): JSX.Element {
                     <Col className="event-item-icon">
                         <div className="event-item-icon-wrapper">{renderIcon()}</div>
                     </Col>
-                    <Col className={clsx('event-item-text', { rendering: !isRowIndexRendered(index) })}>
-                        <Row className="event-item-text-top-row">
+                    <Col
+                        className={clsx('event-item-content', {
+                            rendering: !renderAllRows && !isRowIndexRendered(index),
+                        })}
+                    >
+                        <Row className="event-item-content-top-row">
                             <PropertyKeyInfo
-                                className="event-item-text-title"
+                                className="event-item-content-title"
                                 value={event.event}
                                 disableIcon
                                 disablePopover
-                                ellipsis={false}
+                                ellipsis={true}
                             />
-                            {event.colonTimestamp}
+                            <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
                         </Row>
                         {hasDescription && (
-                            <span className="event-item-text-subtitle">
+                            <span className="event-item-content-subtitle">
                                 {capitalizeFirstLetter(eventToDescription(event))}
                             </span>
                         )}
                         <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
                     </Col>
-                    <Col>{event.colonTimestamp}</Col>
                 </Row>
             </CellMeasurer>
         )
