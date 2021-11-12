@@ -667,12 +667,14 @@ export class DB {
                 return
             }
 
-            await client.query(
+            const updateResult: QueryResult = await client.query(
                 `UPDATE posthog_person SET
                     properties = $1,
                     properties_last_updated_at = $2,
-                    properties_last_operation = $3
-                WHERE id = $4`,
+                    properties_last_operation = $3,
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE id = $4
+                RETURNING version`,
                 [
                     JSON.stringify(person.properties),
                     JSON.stringify(person.properties_last_updated_at),
@@ -680,6 +682,7 @@ export class DB {
                     person.id,
                 ]
             )
+            person.version = updateResult.rows[0].version
         })
 
         if (this.kafkaProducer && person) {
@@ -688,7 +691,8 @@ export class DB {
                 person.properties,
                 person.team_id,
                 person.is_identified,
-                person.uuid
+                person.uuid,
+                person.version
             )
             await this.kafkaProducer.queueMessage(kafkaMessage)
         }

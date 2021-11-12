@@ -497,8 +497,12 @@ export const createProcessEventTests = (
         expect(events.length).toEqual(3)
         expect(persons.length).toEqual(1)
 
-        // no new props, person wasn't updated
-        expect(persons[0].version).toEqual(1)
+        // no new props, person wasn't updated with old fn, was because of timestamps update with new fn
+        if (includeNewPropertiesUpdatesTests) {
+            expect(persons[0].version).toEqual(2)
+        } else {
+            expect(persons[0].version).toEqual(1)
+        }
 
         expect(events[2].properties.$set).toEqual({
             utm_medium: 'instagram',
