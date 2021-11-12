@@ -42,7 +42,7 @@
                           WHERE team_id = %(team_id)s AND group_type_index = %(group_index_2)s
                           GROUP BY group_key
                       ) groups_2
-                      ON call_me_crazy == groups_2.group_key
+                      ON call_me_industry == groups_2.group_key
                       
     ',
     <class 'dict'> {
