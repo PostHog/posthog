@@ -36,6 +36,7 @@ export function RedesignOptIn(): JSX.Element | null {
                 }}
                 checked={isSwitchChecked}
                 loading={isSwitchLoading}
+                alt
             />
         </span>
     ) : null

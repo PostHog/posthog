@@ -826,6 +826,30 @@ export function IconExpandMore(props: React.SVGProps<SVGSVGElement>): JSX.Elemen
     )
 }
 
+/** Material Design More Horiz icon. */
+export function IconEllipsis(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Content Copy icon. */
+export function IconCopy(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m15.4545 3h-9.81814c-.9 0-1.63636.73636-1.63636 1.63636v11.45454h1.63636v-11.45454h9.81814zm2.4546 3.27273h-9.00001c-.9 0-1.63636.73636-1.63636 1.63636v11.45451c0 .9.73636 1.6364 1.63636 1.6364h9.00001c.9 0 1.6364-.7364 1.6364-1.6364v-11.45451c0-.9-.7364-1.63636-1.6364-1.63636zm0 13.09087h-9.00001v-11.45451h9.00001z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Receipt icon. */
 export function IconBill(): JSX.Element {
     return (

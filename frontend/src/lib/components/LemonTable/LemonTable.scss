@@ -1,16 +1,16 @@
 .LemonTable {
+    position: relative;
     width: 100%;
     background: #fff;
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    overflow: hidden;
+    overflow: auto;
     table {
         width: 100%;
         border-collapse: collapse;
         border-spacing: 0;
     }
     thead {
-        height: 3rem;
         background: var(--bg-mid);
         font-size: 0.75rem;
         font-weight: 600;
@@ -22,11 +22,12 @@
             border-top: 1px solid var(--border);
         }
         td {
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
         }
     }
     tr {
+        height: 3rem;
     }
     th,
     td {
@@ -35,4 +36,8 @@
             padding-right: 1.5rem;
         }
     }
+}
+
+.LemonTable__cell--sticky {
+    position: sticky;
 }

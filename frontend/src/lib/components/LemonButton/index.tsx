@@ -6,7 +6,7 @@ import { Link } from '../Link'
 import { Popup, PopupProps } from '../Popup/Popup'
 import './LemonButton.scss'
 
-export type LemonButtonPopup = Pick<PopupProps, 'overlay' | 'visible' | 'onClickOutside' | 'sameWidth'>
+export type LemonButtonPopup = Omit<PopupProps, 'children'>
 
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
     type?: 'default' | 'primary' | 'stealth' | 'highlighted'
