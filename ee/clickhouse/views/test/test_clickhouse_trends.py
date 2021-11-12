@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import uuid4
 
 from freezegun.api import freeze_time
@@ -5,6 +6,7 @@ from freezegun.api import freeze_time
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import deep_dump_object
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_insight import insight_test_factory
 from posthog.api.test.test_trends import (
@@ -299,34 +301,44 @@ class ClickhouseTestInsights(
         self.assertEqual(len(person_response["results"][0]["people"]), 1)
 
     def test_insight_trends_compare(self):
+        events_by_person = {
+            "p1": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 5, 3), "properties": {"key": "val"}},
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}},
+            ],
+            "p2": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 5, 3), "properties": {"key": "notval"}},
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "notval"}},
+            ],
+        }
         with freeze_time("2012-01-05T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
+            created_people = journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            data = deep_dump_object(
-                {
-                    "date_from": "-7d",
-                    "compare": True,
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-                }
+            request = TrendsRequest(
+                date_from="-7d",
+                compare=True,
+                events=[{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
             )
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
 
-        self.assertEqual(response["result"][0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0])
-        self.assertEqual(response["result"][1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0])
+        assert data_response["$pageview - current"]["2012-01-13"].value == 0
+        assert data_response["$pageview - current"]["2012-01-14"].value == 2
+
+        assert data_response["$pageview - previous"]["2012-01-04"].value == 0
+        assert data_response["$pageview - previous"]["2012-01-05"].value == 2
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            first_series_response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
-            second_series_response = self.client.get("/" + response["result"][1]["persons_urls"][-4]["url"]).json()
-            zero_response = self.client.get("/" + response["result"][1]["persons_urls"][-1]["url"]).json()
+            curr_people = get_trends_people_ok(
+                self.client, data_response["$pageview - current"]["2012-01-14"].person_url
+            )
+            prev_people = get_trends_people_ok(
+                self.client, data_response["$pageview - previous"]["2012-01-05"].person_url
+            )
 
-        self.assertEqual(len(first_series_response["results"][0]["people"]), 2)
-        self.assertEqual(len(second_series_response["results"][0]["people"]), 2)
-        self.assertEqual(len(zero_response["results"][0]["people"]), 0)
+        assert sorted([p["id"] for p in curr_people]) == sorted(
+            [str(created_people["p1"].uuid), str(created_people["p2"].uuid)]
+        )
+        assert sorted([p["id"] for p in prev_people]) == sorted(
+            [str(created_people["p1"].uuid), str(created_people["p2"].uuid)]
+        )

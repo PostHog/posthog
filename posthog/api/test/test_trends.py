@@ -121,6 +121,7 @@ class TrendsRequest:
     interval: Optional[str] = None
     insight: Optional[str] = None
     display: Optional[str] = None
+    compare: Optional[bool] = None
     events: Optional[List[Dict[str, Any]]] = field(default_factory=list)
     properties: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -138,14 +139,18 @@ def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], te
         "interval": request.interval,
         "insight": request.insight,
         "display": request.display,
+        "compare": request.compare,
         "events": json.dumps(request.events),
+        "properties": json.dumps(request.properties),
     }
 
-    if isinstance(request, TrendsRequestBreakdown):
-        data["breakdown"] = request.breakdown
-        data["breakdown_type"] = request.breakdown_type
+    filtered_data = {k: v for k, v in data.items() if v is not None}
 
-    return client.get(f"/api/projects/{team.id}/insights/trend/", data=data,)
+    if isinstance(request, TrendsRequestBreakdown):
+        filtered_data["breakdown"] = request.breakdown
+        filtered_data["breakdown_type"] = request.breakdown_type
+
+    return client.get(f"/api/projects/{team.id}/insights/trend/", data=filtered_data,)
 
 
 def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
