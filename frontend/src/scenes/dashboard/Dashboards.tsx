@@ -200,7 +200,7 @@ export function Dashboards(): JSX.Element {
                     <br />
                     <p>Create your first dashboard:</p>
 
-                    <Row gutter={24} gutter={[16, 16]}>
+                    <Row gutter={[16, 16]}>
                         <Col xs={24} xl={6}>
                             <Card
                                 title="Empty"
