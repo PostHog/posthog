@@ -59,7 +59,7 @@ def get_breakdown_prop_values(
 
     entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, table_name="e")
 
-    value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown)
+    value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
 
     person_join_clauses = ""
     person_join_params: Dict = {}
@@ -104,9 +104,15 @@ def get_breakdown_prop_values(
 def _to_value_expression(
     breakdown_type: Union[Literal["event", "person", "cohort", "group"], None],
     breakdown: Union[str, List[Union[str, int]], None],
+    breakdown_group_type_index: Optional[int],
 ) -> str:
     if breakdown_type == "person":
         return get_single_or_multi_property_string_expr(breakdown, "person", "person_props", "value")
+    elif breakdown_type == "group":
+        value_expression, _ = get_property_string_expr(
+            "groups", cast(str, breakdown), "%(key)s", f"group_properties_{breakdown_group_type_index}"
+        )
+        return f"{value_expression} AS value"
     else:
         return get_single_or_multi_property_string_expr(breakdown, "events", "properties", "value")
 

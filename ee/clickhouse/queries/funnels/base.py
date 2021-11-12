@@ -487,7 +487,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 expression, _ = get_property_string_expr(
                     "groups", self._filter.breakdown, "%(breakdown)s", properties_field
                 )
-                return f", {expression}"
+                return f"{expression} AS prop"
 
         return ""
 
@@ -524,8 +524,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            if group_remaining and self._filter.breakdown_type != "cohort":
+            if group_remaining and self._filter.breakdown_type in ["person", "event"]:
                 return ", if(has(%(breakdown_values)s, prop), prop, ['Other']) as prop"
+            elif group_remaining and self._filter.breakdown_type == "group":
+                return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
             else:
                 return ", prop"
         else:
