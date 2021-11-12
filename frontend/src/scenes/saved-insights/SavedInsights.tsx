@@ -10,7 +10,6 @@ import {
     AppstoreFilled,
     ArrowDownOutlined,
     ArrowUpOutlined,
-    CaretDownFilled,
     EllipsisOutlined,
     LeftOutlined,
     MenuOutlined,
