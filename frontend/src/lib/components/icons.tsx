@@ -485,26 +485,19 @@ export function IconFeedbackWarning({ style }: { style?: CSSProperties }): JSX.E
 
 export function IconSelectEvents({ style }: { style?: CSSProperties }): JSX.Element {
     return (
-        <svg width="24" height="24" style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
                 d="M17.5 9L16.56 6.94L14.5 6L16.56 5.06L17.5 3L18.44 5.06L20.5 6L18.44 6.94L17.5 9Z"
                 fill="currentColor"
-                fillOpacity="0.5"
             />
             <path
                 d="M6 12.5L6.94 14.56L9 15.5L6.94 16.44L6 18.5L5.06 16.44L3 15.5L5.06 14.56L6 12.5Z"
                 fill="currentColor"
-                fillOpacity="0.5"
             />
-            <path
-                d="M6 9L5.06 6.94L3 6L5.06 5.06L6 3L6.94 5.06L9 6L6.94 6.94L6 9Z"
-                fill="currentColor"
-                fillOpacity="0.5"
-            />
+            <path d="M6 9L5.06 6.94L3 6L5.06 5.06L6 3L6.94 5.06L9 6L6.94 6.94L6 9Z" fill="currentColor" />
             <path
                 d="M16.23 14.26L20 13L10 10L13 20L14.26 16.23L18.53 20.5L20.51 18.52L16.23 14.26Z"
                 fill="currentColor"
-                fillOpacity="0.5"
             />
         </svg>
     )

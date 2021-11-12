@@ -96,11 +96,9 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
 
     def test_basic_funnel_with_repeat_steps(self):
         filters = {
@@ -126,9 +124,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         result = funnel.run()
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
+
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -168,9 +165,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         result = funnel.run()
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
+
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -206,9 +202,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
+
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -291,10 +286,9 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
+
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 2)
-        self.assertEqual(len(result[1]["people"]), 2)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person1.uuid, person3.uuid],
@@ -360,10 +354,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
 
         self.assertEqual(result[4]["count"], 2)
-        self.assertEqual(len(result[4]["people"]), 2)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person1.uuid, person2.uuid,],
@@ -378,10 +370,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
 
         self.assertEqual(result[4]["count"], 2)
-        self.assertEqual(len(result[4]["people"]), 2)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person2.uuid, person3.uuid,],
@@ -396,10 +386,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[4]["count"], 1)
-        self.assertEqual(len(result[4]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person3.uuid,],
@@ -414,10 +402,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 0)
-        self.assertEqual(len(result[0]["people"]), 0)
 
         self.assertEqual(result[4]["count"], 0)
-        self.assertEqual(len(result[4]["people"]), 0)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [],
@@ -433,10 +419,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[4]["count"], 1)
-        self.assertEqual(len(result[4]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person3.uuid],
@@ -500,15 +484,15 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
-        self.assertEqual(len(result[0]["people"]), 5)
+
         self.assertEqual(result[1]["count"], 4)
-        self.assertEqual(len(result[1]["people"]), 4)
+
         self.assertEqual(result[2]["count"], 3)
-        self.assertEqual(len(result[2]["people"]), 3)
+
         self.assertEqual(result[3]["count"], 2)
-        self.assertEqual(len(result[3]["people"]), 2)
+
         self.assertEqual(result[4]["count"], 1)
-        self.assertEqual(len(result[4]["people"]), 1)
+
         # check ordering of people in every step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -621,15 +605,15 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
-        self.assertEqual(len(result[0]["people"]), 5)
+
         self.assertEqual(result[1]["count"], 4)
-        self.assertEqual(len(result[1]["people"]), 4)
+
         self.assertEqual(result[2]["count"], 1)
-        self.assertEqual(len(result[2]["people"]), 1)
+
         self.assertEqual(result[3]["count"], 1)
-        self.assertEqual(len(result[3]["people"]), 1)
+
         self.assertEqual(result[4]["count"], 1)
-        self.assertEqual(len(result[4]["people"]), 1)
+
         # check ordering of people in every step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -696,9 +680,9 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "sign up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
+
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
+
         # check ordering of people in first step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -1107,10 +1091,9 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
+
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person1.uuid, person4.uuid],
@@ -1168,10 +1151,9 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
+
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 2)
-        self.assertEqual(len(result[1]["people"]), 2)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person1.uuid, person3.uuid],
@@ -1281,10 +1263,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[4]["count"], 1)
-        self.assertEqual(len(result[4]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person4.uuid],
@@ -1304,10 +1284,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[4]["count"], 1)
-        self.assertEqual(len(result[4]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person4.uuid],
@@ -1327,10 +1305,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[4]["count"], 1)
-        self.assertEqual(len(result[4]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person4.uuid],
@@ -1350,10 +1326,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[4]["count"], 1)
-        self.assertEqual(len(result[4]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person4.uuid],
@@ -1396,10 +1370,9 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             self.assertEqual(len(result), 2)
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 2)
-            self.assertEqual(len(result[0]["people"]), 2)
+
             self.assertEqual(result[1]["name"], "$autocapture")
             self.assertEqual(result[1]["count"], 1)
-            self.assertEqual(len(result[1]["people"]), 1)
 
             self.assertCountEqual(
                 self._get_people_at_step(filter, 1), [person1.uuid, person2.uuid],
@@ -1464,11 +1437,10 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
+
         self.assertAlmostEqual(result[1]["average_conversion_time"], 86400)
 
     @snapshot_clickhouse_queries
@@ -1518,11 +1490,10 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
+
         self.assertAlmostEqual(result[1]["average_conversion_time"], 86400)
 
     @snapshot_clickhouse_queries
@@ -1575,11 +1546,9 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
 
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_global_filtering(self):
@@ -1633,8 +1602,6 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
-        self.assertCountEqual(result[0]["people"], [person1.uuid])
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 0)
-        self.assertEqual(len(result[1]["people"]), 0)

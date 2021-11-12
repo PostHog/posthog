@@ -1,10 +1,11 @@
+from datetime import datetime
 from string import ascii_lowercase
-from uuid import UUID
+from typing import Dict, List, TypedDict
 
-from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.breakdown_props import ALL_USERS_COHORT_ID
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.cohort import Cohort
@@ -19,6 +20,25 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
             result = FunnelPerson(person_filter, self.team)._exec_query()
             return [row[0] for row in result]
+
+        class EventTestCase(TypedDict):
+            event: str
+            day: int
+            hour: int
+
+        def a_journey_for(self, person: str, events: List[EventTestCase], properties: Dict[str, str]) -> None:
+            for event in events:
+                day = f"{event['day']:02d}"
+                hour = f"{event['hour']:02d}"
+                timestamp = f"2020-01-{day}T{hour}:00:00Z"
+
+                _create_event(
+                    team=self.team,
+                    event=event["event"],
+                    distinct_id=person,
+                    properties=properties,
+                    timestamp=timestamp,
+                )
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
@@ -36,54 +56,46 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
 
-            # event
-            person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T15:00:00Z",
-            )
+            journey = {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 1, 15),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 16),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    }
+                ],
+            }
 
-            person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person2",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person2",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T16:00:00Z",
-            )
-
-            person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person3",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
+            people = journeys_for(events_by_person=journey, team=self.team)
 
             result = funnel.run()
             assert_funnel_results_equal(
@@ -94,7 +106,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -107,7 +119,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
@@ -120,7 +132,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -130,8 +142,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [people["person1"].uuid])
             assert_funnel_results_equal(
                 result[1],
                 [
@@ -140,9 +152,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person2.uuid, person3.uuid]
-                        if Funnel == ClickhouseFunnel
-                        else [],  # backwards compatibility
+                        "people": [],
                         "count": 2,
                         "type": "events",
                         "average_conversion_time": None,
@@ -155,7 +165,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -179,8 +189,10 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1, "Safari"), [people["person2"].uuid, people["person3"].uuid]
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_with_other(self):
@@ -201,77 +213,39 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             # event
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T15:00:00Z",
+            self.a_journey_for(
+                "person1",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                {"key": "val", "$browser": "Chrome"},
             )
 
             person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person2",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person2",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T16:00:00Z",
+            self.a_journey_for(
+                "person2",
+                [{"event": "sign up", "day": 2, "hour": 14}, {"event": "play movie", "day": 2, "hour": 16},],
+                {"key": "val", "$browser": "Safari"},
             )
 
             person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person3",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
+            self.a_journey_for(
+                "person3", [{"event": "sign up", "day": 2, "hour": 14},], {"key": "val", "$browser": "Safari"}
             )
 
             person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person4",
-                properties={"key": "val", "$browser": "random"},
-                timestamp="2020-01-02T14:00:00Z",
+            self.a_journey_for(
+                "person4", [{"event": "sign up", "day": 2, "hour": 14},], {"key": "val", "$browser": "random"}
             )
 
             person5 = _create_person(distinct_ids=["person5"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person5",
-                properties={"key": "val", "$browser": "another one"},
-                timestamp="2020-01-02T15:00:00Z",
+            self.a_journey_for(
+                "person5", [{"event": "sign up", "day": 2, "hour": 15},], {"key": "val", "$browser": "another one"}
             )
 
             result = funnel.run()
-
-            people = result[0][0].pop("people")
-            self.assertCountEqual(
-                people, [person1.uuid, person4.uuid, person5.uuid] if Funnel == ClickhouseFunnel else []
-            )
 
             assert_funnel_results_equal(
                 result[0],
@@ -281,7 +255,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        # popped people because flakey ordering for assertEqual
+                        "people": [],
                         "count": 3,
                         "type": "events",
                         "average_conversion_time": None,
@@ -294,7 +268,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
@@ -307,7 +281,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -330,9 +304,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person2.uuid, person3.uuid]
-                        if Funnel == ClickhouseFunnel
-                        else [],  # backwards compatibility
+                        "people": [],
                         "count": 2,
                         "type": "events",
                         "average_conversion_time": None,
@@ -345,7 +317,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -387,53 +359,27 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
 
-            # event
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person1",
-                properties={"key": "val", "$browser": "Chrome"},
-                timestamp="2020-01-01T15:00:00Z",
+            self.a_journey_for(
+                "person1",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                {"key": "val", "$browser": "Chrome"},
             )
 
             person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person2",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person2",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T16:00:00Z",
+            self.a_journey_for(
+                "person2",
+                [{"event": "sign up", "day": 2, "hour": 14}, {"event": "play movie", "day": 2, "hour": 16},],
+                {"key": "val", "$browser": "Safari"},
             )
 
             person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person3",
-                properties={"key": "val", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
+            self.a_journey_for(
+                "person3", [{"event": "sign up", "day": 2, "hour": 14},], {"key": "val", "$browser": "Safari"}
             )
 
             result = funnel.run()
@@ -445,7 +391,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -458,7 +404,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
@@ -471,7 +417,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -491,9 +437,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person2.uuid, person3.uuid]
-                        if Funnel == ClickhouseFunnel
-                        else [],  # backwards compatibility
+                        "people": [],
                         "count": 2,
                         "type": "events",
                         "average_conversion_time": None,
@@ -506,7 +450,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -549,45 +493,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
 
-            # event
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$browser": "Chrome"})
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person1",
-                properties={"key": "val"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person1",
-                properties={"key": "val"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person1",
-                properties={"key": "val"},
-                timestamp="2020-01-01T15:00:00Z",
-            )
-
             person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$browser": "Safari"})
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person2",
-                properties={"key": "val"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person2",
-                properties={"key": "val"},
-                timestamp="2020-01-02T16:00:00Z",
-            )
+
+            peoples_journeys = {
+                "person1": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                    {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
+                ],
+                "person2": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14)},
+                    {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
+                ],
+            }
+            journeys_for(peoples_journeys, self.team)
 
             result = funnel.run()
             assert_funnel_results_equal(
@@ -598,7 +518,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -611,7 +531,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
@@ -624,7 +544,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -645,7 +565,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -658,7 +578,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -703,27 +623,16 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             for num in range(10):
                 for i in range(num):
-                    _create_person(distinct_ids=[f"person_{num}_{i}"], team_id=self.team.pk)
-                    _create_event(
-                        team=self.team,
-                        event="sign up",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T12:00:00Z",
-                    )
-                    _create_event(
-                        team=self.team,
-                        event="play movie",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T13:00:00Z",
-                    )
-                    _create_event(
-                        team=self.team,
-                        event="buy",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T15:00:00Z",
+                    person_id = f"person_{num}_{i}"
+                    _create_person(distinct_ids=[person_id], team_id=self.team.pk)
+                    self.a_journey_for(
+                        person_id,
+                        [
+                            {"event": "sign up", "day": 1, "hour": 12},
+                            {"event": "play movie", "day": 1, "hour": 13},
+                            {"event": "buy", "day": 1, "hour": 15},
+                        ],
+                        {"key": "val", "some_breakdown_val": str(num)},
                     )
 
             result = funnel.run()
@@ -751,51 +660,28 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             for num in range(5):
                 for i in range(num):
-                    _create_person(distinct_ids=[f"person_{num}_{i}"], team_id=self.team.pk)
-                    _create_event(
-                        team=self.team,
-                        event="sign up",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T12:00:00Z",
-                    )
-                    _create_event(
-                        team=self.team,
-                        event="play movie",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T13:00:00Z",
-                    )
-                    _create_event(
-                        team=self.team,
-                        event="buy",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T15:00:00Z",
+                    person_id = f"person_{num}_{i}"
+                    _create_person(distinct_ids=[person_id], team_id=self.team.pk)
+                    self.a_journey_for(
+                        person_id,
+                        [
+                            {"event": "sign up", "day": 1, "hour": 12},
+                            {"event": "play movie", "day": 1, "hour": 13},
+                            {"event": "buy", "day": 1, "hour": 15},
+                        ],
+                        {"key": "val", "some_breakdown_val": str(num)},
                     )
 
             # no breakdown value for this guy
             person0 = _create_person(distinct_ids=[f"person_null"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id=f"person_null",
-                properties={"key": "val"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id=f"person_null",
-                properties={"key": "val"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id=f"person_null",
-                properties={"key": "val"},
-                timestamp="2020-01-01T15:00:00Z",
+            self.a_journey_for(
+                f"person_null",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                {"key": "val"},
             )
 
             result = funnel.run()
@@ -824,51 +710,28 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             for num in range(5):
                 for i in range(num):
-                    _create_person(distinct_ids=[f"person_{num}_{i}"], team_id=self.team.pk)
-                    _create_event(
-                        team=self.team,
-                        event="sign up",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T12:00:00Z",
-                    )
-                    _create_event(
-                        team=self.team,
-                        event="play movie",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T13:00:00Z",
-                    )
-                    _create_event(
-                        team=self.team,
-                        event="buy",
-                        distinct_id=f"person_{num}_{i}",
-                        properties={"key": "val", "some_breakdown_val": num},
-                        timestamp="2020-01-01T15:00:00Z",
+                    person_id = f"person_{num}_{i}"
+                    _create_person(distinct_ids=[person_id], team_id=self.team.pk)
+                    self.a_journey_for(
+                        person_id,
+                        [
+                            {"event": "sign up", "day": 1, "hour": 12},
+                            {"event": "play movie", "day": 1, "hour": 13},
+                            {"event": "buy", "day": 1, "hour": 15},
+                        ],
+                        {"key": "val", "some_breakdown_val": str(num)},
                     )
 
             # no breakdown value for this guy
             p_null = _create_person(distinct_ids=[f"person_null"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id=f"person_null",
-                properties={"key": "val"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id=f"person_null",
-                properties={"key": "val"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id=f"person_null",
-                properties={"key": "val"},
-                timestamp="2020-01-01T15:00:00Z",
+            self.a_journey_for(
+                f"person_null",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                {"key": "val"},
             )
 
             result = funnel.run()
@@ -941,7 +804,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -961,7 +824,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -981,7 +844,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -1001,7 +864,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -1068,7 +931,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -1102,7 +965,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -1115,7 +978,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600,
@@ -1188,20 +1051,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_people_at_step(filter, 2, cohort.pk), [])
 
         def test_basic_funnel_default_funnel_days_breakdown_event(self):
+
             person = _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id="user_1",
-                timestamp="2020-01-02T14:00:00Z",
-                properties={"$current_url": "https://posthog.com/docs/x"},
-            )
-            _create_event(
-                team=self.team,
-                event="paid",
-                distinct_id="user_1",
-                timestamp="2020-01-10T14:00:00Z",
-                properties={"$current_url": "https://posthog.com/docs/x"},
+            self.a_journey_for(
+                "user_1",
+                [{"event": "user signed up", "day": 2, "hour": 14}, {"event": "paid", "day": 10, "hour": 14},],
+                {"$current_url": "https://posthog.com/docs/x"},
             )
 
             # Dummy events to make sure that breakdown is not confused
@@ -1260,7 +1115,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "name": "user signed up",
                             "custom_name": None,
                             "order": 0,
-                            "people": [UUID(bytes=person.uuid.bytes)],
+                            "people": [],
                             "type": "events",
                         },
                         {
@@ -1273,7 +1128,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "name": "paid",
                             "custom_name": None,
                             "order": 1,
-                            "people": [UUID(bytes=person.uuid.bytes)],
+                            "people": [],
                             "type": "events",
                         },
                     ]
@@ -1285,19 +1140,10 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             # Same case as test_basic_funnel_default_funnel_days_breakdown_event but with an action
             user_signed_up_action = _create_action(name="user signed up", event="user signed up", team=self.team,)
             person = _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id="user_1",
-                timestamp="2020-01-02T14:00:00Z",
-                properties={"$current_url": "https://posthog.com/docs/x"},
-            )
-            _create_event(
-                team=self.team,
-                event="paid",
-                distinct_id="user_1",
-                timestamp="2020-01-10T14:00:00Z",
-                properties={"$current_url": "https://posthog.com/docs/x"},
+            self.a_journey_for(
+                "user_1",
+                [{"event": "user signed up", "day": 2, "hour": 14}, {"event": "paid", "day": 10, "hour": 14},],
+                {"$current_url": "https://posthog.com/docs/x"},
             )
 
             for current_url_letter in ascii_lowercase[:20]:
@@ -1349,7 +1195,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "name": "user signed up",
                             "custom_name": None,
                             "order": 0,
-                            "people": [UUID(bytes=person.uuid.bytes)],
+                            "people": [],
                             "type": "actions",
                         },
                         {
@@ -1362,7 +1208,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "name": "paid",
                             "custom_name": None,
                             "order": 1,
-                            "people": [UUID(bytes=person.uuid.bytes)],
+                            "people": [],
                             "type": "events",
                         },
                     ]
@@ -1385,53 +1231,27 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         def test_funnel_breakdown_group(self):
             self._create_groups()
 
-            # event
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person1",
-                properties={"$group_0": "org:5", "$browser": "Chrome"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person1",
-                properties={"$group_0": "org:5", "$browser": "Chrome"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person1",
-                properties={"$group_0": "org:5", "$browser": "Chrome"},
-                timestamp="2020-01-01T15:00:00Z",
+            self.a_journey_for(
+                "person1",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                {"$group_0": "org:5", "$browser": "Chrome"},
             )
 
             person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person2",
-                properties={"$group_0": "org:6", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person2",
-                properties={"$group_0": "org:6", "$browser": "Safari"},
-                timestamp="2020-01-02T16:00:00Z",
+            self.a_journey_for(
+                "person2",
+                [{"event": "sign up", "day": 2, "hour": 14}, {"event": "play movie", "day": 2, "hour": 16},],
+                {"$group_0": "org:6", "$browser": "Safari"},
             )
 
             person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person3",
-                properties={"$group_0": "org:6", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
+            self.a_journey_for(
+                "person3", [{"event": "sign up", "day": 2, "hour": 14},], {"$group_0": "org:6", "$browser": "Safari"}
             )
 
             filters = {
@@ -1455,7 +1275,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -1468,7 +1288,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
@@ -1481,7 +1301,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -1502,9 +1322,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": [person2.uuid, person3.uuid]
-                        if Funnel == ClickhouseFunnel
-                        else [],  # backwards compatibility
+                        "people": [],
                         "count": 2,
                         "type": "events",
                         "average_conversion_time": None,
@@ -1517,7 +1335,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -1548,52 +1366,27 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         def test_funnel_aggregate_by_groups_breakdown_group(self):
             self._create_groups()
             # event
-            person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person1",
-                properties={"$group_0": "org:5", "$browser": "Chrome"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person1",
-                properties={"$group_0": "org:5", "$browser": "Chrome"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person1",
-                properties={"$group_0": "org:5", "$browser": "Chrome"},
-                timestamp="2020-01-01T15:00:00Z",
+            _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person1",
+                [
+                    {"event": "sign up", "day": 1, "hour": 12},
+                    {"event": "play movie", "day": 1, "hour": 13},
+                    {"event": "buy", "day": 1, "hour": 15},
+                ],
+                {"$group_0": "org:5", "$browser": "Chrome"},
             )
 
-            person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person2",
-                properties={"$group_0": "org:6", "$browser": "Safari"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person2",
-                properties={"$group_0": "org:6", "$browser": "Safari"},
-                timestamp="2020-01-02T16:00:00Z",
+            _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person2",
+                [{"event": "sign up", "day": 2, "hour": 14}, {"event": "play movie", "day": 2, "hour": 16},],
+                {"$group_0": "org:6", "$browser": "Safari"},
             )
 
-            person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person3",
-                properties={"$group_0": "org:6", "$browser": "Safari"},
-                timestamp="2020-01-02T18:00:00Z",
+            _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+            self.a_journey_for(
+                "person3", [{"event": "buy", "day": 2, "hour": 18},], {"$group_0": "org:6", "$browser": "Safari"}
             )
 
             filters = {
@@ -1618,7 +1411,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": ["org:5"] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -1631,7 +1424,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": ["org:5"] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
@@ -1644,7 +1437,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": ["org:5"] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -1663,7 +1456,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "sign up",
                         "custom_name": None,
                         "order": 0,
-                        "people": ["org:6"] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
@@ -1676,7 +1469,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "play movie",
                         "custom_name": None,
                         "order": 1,
-                        "people": ["org:6"] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
@@ -1689,7 +1482,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "name": "buy",
                         "custom_name": None,
                         "order": 2,
-                        "people": ["org:6"] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "people": [],
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200,

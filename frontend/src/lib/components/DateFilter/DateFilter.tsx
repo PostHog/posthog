@@ -97,10 +97,7 @@ export function DateFilter({
             id="daterange_selector"
             value={parsedValue}
             onChange={_onChange}
-            style={{
-                marginRight: 4,
-                ...style,
-            }}
+            style={style}
             open={open || dateRangeOpen}
             onBlur={onBlur}
             onClick={onClick}

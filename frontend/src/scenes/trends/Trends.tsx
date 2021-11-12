@@ -9,7 +9,6 @@ import {
     ACTIONS_BAR_CHART,
     ACTIONS_BAR_CHART_VALUE,
 } from 'lib/constants'
-
 import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
@@ -74,14 +73,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
     return (
         <>
             {(_filters.actions || _filters.events || _filters.session) && (
-                <div
-                    style={{
-                        minHeight: 'calc(90vh - 16rem)',
-                        position: 'relative',
-                    }}
-                >
-                    {renderViz()}
-                </div>
+                <div className="trends-insights-container">{renderViz()}</div>
             )}
             {_filters.breakdown && (
                 <div className="mt text-center">

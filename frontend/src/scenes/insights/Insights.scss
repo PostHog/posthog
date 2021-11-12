@@ -4,6 +4,7 @@ $funnel_canvas_background: #fafafa;
 
 .insights-page {
     .top-bar {
+        width: 100%;
         .ant-tabs,
         .ant-tabs-nav-list {
             width: 100%;
@@ -232,6 +233,11 @@ $funnel_canvas_background: #fafafa;
             margin-top: $default_spacing / 2;
         }
     }
+}
+
+.trends-insights-container {
+    position: relative;
+    min-height: min(calc(90vh - 16rem), 36rem);
 }
 
 .funnel-insights-container {
