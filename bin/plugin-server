@@ -37,6 +37,11 @@ if [[ -n $DYNO_RAM ]]; then
   export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
 fi
 
+# don't do a full build on e2e tests
+if [[ -n $E2E_TESTING ]]; then
+  export DEBUG=1
+fi
+
 cd plugin-server
 
 echo "🧐 Verifying installed packages..."
