@@ -32,7 +32,8 @@
     font-weight: 500;
     white-space: pre;
     &--current {
-        font-style: italic;
+        font-weight: bold;
+        color: $text_default;
     }
     > :first-child {
         margin-right: 0.5rem;
