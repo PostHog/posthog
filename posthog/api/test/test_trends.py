@@ -122,7 +122,7 @@ class TrendsRequest:
     insight: Optional[str] = None
     display: Optional[str] = None
     compare: Optional[bool] = None
-    events: Optional[List[Dict[str, Any]]] = field(default_factory=list)
+    events: List[Dict[str, Any]] = field(default_factory=list)
     properties: List[Dict[str, Any]] = field(default_factory=list)
 
 

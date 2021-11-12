@@ -30,9 +30,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class ClickhouseTestInsights(
-    ClickhouseTestMixin, LicensedTestMixin, APIBaseTest  # type: ignore
-):
+class ClickhouseTestInsights(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -285,11 +283,13 @@ class ClickhouseTestInsights(
                 display="ActionsPie",
                 events=[{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
             )
-            data_response = get_trends_aggregate_ok(self.client, params, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["sign up - val"].person_url)
+            aggregate_response = get_trends_aggregate_ok(self.client, params, self.team)
+            aggregate_person_response = get_trends_people_ok(
+                self.client, aggregate_response["sign up - val"].person_url
+            )
 
-        assert data_response["sign up - val"].value == 1
-        assert sorted([p["id"] for p in person_response]) == sorted([str(created_people["person1"].uuid)])
+        assert aggregate_response["sign up - val"].value == 1
+        assert sorted([p["id"] for p in aggregate_person_response]) == sorted([str(created_people["person1"].uuid)])
 
     def test_insight_trends_compare(self):
         events_by_person = {
