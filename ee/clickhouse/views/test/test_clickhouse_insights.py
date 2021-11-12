@@ -9,7 +9,7 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import deep_dump_object
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
 from posthog.api.test.test_trends import (
@@ -37,6 +37,7 @@ def _create_event(**kwargs):
 class ClickhouseTestInsights(
     ClickhouseTestMixin, LicensedTestMixin, insight_test_factory(_create_event, _create_person)  # type: ignore
 ):
+    @snapshot_clickhouse_queries
     def test_insight_trends_basic(self):
         with freeze_time("2012-01-14T03:21:34.000Z"):
             p1 = _create_person(distinct_ids=["1"], team=self.team)
@@ -77,6 +78,7 @@ class ClickhouseTestInsights(
 
         assert sorted([p["id"] for p in people]) == sorted([p1.pk, p2.pk])
 
+    @snapshot_clickhouse_queries
     def test_insight_trends_aggregate(self):
 
         with freeze_time("2012-01-13T03:21:34.000Z"):
@@ -117,6 +119,7 @@ class ClickhouseTestInsights(
 
         assert sorted([p["id"] for p in people]) == sorted([p1.pk, p2.pk])
 
+    @snapshot_clickhouse_queries
     def test_insight_trends_cumulative(self):
         with freeze_time("2012-01-13T03:21:34.000Z"):
             p1 = _create_person(distinct_ids=["1"], team=self.team)
