@@ -179,7 +179,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             <div className="funnel-correlation-table">
                 <span className="funnel-correlation-header">
                     <span className="table-header">
-                        <IconSelectEvents style={{ marginRight: 4 }} />
+                        <IconSelectEvents style={{ marginRight: 4, fontSize: 24, opacity: 0.5 }} />
                         CORRELATED EVENTS
                     </span>
                     <span className="table-options">
