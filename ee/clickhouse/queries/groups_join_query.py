@@ -1,13 +1,11 @@
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.property import extract_tables_and_properties, prop_filter_json_extract
+from rest_framework.exceptions import ValidationError
+
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter
-from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.property import Property
 
 
 class GroupsJoinQuery:
@@ -33,7 +31,8 @@ class GroupsJoinQuery:
         join_queries, params = [], {}
 
         if group_join_keys:
-            assert len(group_join_keys) == len(self._column_optimizer.group_types_to_query)
+            if len(group_join_keys) != len(self._column_optimizer.group_types_to_query):
+                raise ValidationError("When specifying group_join_keys, number should be equal to groups to be queried")
         else:
             group_join_keys = [f"$group_{index}" for index in self._column_optimizer.group_types_to_query]
 

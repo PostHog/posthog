@@ -146,20 +146,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related", success=False)), 5)
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
 
-    def _create_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
-
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
-
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_events_and_groups(self):
-        self._create_groups()
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
 
         for i in range(10, 20):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
@@ -533,6 +524,20 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+        # test with `$all` as property
+        # _run property correlation with filter on all properties
+        filter = filter.with_data({"funnel_correlation_names": ["$all"]})
+        correlation = FunnelCorrelation(filter, self.team)
+
+        new_result = correlation._run()[0]
+
+        odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(new_result, result)
 
     def test_no_divide_by_zero_errors(self):
         filters = {
@@ -1029,6 +1034,117 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             len(self._get_people_for_event(filter, "negatively_related", {"signup_source": "email"}, False)), 3
+        )
+
+    @test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
+    @snapshot_clickhouse_queries
+    def test_funnel_correlation_with_event_properties_and_groups(self):
+        # same test as test_funnel_correlation_with_event_properties but with events attached to groups
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=1)
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk, group_type_index=1, group_key=f"org:{i}", properties={"industry": "positive"}
+            )
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"$group_1": f"org:{i}"},
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="positively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                    properties={
+                        "signup_source": "facebook" if i % 4 == 0 else "email",
+                        "blah": "value_bleh",
+                        "$group_1": f"org:{i}",
+                    },
+                )
+                # source: email occurs only twice, so would be discarded from result set
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+                properties={"$group_1": f"org:{i}"},
+            )
+
+        for i in range(10, 20):
+            create_group(
+                team_id=self.team.pk, group_type_index=1, group_key=f"org:{i}", properties={"industry": "positive"}
+            )
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"$group_1": f"org:{i}"},
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                    properties={"signup_source": "shazam" if i % 6 == 0 else "email", "$group_1": f"org:{i}"},
+                )
+                # source: shazam occurs only once, so would be discarded from result set
+
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "aggregation_group_type_index": 1,
+            "funnel_correlation_type": "event_with_properties",
+            "funnel_correlation_event_names": ["positively_related", "negatively_related"],
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+        result = correlation._run()[0]
+
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        expected_odds_ratios = [11, 5.5, 2 / 11]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positively_related::blah::value_bleh",
+                    "success_count": 5,
+                    "failure_count": 0,
+                    # "odds_ratio": 11.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "positively_related::signup_source::facebook",
+                    "success_count": 3,
+                    "failure_count": 0,
+                    # "odds_ratio": 5.5,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "negatively_related::signup_source::email",
+                    "success_count": 0,
+                    "failure_count": 3,
+                    # "odds_ratio": 0.18181818181818182,
+                    "correlation_type": "failure",
+                },
+            ],
         )
 
     def test_funnel_correlation_with_event_properties_exclusions(self):
