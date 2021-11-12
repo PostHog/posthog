@@ -1,8 +1,7 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { CaretDownOutlined } from '@ant-design/icons'
-import { IconExpandMore } from '../../../lib/components/icons'
-import { Link } from '../../../lib/components/Link'
+import { IconExpandMore, IconArrowDropDown } from 'lib/components/icons'
+import { Link } from 'lib/components/Link'
 import './Breadcrumbs.scss'
 import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
 import clsx from 'clsx'
@@ -23,7 +22,11 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
         >
             {breadcrumb.symbol}
             {breadcrumb.name}
-            {breadcrumb.popup && <CaretDownOutlined style={{ color: 'var(--muted-alt)', marginLeft: 4 }} />}
+            {breadcrumb.popup && (
+                <IconArrowDropDown
+                    style={{ color: 'var(--muted-alt)', marginLeft: 4, marginRight: 0, fontSize: '1.2em' }}
+                />
+            )}
         </div>
     )
 

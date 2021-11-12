@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { lemonadeLogic } from '../lemonade/lemonadeLogic'
+import './ScopeSwitchers.scss'
 
 export function ProjectSwitcherOverlay(): JSX.Element {
     const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
@@ -19,8 +20,11 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     const { showCreateProjectModal, hideProjectSwitcher } = useActions(lemonadeLogic)
 
     return (
-        <>
+        <div className="scope-switcher">
             <>
+                <div className="scope-header">
+                    <h4>Projects</h4>
+                </div>
                 <CurrentProjectButton />
                 {currentOrganization?.teams &&
                     currentOrganization.teams
@@ -45,7 +49,7 @@ export function ProjectSwitcherOverlay(): JSX.Element {
                     New project
                 </LemonButton>
             </>
-        </>
+        </div>
     )
 }
 
@@ -64,7 +68,7 @@ function CurrentProjectButton(): JSX.Element {
                         hideProjectSwitcher()
                         push(urls.projectSettings())
                     }}
-                    icon={<IconSettings />}
+                    icon={<IconSettings style={{ color: 'var(--muted-alt)' }} />}
                 />
             }
             fullWidth
@@ -85,7 +89,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 updateCurrentTeam(team.id, '/')
             }}
             sideAction={{
-                icon: <IconSettings />,
+                icon: <IconSettings style={{ color: 'var(--muted-alt)' }} />,
                 tooltip: `Go to ${team.name} settings`,
                 onClick: () => {
                     hideProjectSwitcher()

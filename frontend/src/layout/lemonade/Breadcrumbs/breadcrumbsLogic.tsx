@@ -30,7 +30,7 @@ export interface Breadcrumb {
     /** Whether this breadcrumb refers to the current location. */
     here?: boolean
     /** Whether to show a custom popup */
-    popup?: Pick<PopupProps, 'overlay' | 'sameWidth'>
+    popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
 }
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
@@ -99,7 +99,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     }
                     breadcrumbs.push({
                         name: user.first_name,
-                        tooltip: 'You',
                         symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
                     })
                 }
@@ -110,7 +109,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     }
                     breadcrumbs.push({
                         name: stripHTTP(preflight.site_url),
-                        tooltip: 'This PostHog instance',
                         symbol: <Lettermark name="@" />,
                     })
                 }
@@ -126,6 +124,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                             otherOrganizations?.length || preflight?.can_create_org
                                 ? {
                                       overlay: <OrganizationSwitcherOverlay />,
+                                      actionable: true,
                                   }
                                 : undefined,
                     })
@@ -137,9 +136,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     }
                     breadcrumbs.push({
                         name: currentTeam.name,
-                        tooltip: 'Current project',
                         popup: {
                             overlay: <ProjectSwitcherOverlay />,
+                            actionable: true,
                         },
                     })
                 }

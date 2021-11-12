@@ -56,6 +56,7 @@ function SidebarProjectSwitcher(): JSX.Element {
                     onClickOutside: hideProjectSwitcher,
                     sameWidth: true,
                     overlay: <ProjectSwitcherOverlay />,
+                    actionable: true,
                 }}
             >
                 <strong>{currentTeam?.name}</strong>

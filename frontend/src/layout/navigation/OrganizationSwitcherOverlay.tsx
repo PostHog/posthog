@@ -11,6 +11,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, OrganizationBasicType } from '~/types'
 import { lemonadeLogic } from '../lemonade/lemonadeLogic'
+import './ScopeSwitchers.scss'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     return (
@@ -72,7 +73,10 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
     const { otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     return (
-        <>
+        <div className="scope-switcher">
+            <div className="scope-header">
+                <h4>Organizations</h4>
+            </div>
             {currentOrganization && (
                 <LemonRow status="highlighted" fullWidth icon={<Lettermark name={currentOrganization.name} />}>
                     <div className="SitePopover__main-info SitePopover__organization">
@@ -85,6 +89,6 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
                 <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} />
             ))}
             {preflight?.can_create_org && <NewOrganizationButton />}
-        </>
+        </div>
     )
 }
