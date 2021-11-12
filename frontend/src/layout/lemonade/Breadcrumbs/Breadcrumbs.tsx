@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
+import { CaretDownOutlined } from '@ant-design/icons'
 import { IconExpandMore } from '../../../lib/components/icons'
 import { Link } from '../../../lib/components/Link'
 import './Breadcrumbs.scss'
 import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
-import { Tooltip } from '../../../lib/components/Tooltip'
 import clsx from 'clsx'
 import { Skeleton } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -23,6 +23,7 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
         >
             {breadcrumb.symbol}
             {breadcrumb.name}
+            {breadcrumb.popup && <CaretDownOutlined style={{ color: 'var(--muted-alt)', marginLeft: 4 }} />}
         </div>
     )
 
@@ -36,10 +37,6 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
                 {breadcrumbContent}
             </Popup>
         )
-    }
-
-    if (breadcrumb.tooltip) {
-        return <Tooltip title={breadcrumb.tooltip}>{breadcrumbContent}</Tooltip>
     }
 
     return breadcrumbContent

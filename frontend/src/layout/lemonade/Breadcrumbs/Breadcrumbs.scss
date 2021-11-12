@@ -27,9 +27,9 @@
     font-weight: $medium;
     white-space: pre;
     user-select: none;
+    padding-bottom: 4px; // For popovers to have some room
 
     &--current {
-        font-weight: bold;
         color: $text_default;
         cursor: default;
     }

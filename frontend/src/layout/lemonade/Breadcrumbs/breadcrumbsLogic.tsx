@@ -27,8 +27,6 @@ export interface Breadcrumb {
     symbol?: React.ReactNode
     /** Path to link to. */
     path?: string
-    /** Tooltip on hover. */
-    tooltip?: string
     /** Whether this breadcrumb refers to the current location. */
     here?: boolean
     /** Whether to show a custom popup */
