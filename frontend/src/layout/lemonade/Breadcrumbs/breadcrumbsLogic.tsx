@@ -102,6 +102,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     breadcrumbs.push({
                         name: currentOrganization.name,
                         symbol: <Lettermark name={currentOrganization.name} />,
+                        here: activeScene === Scene.OrganizationSettings,
+                        path: activeScene === Scene.OrganizationSettings ? undefined : urls.organizationSettings(),
                     })
                 }
                 // Project
@@ -111,10 +113,15 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     }
                     breadcrumbs.push({
                         name: currentTeam.name,
+                        here: activeScene === Scene.ProjectSettings,
+                        path: activeScene === Scene.ProjectSettings ? undefined : urls.projectSettings(),
                     })
                 }
                 // Parent page handling
                 switch (activeScene) {
+                    case Scene.ProjectSettings:
+                    case Scene.OrganizationSettings:
+                        break
                     case Scene.Person:
                         breadcrumbs.push({
                             name: 'Persons',
