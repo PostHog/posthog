@@ -15,7 +15,7 @@ export const asDisplay = (person: Partial<PersonType> | null | undefined): strin
     let display, displayId
     const propertyIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
-        : 'with no ids'
+        : 'with no IDs'
     const customIdentifier =
         typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 

@@ -504,7 +504,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
-    type: ViewType
+    type: InsightType
 }
 
 export interface SavedFunnel extends InsightHistory {
@@ -767,10 +767,7 @@ export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `rem
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
-// NB! Keep InsightType and ViewType in sync!
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-
-export enum ViewType {
+export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
@@ -814,6 +811,7 @@ export interface FilterType {
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+    breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -866,6 +864,7 @@ export interface FilterType {
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
 export interface SystemStatusSubrows {
@@ -955,6 +954,10 @@ export interface TrendResult {
 
 export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
+    persons: {
+        url: string
+        filter: Partial<FilterType>
+    }
 }
 
 export interface FunnelStep {
@@ -1342,7 +1345,9 @@ export interface FunnelCorrelation {
     event: Pick<EventType, 'elements' | 'event' | 'properties'>
     odds_ratio: number
     success_count: number
+    success_people_url: string
     failure_count: number
+    failure_people_url: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
         | FunnelCorrelationResultsType.Events
@@ -1366,4 +1371,9 @@ export enum HelpType {
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+}
+
+export interface VersionType {
+    version: string
+    release_date?: string
 }

@@ -33,7 +33,7 @@ import {
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, HotKeys, ViewType } from '~/types'
+import { DashboardType, HotKeys, InsightType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { canViewPlugins } from 'scenes/plugins/access'
@@ -224,7 +224,7 @@ function MenuItems(): JSX.Element {
                 title="New Insight"
                 icon={<IconExplore />}
                 identifier={Scene.Insights}
-                to={urls.newInsight(ViewType.TRENDS)}
+                to={urls.newInsight(InsightType.TRENDS)}
                 hotkey="x"
                 tooltip="Answers to all your analytics questions"
             />

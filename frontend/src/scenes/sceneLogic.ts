@@ -23,6 +23,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.EventPropertyStats]: Scene.Events,
     [Scene.Person]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
+    [Scene.FeatureFlag]: Scene.FeatureFlags,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -106,8 +107,8 @@ export const sceneLogic = kea<sceneLogicType>({
     selectors: {
         sceneConfig: [
             (s) => [s.scene],
-            (scene: Scene): SceneConfig => {
-                return sceneConfigurations[scene] ?? {}
+            (scene: Scene): SceneConfig | null => {
+                return sceneConfigurations[scene] || null
             },
         ],
         activeScene: [

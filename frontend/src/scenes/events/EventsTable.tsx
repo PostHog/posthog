@@ -16,7 +16,7 @@ import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
-import { ActionType, EventsTableRowItem, EventType, ViewType } from '~/types'
+import { ActionType, EventsTableRowItem, EventType, InsightType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
@@ -198,7 +198,7 @@ export function EventsTable({
                     let params
                     if (event.event === '$pageview') {
                         params = {
-                            insight: ViewType.TRENDS,
+                            insight: InsightType.TRENDS,
                             interval: 'day',
                             display: 'ActionsLineGraph',
                             actions: [],
@@ -220,7 +220,7 @@ export function EventsTable({
                         }
                     } else {
                         params = {
-                            insight: ViewType.TRENDS,
+                            insight: InsightType.TRENDS,
                             interval: 'day',
                             display: 'ActionsLineGraph',
                             actions: [],

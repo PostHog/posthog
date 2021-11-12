@@ -23,6 +23,9 @@ import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/Fu
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { AggregationSelect } from 'scenes/insights/AggregationSelect'
+import { groupsModel } from '~/models/groupsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function FunnelTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -30,6 +33,7 @@ export function FunnelTab(): JSX.Element {
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const [savingModal, setSavingModal] = useState<boolean>(false)
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
@@ -60,7 +64,18 @@ export function FunnelTab(): JSX.Element {
                                 </h4>
                                 {clickhouseFeaturesEnabled && (
                                     <Row align="middle" style={{ padding: '0 4px' }}>
-                                        <span className="l5 text-muted-alt">
+                                        {showGroupsOptions && (
+                                            <span className="l5 text-muted-alt">
+                                                <span style={{ marginRight: 5 }}>Aggregating by</span>
+                                                <AggregationSelect
+                                                    aggregationGroupTypeIndex={filters.aggregation_group_type_index}
+                                                    onChange={(newValue) => {
+                                                        setFilters({ aggregation_group_type_index: newValue })
+                                                    }}
+                                                />
+                                            </span>
+                                        )}
+                                        <span className="l5 text-muted-alt" style={{ marginLeft: 8 }}>
                                             <span style={{ marginRight: 5 }}>Step Order</span>
                                             <FunnelStepOrderPicker />
                                             <Tooltip
@@ -161,6 +176,13 @@ export function FunnelTab(): JSX.Element {
                                 properties: anyProperties.filter(isValidPropertyFilter),
                             })
                         }}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                     {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (
