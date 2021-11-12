@@ -124,7 +124,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                         # everyone converted, otherwise they would not have been
                         # included in the funnel. What should this mean for
                         # unordered funnels? I'm not sure.
-                        if step.order
+                        if step.index
                         else None
                     ),
                 }
