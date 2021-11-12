@@ -7,10 +7,10 @@ import clsx from 'clsx'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
 import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
-import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recordings/player/eventsListLogic'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recordings/player/eventsListLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
-import { eventToDescription, Loading, capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function PlayerEvents(): JSX.Element {
@@ -18,7 +18,6 @@ export function PlayerEvents(): JSX.Element {
     const { localFilters, listEvents, cellMeasurerCache, isEventCurrent, isRowIndexRendered } =
         useValues(eventsListLogic)
     const { setLocalFilters, setRenderedRows } = useActions(eventsListLogic)
-    console.log('CACHE', cellMeasurerCache)
 
     function Event({ index, style, key, parent }: ListRowProps): JSX.Element {
         const event = listEvents[index]
@@ -50,13 +49,16 @@ export function PlayerEvents(): JSX.Element {
                         <div className="event-item-icon-wrapper">{renderIcon()}</div>
                     </Col>
                     <Col className={clsx('event-item-text', { rendering: !isRowIndexRendered(index) })}>
-                        <PropertyKeyInfo
-                            className="event-item-text-title"
-                            value={event.event}
-                            disableIcon
-                            disablePopover
-                            ellipsis={false}
-                        />
+                        <Row className="event-item-text-top-row">
+                            <PropertyKeyInfo
+                                className="event-item-text-title"
+                                value={event.event}
+                                disableIcon
+                                disablePopover
+                                ellipsis={false}
+                            />
+                            {event.colonTimestamp}
+                        </Row>
                         {hasDescription && (
                             <span className="event-item-text-subtitle">
                                 {capitalizeFirstLetter(eventToDescription(event))}

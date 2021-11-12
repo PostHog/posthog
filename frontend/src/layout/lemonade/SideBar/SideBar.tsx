@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import React, { useState } from 'react'
+import { sceneConfigurations } from 'scenes/scenes'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcherOverlay'
 import {
     IconArrowDropDown,
     IconBarChart,
@@ -23,7 +24,6 @@ import {
     LemonButtonWithSideAction,
     SideAction,
 } from '../../../lib/components/LemonButton'
-import { LemonRow } from '../../../lib/components/LemonRow'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '../../../models/dashboardsModel'
 import { organizationLogic } from '../../../scenes/organizationLogic'
@@ -32,70 +32,16 @@ import { sceneLogic } from '../../../scenes/sceneLogic'
 import { Scene } from '../../../scenes/sceneTypes'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
-import { userLogic } from '../../../scenes/userLogic'
-import { AvailableFeature, TeamBasicType, InsightType } from '../../../types'
+import { InsightType } from '../../../types'
 import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
 import { lemonadeLogic } from '../lemonadeLogic'
 import './SideBar.scss'
 
-function CurrentProjectButton(): JSX.Element {
+function SidebarProjectSwitcher(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { push } = useActions(router)
-    const { hideProjectSwitcher } = useActions(lemonadeLogic)
-
-    return (
-        <LemonRow
-            status="highlighted"
-            sideIcon={
-                <LemonButton
-                    compact
-                    onClick={() => {
-                        hideProjectSwitcher()
-                        push(urls.projectSettings())
-                    }}
-                    icon={<IconSettings />}
-                />
-            }
-            fullWidth
-        >
-            <strong>{currentTeam?.name}</strong>
-        </LemonRow>
-    )
-}
-
-function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
-    const { updateCurrentTeam } = useActions(userLogic)
-    const { hideProjectSwitcher } = useActions(lemonadeLogic)
-
-    return (
-        <LemonButtonWithSideAction
-            onClick={() => {
-                hideProjectSwitcher()
-                updateCurrentTeam(team.id, '/')
-            }}
-            sideAction={{
-                icon: <IconSettings />,
-                tooltip: `Go to ${team.name} settings`,
-                onClick: () => {
-                    hideProjectSwitcher()
-                    updateCurrentTeam(team.id, '/project/settings')
-                },
-            }}
-            title={`Switch to project ${team.name}`}
-            type="stealth"
-            fullWidth
-        >
-            {team.name}
-        </LemonButtonWithSideAction>
-    )
-}
-
-export function ProjectSwitcher(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { isProjectSwitcherShown } = useValues(lemonadeLogic)
-    const { showCreateProjectModal, toggleProjectSwitcher, hideProjectSwitcher } = useActions(lemonadeLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(lemonadeLogic)
 
     return (
         <div className="ProjectSwitcher">
@@ -109,33 +55,8 @@ export function ProjectSwitcher(): JSX.Element {
                     visible: isProjectSwitcherShown,
                     onClickOutside: hideProjectSwitcher,
                     sameWidth: true,
-                    overlay: (
-                        <>
-                            <CurrentProjectButton />
-                            {currentOrganization?.teams &&
-                                currentOrganization.teams
-                                    .filter((team) => team.id !== currentTeam?.id)
-                                    .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                                    .map((team) => <OtherProjectButton key={team.id} team={team} />)}
-
-                            <LemonButton
-                                icon={<IconPlus />}
-                                fullWidth
-                                disabled={isProjectCreationForbidden}
-                                onClick={() => {
-                                    hideProjectSwitcher()
-                                    guardAvailableFeature(
-                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                        'multiple projects',
-                                        'Projects allow you to separate data and configuration for different products or environments.',
-                                        showCreateProjectModal
-                                    )
-                                }}
-                            >
-                                New project
-                            </LemonButton>
-                        </>
-                    ),
+                    overlay: <ProjectSwitcherOverlay />,
+                    actionable: true,
                 }}
             >
                 <strong>{currentTeam?.name}</strong>
@@ -148,10 +69,11 @@ function Spacer(): JSX.Element {
     return <div className="SideBar__spacer" />
 }
 
-interface PageButtonProps extends Pick<LemonButtonProps, 'title' | 'icon' | 'onClick' | 'popup' | 'to'> {
+interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
     sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
+    title?: string
 }
 
 function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButtonProps): JSX.Element {
@@ -177,7 +99,7 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             {...buttonProps}
         >
-            {title}
+            {title || sceneConfigurations[identifier].name}
         </LemonButtonWithSideAction>
     ) : (
         <LemonButton
@@ -186,7 +108,7 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             {...buttonProps}
         >
-            {title}
+            {title || sceneConfigurations[identifier].name}
         </LemonButton>
     )
 }
@@ -212,7 +134,6 @@ function Pages(): JSX.Element {
                 </>
             )}
             <PageButton
-                title="Dashboards"
                 icon={<IconGauge />}
                 identifier={Scene.Dashboards}
                 to={urls.dashboards()}
@@ -243,7 +164,6 @@ function Pages(): JSX.Element {
                 }}
             />
             <PageButton
-                title="Insights"
                 icon={<IconBarChart />}
                 identifier={Scene.SavedInsights}
                 to={urls.savedInsights()}
@@ -254,44 +174,19 @@ function Pages(): JSX.Element {
                     identifier: Scene.Insights,
                 }}
             />
-            <PageButton
-                title="Recordings"
-                icon={<IconRecording />}
-                identifier={Scene.SessionRecordings}
-                to={urls.sessionRecordings()}
-            />
-            <PageButton
-                title="Feature flags"
-                icon={<IconFlag />}
-                identifier={Scene.FeatureFlags}
-                to={urls.featureFlags()}
-            />
+            <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
+            <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
             <Spacer />
-            <PageButton
-                title="Events & actions"
-                icon={<IconGroupedEvents />}
-                identifier={Scene.Events}
-                to={urls.events()}
-            />
-            <PageButton title="Persons" icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
-            <PageButton title="Cohorts" icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
-            <PageButton
-                title="Annotations"
-                icon={<IconComment />}
-                identifier={Scene.Annotations}
-                to={urls.annotations()}
-            />
+            <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
+            <PageButton icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
+            <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
+            <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
             <Spacer />
             {canViewPlugins(currentOrganization) && (
-                <PageButton title="Plugins" icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
+                <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
             )}
             <PageButton title="Toolbar" icon={<IconTools />} identifier="Toolbar" onClick={showToolbarModal} />
-            <PageButton
-                title="Project settings"
-                icon={<IconSettings />}
-                identifier={Scene.ProjectSettings}
-                to={urls.projectSettings()}
-            />
+            <PageButton icon={<IconSettings />} identifier={Scene.ProjectSettings} to={urls.projectSettings()} />
         </div>
     )
 }
@@ -304,7 +199,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
             <div className="SideBar__slider">
                 <div className="SideBar__content">
-                    <ProjectSwitcher />
+                    <SidebarProjectSwitcher />
                     <Spacer />
                     <Pages />
                 </div>

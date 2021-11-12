@@ -26,7 +26,6 @@ describe('eventsListLogic', () => {
             })
                 .toDispatchActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
                 .toNotHaveDispatchedActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
-                .toDispatchActions(['clearCellCache'])
         })
     })
 

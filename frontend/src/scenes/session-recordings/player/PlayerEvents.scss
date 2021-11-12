@@ -77,6 +77,10 @@
                 padding: 0 $recording_spacing / 2;
                 min-width: 0;
 
+                .event-item-text-top-row {
+                    justify-content: space-between;
+                }
+
                 .event-item-text-title {
                     font-weight: 600;
                 }
