@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch, Typography, Input } from 'antd'
+import { Switch, Typography, Input } from 'antd'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
@@ -18,6 +18,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonTable, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -26,12 +27,14 @@ export const scene: SceneExport = {
 
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+    // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
     const { featureFlags, featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
     const { push } = useActions(router)
+    // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
     const { tableScrollX } = useIsTableScrolling('lg')
 
-    const columns = [
+    const columns: LemonTableColumns<FeatureFlagType> = [
         {
             title: normalizeColumnTitle('Key'),
             dataIndex: 'key',
@@ -39,7 +42,7 @@ export function FeatureFlags(): JSX.Element {
             fixed: 'left',
             width: '15%',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
+            render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <div
                         style={{
@@ -68,7 +71,7 @@ export function FeatureFlags(): JSX.Element {
         },
         {
             title: normalizeColumnTitle('Description'),
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
+            render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <div
                         style={{
@@ -97,7 +100,7 @@ export function FeatureFlags(): JSX.Element {
         createdByColumn(featureFlags),
         {
             title: 'Filters',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
+            render: function Render(_, featureFlag: FeatureFlagType) {
                 if (!featureFlag.filters?.groups) {
                     return 'N/A'
                 }
@@ -111,7 +114,7 @@ export function FeatureFlags(): JSX.Element {
             title: 'Enabled',
             width: 90,
             align: 'right',
-            render: function RenderActive(_: string, featureFlag: FeatureFlagType) {
+            render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
                     <Switch
                         onClick={(_checked, e) => e.stopPropagation()}
@@ -127,7 +130,7 @@ export function FeatureFlags(): JSX.Element {
             title: normalizeColumnTitle('Usage'),
             width: 100,
             align: 'right',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
+            render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <Link
                         to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}`}
@@ -143,7 +146,7 @@ export function FeatureFlags(): JSX.Element {
             title: normalizeColumnTitle('Actions'),
             width: 100,
             align: 'right',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
+            render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
                         <Link to={`/feature_flags/${featureFlag.id}`}>
@@ -193,19 +196,14 @@ export function FeatureFlags(): JSX.Element {
                     </LinkButton>
                 </div>
             </div>
-            <Table
+            <LemonTable
                 dataSource={searchedFeatureFlags}
                 columns={columns}
-                loading={featureFlagsLoading && featureFlags.length === 0}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
                     onClick: () => featureFlag.id && push(urls.featureFlag(featureFlag.id)),
                     style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}
-                size="small"
-                rowClassName="cursor-pointer"
                 data-attr="feature-flag-table"
-                scroll={{ x: tableScrollX }}
             />
         </div>
     )

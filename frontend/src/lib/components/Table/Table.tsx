@@ -5,10 +5,14 @@ import { userLogic } from 'scenes/userLogic'
 import { TZLabel } from '../TimezoneAware'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 
-export function createdAtColumn(): Record<string, any> {
+export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): {
+    title: React.ReactElement
+    render: (_: any, item: T) => JSX.Element | undefined | ''
+    sorter: (a: any, b: any) => number
+} {
     return {
         title: normalizeColumnTitle('Created'),
-        render: function RenderCreatedAt(_: any, item: Record<string, any>): JSX.Element | undefined | '' {
+        render: function RenderCreatedAt(_: any, item: T): JSX.Element | undefined | '' {
             return (
                 item.created_at && (
                     <div style={{ whiteSpace: 'nowrap' }}>
@@ -17,12 +21,19 @@ export function createdAtColumn(): Record<string, any> {
                 )
             )
         },
-        sorter: (a: Record<string, any>, b: Record<string, any>) =>
-            new Date(a.created_at) > new Date(b.created_at) ? 1 : -1,
+        sorter: (a: T, b: T) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
     }
 }
 
-export function createdByColumn(items: Record<string, any>[]): Record<string, any> {
+export function createdByColumn<T extends Record<string, any> = Record<string, any>>(
+    items: T[]
+): {
+    title: React.ReactElement
+    render: (_: any, item: T) => JSX.Element | undefined | ''
+    filters: { text: string; value: string | null }[]
+    onFilter: (value: any, item: T) => boolean
+    sorter: (a: any, b: any) => number
+} {
     const { user } = useValues(userLogic)
     return {
         title: normalizeColumnTitle('Created by'),
@@ -34,7 +45,7 @@ export function createdByColumn(items: Record<string, any>[]): Record<string, an
             )
         },
         filters: uniqueBy(
-            items.map((item: Record<string, any>) => {
+            items.map((item: T) => {
                 if (!item.created_by) {
                     return {
                         text: '(none)',

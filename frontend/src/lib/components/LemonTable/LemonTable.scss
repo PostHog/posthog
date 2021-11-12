@@ -1,0 +1,34 @@
+.LemonTable {
+    width: 100%;
+    table {
+        width: 100%;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: #fff;
+        border-collapse: separate;
+        border-spacing: 0;
+        overflow: hidden;
+    }
+    thead {
+        height: 3rem;
+        background: var(--bg-mid);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.03125rem;
+        text-transform: uppercase;
+    }
+    tbody {
+        tr {
+            border-top: 1px solid var(--border);
+        }
+    }
+    tr {
+    }
+    th,
+    td {
+        padding-left: 1.5rem;
+        &:last-child {
+            padding-right: 1.5rem;
+        }
+    }
+}
