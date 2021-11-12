@@ -93,6 +93,17 @@ RUN apk --update --no-cache --virtual .build-deps add \
 # Copy everything else
 COPY . .
 
+# Build the plugin server
+#
+# Note: we run the build as a separate actions to increase
+# the cache hit ratio of the layers above.
+# symlink musl -> ld-linux is required for re2 compat on alpine
+RUN cd plugin-server \
+    && ln -s /lib/ld-musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2 \  
+    && yarn build \
+    && yarn cache clean \
+    && cd .. 
+
 # Build the frontend
 #
 # Note: we run the build as a separate actions to increase
