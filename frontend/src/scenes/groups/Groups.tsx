@@ -55,7 +55,7 @@ export function Groups(): JSX.Element {
                     <Button
                         type="link"
                         disabled={!groups.next_url}
-                        onClick={() => loadGroups(groups.next_urk) && window.scrollTo(0, 0)}
+                        onClick={() => loadGroups(groups.next_url) && window.scrollTo(0, 0)}
                     >
                         Next <RightOutlined />
                     </Button>

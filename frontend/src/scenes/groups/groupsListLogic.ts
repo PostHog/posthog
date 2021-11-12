@@ -15,7 +15,7 @@ export const groupsListLogic = kea<groupsListLogic>({
     path: ['groups', 'groupsListLogic'],
     connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled', 'groupTypes']] },
     actions: () => ({
-        loadGroups: (url?: string) => ({ url }),
+        loadGroups: (url?: string | null) => ({ url }),
         setTab: (tab: string) => ({ tab }),
     }),
     loaders: ({ values }) => ({
