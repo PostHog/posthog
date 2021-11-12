@@ -12,7 +12,6 @@ from posthog.constants import (
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
 )
-from posthog.models.filters.path_filter import PathFilter
 from posthog.utils import is_clickhouse_enabled
 
 
@@ -28,6 +27,7 @@ def earliest_timestamp_func(team_id: int):
 
 def get_filter(team, data: dict = {}, request: Optional[Request] = None):
     from posthog.models.filters.filter import Filter
+    from posthog.models.filters.path_filter import PathFilter
     from posthog.models.filters.retention_filter import RetentionFilter
     from posthog.models.filters.sessions_filter import SessionsFilter
     from posthog.models.filters.stickiness_filter import StickinessFilter

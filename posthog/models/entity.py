@@ -7,8 +7,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
-from posthog.models.filters.mixins.groups import validate_group_type_index
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.utils import sane_repr
 
 MATH_TYPE = Literal[
@@ -67,7 +67,9 @@ class Entity(PropertyMixin):
         self.custom_name = custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
-        self.math_group_type_index = validate_group_type_index(data.get("math_group_type_index"))
+        self.math_group_type_index = validate_group_type_index(
+            "math_group_type_index", data.get("math_group_type_index")
+        )
 
         self._action: Optional[Action] = None
         self._data = data  # push data to instance object so mixins are handled properly

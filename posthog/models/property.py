@@ -51,7 +51,7 @@ class Property:
         self.value = value
         self.operator = operator
         self.type = type if type else "event"
-        self.group_type_index = validate_group_type_index(group_type_index)
+        self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
