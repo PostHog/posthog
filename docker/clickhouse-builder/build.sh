@@ -8,4 +8,5 @@
 
 cd "$(dirname "$0")"
 
-docker build assets -f assets/arm64.compile.Dockerfile -t clickhouse-dev-arm64:latest
+# DOCKER_BUILDKIT=0 and --progress=plain are just to help debugging
+DOCKER_BUILDKIT=0 docker build assets -f assets/arm64.compile.Dockerfile -t clickhouse-dev-arm64:pauld --progress=plain
