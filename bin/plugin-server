@@ -44,12 +44,10 @@ fi
 
 cd plugin-server
 
-echo "🧐 Verifying installed packages..."
-yarn --frozen-lockfile
-if [[ -z $DEBUG ]]; then
-  yarn build
-  yarn cache clean
-  rm -rf node_modules
+echo "🚦 Starting plugin server..."
+if [[ -n $DEBUG ]]; then
+  echo "🧐 Verifying installed packages..."
+  yarn --frozen-lockfile
 fi
 
 if [ $? -ne 0 ]; then
