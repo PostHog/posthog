@@ -14,8 +14,7 @@ services:
         ports:
             - '6379:6379'
     clickhouse:
-        # Build with: yarn arm64:build:clickhouse
-        image: clickhouse-dev-arm64:latest
+        image: altinity/clickhouse-server:21.6.1.6734-testing-arm
         depends_on:
             - kafka
             - zookeeper
