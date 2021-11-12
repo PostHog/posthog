@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 import React from 'react'
-import { IconExpandMore } from '../../../lib/components/icons'
-import { Link } from '../../../lib/components/Link'
+import { IconExpandMore } from 'lib/components/icons'
+import { Link } from 'lib/components/Link'
 import './Breadcrumbs.scss'
 import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
-import { Tooltip } from '../../../lib/components/Tooltip'
 import clsx from 'clsx'
 import { Skeleton } from 'antd'
 
@@ -17,17 +16,6 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
     )
     if (breadcrumb.path) {
         breadcrumbContent = <Link to={breadcrumb.path}>{breadcrumbContent}</Link>
-    }
-    let { tooltip } = breadcrumb
-    if (!tooltip) {
-        if (breadcrumb.path) {
-            tooltip = `Go to ${breadcrumb.name}`
-        } else if (breadcrumb.here) {
-            tooltip = 'You are here'
-        }
-    }
-    if (tooltip) {
-        breadcrumbContent = <Tooltip title={tooltip}>{breadcrumbContent}</Tooltip>
     }
     return breadcrumbContent
 }

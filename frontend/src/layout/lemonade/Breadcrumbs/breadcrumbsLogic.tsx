@@ -1,21 +1,18 @@
 import { kea } from 'kea'
-import { organizationLogic } from '../../../scenes/organizationLogic'
-import { teamLogic } from '../../../scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import './Breadcrumbs.scss'
 import { breadcrumbsLogicType } from './breadcrumbsLogicType'
-import { sceneLogic } from '../../../scenes/sceneLogic'
-import { Scene } from '../../../scenes/sceneTypes'
-import { urls } from '../../../scenes/urls'
-import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
-import { identifierToHuman, stripHTTP } from '../../../lib/utils'
-import { userLogic } from '../../../scenes/userLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { identifierToHuman, stripHTTP } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 import React from 'react'
-import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
-import { ProfilePicture } from '../../../lib/components/ProfilePicture'
-import { dashboardsModel } from '../../../models/dashboardsModel'
-import { featureFlagLogic } from '../../../scenes/feature-flags/featureFlagLogic'
-import { personsLogic } from '../../../scenes/persons/personsLogic'
-import { asDisplay } from '../../../scenes/persons/PersonHeader'
+import { Lettermark } from 'lib/components/Lettermark/Lettermark'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export interface Breadcrumb {
     /** Name to display. */
@@ -24,8 +21,6 @@ export interface Breadcrumb {
     symbol?: React.ReactNode
     /** Path to link to. */
     path?: string
-    /** Tooltip on hover. */
-    tooltip?: string
     /** Whether this breadcrumb refers to the current location. */
     here?: boolean
 }
@@ -51,10 +46,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
             ['currentTeam', 'currentTeamLoading'],
             dashboardsModel,
             ['rawDashboards', 'lastDashboardId'],
-            featureFlagLogic,
-            ['featureFlag'],
-            personsLogic,
-            ['person'],
         ],
     },
     selectors: {
@@ -68,8 +59,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 s.currentTeam,
                 s.rawDashboards,
                 s.lastDashboardId,
-                s.featureFlag,
-                s.person,
             ],
             (
                 preflight,
@@ -79,9 +68,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 currentOrganization,
                 currentTeam,
                 rawDashboards,
-                lastDashboardId,
-                featureFlag,
-                person
+                lastDashboardId
             ) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene) {
@@ -94,7 +81,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     }
                     breadcrumbs.push({
                         name: user.first_name,
-                        tooltip: 'You',
                         symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
                     })
                 }
@@ -105,7 +91,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     }
                     breadcrumbs.push({
                         name: stripHTTP(preflight.site_url),
-                        tooltip: 'This PostHog instance',
                         symbol: <Lettermark name="@" />,
                     })
                 }
@@ -117,7 +102,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     breadcrumbs.push({
                         name: currentOrganization.name,
                         symbol: <Lettermark name={currentOrganization.name} />,
-                        tooltip: 'Current organization',
                     })
                 }
                 // Project
@@ -127,7 +111,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     }
                     breadcrumbs.push({
                         name: currentTeam.name,
-                        tooltip: 'Current project',
                     })
                 }
                 // Parent page handling
@@ -139,7 +122,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         })
                         // Current place
                         breadcrumbs.push({
-                            name: person ? asDisplay(person) : null,
+                            name: 'Person',
                             here: true,
                         })
                         break
@@ -172,7 +155,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         })
                         // Current place
                         breadcrumbs.push({
-                            name: featureFlag ? featureFlag.key || 'Unnamed flag' : null,
+                            name: 'Feature Flag',
                             here: true,
                         })
                         break
