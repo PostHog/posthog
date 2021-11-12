@@ -38,19 +38,17 @@ class ClickhouseTestInsights(
 
     @snapshot_clickhouse_queries
     def test_insight_trends_basic(self):
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            p1 = _create_person(distinct_ids=["1"], team=self.team)
-            p2 = _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
+
+        events_by_person = {
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
+        }
+        created_people = journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
 
             request = TrendsRequest(
                 date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
                 display="ActionsLineGraph",
                 events=[
                     {
@@ -75,25 +73,22 @@ class ClickhouseTestInsights(
         with freeze_time("2012-01-15T04:01:34.000Z"):
             people = get_trends_people_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
 
-        assert sorted([p["id"] for p in people]) == sorted([p1.pk, p2.pk])
+        assert sorted([p["id"] for p in people]) == sorted(
+            [str(created_people["1"].uuid), str(created_people["2"].uuid)]
+        )
 
     @snapshot_clickhouse_queries
     def test_insight_trends_aggregate(self):
 
-        with freeze_time("2012-01-13T03:21:34.000Z"):
-            p1 = _create_person(distinct_ids=["1"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            p2 = _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
+        events_by_person = {
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
+        }
+        created_people = journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             request = TrendsRequest(
                 date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
                 display="ActionsPie",
                 events=[
                     {
@@ -116,28 +111,27 @@ class ClickhouseTestInsights(
         with freeze_time("2012-01-15T04:01:34.000Z"):
             people = get_trends_people_ok(self.client, data["$pageview"].person_url)
 
-        assert sorted([p["id"] for p in people]) == sorted([p1.pk, p2.pk])
+        assert sorted([p["id"] for p in people]) == sorted(
+            [str(created_people["1"].uuid), str(created_people["2"].uuid)]
+        )
 
     @snapshot_clickhouse_queries
     def test_insight_trends_cumulative(self):
-        with freeze_time("2012-01-13T03:21:34.000Z"):
-            p1 = _create_person(distinct_ids=["1"], team=self.team)
-            p2 = _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
 
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            p3 = _create_person(distinct_ids=["3"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="3", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
+        events_by_person = {
+            "p1": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "val"}},
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}},
+            ],
+            "p2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "notval"}},],
+            "p3": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}},],
+        }
+        created_people = journeys_for(events_by_person, self.team)
 
         # Total Volume
         with freeze_time("2012-01-15T04:01:34.000Z"):
             request = TrendsRequest(
                 date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
                 display="ActionsLineGraphCumulative",
                 events=[
                     {
@@ -160,16 +154,15 @@ class ClickhouseTestInsights(
         assert data_response["$pageview"]["2012-01-15"].value == 4
         assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
 
-        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p2.pk, p3.pk])
+        assert sorted([p["id"] for p in person_response]) == sorted(
+            [str(created_people["p1"].uuid), str(created_people["p2"].uuid), str(created_people["p3"].uuid)]
+        )
 
         # DAU
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             request = TrendsRequest(
                 date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
                 display="ActionsLineGraphCumulative",
                 events=[
                     {
@@ -192,15 +185,14 @@ class ClickhouseTestInsights(
         assert data_response["$pageview"]["2012-01-15"].value == 3
         assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
 
-        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p2.pk, p3.pk])
+        assert sorted([p["id"] for p in person_response]) == sorted(
+            [str(created_people["p1"].uuid), str(created_people["p2"].uuid), str(created_people["p3"].uuid)]
+        )
 
         # breakdown
         with freeze_time("2012-01-15T04:01:34.000Z"):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
                 display="ActionsLineGraphCumulative",
                 breakdown="key",
                 breakdown_type="event",
@@ -227,15 +219,14 @@ class ClickhouseTestInsights(
         assert data_response["$pageview - val"]["2012-01-14"].value == 3
         assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
 
-        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p3.pk])
+        assert sorted([p["id"] for p in person_response]) == sorted(
+            [str(created_people["p1"].uuid), str(created_people["p3"].uuid)]
+        )
 
         # breakdown dau
         with freeze_time("2012-01-15T04:01:34.000Z"):
             request = TrendsRequestBreakdown(
                 date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
                 display="ActionsLineGraphCumulative",
                 breakdown="key",
                 breakdown_type="event",
@@ -260,45 +251,45 @@ class ClickhouseTestInsights(
         assert data_response["$pageview - val"]["2012-01-14"].value == 2
         assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
 
-        assert sorted([p["id"] for p in people]) == sorted([p1.pk, p3.pk])
+        assert sorted([p["id"] for p in people]) == sorted(
+            [str(created_people["p1"].uuid), str(created_people["p3"].uuid)]
+        )
 
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
-        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
-        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "oh"})
+        events_by_person = {
+            "person1": [{"event": "sign up", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "val"}},],
+            "person2": [{"event": "sign up", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "oh"}},],
+        }
+        created_people = journeys_for(events_by_person, self.team)
 
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "breakdown": "key",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-                "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            params = TrendsRequestBreakdown(
+                date_from="-14d",
+                breakdown="key",
+                events=[{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                properties=[{"key": "key", "value": "oh", "operator": "not_icontains"}],
+            )
+            data_response = get_trends_time_series_ok(self.client, params, self.team)
+            person_response = get_trends_people_ok(self.client, data_response["sign up - val"]["2012-01-13"].person_url)
 
-        self.assertEqual(response["result"][0]["count"], 1)
-        # don't return none option when empty
-        self.assertEqual(response["result"][0]["breakdown_value"], "val")
-        person_response = self.client.get("/" + response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(len(person_response["results"][0]["people"]), 1)
+        assert data_response["sign up - val"]["2012-01-13"].value == 1
+        assert data_response["sign up - val"]["2012-01-13"].breakdown_value == "val"
 
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "breakdown": "key",
-                "display": "ActionsPie",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
+        assert sorted([p["id"] for p in person_response]) == sorted([str(created_people["person1"].uuid)])
 
-        self.assertEqual(response["result"][0]["aggregated_value"], 1)
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            params = TrendsRequestBreakdown(
+                date_from="-14d",
+                breakdown="key",
+                display="ActionsPie",
+                events=[{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+            )
+            data_response = get_trends_aggregate_ok(self.client, params, self.team)
+            person_response = get_trends_people_ok(self.client, data_response["sign up - val"].person_url)
 
-        person_response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
-        self.assertEqual(len(person_response["results"][0]["people"]), 1)
+        assert data_response["sign up - val"].value == 1
+        assert sorted([p["id"] for p in person_response]) == sorted([str(created_people["person1"].uuid)])
 
     def test_insight_trends_compare(self):
         events_by_person = {
@@ -311,8 +302,7 @@ class ClickhouseTestInsights(
                 {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "notval"}},
             ],
         }
-        with freeze_time("2012-01-05T03:21:34.000Z"):
-            created_people = journeys_for(events_by_person, self.team)
+        created_people = journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             request = TrendsRequest(

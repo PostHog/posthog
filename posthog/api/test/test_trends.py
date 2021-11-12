@@ -144,11 +144,11 @@ def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], te
         "properties": json.dumps(request.properties),
     }
 
-    filtered_data = {k: v for k, v in data.items() if v is not None}
-
     if isinstance(request, TrendsRequestBreakdown):
-        filtered_data["breakdown"] = request.breakdown
-        filtered_data["breakdown_type"] = request.breakdown_type
+        data["breakdown"] = request.breakdown
+        data["breakdown_type"] = request.breakdown_type
+
+    filtered_data = {k: v for k, v in data.items() if v is not None}
 
     return client.get(f"/api/projects/{team.id}/insights/trend/", data=filtered_data,)
 
