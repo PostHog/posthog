@@ -10,8 +10,8 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import deep_dump_object
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
-from ee.clickhouse.views.test.test_clickhouse_funnel_correlation import create_events
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
 from posthog.models.organization import OrganizationMembership
@@ -265,7 +265,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
         }
 
-        create_events(team=self.team, events_by_person=events)
+        journeys_for(team=self.team, events_by_person=events)
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
@@ -363,7 +363,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties},],
         }
 
-        create_events(team=self.team, events_by_person=events)
+        journeys_for(team=self.team, events_by_person=events)
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
@@ -421,7 +421,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
         }
 
-        create_events(team=self.team, events_by_person=events)
+        journeys_for(team=self.team, events_by_person=events)
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
