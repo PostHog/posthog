@@ -1311,9 +1311,9 @@ export class DB {
         return result
     }
 
-    public async insertGroupType(teamId: TeamId, groupType: string, index: number): Promise<number | null> {
+    public async insertGroupType(teamId: TeamId, groupType: string, index: number): Promise<[number | null, boolean]> {
         if (index >= this.MAX_GROUP_TYPES_PER_TEAM) {
-            return null
+            return [null, false]
         }
 
         const insertGroupTypeResult = await this.postgresQuery(
@@ -1324,9 +1324,9 @@ export class DB {
                 ON CONFLICT DO NOTHING
                 RETURNING group_type_index
             )
-            SELECT * FROM insert_result
+            SELECT group_type_index, 1 AS is_insert  FROM insert_result
             UNION
-            SELECT group_type_index FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $2;
+            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $2;
             `,
             [teamId, groupType, index],
             'insertGroupType'
@@ -1336,7 +1336,9 @@ export class DB {
             return await this.insertGroupType(teamId, groupType, index + 1)
         }
 
-        return insertGroupTypeResult.rows[0].group_type_index
+        const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
+
+        return [group_type_index, is_insert === 1]
     }
 
     public async upsertGroup(
