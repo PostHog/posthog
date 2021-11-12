@@ -55,6 +55,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
@@ -108,6 +109,8 @@ export const funnelLogic = kea<funnelLogicType>({
             ['featureFlags'],
             groupsModel,
             ['groupTypes'],
+            groupPropertiesModel,
+            ['groupProperties'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -1002,9 +1005,13 @@ export const funnelLogic = kea<funnelLogicType>({
             (currentTeam) => currentTeam?.correlation_config?.excluded_event_property_names || [],
         ],
         inversePropertyNames: [
-            (s) => [s.personProperties],
-            (personProperties) => (excludedPersonProperties: string[]) => {
-                return personProperties
+            (s) => [s.filters, s.personProperties, s.groupProperties],
+            (filters, personProperties, groupProperties) => (excludedPersonProperties: string[]) => {
+                const targetProperties =
+                    filters.aggregation_group_type_index !== undefined
+                        ? groupProperties(filters.aggregation_group_type_index)
+                        : personProperties
+                return targetProperties
                     .map((property) => property.name)
                     .filter((property) => !excludedPersonProperties.includes(property))
             },

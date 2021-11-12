@@ -5,7 +5,10 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
-from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
+from ee.clickhouse.queries.funnels.test.breakdown_cases import (
+    assert_funnel_results_equal,
+    funnel_breakdown_test_factory,
+)
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
@@ -97,7 +100,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
         )
 
         result = funnel.run()
-        self.assertEqual(
+        assert_funnel_results_equal(
             result[0],
             [
                 {
@@ -131,7 +134,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
         self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
         self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
 
-        self.assertEqual(
+        assert_funnel_results_equal(
             result[1],
             [
                 {

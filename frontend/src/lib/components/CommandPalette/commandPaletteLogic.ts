@@ -459,7 +459,7 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: InteractionOutlined,
-                        display: 'Go to User Paths',
+                        display: 'Go to Paths',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.newInsight(InsightType.PATHS))
@@ -477,13 +477,6 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Actions',
                         executor: () => {
                             push(urls.actions())
-                        },
-                    },
-                    {
-                        icon: ClockCircleOutlined,
-                        display: 'Go to Live Sessions',
-                        executor: () => {
-                            push(urls.sessions())
                         },
                     },
                     {
@@ -518,7 +511,7 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Team Members',
+                        display: 'Go to Team members',
                         synonyms: ['organization', 'members', 'invites', 'teammates'],
                         executor: () => {
                             push(urls.organizationSettings())
@@ -526,14 +519,14 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: ProjectOutlined,
-                        display: 'Go to Project Settings',
+                        display: 'Go to Project settings',
                         executor: () => {
                             push(urls.projectSettings())
                         },
                     },
                     {
                         icon: SmileOutlined,
-                        display: 'Go to My Settings',
+                        display: 'Go to My settings',
                         synonyms: ['account'],
                         executor: () => {
                             push(urls.mySettings())
@@ -549,7 +542,7 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: DatabaseOutlined,
-                        display: 'Go to System Status Page',
+                        display: 'Go to System status page',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
                             push(urls.systemStatus())
@@ -557,14 +550,14 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: PlusOutlined,
-                        display: 'Create Action',
+                        display: 'Create action',
                         executor: () => {
                             push(urls.createAction())
                         },
                     },
                     {
                         icon: LogoutOutlined,
-                        display: 'Log Out',
+                        display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
                         },

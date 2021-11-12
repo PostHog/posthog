@@ -65,6 +65,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         showSeriesIndicator
                         singleFilter={filters.insight === InsightType.LIFECYCLE}
                         hideMathSelector={filters.insight === InsightType.LIFECYCLE}
+                        propertiesTaxonomicGroupTypes={taxonomicTypes}
                         customRowPrefix={
                             filters.insight === InsightType.LIFECYCLE ? (
                                 <>

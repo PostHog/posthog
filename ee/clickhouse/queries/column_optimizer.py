@@ -113,8 +113,13 @@ class ColumnOptimizer:
                 counter += get_action_tables_and_properties(entity.get_action())
 
         if self.filter.correlation_type == FunnelCorrelationType.PROPERTIES and self.filter.correlation_property_names:
-            for prop_value in self.filter.correlation_property_names:
-                counter[(prop_value, "person", None)] += 1
+
+            if self.filter.aggregation_group_type_index is not None:
+                for prop_value in self.filter.correlation_property_names:
+                    counter[(prop_value, "group", self.filter.aggregation_group_type_index)] += 1
+            else:
+                for prop_value in self.filter.correlation_property_names:
+                    counter[(prop_value, "person", None)] += 1
 
         return counter
 
