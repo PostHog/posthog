@@ -104,7 +104,7 @@ export function FeatureFlags(): JSX.Element {
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 const switchId = `feature-flag-${featureFlag.id}-switch`
                 return (
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'end' }}>
                         <label htmlFor={switchId}>{featureFlag.active ? 'Enabled' : 'Disabled'}</label>
                         <LemonSwitch
                             id={switchId}

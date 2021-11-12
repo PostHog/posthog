@@ -10,8 +10,8 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sorter?: (a: T, b: T) => number
     span?: number
     className?: string
-    /** Column content alignment. Useful e.g. for columns showing numbers, which should be right-aligned */
-    align?: 'left' | 'right'
+    /** Column content alignment. Left by default */
+    align?: 'left' | 'right' | 'center'
     /** TODO: Whether the column should be sticky when scrolling */
     sticky?: boolean
     /** TODO: Set width */
@@ -48,7 +48,7 @@ export function LemonTable<T extends Record<string, any>>({
                             <th
                                 key={headerColIndex}
                                 className={clsx(headerCol.sticky && 'LemonTable__cell--sticky', headerCol.className)}
-                                align={headerCol.align}
+                                style={{ textAlign: headerCol.align }}
                             >
                                 {headerCol.title}
                             </th>
@@ -62,7 +62,7 @@ export function LemonTable<T extends Record<string, any>>({
                                 <td
                                     key={rowColIndex}
                                     className={clsx(rowCol.sticky && 'LemonTable__cell--sticky', rowCol.className)}
-                                    align={rowCol.align}
+                                    style={{ textAlign: rowCol.align }}
                                 >
                                     {rowCol.render
                                         ? rowCol.render(rowCol.dataIndex ? data[rowCol.dataIndex] : undefined, data)
