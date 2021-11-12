@@ -40,6 +40,10 @@ describe('funnelLogic', () => {
                 ...MOCK_DEFAULT_TEAM,
                 correlation_config: correlationConfig,
             }
+        } else if (url.pathname === '/some/people/url') {
+            return {
+                results: [{ people: [] }],
+            }
         } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
             return {
                 is_cached: true,
