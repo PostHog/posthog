@@ -496,7 +496,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$browser": "Chrome"})
             person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$browser": "Safari"})
 
-            peoples_journies = {
+            peoples_journeys = {
                 "person1": [
                     {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
                     {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
@@ -507,7 +507,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
-            journeys_for(peoples_journies)
+            journeys_for(peoples_journeys)
 
             result = funnel.run()
             self.assertEqual(
