@@ -24,6 +24,7 @@ const uuid = new UUIDT().toString()
 const distinctId = 'distinct_id_update_person_properties'
 
 const FUTURE_TIMESTAMP = DateTime.fromISO('2050-10-14T11:42:06.502Z')
+const MIDDLE_TIMESTAMP = DateTime.fromISO('2021-10-14T11:42:06.502Z')
 const PAST_TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
 beforeEach(async () => {
@@ -122,6 +123,30 @@ describe('updatePersonProperties()', () => {
         props = await updatePersonProperties({ r10: 'A', r12: 'C' }, { r11: 'B', r13: 'D' }, PAST_TIMESTAMP)
         expect(props).toEqual({ r10: 'a', r11: 'b', r12: 'C', r13: 'D' })
     })
+    it('updates timestamps when newer timestamp equal values for set op', async () => {
+        // set initial properties
+        let props = await updatePersonProperties({ a: 'a' }, { b: 'b' }, PAST_TIMESTAMP)
+        expect(props).toEqual({ a: 'a', b: 'b' })
+        // no-value change with future timestamp
+        props = await updatePersonProperties({ a: 'a' }, { b: 'b' }, FUTURE_TIMESTAMP)
+        expect(props).toEqual({ a: 'a', b: 'b' })
+        // value change with middle timestamp is ignored
+        props = await updatePersonProperties({ a: 'aaaa' }, { b: 'bbbb' }, MIDDLE_TIMESTAMP)
+        expect(props).toEqual({ a: 'a', b: 'b' })
+    })
+
+    it('updates timestamps when newer timestamp equal values for set_once', async () => {
+        // set initial properties
+        let props = await updatePersonProperties({ a: 'a' }, { b: 'b' }, FUTURE_TIMESTAMP)
+        expect(props).toEqual({ a: 'a', b: 'b' })
+        // no-value change with past timestamp
+        props = await updatePersonProperties({ a: 'a' }, { b: 'b' }, PAST_TIMESTAMP)
+        expect(props).toEqual({ a: 'a', b: 'b' })
+        // value change with middle timestamp is ignored
+        props = await updatePersonProperties({ a: 'aaaa' }, { b: 'bbbb' }, MIDDLE_TIMESTAMP)
+        expect(props).toEqual({ a: 'a', b: 'b' })
+    })
+
 
     // TODO test that we can't change the person in the middle of the update
 })
