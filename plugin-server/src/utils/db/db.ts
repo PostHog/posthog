@@ -561,7 +561,7 @@ export class DB {
             updateResult = await this.postgresQuery(queryString, values, 'updatePerson')
         }
 
-        const updatedPersonVersion: Person['version'] = updateResult.rows[0].version
+        const updatedPersonVersion: Person['version'] = Number(updateResult.rows[0].version)
         const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
 
         const kafkaMessages = []
@@ -682,7 +682,7 @@ export class DB {
                     person.id,
                 ]
             )
-            person.version = updateResult.rows[0].version
+            person.version = Number(updateResult.rows[0].version)
         })
 
         if (this.kafkaProducer && person) {

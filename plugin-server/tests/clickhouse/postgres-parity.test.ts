@@ -150,7 +150,7 @@ describe('postgres parity', () => {
         expect(postgresPersons.length).toEqual(1)
 
         expect(postgresPersons[0].is_identified).toEqual(true)
-        expect(postgresPersons[0].version).toEqual(0)
+        expect(postgresPersons[0].version).toEqual(1)
         expect(postgresPersons[0].properties).toEqual({ replacedUserProp: 'propValue' })
 
         expect(clickHousePersons[0].is_identified).toEqual(1)
@@ -162,7 +162,7 @@ describe('postgres parity', () => {
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
         const updatedPerson = await hub.db.updatePerson(person, { created_at: randomDate, is_identified: false })
 
-        expect(updatedPerson.version).toEqual(1)
+        expect(updatedPerson.version).toEqual(2)
 
         await delayUntilEventIngested(async () =>
             (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => !p.is_identified)
