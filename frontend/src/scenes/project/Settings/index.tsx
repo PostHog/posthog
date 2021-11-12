@@ -190,8 +190,7 @@ export function ProjectSettings(): JSX.Element {
                     you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
                 </p>
                 <TestAccountFiltersConfig />
-                {featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS) ? (
+                {true ? (
                     <>
                         <Divider />
                         <CorrelationConfig />
