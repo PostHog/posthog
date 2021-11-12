@@ -43,6 +43,7 @@ echo "🧐 Verifying installed packages..."
 yarn --frozen-lockfile
 if [[ -z $DEBUG ]]; then
   yarn build
+  yarn cache clean
   rm -rf node_modules
 fi
 
