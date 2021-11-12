@@ -382,9 +382,15 @@ interface AverageTimeInspectorProps {
     onClick: (e?: React.MouseEvent) => void
     disabled?: boolean
     averageTime: number
+    aggregationTargetLabel: { singular: string; plural: string }
 }
 
-function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeInspectorProps): JSX.Element {
+function AverageTimeInspector({
+    onClick,
+    disabled,
+    averageTime,
+    aggregationTargetLabel,
+}: AverageTimeInspectorProps): JSX.Element {
     // Inspector button which automatically shows/hides the info text.
     const wrapperRef = useRef<HTMLDivElement | null>(null)
     const infoTextRef = useRef<HTMLDivElement | null>(null)
@@ -429,7 +435,7 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
                 style={{ paddingLeft: 0, paddingRight: 0 }}
                 onClick={onClick}
                 disabled={disabled}
-                title="Average of time elapsed for each user between completing this step and starting the next one."
+                title={`Average of time elapsed for each ${aggregationTargetLabel.singular} between completing this step and starting the next one.`}
             >
                 {humanFriendlyDuration(averageTime, 2)}
             </ValueInspectorButton>
@@ -530,6 +536,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                     <AverageTimeInspector
                                         onClick={() => {}}
                                         averageTime={step.average_conversion_time}
+                                        aggregationTargetLabel={aggregationTargetLabel}
                                         disabled
                                     />
                                 ) : null}
