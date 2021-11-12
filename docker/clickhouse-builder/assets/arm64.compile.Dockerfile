@@ -1,5 +1,5 @@
 FROM ubuntu:focal AS clickhouse_codebase
-ARG GIT_TAG="v21.6.5.37-stable"
+ARG CLICKHOUSE_TAG="v21.6.5.37-stable"
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Install dependencies
@@ -35,7 +35,7 @@ tar xJf gcc-arm-8.3-2019.03-x86_64-aarch64-linux-gnu.tar.xz -C build-aarch64/cma
 
 WORKDIR build-arm64
 # "v21.6.5.37-stable" does not build with llvm 13. later versions do
-RUN CC=clang-$LLVM_VERSION CXX=clang++-$LLVM_VERSION cmake .. && \
+RUN CC=clang-$LLVM_VERSION CXX=clang++-$LLVM_VERSION cmake .. -DGLIBC_COMPATIBILITY=OFF && \
 ninja  -j $(nproc)
 
 FROM arm64v8/ubuntu:focal
