@@ -82,6 +82,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     breadcrumbs.push({
                         name: user.first_name,
                         symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
+                        path: urls.mySettings(),
                     })
                 }
                 // Instance
@@ -92,6 +93,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     breadcrumbs.push({
                         name: stripHTTP(preflight.site_url),
                         symbol: <Lettermark name="@" />,
+                        path: urls.systemStatus(),
                     })
                 }
                 // Organization
