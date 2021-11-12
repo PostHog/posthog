@@ -130,7 +130,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             # NOTE: we default to 0 on order being None. On the frontend the typing
             # suggests that order is always a number, so hopefully this will never
             # actually be the case.
-            funnel_step = (step.order or 0) + 1
+            funnel_step = step.index + 1
             converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
 
