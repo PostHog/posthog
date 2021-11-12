@@ -86,7 +86,7 @@ export class EventsProcessor {
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.db)
+        this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
     }
 
     public async processEvent(
@@ -209,7 +209,32 @@ export class EventsProcessor {
         return now
     }
 
+    public isNewPersonPropertiesUpdateEnabled(teamId: number): boolean {
+        try {
+            const teamsStrs = this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS.split(',').filter(String)
+            const teams = teamsStrs.map((teamId) => Number(teamId))
+            return !!teams.includes(teamId)
+        } catch (error) {
+            Sentry.captureException(error)
+            return false
+        }
+    }
+
     private async updatePersonProperties(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties,
+        timestamp: DateTime
+    ): Promise<void> {
+        if (this.isNewPersonPropertiesUpdateEnabled(teamId)) {
+            await this.db.updatePersonProperties(teamId, distinctId, properties, propertiesOnce, timestamp)
+        } else {
+            await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
+        }
+    }
+
+    private async updatePersonPropertiesDeprecated(
         teamId: number,
         distinctId: string,
         properties: Properties,
@@ -313,6 +338,7 @@ export class EventsProcessor {
             try {
                 await this.db.createPerson(
                     DateTime.utc(),
+                    {},
                     {},
                     teamId,
                     null,
@@ -481,19 +507,27 @@ export class EventsProcessor {
             await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
         }
 
-        await this.createPersonIfDistinctIdIsNew(teamId, distinctId, sentAt || DateTime.utc(), personUuid)
-
         properties = personInitialAndUTMProperties(properties)
         properties = await addGroupProperties(teamId, properties, this.groupTypeManager)
 
+        const createdNewPersonWithProperties = await this.createPersonIfDistinctIdIsNew(
+            teamId,
+            distinctId,
+            sentAt || DateTime.utc(),
+            personUuid,
+            properties['$set'],
+            properties['$set_once']
+        )
+
         if (event === '$groupidentify') {
             await this.upsertGroup(teamId, properties)
-        } else if (properties['$set'] || properties['$set_once']) {
+        } else if (!createdNewPersonWithProperties && (properties['$set'] || properties['$set_once'])) {
             await this.updatePersonProperties(
                 teamId,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {}
+                properties['$set_once'] || {},
+                timestamp
             )
         }
 
@@ -624,19 +658,32 @@ export class EventsProcessor {
         teamId: number,
         distinctId: string,
         sentAt: DateTime,
-        personUuid: string
-    ): Promise<void> {
+        personUuid: string,
+        properties?: Properties,
+        propertiesOnce?: Properties
+    ): Promise<boolean> {
         const isNewPerson = await this.personManager.isNewPerson(this.db, teamId, distinctId)
         if (isNewPerson) {
             // Catch race condition where in between getting and creating, another request already created this user
             try {
-                await this.db.createPerson(sentAt, {}, teamId, null, false, personUuid.toString(), [distinctId])
+                await this.db.createPerson(
+                    sentAt,
+                    properties || {},
+                    propertiesOnce || {},
+                    teamId,
+                    null,
+                    false,
+                    personUuid.toString(),
+                    [distinctId]
+                )
+                return true
             } catch (error) {
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
                     Sentry.captureException(error, { extra: { teamId, distinctId, sentAt, personUuid } })
                 }
             }
         }
+        return false
     }
 
     // :TODO: Support _updating_ part of properties, not just setting everything at once.

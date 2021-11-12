@@ -21,8 +21,6 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
         hideCreateOrganizationModal: true,
         showCreateProjectModal: true,
         hideCreateProjectModal: true,
-        showChangelogModal: true,
-        hideChangelogModal: true,
         showToolbarModal: true,
         hideToolbarModal: true,
         toggleProjectSwitcher: true,
@@ -30,7 +28,7 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
     },
     reducers: {
         isSideBarShownRaw: [
-            window.innerWidth >= 576, // Sync width threshold with Sass variable $sm!
+            window.innerWidth >= 992, // Sync width threshold with Sass variable $lg!
             {
                 toggleSideBar: (state) => !state,
                 hideSideBar: () => false,
@@ -69,13 +67,6 @@ export const lemonadeLogic = kea<lemonadeLogicType>({
             {
                 showCreateProjectModal: () => true,
                 hideCreateProjectModal: () => false,
-            },
-        ],
-        isChangelogModalShown: [
-            false,
-            {
-                showChangelogModal: () => true,
-                hideChangelogModal: () => false,
             },
         ],
         isToolbarModalShown: [

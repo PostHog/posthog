@@ -29,7 +29,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         peopleLoading,
         people: _people,
         loadingMore,
-        filters: { period, date_to },
+        filters: { period, date_to, aggregation_group_type_index },
     } = useValues(logic)
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
@@ -99,7 +99,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                 loading={resultsLoading}
                 onRow={(_, rowIndex: number | undefined) => ({
                     onClick: () => {
-                        if (!dashboardItemId && rowIndex !== undefined) {
+                        if (!dashboardItemId && rowIndex !== undefined && aggregation_group_type_index == undefined) {
                             loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)

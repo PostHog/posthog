@@ -34,19 +34,10 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_people_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
+        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
                 {self.get_step_counts_query()}
         ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
-
-    def _get_people_columns(self, max_steps: int):
-        cols: List[str] = []
-
-        for i in range(max_steps):
-            cols.append(f"groupArrayIf(100)(DISTINCT aggregation_target, steps = {i + 1}) step_people_{i + 1}")
-
-        formatted = ", ".join(cols)
-        return f", {formatted}" if formatted else ""
 
     def get_step_counts_query(self):
         steps_per_person_query = self.get_step_counts_without_aggregation_query()
@@ -76,7 +67,6 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
     def _format_single_funnel(self, result, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
-        relevant_people = []
         total_people = 0
 
         num_entities = len(self._filter.entities)
@@ -85,14 +75,14 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
             if result and len(result) > 0:
                 total_people += result[step.order]
-                relevant_people += result[cast(int, step.order) + num_entities]
 
-            serialized_result = self._serialize_step(step, total_people, relevant_people[0:100])
+            serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
             if cast(int, step.order) > 0:
+
                 serialized_result.update(
                     {
-                        "average_conversion_time": result[cast(int, step.order) + num_entities * 2 - 1],
-                        "median_conversion_time": result[cast(int, step.order) + num_entities * 3 - 2],
+                        "average_conversion_time": result[cast(int, step.order) + num_entities * 1 - 1],
+                        "median_conversion_time": result[cast(int, step.order) + num_entities * 2 - 2],
                     }
                 )
             else:

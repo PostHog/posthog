@@ -55,7 +55,7 @@ class ClickhouseTestMixin:
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
-                    if sqlparse.format(query, strip_comments=True).strip().startswith("SELECT"):
+                    if sqlparse.format(query, strip_comments=True).strip().startswith(("SELECT", "WITH")):
                         queries.append(query)
                     return original_client_execute(query, *args, **kwargs)
 
@@ -94,7 +94,7 @@ def snapshot_clickhouse_queries(fn):
     Requires queries to be stable to avoid flakiness.
 
     Snapshots are automatically saved in a __snapshot__/*.ambr file.
-    Update snapshots via --update-snapshots.
+    Update snapshots via --snapshot-update.
     """
 
     @wraps(fn)

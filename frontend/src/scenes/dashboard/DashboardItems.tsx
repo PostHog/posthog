@@ -15,8 +15,17 @@ import clsx from 'clsx'
 const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode, isRefreshing } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        items,
+        layouts,
+        layoutForItem,
+        breakpoints,
+        cols,
+        dashboardMode,
+        isRefreshing,
+        highlightedInsightId,
+    } = useValues(dashboardLogic)
     const {
         loadDashboardItems,
         updateLayouts,
@@ -115,13 +124,7 @@ export function DashboardItems(): JSX.Element {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboardMode={dashboardMode}
-                        isHighlighted={
-                            item.id ===
-                            parseInt(
-                                new URLSearchParams(window.location.search).get('dive_source_id') ||
-                                    '0' /* TODO this is so bad */
-                            )
-                        }
+                        isHighlighted={highlightedInsightId && item.id === highlightedInsightId}
                         isOnEditMode={dashboardMode === DashboardMode.Edit}
                         setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}

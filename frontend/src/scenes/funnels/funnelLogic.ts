@@ -3,7 +3,6 @@ import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { average, eventToName, successToast, sum } from 'lib/utils'
-import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -12,7 +11,7 @@ import {
     FunnelStep,
     FunnelsTimeConversionBins,
     PersonType,
-    ViewType,
+    InsightType,
     FunnelStepWithNestedBreakdown,
     FunnelTimeConversionMetrics,
     FlattenedFunnelStep,
@@ -27,10 +26,13 @@ import {
     FunnelStepReference,
     FunnelAPIResponse,
     TrendResult,
-    BreakdownType,
     FunnelCorrelationResultsType,
     AvailableFeature,
     TeamType,
+    EntityTypes,
+    PropertyFilter,
+    PropertyOperator,
+    BreakdownType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -55,6 +57,8 @@ import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
+import { elementsToAction } from 'scenes/events/createActionFromEvent'
+import { groupsModel } from '~/models/groupsModel'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -102,8 +106,10 @@ export const funnelLogic = kea<funnelLogicType>({
             ['hasAvailableFeature'],
             featureFlagLogic,
             ['featureFlags'],
+            groupsModel,
+            ['groupTypes'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess'], funnelsModel, ['loadFunnels']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -135,14 +141,9 @@ export const funnelLogic = kea<funnelLogicType>({
             breakdown_type,
             customSteps,
         }),
-        openCorrelationPersonsModal: (
-            entity: Record<string, any>,
-            converted: boolean,
-            resultType: FunnelCorrelation['result_type']
-        ) => ({
-            entity,
-            converted,
-            resultType,
+        openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
+            correlation,
+            success,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         changeStepRange: (funnel_from_step?: number, funnel_to_step?: number) => ({
@@ -394,10 +395,10 @@ export const funnelLogic = kea<funnelLogicType>({
 
     selectors: ({ selectors }) => ({
         isLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
-        loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === ViewType.FUNNELS ? filters : {})],
+        loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): FunnelAPIResponse => (filters?.insight === ViewType.FUNNELS ? result : []),
+            ({ filters, result }): FunnelAPIResponse => (filters?.insight === InsightType.FUNNELS ? result : []),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         conversionWindow: [
@@ -1021,11 +1022,21 @@ export const funnelLogic = kea<funnelLogicType>({
                 return inversePropertyNames(excludedPropertyNames || [])
             },
         ],
+        aggregationTargetLabel: [
+            (s) => [s.filters, s.groupTypes],
+            (filters, groupTypes): { singular: string; plural: string } => {
+                if (filters.aggregation_group_type_index != undefined && groupTypes.length > 0) {
+                    const groupType = groupTypes[filters.aggregation_group_type_index]
+                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
+                }
+                return { singular: 'user', plural: 'users' }
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
         loadResultsSuccess: async ({ insight }) => {
-            if (insight.filters?.insight !== ViewType.FUNNELS) {
+            if (insight.filters?.insight !== InsightType.FUNNELS) {
                 return
             }
             // hide all but the first five breakdowns for each step
@@ -1115,9 +1126,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 name,
                 saved: true,
             })
-            actions.loadFunnels()
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
+            // :TODO: Support 'person' modal for groups
+            if (values.filters.aggregation_group_type_index != undefined) {
+                return
+            }
             personsModalLogic.actions.loadPeople({
                 action: 'session',
                 breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
@@ -1129,19 +1143,47 @@ export const funnelLogic = kea<funnelLogicType>({
                 funnelStep: stepNumber,
             })
         },
-        openCorrelationPersonsModal: ({ entity, converted, resultType }) => {
-            personsModalLogic.actions.loadPeople({
-                action: { id: entity.id, name: entity.name, properties: entity.properties, type: entity.type },
-                label: entity.id,
-                date_from: '',
-                date_to: '',
-                filters: {
-                    ...values.filters,
-                    funnel_correlation_person_converted: converted ? 'true' : 'false',
-                    funnel_correlation_person_entity: entity,
-                },
-            })
-            eventUsageLogic.actions.reportCorrelationInteraction(resultType, 'person modal', { ...entity, converted })
+        openCorrelationPersonsModal: ({ correlation, success }) => {
+            // :TODO: Support 'person' modal for groups
+            if (values.filters.aggregation_group_type_index != undefined) {
+                return
+            }
+            if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
+                const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
+                personsModalLogic.actions.loadPeopleFromUrl({
+                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    // just display that we either completed the last step, or
+                    // dropped at the second to last step
+                    funnelStep: success ? values.stepsWithCount.length : -2,
+                    label: breakdown,
+                    breakdown_value,
+                    action: 'session',
+                    date_from: '',
+                })
+
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.Properties,
+                    'person modal',
+                    values.filters.funnel_correlation_person_entity
+                )
+            } else {
+                const { name, properties } = parseEventAndProperty(correlation.event)
+
+                personsModalLogic.actions.loadPeopleFromUrl({
+                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    funnelStep: success ? values.stepsWithCount.length : -2,
+                    label: name,
+                    action: 'session',
+                    date_from: '',
+                })
+
+                eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
+                    id: name,
+                    type: EntityTypes.EVENTS,
+                    properties,
+                    converted: success,
+                })
+            }
         },
         changeStepRange: ({ funnel_from_step, funnel_to_step }) => {
             actions.setFilters({
@@ -1293,4 +1335,45 @@ const appendToCorrelationConfig = (
     teamLogic.actions.updateCurrentTeam({
         correlation_config: correlationConfig,
     })
+}
+
+const parseBreakdownValue = (item: string): { breakdown: string; breakdown_value: string } => {
+    const components = item.split('::')
+    if (components.length === 1) {
+        return { breakdown: components[0], breakdown_value: '' }
+    } else {
+        return {
+            breakdown: components[0],
+            breakdown_value: components[1],
+        }
+    }
+}
+
+const parseEventAndProperty = (event: FunnelCorrelation['event']): { name: string; properties?: PropertyFilter[] } => {
+    const components = event.event.split('::')
+    /*
+      The `event` is either an event name, or event::property::property_value
+    */
+    if (components.length === 1) {
+        return { name: components[0] }
+    } else if (components[0] === '$autocapture') {
+        // We use elementsToAction to generate the required property filters
+        const elementData = elementsToAction(event.elements)
+        return {
+            name: components[0],
+            properties: Object.entries(elementData)
+                .filter(([, propertyValue]) => !!propertyValue)
+                .map(([propertyKey, propertyValue]) => ({
+                    key: propertyKey,
+                    operator: PropertyOperator.Exact,
+                    type: 'element',
+                    value: [propertyValue as string],
+                })),
+        }
+    } else {
+        return {
+            name: components[0],
+            properties: [{ key: components[1], operator: PropertyOperator.Exact, value: components[2], type: 'event' }],
+        }
+    }
 }

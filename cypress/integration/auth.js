@@ -1,6 +1,8 @@
+import { urls } from 'scenes/urls'
+
 describe('Auth', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
     })
 
     it('Logout', () => {
@@ -61,13 +63,13 @@ describe('Auth', () => {
 
     it('Cannot access signup page if authenticated', () => {
         cy.visit('/signup')
-        cy.location('pathname').should('eq', '/insights')
+        cy.location('pathname').should('eq', urls.savedInsights())
     })
 })
 
 describe('Password Reset', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-logout]').click()
         cy.location('pathname').should('eq', '/login')
     })

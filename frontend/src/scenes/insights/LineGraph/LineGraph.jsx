@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
-import { useActions, useValues } from 'kea'
+import { Provider } from 'react-redux'
+import { getContext, useActions, useValues } from 'kea'
 import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
@@ -228,8 +229,6 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectPersonsLabel = !dashboardItemId && onClick && showPersonsModal
-
         const tooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
             mode: 'nearest',
@@ -332,15 +331,17 @@ export function LineGraph({
                         }))
 
                     ReactDOM.render(
-                        <InsightTooltip
-                            altTitle={altTitle}
-                            referenceDate={referenceDate}
-                            interval={interval}
-                            bodyLines={bodyLines}
-                            inspectPersonsLabel={inspectPersonsLabel}
-                            preferAltTitle={tooltipPreferAltTitle}
-                            hideHeader={type === 'horizontalBar'}
-                        />,
+                        <Provider store={getContext().store}>
+                            <InsightTooltip
+                                altTitle={altTitle}
+                                referenceDate={referenceDate}
+                                interval={interval}
+                                bodyLines={bodyLines}
+                                inspectPersonsLabel={onClick && showPersonsModal}
+                                preferAltTitle={tooltipPreferAltTitle}
+                                hideHeader={type === 'horizontalBar'}
+                            />
+                        </Provider>,
                         tooltipEl
                     )
                 }

@@ -6,7 +6,13 @@ import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
-import { InfiniteListLogicProps, ListFuse, ListStorage, LoaderOptions } from 'lib/components/TaxonomicFilter/types'
+import {
+    InfiniteListLogicProps,
+    ListFuse,
+    ListStorage,
+    LoaderOptions,
+    TaxonomicFilterGroup,
+} from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
@@ -125,7 +131,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
     }),
 
-    listeners: ({ values, actions, props }) => ({
+    listeners: ({ values, actions }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.isRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -156,7 +162,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             actions.setIndex((index + 1) % totalCount)
         },
         selectSelected: () => {
-            actions.selectItem(props.listGroupType, values.selectedItemValue, values.selectedItem)
+            actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
         },
     }),
 
@@ -165,7 +171,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [
             (s) => [s.listGroupType, s.taxonomicGroups],
-            (listGroupType, taxonomicGroups) => taxonomicGroups.find((g) => g.type === listGroupType),
+            (listGroupType, taxonomicGroups): TaxonomicFilterGroup =>
+                taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],

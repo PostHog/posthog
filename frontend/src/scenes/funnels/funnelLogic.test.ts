@@ -5,20 +5,19 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import {
     AvailableFeature,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
     TeamType,
-    ViewType,
+    InsightType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
@@ -163,6 +162,8 @@ describe('funnelLogic', () => {
                 { name: 'another property', count: 10 },
                 { name: 'third property', count: 5 },
             ]
+        } else if (url.pathname === `api/person/funnel/`) {
+            return { results: [], next: null }
         }
         return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS] })
     })
@@ -172,7 +173,7 @@ describe('funnelLogic', () => {
         props: {
             dashboardItemId: undefined,
             filters: {
-                insight: ViewType.FUNNELS,
+                insight: InsightType.FUNNELS,
                 actions: [
                     { id: '$pageview', order: 0 },
                     { id: '$pageview', order: 1 },
@@ -187,12 +188,9 @@ describe('funnelLogic', () => {
             await expectLogic(logic).toMount([
                 eventUsageLogic,
                 insightLogic({ dashboardItemId: undefined }),
-                insightHistoryLogic,
                 preflightLogic,
-                funnelsModel,
             ])
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await expectLogic(funnelsModel).toDispatchActions(['loadFunnelsSuccess'])
         })
 
         it('has clickhouse enabled once preflight loads', async () => {
@@ -217,7 +215,7 @@ describe('funnelLogic', () => {
                         result: null,
                     }),
                     filters: {
-                        insight: ViewType.FUNNELS,
+                        insight: InsightType.FUNNELS,
                         actions: [
                             { id: '$pageview', order: 0 },
                             { id: '$pageview', order: 1 },
@@ -229,7 +227,7 @@ describe('funnelLogic', () => {
                 .toMatchValues({
                     insight: expect.objectContaining({
                         filters: {
-                            insight: ViewType.FUNNELS,
+                            insight: InsightType.FUNNELS,
                             actions: [
                                 { id: '$pageview', order: 0 },
                                 { id: '$pageview', order: 1 },
@@ -238,7 +236,7 @@ describe('funnelLogic', () => {
                         result: ['result from api'],
                     }),
                     filters: {
-                        insight: ViewType.FUNNELS,
+                        insight: InsightType.FUNNELS,
                         actions: [
                             { id: '$pageview', order: 0 },
                             { id: '$pageview', order: 1 },
@@ -367,6 +365,39 @@ describe('funnelLogic', () => {
         })
     })
 
+    describe('it is connected with personsModalLogic', () => {
+        const props = { dashboardItemId: 123 }
+        initKeaTestLogic({
+            logic: funnelLogic,
+            props,
+            onLogic: (l) => (logic = l),
+        })
+
+        it('setFilters calls personsModalLogic.loadPeople', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openPersonsModal(
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: 0,
+                        count: 1,
+                        name: '$pageview',
+                        order: 0,
+                        type: 'events',
+                    },
+                    2
+                )
+            }).toDispatchActions([
+                (action) => {
+                    console.log('HELLO', action)
+                    return (
+                        action.type === personsModalLogic.actionTypes.loadPeople &&
+                        action.payload.peopleParams?.label === '$pageview'
+                    )
+                },
+            ])
+        })
+    })
+
     describe('selectors', () => {
         describe('Correlation Names parsing', () => {
             const basicFunnelRecord: FunnelCorrelation = {
@@ -375,6 +406,8 @@ describe('funnelLogic', () => {
                 correlation_type: FunnelCorrelationType.Success,
                 success_count: 1,
                 failure_count: 1,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 result_type: FunnelCorrelationResultsType.Events,
             }
             it('chooses the correct name based on Event type', async () => {
@@ -513,7 +546,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
             })
                 .toFinishListeners()
                 .toMatchValues({
@@ -549,7 +582,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
                 logic.actions.excludePropertyFromProject('another property')
             })
                 .toFinishAllListeners()
@@ -624,7 +657,7 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -659,7 +692,7 @@ describe('funnelLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({ filters: { insight: ViewType.FUNNELS } })
+                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
