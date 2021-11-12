@@ -1,13 +1,9 @@
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.property import extract_tables_and_properties, prop_filter_json_extract
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter
-from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.property import Property
 
 
 class GroupsJoinQuery:
@@ -24,16 +20,19 @@ class GroupsJoinQuery:
         filter: Union[Filter, PathFilter, RetentionFilter],
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
+        join_key: Optional[str] = None,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
+        self._join_key = join_key
 
     def get_join_query(self) -> Tuple[str, Dict]:
         join_queries, params = [], {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:
             var = f"group_index_{group_type_index}"
+            group_join_key = self._join_key or f"$group_{group_type_index}"
             join_queries.append(
                 f"""
                 INNER JOIN (
@@ -44,7 +43,7 @@ class GroupsJoinQuery:
                     WHERE team_id = %(team_id)s AND group_type_index = %({var})s
                     GROUP BY group_key
                 ) groups_{group_type_index}
-                ON $group_{group_type_index} == groups_{group_type_index}.group_key
+                ON {group_join_key} == groups_{group_type_index}.group_key
                 """
             )
 

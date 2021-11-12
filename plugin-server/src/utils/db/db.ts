@@ -442,7 +442,7 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        let selectResult
+        let selectResult: QueryResult | null = null
         if (client) {
             selectResult = await client.query(queryString, values)
         } else {
