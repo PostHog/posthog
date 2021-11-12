@@ -1,5 +1,4 @@
 import pytest
-from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.models.filters import Filter

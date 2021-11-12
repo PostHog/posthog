@@ -1,7 +1,5 @@
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from rest_framework.exceptions import ValidationError
-
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
