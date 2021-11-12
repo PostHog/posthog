@@ -1,6 +1,6 @@
 describe('Signup', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-logout]').click()
         cy.location('pathname').should('include', '/login')
         cy.visit('/signup')

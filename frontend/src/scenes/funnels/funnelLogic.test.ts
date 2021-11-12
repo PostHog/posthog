@@ -17,6 +17,8 @@ import {
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
@@ -161,6 +163,16 @@ describe('funnelLogic', () => {
                 { name: 'another property', count: 10 },
                 { name: 'third property', count: 5 },
             ]
+        } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/groups/property_definitions`) {
+            return {
+                '0': [
+                    { name: 'industry', count: 2 },
+                    { name: 'name', count: 1 },
+                ],
+                '1': [{ name: 'name', count: 1 }],
+            }
+        } else if (url.pathname === `api/person/funnel/`) {
+            return { results: [], next: null }
         }
         return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS] })
     })
@@ -362,6 +374,38 @@ describe('funnelLogic', () => {
         })
     })
 
+    describe('it is connected with personsModalLogic', () => {
+        const props = { dashboardItemId: 123 }
+        initKeaTestLogic({
+            logic: funnelLogic,
+            props,
+            onLogic: (l) => (logic = l),
+        })
+
+        it('setFilters calls personsModalLogic.loadPeople', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openPersonsModal(
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: 0,
+                        count: 1,
+                        name: '$pageview',
+                        order: 0,
+                        type: 'events',
+                    },
+                    2
+                )
+            }).toDispatchActions([
+                (action) => {
+                    return (
+                        action.type === personsModalLogic.actionTypes.loadPeople &&
+                        action.payload.peopleParams?.label === '$pageview'
+                    )
+                },
+            ])
+        })
+    })
+
     describe('selectors', () => {
         describe('Correlation Names parsing', () => {
             const basicFunnelRecord: FunnelCorrelation = {
@@ -370,6 +414,8 @@ describe('funnelLogic', () => {
                 correlation_type: FunnelCorrelationType.Success,
                 success_count: 1,
                 failure_count: 1,
+                success_people_url: '/some/people/url',
+                failure_people_url: '/some/people/url',
                 result_type: FunnelCorrelationResultsType.Events,
             }
             it('chooses the correct name based on Event type', async () => {
@@ -702,6 +748,29 @@ describe('funnelLogic', () => {
                             },
                         ],
                     },
+                })
+        })
+
+        it('Selecting all group properties selects correct properties', async () => {
+            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis', 'group-analytics'], {
+                'correlation-analysis': true,
+                'group-analytics': true,
+            })
+            // FF set after mount, so groupPropertiesModel is empty. Hence, force reload these values.
+            groupPropertiesModel.actions.loadAllGroupProperties()
+
+            await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 0 }))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allProperties: ['industry', 'name'],
+                    propertyNames: ['industry', 'name'],
+                })
+
+            await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 1 }))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allProperties: ['name'],
+                    propertyNames: ['name'],
                 })
         })
     })

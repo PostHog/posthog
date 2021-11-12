@@ -68,7 +68,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     def test_pagination_of_event_definitions(self):
         EventDefinition.objects.bulk_create(
-            [EventDefinition(team=self.demo_team, name="z_event_{}".format(i)) for i in range(1, 301)]
+            [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]
         )
 
         response = self.client.get("/api/projects/@current/event_definitions/")

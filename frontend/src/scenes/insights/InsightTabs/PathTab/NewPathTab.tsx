@@ -26,6 +26,7 @@ import { PayCard } from 'lib/components/PayCard/PayCard'
 import { Link } from 'lib/components/Link'
 import { PathCleanFilterInput } from './PathCleanFilterInput'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { groupsModel } from '~/models/groupsModel'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -37,6 +38,7 @@ export function NewPathTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
@@ -518,7 +520,16 @@ export function NewPathTab(): JSX.Element {
                 </Col>
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
                     <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
-                    <PropertyFilters pageKey="insight-path" />
+                    <PropertyFilters
+                        pageKey="insight-path"
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
+                    />
                     <TestAccountFilter filters={filter} onChange={setFilter} />
                     {hasAdvancedPaths && (
                         <>
