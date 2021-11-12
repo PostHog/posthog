@@ -143,10 +143,11 @@ class FunnelPersonsStepMixin(BaseParamMixin):
         Specifies the step index within a funnel entities definition for which
         we want to get the `timestamp` for, per person.
         """
-        _step = int(self._data.get(FUNNEL_STEP, "0"))
-        if _step == 0:
+        _step_as_string = self._data.get(FUNNEL_STEP)
+
+        if _step_as_string is None:
             return None
-        return _step
+        return int(_step_as_string)
 
     @cached_property
     def funnel_custom_steps(self) -> List[int]:
@@ -162,7 +163,7 @@ class FunnelPersonsStepMixin(BaseParamMixin):
     @include_dict
     def funnel_step_to_dict(self):
         result: dict = {}
-        if self.funnel_step:
+        if self.funnel_step is not None:
             result[FUNNEL_STEP] = self.funnel_step
         if self.funnel_custom_steps:
             result[FUNNEL_CUSTOM_STEPS] = self.funnel_custom_steps
