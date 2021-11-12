@@ -8,7 +8,7 @@ from rest_framework.mixins import ListModelMixin
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.group import ClickhouseGroupSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import format_next_url
+from posthog.api.utils import format_paginated_url
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 
@@ -30,7 +30,6 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
     pagination_class = None
 
     def list(self, request, *args, **kwargs):
-        is_csv_request = self.request.accepted_renderer.format == "csv"
         limit = 100
         offset = int(request.GET.get("offset", 0))
 
@@ -55,9 +54,9 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
         results = ClickhouseGroupSerializer(query_result, many=True).data
         next_url: Optional[str] = None
         previous_url: Optional[str] = None
-        if not is_csv_request and len(query_result) > limit:
-            next_url = format_next_url(request, offset, limit)
-            previous_url = format_next_url(request, offset, limit, True)
+        if len(query_result) > limit:
+            next_url = format_paginated_url(request, offset, limit)
+            previous_url = format_paginated_url(request, offset, limit, True)
 
         return response.Response({"next_url": next_url, "previous_url": previous_url, "results": results})
 

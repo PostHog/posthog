@@ -25,25 +25,25 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
             {
                 loadGroups: async ({ url }) => {
                     if (values.groupsEnabled) {
-                        if (!url) {
-                            return await api.get(
-                                `api/projects/${values.currentTeamId}/groups/?group_type_index=${values.currentGroup}`
-                            )
-                        }
+                        url =
+                            url ||
+                            `api/projects/${values.currentTeamId}/groups/?group_type_index=${values.currentGroup}`
                         return await api.get(url)
                     }
-                    return []
                 },
             },
         ],
     }),
     reducers: {
-        currentGroup: [
-            0,
+        currentTab: [
+            '-1',
             {
-                setTab: (_, { tab }) => Number(tab),
+                setTab: (_, { tab }) => tab,
             },
         ],
+    },
+    selectors: {
+        currentGroup: [(s) => [s.currentTab], (currentTab) => Number(currentTab)],
     },
     actionToUrl: () => ({
         setTab: ({ tab }) => {
