@@ -26,7 +26,7 @@ from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 def _create_person(**kwargs):
     person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+    return Person(id=str(person.uuid))
 
 
 def _create_event(**kwargs):
@@ -39,8 +39,8 @@ class ClickhouseTestInsights(
 ):
     def test_insight_trends_basic(self):
         with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_person(distinct_ids=["2"], team=self.team)
+            p1 = _create_person(distinct_ids=["1"], team=self.team)
+            p2 = _create_person(distinct_ids=["2"], team=self.team)
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             _create_event(team=self.team, event="$pageview", distinct_id="2")
 
@@ -75,16 +75,16 @@ class ClickhouseTestInsights(
         with freeze_time("2012-01-15T04:01:34.000Z"):
             people = get_trends_people_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
 
-        assert len(people) == 2
+        assert sorted([p["id"] for p in people]) == sorted([p1.pk, p2.pk])
 
     def test_insight_trends_aggregate(self):
 
         with freeze_time("2012-01-13T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
+            p1 = _create_person(distinct_ids=["1"], team=self.team)
             _create_event(team=self.team, event="$pageview", distinct_id="1")
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["2"], team=self.team)
+            p2 = _create_person(distinct_ids=["2"], team=self.team)
             _create_event(team=self.team, event="$pageview", distinct_id="2")
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -115,17 +115,17 @@ class ClickhouseTestInsights(
         with freeze_time("2012-01-15T04:01:34.000Z"):
             people = get_trends_people_ok(self.client, data["$pageview"].person_url)
 
-        assert len(people) == 2
+        assert sorted([p["id"] for p in people]) == sorted([p1.pk, p2.pk])
 
     def test_insight_trends_cumulative(self):
         with freeze_time("2012-01-13T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_person(distinct_ids=["2"], team=self.team)
+            p1 = _create_person(distinct_ids=["1"], team=self.team)
+            p2 = _create_person(distinct_ids=["2"], team=self.team)
             _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
             _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["3"], team=self.team)
+            p3 = _create_person(distinct_ids=["3"], team=self.team)
             _create_event(team=self.team, event="$pageview", distinct_id="3", properties={"key": "val"})
             _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
 
@@ -158,7 +158,7 @@ class ClickhouseTestInsights(
         assert data_response["$pageview"]["2012-01-15"].value == 4
         assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
 
-        assert len(person_response) == 3
+        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p2.pk, p3.pk])
 
         # DAU
 
@@ -183,14 +183,14 @@ class ClickhouseTestInsights(
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            people = self.client.get("/" + data_response["$pageview"]["2012-01-14"].person_url).json()
+            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
 
         assert data_response["$pageview"]["2012-01-13"].value == 2
         assert data_response["$pageview"]["2012-01-14"].value == 3
         assert data_response["$pageview"]["2012-01-15"].value == 3
         assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
 
-        assert len(people) == 3
+        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p2.pk, p3.pk])
 
         # breakdown
         with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -216,14 +216,16 @@ class ClickhouseTestInsights(
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
+            person_response = get_trends_people_ok(
+                self.client, data_response["$pageview - val"]["2012-01-14"].person_url
+            )
 
         assert data_response["$pageview - val"]["2012-01-13"].value == 1
         assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
         assert data_response["$pageview - val"]["2012-01-14"].value == 3
         assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
 
-        assert len(people) == 2
+        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p3.pk])
 
         # breakdown dau
         with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -256,7 +258,7 @@ class ClickhouseTestInsights(
         assert data_response["$pageview - val"]["2012-01-14"].value == 2
         assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
 
-        assert len(people) == 2
+        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p3.pk])
 
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
