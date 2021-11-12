@@ -507,7 +507,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
-            journeys_for(peoples_journeys)
+            journeys_for(peoples_journeys, self.team)
 
             result = funnel.run()
             self.assertEqual(

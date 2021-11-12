@@ -1,11 +1,11 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
 from posthog.models import Person, PersonDistinctId, Team
 
 
-def journeys_for(events_by_person: Dict[str, List[Dict[str, any]]], team: Team) -> Dict[str, Person]:
+def journeys_for(events_by_person: Dict[str, List[Dict[str, Any]]], team: Team) -> Dict[str, Person]:
     """
     Helper for creating specific events for a team.
 
