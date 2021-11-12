@@ -1156,3 +1156,7 @@ export function isMultiSeriesFormula(formula?: string): boolean {
     const count = (formula.match(/[a-zA-Z]/g) || []).length
     return count > 1
 }
+
+export function floorMsToClosestSecond(ms: number): number {
+    return Math.floor(ms / 1000) * 1000
+}

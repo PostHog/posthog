@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { EventType, RecordingEventsFilters } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
-import { clamp, colonDelimitedDuration } from 'lib/utils'
+import { clamp, colonDelimitedDuration, floorMsToClosestSecond } from 'lib/utils'
 import { CellMeasurerCache } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { RenderedRows } from 'react-virtualized/dist/commonjs/List'
@@ -69,11 +69,31 @@ export const eventsListLogic = kea<eventsListLogicType>({
             },
         ],
         cellMeasurerCache: [() => [], () => cache.cellMeasurerCache],
-        currentEventStartIndex: [
+        currentEventsIndices: [
             (selectors) => [selectors.listEvents, selectors.zeroOffsetTime],
             (events, time) => {
-                return clamp(events.findIndex((e) => (e.zeroOffsetTime ?? 0) > time.current) - 1, 0, events.length - 1)
+                if (events.length < 1) {
+                    return { start: 0, end: 0 }
+                }
+                return {
+                    start: floorMsToClosestSecond(
+                        events[
+                            clamp(
+                                events.findIndex((e) => (e.zeroOffsetTime ?? 0) > time.current) - 1,
+                                0,
+                                events.length - 1
+                            )
+                        ].zeroOffsetTime ?? 0
+                    ),
+                    end: floorMsToClosestSecond(time.current) + 1000,
+                }
             },
+        ],
+        isEventCurrent: [
+            (selectors) => [selectors.currentEventsIndices, selectors.listEvents],
+            (indices, events) => (index: number) =>
+                (events?.[index]?.zeroOffsetTime ?? 0) >= indices.start &&
+                (events?.[index]?.zeroOffsetTime ?? 0) < indices.end,
         ],
         isRowIndexRendered: [
             (selectors) => [selectors.renderedRows],
