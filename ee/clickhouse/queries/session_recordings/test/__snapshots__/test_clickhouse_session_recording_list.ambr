@@ -64,9 +64,19 @@
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = filtered_events.distinct_id
   JOIN
-    (SELECT *
-     FROM person_distinct_id
-     WHERE person_distinct_id.team_id = 2 ) as person_distinct_id ON person_distinct_id.distinct_id = session_recordings.distinct_id
+    (SELECT distinct_id,
+            argMax(person_id, _timestamp) as person_id
+     FROM
+       (SELECT distinct_id,
+               person_id,
+               max(_timestamp) as _timestamp
+        FROM person_distinct_id
+        WHERE team_id = 2
+        GROUP BY person_id,
+                 distinct_id,
+                 team_id
+        HAVING max(is_deleted) = 0)
+     GROUP BY distinct_id) as person_distinct_id ON person_distinct_id.distinct_id = session_recordings.distinct_id
   JOIN
     (SELECT id
      FROM person
@@ -126,9 +136,19 @@
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = filtered_events.distinct_id
   JOIN
-    (SELECT *
-     FROM person_distinct_id
-     WHERE person_distinct_id.team_id = 2 ) as person_distinct_id ON person_distinct_id.distinct_id = session_recordings.distinct_id
+    (SELECT distinct_id,
+            argMax(person_id, _timestamp) as person_id
+     FROM
+       (SELECT distinct_id,
+               person_id,
+               max(_timestamp) as _timestamp
+        FROM person_distinct_id
+        WHERE team_id = 2
+        GROUP BY person_id,
+                 distinct_id,
+                 team_id
+        HAVING max(is_deleted) = 0)
+     GROUP BY distinct_id) as person_distinct_id ON person_distinct_id.distinct_id = session_recordings.distinct_id
   JOIN
     (SELECT id,
             argMax(properties, _timestamp) as person_props

@@ -7,6 +7,7 @@ from ee.clickhouse.models.property import get_property_string_expr, parse_prop_c
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -72,7 +73,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     ) AS session_recordings
     ON session_recordings.distinct_id = filtered_events.distinct_id
     JOIN (
-        SELECT * FROM person_distinct_id WHERE person_distinct_id.team_id = %(team_id)s
+        {person_distinct_id_query}
     ) as person_distinct_id 
     ON person_distinct_id.distinct_id = session_recordings.distinct_id
     JOIN ({person_query}) as person ON person.id = person_distinct_id.person_id 
@@ -212,6 +213,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         return (
             self._session_recordings_query_with_entity_filter.format(
                 person_id_clause=person_id_clause,
+                person_distinct_id_query=GET_TEAM_PERSON_DISTINCT_IDS,
                 person_query=person_query,
                 properties_select_clause=properties_select_clause,
                 events_timestamp_clause=events_timestamp_clause,
