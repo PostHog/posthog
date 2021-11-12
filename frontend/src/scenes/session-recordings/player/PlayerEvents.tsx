@@ -41,20 +41,22 @@ export function PlayerEvents(): JSX.Element {
                         <div className="event-item-icon-wrapper">{renderIcon()}</div>
                     </Col>
                     <Col className="event-item-text">
-                        <PropertyKeyInfo
-                            className="event-item-text-title"
-                            value={event.event}
-                            disableIcon
-                            disablePopover
-                            ellipsis={false}
-                        />
+                        <Row className="event-item-text-top-row">
+                            <PropertyKeyInfo
+                                className="event-item-text-title"
+                                value={event.event}
+                                disableIcon
+                                disablePopover
+                                ellipsis={false}
+                            />
+                            {event.colonTimestamp}
+                        </Row>
                         {hasDescription && (
                             <span className="event-item-text-subtitle">
                                 {capitalizeFirstLetter(eventToDescription(event))}
                             </span>
                         )}
                     </Col>
-                    <Col>{event.colonTimestamp}</Col>
                 </Row>
             </CellMeasurer>
         )

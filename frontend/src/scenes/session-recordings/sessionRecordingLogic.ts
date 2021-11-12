@@ -231,7 +231,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             (filters, events) => {
                 return filters?.query
                     ? new Fuse<SeekbarEventType>(makeEventsQueryable(events), {
-                          threshold: 0.3,
                           keys: ['queryValue'],
                           findAllMatches: true,
                           ignoreLocation: true,
