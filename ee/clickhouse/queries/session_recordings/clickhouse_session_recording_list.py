@@ -93,7 +93,8 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
 
     def _get_properties_select_clause(self) -> str:
         current_url_clause, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-        clause = f", {current_url_clause} as current_url " + " ".join(
+        clause = f", {current_url_clause} as current_url "
+        clause += " ".join(
             f", events.{column_name} as {column_name}" for column_name in self._column_optimizer.event_columns_to_query
         )
         return clause
@@ -161,7 +162,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
                 entity.properties,
                 prepend=prepend,
                 team_id=self._team.pk,
-                allow_denormalized_props=False,
+                allow_denormalized_props=True,
                 has_person_id_joined=True,
                 table_name="filtered_events",
                 person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,

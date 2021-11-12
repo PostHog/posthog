@@ -4,7 +4,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 
-from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep, Event, Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
@@ -53,7 +52,6 @@ def factory_session_recordings_list_test(
         def base_time(self):
             return now() - relativedelta(hours=1)
 
-        @snapshot_clickhouse_queries
         @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_basic_query(self):
@@ -76,8 +74,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[1]["distinct_id"], "user")
             self.assertEqual(more_recordings_available, False)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_recordings_dont_leak_data_between_teams(self):
             another_team = Team.objects.create(organization=self.organization)
@@ -94,8 +90,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["session_id"], "2")
             self.assertEqual(session_recordings[0]["distinct_id"], "user")
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_all_sessions_recording_object_keys(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -111,8 +105,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=30))
             self.assertEqual(session_recordings[0]["duration"], 30)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_event_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -137,8 +129,7 @@ def factory_session_recordings_list_test(
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
+        @test_with_materialized_columns(["$current_url", "$browser"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_event_filter_with_properties(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -186,8 +177,6 @@ def factory_session_recordings_list_test(
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_multiple_event_filters(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -223,8 +212,7 @@ def factory_session_recordings_list_test(
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
+        @test_with_materialized_columns(["$current_url", "$browser"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_action_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -278,8 +266,6 @@ def factory_session_recordings_list_test(
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_all_sessions_recording_object_keys_with_entity_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -299,8 +285,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=30))
             self.assertEqual(session_recordings[0]["duration"], 30)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_duration_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -327,8 +311,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_date_from_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -348,8 +330,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_date_to_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -369,8 +349,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_recording_that_spans_time_bounds(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -391,8 +369,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["session_id"], "1")
             self.assertEqual(session_recordings[0]["duration"], 6 * 60 * 60)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_person_id_filter(self):
             p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
@@ -407,8 +383,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["session_id"], "2")
             self.assertEqual(session_recordings[1]["session_id"], "1")
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_all_filters_at_once(self):
             p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
@@ -442,8 +416,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_pagination(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -482,8 +454,6 @@ def factory_session_recordings_list_test(
             self.assertEqual(session_recordings[0]["session_id"], "1")
             self.assertEqual(more_recordings_available, False)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_recording_without_fullsnapshot_dont_appear(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -493,8 +463,6 @@ def factory_session_recordings_list_test(
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_teams_dont_leak_event_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
