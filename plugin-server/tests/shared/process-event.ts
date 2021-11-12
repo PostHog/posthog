@@ -290,6 +290,16 @@ export const createProcessEventTests = (
     })
 
     test('capture new person', async () => {
+        // Based on gating only one function should be used
+        const personUpdateFnSpy = jest.spyOn(
+            hub.db,
+            !includeNewPropertiesUpdatesTests ? 'updatePerson' : 'updatePersonProperties'
+        )
+        const personUpdateFnShouldntbeUsedSpy = jest.spyOn(
+            hub.db,
+            includeNewPropertiesUpdatesTests ? 'updatePerson' : 'updatePersonProperties'
+        )
+
         await hub.db.postgresQuery(
             `UPDATE posthog_team
              SET ingested_event = $1
@@ -331,6 +341,7 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
+        expect(personUpdateFnSpy).not.toHaveBeenCalled()
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
         let expectedProps = {
@@ -400,6 +411,7 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
+        expect(personUpdateFnSpy).toHaveBeenCalledTimes(1)
         events = await hub.db.fetchEvents()
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
@@ -477,6 +489,7 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
+        expect(personUpdateFnShouldntbeUsedSpy).not.toHaveBeenCalled()
         events = await hub.db.fetchEvents()
 
         expect(events[2].properties.$set).toEqual({

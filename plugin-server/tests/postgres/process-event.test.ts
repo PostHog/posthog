@@ -1,5 +1,5 @@
 import { createUserTeamAndOrganization, getTeams } from '../helpers/sql'
-import { createProcessEventTests, ReturnWithHub } from '../shared/process-event'
+import { createProcessEventTests } from '../shared/process-event'
 
 jest.setTimeout(600000) // 600 sec timeout.
 
