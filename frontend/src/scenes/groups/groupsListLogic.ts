@@ -5,13 +5,14 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Group } from '~/types'
 
+import { groupsListLogicType } from './groupsListLogicType'
 interface GroupsPaginatedResponse {
     next_url: string | null
     previous_url: string | null
     results: Group[]
 }
 
-export const groupsListLogic = kea<groupsListLogic>({
+export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>({
     path: ['groups', 'groupsListLogic'],
     connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled', 'groupTypes']] },
     actions: () => ({
@@ -40,7 +41,7 @@ export const groupsListLogic = kea<groupsListLogic>({
         currentGroup: [
             0,
             {
-                setTab: (_, { tab }) => tab,
+                setTab: (_, { tab }) => Number(tab),
             },
         ],
     },
@@ -54,8 +55,10 @@ export const groupsListLogic = kea<groupsListLogic>({
     }),
     urlToAction: ({ actions }) => ({
         '/groups/:id': ({ id }) => {
-            actions.setTab(id)
-            actions.loadGroups()
+            if (id) {
+                actions.setTab(id)
+                actions.loadGroups()
+            }
         },
     }),
 })
