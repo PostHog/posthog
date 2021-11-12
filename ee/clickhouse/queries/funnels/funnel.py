@@ -122,9 +122,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                         f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
                         # NOTE: If we are looking at the first step, there is no drop off,
                         # everyone converted, otherwise they would not have been
-                        # included in the funnel. What should this mean for
-                        # unordered funnels? I'm not sure.
-                        if step.index
+                        # included in the funnel.
+                        if step.index > 0
                         else None
                     ),
                 }
