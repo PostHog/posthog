@@ -378,16 +378,7 @@ class FunnelCorrelation:
 
         return query, params
 
-    def _get_events_join_query(self) -> str:
-        """
-        This query is used to join and filter the events table corresponding to the funnel_people CTE.
-        It expects the following variables to be present in the CTE expression:
-            - funnel_people
-            - date_to
-            - date_from
-            - funnel_step_names
-        """
-
+    def _get_aggregation_target_join_query(self) -> str:
         aggregation_person_join = f"""
             JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
                     ON pdi.distinct_id = events.distinct_id
@@ -398,14 +389,32 @@ class FunnelCorrelation:
                 -- to do it but lifes too short.
                 JOIN funnel_people AS person
                     ON pdi.person_id = person.person_id
-        """
+            """
 
+        # :KLUDGE: aggregation_target is called person_id in funnel people CTEs.
+        # Since supporting that properly involves updating everything that uses the CTE to rename person_id,
+        # keeping it as-is for now
         aggregation_group_join = f"""
             JOIN funnel_people AS person
                 ON person.person_id = events.$group_{self._filter.aggregation_group_type_index}
+            """
+
+        return (
+            aggregation_group_join if self._filter.aggregation_group_type_index is not None else aggregation_person_join
+        )
+
+    def _get_events_join_query(self) -> str:
         """
+        This query is used to join and filter the events table corresponding to the funnel_people CTE.
+        It expects the following variables to be present in the CTE expression:
+            - funnel_people
+            - date_to
+            - date_from
+            - funnel_step_names
+        """
+
         return f"""
-            {aggregation_group_join if self._filter.aggregation_group_type_index is not None else aggregation_person_join}
+            {self._get_aggregation_target_join_query()}
 
             -- Make sure we're only looking at events before the final step, or
             -- failing that, date_to
@@ -445,9 +454,7 @@ class FunnelCorrelation:
                 person_query_params,
             )
         else:
-            return GroupsJoinQuery(
-                self._filter, self._team.pk, ColumnOptimizer(self._filter, self._team.pk)
-            ).get_join_query(["funnel_people.person_id"])
+            return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_people.person_id").get_join_query()
 
     def _get_properties_prop_clause(self):
 
