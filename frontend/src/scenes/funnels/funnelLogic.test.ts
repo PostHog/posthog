@@ -760,14 +760,14 @@ describe('funnelLogic', () => {
             groupPropertiesModel.actions.loadAllGroupProperties()
 
             await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 0 }))
-                .toDispatchActions(['loadPropertyCorrelations'])
+                .toFinishAllListeners()
                 .toMatchValues({
                     allProperties: ['industry', 'name'],
                     propertyNames: ['industry', 'name'],
                 })
 
             await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 1 }))
-                .toDispatchActions(['loadPropertyCorrelations'])
+                .toFinishAllListeners()
                 .toMatchValues({
                     allProperties: ['name'],
                     propertyNames: ['name'],
