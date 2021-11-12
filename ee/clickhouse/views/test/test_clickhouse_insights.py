@@ -174,6 +174,39 @@ class ClickhouseTestInsights(
         person_response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
         self.assertEqual(len(person_response["results"][0]["people"]), 1)
 
+    def test_insight_trends_compare(self):
+        with freeze_time("2012-01-05T03:21:34.000Z"):
+            _create_person(distinct_ids=["1"], team=self.team)
+            _create_person(distinct_ids=["2"], team=self.team)
+            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
+            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
+
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
+            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            data = deep_dump_object(
+                {
+                    "date_from": "-7d",
+                    "compare": True,
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
+                }
+            )
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
+
+        self.assertEqual(response["result"][0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0])
+        self.assertEqual(response["result"][1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0])
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            first_series_response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
+            second_series_response = self.client.get("/" + response["result"][1]["persons_urls"][-4]["url"]).json()
+            zero_response = self.client.get("/" + response["result"][1]["persons_urls"][-1]["url"]).json()
+
+        self.assertEqual(len(first_series_response["results"][0]["people"]), 2)
+        self.assertEqual(len(second_series_response["results"][0]["people"]), 2)
+        self.assertEqual(len(zero_response["results"][0]["people"]), 0)
+
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
