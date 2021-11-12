@@ -289,6 +289,7 @@ def insight_test_factory(event_factory, person_factory):
                 self.assertEqual(spy_update_dashboard_item_cache.call_count, 1)
                 self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
                 self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+                self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")
 
             with freeze_time("2012-01-15T05:01:34.000Z"):
                 event_factory(team=self.team, event="$pageview", distinct_id="1")
@@ -298,6 +299,13 @@ def insight_test_factory(event_factory, person_factory):
                 self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
                 self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
                 self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
+                self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")  # did not change
+
+            with freeze_time("2012-01-25T05:01:34.000Z"):
+                response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
+                self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
+                self.assertEqual(response["last_refresh"], None)
+                self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")  # did not change
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
@@ -326,8 +334,8 @@ def insight_test_factory(event_factory, person_factory):
             response_nonexistent_cohort_data = response_nonexistent_cohort.json()
             response_nonexistent_property_data.pop("last_refresh")
             response_nonexistent_cohort_data.pop("last_refresh")
-            self.assertEqual(
-                response_nonexistent_property_data, response_nonexistent_cohort_data
+            self.assertEntityResponseEqual(
+                response_nonexistent_property_data["result"], response_nonexistent_cohort_data["result"]
             )  # Both cases just empty
 
         def test_cohort_without_match_group_works(self):
@@ -345,8 +353,8 @@ def insight_test_factory(event_factory, person_factory):
             response_cohort_without_match_groups_data = response_cohort_without_match_groups.json()
             response_nonexistent_property_data.pop("last_refresh")
             response_cohort_without_match_groups_data.pop("last_refresh")
-            self.assertEqual(
-                response_nonexistent_property_data, response_cohort_without_match_groups_data
+            self.assertEntityResponseEqual(
+                response_nonexistent_property_data["result"], response_cohort_without_match_groups_data["result"]
             )  # Both cases just empty
 
         def test_precalculated_cohort_works(self):
@@ -374,7 +382,10 @@ def insight_test_factory(event_factory, person_factory):
             response_precalculated_cohort_data = response_precalculated_cohort.json()
             response_user_property_data.pop("last_refresh")
             response_precalculated_cohort_data.pop("last_refresh")
-            self.assertEqual(response_user_property_data, response_precalculated_cohort_data)
+
+            self.assertEntityResponseEqual(
+                response_user_property_data["result"], response_precalculated_cohort_data["result"]
+            )
 
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):

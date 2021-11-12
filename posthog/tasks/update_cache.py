@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from celery import group
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
 from django.db.models.expressions import F, Subquery
@@ -27,7 +28,6 @@ from posthog.decorators import CacheType
 from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.settings import CACHED_RESULTS_TTL
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, is_clickhouse_enabled
 
@@ -87,7 +87,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
         result = _calculate_funnel(filter, key, team_id)
     else:
         result = _calculate_by_filter(filter, key, team_id, cache_type)
-    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
+    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL)
 
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result

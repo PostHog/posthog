@@ -141,8 +141,10 @@ class InsightSerializer(InsightBasicSerializer):
         result = self.get_result(insight)
         if result is not None:
             return insight.last_refresh
-        insight.last_refresh = None
-        insight.save()
+        if insight.last_refresh is not None:
+            # Update last_refresh without updating "updated_at" (insight edit date)
+            Insight.objects.filter(pk=insight.pk).update(last_refresh=None)
+            insight.refresh_from_db()
         return None
 
     def to_representation(self, instance: Insight):
@@ -328,7 +330,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         refresh = should_refresh(request)
 
         filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
-        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
         result = {"loading": True}
 
         if refresh:

@@ -1,14 +1,15 @@
-import fetch, { Response } from 'node-fetch'
+import fetch, { Headers, Response } from 'node-fetch'
 
 import { Hub, PluginConfig } from '../../../types'
 
 const DEFAULT_API_HOST = 'https://app.posthog.com'
 
 interface ApiMethodOptions {
-    data: Record<string, any>
-    host: string
-    projectApiKey: string
-    personalApiKey: string
+    headers?: Headers
+    data?: Record<string, any>
+    host?: string
+    projectApiKey?: string
+    personalApiKey?: string
 }
 
 export interface ApiExtension {
@@ -44,10 +45,12 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
             host = host.slice(0, host.length - 1)
         }
 
-        const tokenParam = { token: options.projectApiKey }
+        const tokenParam: Record<string, string> = { token: '' }
         let apiKey = options.personalApiKey
 
-        if (!options.projectApiKey) {
+        if (options.projectApiKey) {
+            tokenParam.token = options.projectApiKey
+        } else {
             const team = await server.teamManager.fetchTeam(pluginConfig.team_id)
             if (!team) {
                 throw new Error('Unable to determine project')
@@ -63,7 +66,11 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
                 : tokenParam
         )
         const url = `${host}/${path}${path.includes('?') ? '&' : '?'}${urlParams.toString()}`
-        const headers = { Authorization: `Bearer ${apiKey}` }
+        const headers = {
+            Authorization: `Bearer ${apiKey}`,
+            ...(method === ApiMethod.Post ? { 'Content-Type': 'application/json' } : {}),
+            ...options.headers,
+        }
 
         if (method === ApiMethod.Delete || method === ApiMethod.Get) {
             return await fetch(url, { headers, method })
@@ -72,7 +79,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
         return await fetch(url, {
             headers,
             method,
-            body: JSON.stringify(options?.data || {}),
+            body: JSON.stringify(options.data || {}),
         })
     }
 

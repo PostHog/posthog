@@ -2,9 +2,17 @@ import { mocked } from 'ts-jest/utils'
 
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
+import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
+
+jest.mock('../../../src/utils/posthog', () => ({
+    posthog: {
+        identify: jest.fn(),
+        capture: jest.fn(),
+    },
+}))
 
 describe('TeamManager()', () => {
     let hub: Hub
@@ -53,76 +61,8 @@ describe('TeamManager()', () => {
         })
     })
 
-    describe('shouldSendWebhooks()', () => {
-        it('returns false if unknown team', async () => {
-            expect(await teamManager.shouldSendWebhooks(-1)).toEqual(false)
-        })
-
-        it('returns false if no hooks set up and team.slack_incoming_webhook == false', async () => {
-            expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
-        })
-
-        it('returns true if hooks are set up', async () => {
-            await hub.db.postgresQuery('UPDATE posthog_team SET slack_incoming_webhook = true', undefined, 'testTag')
-            await hub.db.postgresQuery(
-                "INSERT INTO ee_hook (id, team_id, user_id, event, target, created, updated) VALUES('test_hook', 2, 1001, 'action_performed', 'http://example.com', now(), now())",
-                undefined,
-                'testTag'
-            )
-
-            expect(await teamManager.shouldSendWebhooks(2)).toEqual(true)
-        })
-
-        it('caches results, webhooks-only case', async () => {
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
-            jest.spyOn(hub.db, 'postgresQuery')
-
-            expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
-
-            await hub.db.postgresQuery(
-                "UPDATE posthog_team SET slack_incoming_webhook = 'https://x.com/'",
-                undefined,
-                'testTag'
-            )
-            mocked(hub.db.postgresQuery).mockClear()
-
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:10').getTime())
-            expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
-
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:45').getTime())
-            expect(await teamManager.shouldSendWebhooks(2)).toEqual(true)
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
-        })
-
-        it('caches results, Zapier hooks-only case', async () => {
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
-            jest.spyOn(hub.db, 'postgresQuery')
-
-            expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
-
-            await hub.db.postgresQuery(
-                "INSERT INTO ee_hook (id, team_id, user_id, event, target, created, updated) VALUES('test_hook', 2, 1001, 'action_performed', 'http://example.com', now(), now())",
-                undefined,
-                'testTag'
-            )
-            mocked(hub.db.postgresQuery).mockClear()
-
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:10').getTime())
-            expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
-
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:45').getTime())
-            expect(await teamManager.shouldSendWebhooks(2)).toEqual(true)
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(2)
-        })
-    })
-
     describe('updateEventNamesAndProperties()', () => {
-        let posthog: any
-
         beforeEach(async () => {
-            posthog = { capture: jest.fn(), identify: jest.fn() }
             await hub.db.postgresQuery("UPDATE posthog_team SET ingested_event = 't'", undefined, 'testTag')
             await hub.db.postgresQuery('DELETE FROM posthog_eventdefinition', undefined, 'testTag')
             await hub.db.postgresQuery('DELETE FROM posthog_propertydefinition', undefined, 'testTag')
@@ -244,11 +184,24 @@ describe('TeamManager()', () => {
             })
 
             it('calls posthog.identify and posthog.capture', async () => {
-                await teamManager.updateEventNamesAndProperties(2, 'new-event', {})
+                await teamManager.updateEventNamesAndProperties(2, 'new-event', {
+                    $lib: 'python',
+                    host: 'localhost:8000',
+                })
 
                 const team = await teamManager.fetchTeam(2)
                 expect(posthog.identify).toHaveBeenCalledWith('plugin_test_user_distinct_id_1001')
-                expect(posthog.capture).toHaveBeenCalledWith('first team event ingested', { team: team!.uuid })
+                expect(posthog.capture).toHaveBeenCalledWith('first team event ingested', {
+                    team: team!.uuid,
+                    host: 'localhost:8000',
+                    realm: undefined,
+                    sdk: 'python',
+                    $groups: {
+                        organization: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+                        project: team!.uuid,
+                        instance: 'unknown',
+                    },
+                })
             })
         })
     })

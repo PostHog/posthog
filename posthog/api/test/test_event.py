@@ -227,7 +227,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                     properties={"random_prop": "don't include", "some other prop": "with some text"},
                 )
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=custom_event").json()
-            self.assertListEqual(sorted(events), sorted([event["name"] for event in response]))
+            self.assertListEqual(sorted(events), sorted(event["name"] for event in response))
 
         def test_event_property_values(self):
 

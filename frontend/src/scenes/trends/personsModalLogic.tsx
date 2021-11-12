@@ -130,6 +130,14 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     day: date_from,
                     breakdown_value,
                 }),
+                loadPeopleFromUrl: (_, { label, date_from, action, breakdown_value }) => ({
+                    people: [],
+                    count: 0,
+                    day: date_from,
+                    label,
+                    action,
+                    breakdown_value,
+                }),
                 setFilters: () => null,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
             },
@@ -152,6 +160,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             false,
             {
                 loadPeople: () => true,
+                loadPeopleFromUrl: () => true,
                 hidePeople: () => false,
             },
         ],
@@ -175,7 +184,10 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
-                let people: PaginatedResponse<{ people: PersonType[]; count: number }> | null = null
+                let people: PaginatedResponse<{
+                    people: PersonType[]
+                    count: number
+                }> | null = null
                 const {
                     label,
                     action,
@@ -188,6 +200,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     funnelStep,
                     pathsDropoff,
                 } = peopleParams
+
                 const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
 
                 if (filters.funnel_correlation_person_entity) {
@@ -261,6 +274,29 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }
 
                 return peopleResult
+            },
+            loadPeopleFromUrl: async ({
+                url,
+                funnelStep,
+                breakdown_value = '',
+                date_from,
+                action,
+                label,
+                pathsDropoff,
+            }) => {
+                const people = await api.get(url)
+
+                return {
+                    people: people?.results[0]?.people,
+                    count: people?.results[0]?.count || 0,
+                    label,
+                    funnelStep,
+                    breakdown_value,
+                    day: date_from,
+                    action: action,
+                    next: people?.next,
+                    pathsDropoff,
+                }
             },
             loadMorePeople: async ({}, breakpoint) => {
                 if (values.people) {

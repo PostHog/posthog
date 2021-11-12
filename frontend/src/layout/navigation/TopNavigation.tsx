@@ -5,7 +5,6 @@ import { navigationLogic } from './navigationLogic'
 import { IconBuilding, IconMenu } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
-import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
 import { Button, Card, Dropdown } from 'antd'
 import {
@@ -107,18 +106,12 @@ function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
 }
 
 function TopNavigationOriginal(): JSX.Element {
-    const {
-        setMenuCollapsed,
-        setChangelogModalOpen,
-        setInviteMembersModalOpen,
-        setProjectModalShown,
-        setOrganizationModalShown,
-    } = useActions(navigationLogic)
+    const { setMenuCollapsed, setInviteMembersModalOpen, setProjectModalShown, setOrganizationModalShown } =
+        useActions(navigationLogic)
     const {
         menuCollapsed,
         systemStatus,
         updateAvailable,
-        changelogModalOpen,
         inviteMembersModalOpen,
         projectModalShown,
         organizationModalShown,
@@ -317,13 +310,21 @@ function TopNavigationOriginal(): JSX.Element {
                             </Link>
                         )}
                         {!preflight?.cloud && (
-                            <Badge
-                                data-attr="update-indicator-badge"
-                                type={updateAvailable ? 'warning' : undefined}
-                                tooltip={updateAvailable ? 'New version available' : 'PostHog is up-to-date'}
-                                icon={<UpOutlined />}
-                                onClick={() => setChangelogModalOpen(true)}
-                            />
+                            <a
+                                href={`https://posthog.com/blog/the-posthog-array-${preflight?.posthog_version?.replace(
+                                    /\./g,
+                                    '-'
+                                )}`}
+                                target="_blank"
+                                rel="noopener"
+                            >
+                                <Badge
+                                    data-attr="update-indicator-badge"
+                                    type={updateAvailable ? 'warning' : undefined}
+                                    tooltip={updateAvailable ? 'New version available' : 'PostHog is up-to-date'}
+                                    icon={<UpOutlined />}
+                                />
+                            </a>
                         )}
                     </div>
                 </div>
@@ -369,7 +370,6 @@ function TopNavigationOriginal(): JSX.Element {
                 onClose={() => setOrganizationModalShown(false)}
             />
             <CommandPalette />
-            {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
     )
 }

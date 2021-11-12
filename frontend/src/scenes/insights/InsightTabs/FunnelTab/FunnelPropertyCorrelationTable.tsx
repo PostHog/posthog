@@ -4,7 +4,7 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, FunnelStep } from '~/types'
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
@@ -28,9 +28,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         inversePropertyNames,
         propertyNames,
         correlationPropKey,
+        allProperties,
     } = useValues(logic)
 
-    const { setPropertyCorrelationTypes, openPersonsModal, setPropertyNames } = useActions(logic)
+    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal } = useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 
@@ -46,42 +47,11 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         }
     }
 
-    const parseBreakdownValue = (item: string): { breakdown: string; breakdown_value: string } => {
-        const components = item.split('::')
-        if (components.length === 1) {
-            return { breakdown: components[0], breakdown_value: '' }
-        } else {
-            return {
-                breakdown: components[0],
-                breakdown_value: components[1],
-            }
-        }
-    }
-
-    // A sentinel node used to respect typings
-    const emptyFunnelStep: FunnelStep = {
-        action_id: '',
-        average_conversion_time: null,
-        count: 0,
-        name: '',
-        order: 0,
-        type: 'new_entity',
-    }
-
     const renderSuccessCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openPersonsModal(
-                        { ...emptyFunnelStep, name: breakdown },
-                        stepsWithCount.length,
-                        breakdown_value,
-                        breakdown,
-                        'person',
-                        [stepsWithCount.length] // funnel_custom_steps for correlations
-                    )
+                    openCorrelationPersonsModal(record, true)
                 }}
             >
                 {record.success_count}
@@ -90,19 +60,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     }
 
     const renderFailureCount = (record: FunnelCorrelation): JSX.Element => {
-        const { breakdown, breakdown_value } = parseBreakdownValue(record.event.event || '')
-
         return (
             <ValueInspectorButton
                 onClick={() => {
-                    openPersonsModal(
-                        { ...emptyFunnelStep, name: breakdown },
-                        -2,
-                        breakdown_value,
-                        breakdown,
-                        'person',
-                        Array.from(Array(stepsWithCount.length).keys()).slice(1) // returns array like: [1,2,3,.... stepsWithCount.length - 1]
-                    )
+                    openCorrelationPersonsModal(record, false)
                 }}
             >
                 {record.failure_count}
@@ -161,12 +122,16 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         CORRELATED PROPERTIES
                     </span>
                     <span className="table-options">
-                        <p className="title">PROPERTIES </p>
-                        <PropertyNamesSelect
-                            value={new Set(propertyNames)}
-                            onChange={(selectedProperties: string[]) => setPropertyNames(selectedProperties)}
-                            allProperties={inversePropertyNames(excludedPropertyNames || [])}
-                        />
+                        {allProperties.length > 0 && (
+                            <>
+                                <p className="title">PROPERTIES </p>
+                                <PropertyNamesSelect
+                                    value={new Set(propertyNames)}
+                                    onChange={(selectedProperties: string[]) => setPropertyNames(selectedProperties)}
+                                    allProperties={inversePropertyNames(excludedPropertyNames || [])}
+                                />
+                            </>
+                        )}
                         <p className="title">CORRELATION</p>
                         <div
                             className="tab-btn ant-btn"
