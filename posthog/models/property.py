@@ -12,7 +12,7 @@ from typing import (
 
 from django.db.models import Exists, OuterRef, Q
 
-from posthog.models.filters.mixins.groups import validate_group_type_index
+from posthog.models.filters.utils import validate_group_type_index
 from posthog.utils import is_valid_regex
 
 ValueT = Union[str, int, List[str]]
