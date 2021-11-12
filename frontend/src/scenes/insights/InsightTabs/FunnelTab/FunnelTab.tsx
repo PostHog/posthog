@@ -117,6 +117,13 @@ export function FunnelTab(): JSX.Element {
                                 fullWidth
                                 sortable
                                 showNestedArrow={true}
+                                propertiesTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
                             />
 
                             {!clickhouseFeaturesEnabled && (
