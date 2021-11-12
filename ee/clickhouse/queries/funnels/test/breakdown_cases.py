@@ -1,11 +1,11 @@
+from datetime import datetime
 from string import ascii_lowercase
-from typing import Dict, List, Tuple, TypedDict
-from uuid import UUID
+from typing import Dict, List, TypedDict
 
-from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.breakdown_props import ALL_USERS_COHORT_ID
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.cohort import Cohort
@@ -56,28 +56,46 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
 
-            person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-            self.a_journey_for(
-                "person1",
-                [
-                    {"event": "sign up", "day": 1, "hour": 12},
-                    {"event": "play movie", "day": 1, "hour": 13},
-                    {"event": "buy", "day": 1, "hour": 15},
+            journey = {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 1, 15),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
                 ],
-                {"key": "val", "$browser": "Chrome"},
-            )
+                "person2": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 16),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    }
+                ],
+            }
 
-            person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-            self.a_journey_for(
-                "person2",
-                [{"event": "sign up", "day": 2, "hour": 14}, {"event": "play movie", "day": 2, "hour": 16},],
-                {"key": "val", "$browser": "Safari"},
-            )
-
-            person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-            self.a_journey_for(
-                "person3", [{"event": "sign up", "day": 2, "hour": 14},], {"key": "val", "$browser": "Safari"}
-            )
+            people = journeys_for(events_by_person=journey, team=self.team)
 
             result = funnel.run()
             self.assertEqual(
@@ -124,8 +142,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [people["person1"].uuid])
             self.assertEqual(
                 result[1],
                 [
@@ -171,8 +189,10 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1, "Safari"), [people["person2"].uuid, people["person3"].uuid]
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_with_other(self):
@@ -474,22 +494,20 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             funnel = Funnel(filter, self.team)
 
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$browser": "Chrome"})
-            self.a_journey_for(
-                "person1",
-                [
-                    {"event": "sign up", "day": 1, "hour": 12},
-                    {"event": "play movie", "day": 1, "hour": 13},
-                    {"event": "buy", "day": 1, "hour": 15},
-                ],
-                {"key": "val"},
-            )
-
             person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$browser": "Safari"})
-            self.a_journey_for(
-                "person2",
-                [{"event": "sign up", "day": 2, "hour": 14}, {"event": "play movie", "day": 2, "hour": 16},],
-                {"key": "val"},
-            )
+
+            peoples_journeys = {
+                "person1": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                    {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
+                ],
+                "person2": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14)},
+                    {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
+                ],
+            }
+            journeys_for(peoples_journeys, self.team)
 
             result = funnel.run()
             self.assertEqual(
