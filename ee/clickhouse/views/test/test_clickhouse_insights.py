@@ -10,8 +10,8 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import deep_dump_object
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.clickhouse.test.test_journeys import journeys_for
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
 from posthog.api.test.test_trends import (
