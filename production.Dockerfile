@@ -93,7 +93,6 @@ RUN apk --update --no-cache --virtual .build-deps add \
 # Copy everything else
 COPY . .
 
-
 # Build the frontend
 #
 # Note: we run the build as a separate actions to increase
