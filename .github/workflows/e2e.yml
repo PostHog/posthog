@@ -117,7 +117,9 @@ jobs:
                   ./bin/docker-migrate & wait
                   python manage.py setup_dev
                   mkdir -p cypress/screenshots
-                  ./bin/docker-worker &
+                  yarn install --frozen-lockfile --cwd plugin-server
+                  node dist/index.js &
+                  ./bin/docker-worker-celery --with-scheduler &
                   ./bin/docker-server &
             - name: Cypress run
               uses: cypress-io/github-action@v2
