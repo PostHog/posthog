@@ -47,7 +47,8 @@ export function Groups(): JSX.Element {
                     expandedRowRender: function RenderPropertiesTable({ group_properties }) {
                         return <PropertiesTable properties={group_properties} />
                     },
-                    rowExpandable: ({ group_properties }) => !!group_properties && Object.keys(group_properties).length > 0,
+                    rowExpandable: ({ group_properties }) =>
+                        !!group_properties && Object.keys(group_properties).length > 0,
                 }}
             />
             {(groups.previous_url || groups.next_url) && (
