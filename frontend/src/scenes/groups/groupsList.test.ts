@@ -32,7 +32,7 @@ describe('groupsListLogic', () => {
         router.actions.push(urls.groups('0'))
         await expectLogic(logic)
             .toDispatchActions(['setTab'])
-            .toMatchValues(logic, { tab: '0' })
+            .toMatchValues({ currentTab: '0' })
             .toDispatchActions(['loadGroups'])
     })
 })
