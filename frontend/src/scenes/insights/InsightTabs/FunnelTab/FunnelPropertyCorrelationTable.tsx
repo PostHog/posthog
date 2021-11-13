@@ -149,7 +149,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         </div>
                         <div
                             className="tab-btn ant-btn"
-                            style={{ marginRight: '5px', paddingTop: '1px', paddingBottom: '1px' }}
+                            style={{ marginRight: '8px', paddingTop: '1px', paddingBottom: '1px' }}
                             onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
                         >
                             <Checkbox
@@ -201,7 +201,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         align="center"
                     />
                     <Column
-                        title="Actions"
+                        title=""
                         key="actions"
                         render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
                         align="center"

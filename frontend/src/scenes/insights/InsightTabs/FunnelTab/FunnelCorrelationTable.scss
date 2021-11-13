@@ -2,7 +2,8 @@
 
 .funnel-correlation-table {
     margin-top: $default_spacing;
-    border: 1px solid #d9d9d9;
+    border: 1px solid $border;
+    border-radius: $radius;
 
     .funnel-correlation-header {
         background: #f2f2f2;
@@ -12,22 +13,23 @@
         flex-grow: 1;
         justify-content: space-between;
         align-content: space-between;
-        margin-top: 2px;
+        border-top-left-radius: $radius;
+        border-top-right-radius: $radius;
         padding-bottom: 5px;
 
         .table-header {
-            font-family: Inter;
             font-style: normal;
-            font-weight: 600;
+            font-weight: bold;
             font-size: 11px;
             line-height: 16px;
+            padding-bottom: 4px;
 
             display: flex;
             align-items: center;
             letter-spacing: 0.02em;
             text-transform: uppercase;
 
-            color: #2d2d2d;
+            color: $text_default;
             flex: none;
             flex-grow: 4;
             margin-left: $default_spacing;
