@@ -2,8 +2,7 @@ import React from 'react'
 import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
-import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
-import { groupsModel } from '~/models/groupsModel'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Group } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
 import { GroupsTabs } from './GroupsTabs'
@@ -11,13 +10,12 @@ import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 
 export function Groups(): JSX.Element {
-    const { groups, currentGroup, groupsLoading } = useValues(groupsListLogic)
+    const { groups, groupsLoading } = useValues(groupsListLogic)
     const { loadGroups } = useActions(groupsListLogic)
-    const { groupTypes } = useValues(groupsModel)
 
     const columns: ResizableColumnType<Partial<Group>>[] = [
         {
-            title: `${capitalizeFirstLetter(groupTypes[currentGroup]?.group_type || '')} Key`,
+            title: 'Key',
             key: 'group_key',
             span: 8,
             render: function Render(group: Group) {
