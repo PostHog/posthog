@@ -16,6 +16,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 import './SessionRecordingTable.scss'
 interface SessionRecordingsTableProps {
@@ -72,6 +73,8 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         setDurationFilter,
         enableFilter,
     } = useActions(sessionRecordingsTableLogicInstance)
+    const { preflight } = useValues(preflightLogic)
+
     const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
@@ -151,7 +154,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             ]}
                         />
                     </div>
-                    {!isPersonPage && (
+                    {!isPersonPage && preflight?.is_clickhouse_enabled && (
                         <div className="mt-2">
                             <Typography.Text strong>
                                 {`Filter by persons and cohorts `}
