@@ -8,6 +8,7 @@ import { Group } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
 import { GroupsTabs } from './GroupsTabs'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
 
 export function Groups(): JSX.Element {
     const { groups, currentGroup, groupsLoading } = useValues(groupsListLogic)
@@ -42,6 +43,12 @@ export function Groups(): JSX.Element {
                 rowKey="group_key"
                 loading={groupsLoading}
                 dataSource={groups.results}
+                expandable={{
+                    expandedRowRender: function RenderPropertiesTable({ group_properties }) {
+                        return <PropertiesTable properties={group_properties} />
+                    },
+                    rowExpandable: ({ group_properties }) => Object.keys(group_properties).length > 0,
+                }}
             />
             {(groups.previous_url || groups.next_url) && (
                 <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
