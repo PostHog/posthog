@@ -5,11 +5,10 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Entity, Team
+from posthog.models import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingQueryResult
 
@@ -21,15 +20,9 @@ class EventFiltersSQL(NamedTuple):
     params: Dict[str, Any]
 
 
-class ClickhouseSessionRecordingList(SessionRecordingList):
+class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     _filter: SessionRecordingsFilter
-    _team: Team
-    _column_optimizer: ColumnOptimizer
-
-    def __init__(self, filter: SessionRecordingsFilter, team: Team) -> None:
-        self._filter = filter
-        self._team = team
-        self._column_optimizer = ColumnOptimizer(self._filter, self._team.pk)
+    SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
     _session_recordings_query_with_entity_filter: str = """
     SELECT
@@ -53,7 +46,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             team_id = %(team_id)s
             {event_filter_where_conditions}
             {events_timestamp_clause}
-    ) AS filtered_events
+    ) AS events
     RIGHT OUTER JOIN (
         SELECT
             session_id,
@@ -71,18 +64,21 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         {recording_start_time_clause}
         {duration_clause} 
     ) AS session_recordings
-    ON session_recordings.distinct_id = filtered_events.distinct_id
+    ON session_recordings.distinct_id = events.distinct_id
     JOIN (
         {person_distinct_id_query}
-    ) as person_distinct_id 
-    ON person_distinct_id.distinct_id = session_recordings.distinct_id
-    JOIN ({person_query}) as person ON person.id = person_distinct_id.person_id 
+    ) as pdi 
+    ON pdi.distinct_id = session_recordings.distinct_id
+    {person_query}
     WHERE
-        empty(filtered_events.event) OR
         (
-            filtered_events.timestamp >= session_recordings.start_time
-            AND filtered_events.timestamp <= session_recordings.end_time
+            empty(events.event) OR
+            (
+                events.timestamp >= session_recordings.start_time
+                AND events.timestamp <= session_recordings.end_time
+            )
         )
+        {prop_filter_clause}
         {person_id_clause}
     GROUP BY session_recordings.session_id
     HAVING 1 = 1
@@ -90,6 +86,21 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
+
+    @property
+    def limit(self):
+        return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
+
+    def _determine_should_join_distinct_ids(self) -> None:
+        self._should_join_distinct_ids = True
+
+    def _determine_should_join_persons(self) -> None:
+        super()._determine_should_join_persons()
+
+        if self._filter.person_uuid:
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
+            return
 
     def _get_properties_select_clause(self) -> str:
         current_url_clause, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
@@ -99,15 +110,8 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         )
         return clause
 
-    def _get_person_query(self,) -> Tuple[str, Dict[str, Any]]:
-        return ClickhousePersonQuery(filter=self._filter, team_id=self._team.pk).get_query()
-
     def _has_entity_filters(self):
         return self._filter.entities and len(self._filter.entities) > 0
-
-    @property
-    def limit(self):
-        return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
 
     def _get_person_id_clause(self) -> Tuple[str, Dict[str, Any]]:
         person_id_clause = ""
@@ -161,10 +165,9 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             filters, filter_params = parse_prop_clauses(
                 entity.properties,
                 prepend=prepend,
-                team_id=self._team.pk,
+                team_id=self._team_id,
                 allow_denormalized_props=True,
                 has_person_id_joined=True,
-                table_name="filtered_events",
                 person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             )
             filter_sql += f" {filters}"
@@ -199,11 +202,13 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
 
         return EventFiltersSQL(aggregate_select_clause, aggregate_having_clause, where_conditions, params,)
 
-    def _build_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+
         offset = self._filter.offset or 0
         # One more is added to the limit to check if there are more results available
-        base_params = {"team_id": self._team.pk, "limit": self.limit + 1, "offset": offset}
+        base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
         person_query, person_query_params = self._get_person_query()
+        prop_query, prop_params = self._get_props(self._filter.properties)
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()
         person_id_clause, person_id_params = self._get_person_id_clause()
@@ -214,6 +219,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         return (
             self._session_recordings_query_with_entity_filter.format(
                 person_id_clause=person_id_clause,
+                prop_filter_clause=prop_query,
                 person_distinct_id_query=GET_TEAM_PERSON_DISTINCT_IDS,
                 person_query=person_query,
                 properties_select_clause=properties_select_clause,
@@ -228,6 +234,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
                 **base_params,
                 **person_id_params,
                 **person_query_params,
+                **prop_params,
                 **events_timestamp_params,
                 **duration_params,
                 **recording_start_time_params,
@@ -249,7 +256,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         ]
 
     def run(self, *args, **kwargs) -> SessionRecordingQueryResult:
-        query, query_params = self._build_query()
+        query, query_params = self.get_query()
         query_results = sync_execute(query, query_params)
         session_recordings = self._data_to_return(query_results)
         return self._paginate_results(session_recordings)

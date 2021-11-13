@@ -394,6 +394,7 @@ export interface RecordingFilters {
     date_to?: string | null
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    properties?: PropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
