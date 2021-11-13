@@ -16,6 +16,18 @@
     .event-list {
         flex: 1;
 
+        .current-events-highlight-box {
+            position: absolute;
+            width: 100%;
+            transition: height 400ms ease-in-out, transform 200ms ease-in-out;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 0;
+            background-color: $recording_hover_event;
+            border-radius: $radius;
+        }
+
         .event-list-virtual {
             scroll-behavior: smooth;
         }
@@ -27,8 +39,6 @@
 
             &:hover,
             &.current-event {
-                background-color: $recording_hover_event;
-
                 .event-item-icon {
                     .event-item-icon-wrapper {
                         background-color: $recording_hover_event_dark;
@@ -40,6 +50,10 @@
                         }
                     }
                 }
+            }
+
+            &:hover {
+                background-color: $recording_hover_event;
             }
 
             &.current-event:hover {

@@ -1,10 +1,11 @@
 import './PlayerEvents.scss'
-import React, { useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Col, Input, Row, Skeleton } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
+import { defaultCellRangeRenderer, GridCellRangeProps } from 'react-virtualized/dist/commonjs/Grid'
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
 import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
@@ -14,10 +15,17 @@ import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function PlayerEvents(): JSX.Element {
+    const listRef = useRef<VirtualizedList>(null)
     const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
-    const { localFilters, listEvents, cellMeasurerCache, isEventCurrent, isRowIndexRendered } =
-        useValues(eventsListLogic)
-    const { setLocalFilters, setRenderedRows } = useActions(eventsListLogic)
+    const {
+        localFilters,
+        listEvents,
+        cellMeasurerCache,
+        isEventCurrent,
+        isRowIndexRendered,
+        currentEventsBoxSizeAndPosition,
+    } = useValues(eventsListLogic)
+    const { setLocalFilters, setRenderedRows, setGrid } = useActions(eventsListLogic)
 
     function Event({ index, style, key, parent }: ListRowProps): JSX.Element {
         const event = listEvents[index]
@@ -76,15 +84,25 @@ export function PlayerEvents(): JSX.Element {
         )
     }
 
-    const listRef = useRef(null)
-
-    if (listRef?.current?.Grid.state.instanceProps.rowSizeAndPositionManager.getCellCount() > 0) {
-        console.log(
-            'list ref',
-            listRef.current,
-            listRef?.current?.Grid.state.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(32)
+    function cellRangeRenderer(props: GridCellRangeProps): React.ReactNode[] {
+        const children = defaultCellRangeRenderer(props)
+        children.push(
+            <div
+                className="current-events-highlight-box"
+                style={{
+                    height: currentEventsBoxSizeAndPosition.height,
+                    transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
+                }}
+            />
         )
+        return children
     }
+
+    useEffect(() => {
+        if (listRef?.current?.Grid) {
+            setGrid(listRef.current.Grid)
+        }
+    }, [listRef.current])
 
     return (
         <Col className="player-events-container">
@@ -107,6 +125,7 @@ export function PlayerEvents(): JSX.Element {
                                 noRowsRenderer={sessionEventsDataLoading ? () => <Loading /> : undefined}
                                 // scrollToIndex={currentEventStartIndex}
                                 // scrollToAlignment="center"
+                                cellRangeRenderer={cellRangeRenderer}
                                 deferredMeasurementCache={cellMeasurerCache}
                                 overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                 rowCount={listEvents.length}

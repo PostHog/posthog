@@ -19,7 +19,7 @@ import {
     pluralize,
     toParams,
     eventToDescription,
-    floorMsToClosestSecond,
+    ceilMsToClosestSecond,
 } from './utils'
 import { ActionFilter, PropertyOperator } from '~/types'
 
@@ -380,14 +380,18 @@ describe('eventToName()', () => {
     })
 })
 
-describe('floorMsToClosestSecond()', () => {
+describe('ceilMsToClosestSecond()', () => {
     it('handles ms as expected', () => {
-        expect(floorMsToClosestSecond(10532)).toEqual(10000)
-        expect(floorMsToClosestSecond(1500)).toEqual(1000)
-        expect(floorMsToClosestSecond(500)).toEqual(0)
+        expect(ceilMsToClosestSecond(10532)).toEqual(11000)
+        expect(ceilMsToClosestSecond(1500)).toEqual(2000)
+        expect(ceilMsToClosestSecond(500)).toEqual(1000)
+        expect(ceilMsToClosestSecond(-10532)).toEqual(-10000)
+        expect(ceilMsToClosestSecond(-1500)).toEqual(-1000)
+        expect(ceilMsToClosestSecond(-500)).toEqual(-0)
     })
     it('handles whole seconds as expected', () => {
-        expect(floorMsToClosestSecond(0)).toEqual(0)
-        expect(floorMsToClosestSecond(1000)).toEqual(1000)
+        expect(ceilMsToClosestSecond(0)).toEqual(0)
+        expect(ceilMsToClosestSecond(1000)).toEqual(1000)
+        expect(ceilMsToClosestSecond(-1000)).toEqual(-1000)
     })
 })
