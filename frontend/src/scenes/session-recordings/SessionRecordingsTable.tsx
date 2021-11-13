@@ -147,8 +147,11 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             showOr
                             renderRow={(props) => <FilterRow {...props} />}
                             showNestedArrow={false}
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
-                            propertyFilterTaxonomicGroupTypes={[
+                            actionsTaxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.Actions,
+                                TaxonomicFilterGroupType.Events,
+                            ]}
+                            propertiesTaxonomicGroupTypes={[
                                 TaxonomicFilterGroupType.EventProperties,
                                 TaxonomicFilterGroupType.Elements,
                             ]}

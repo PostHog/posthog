@@ -289,6 +289,7 @@ def insight_test_factory(event_factory, person_factory):
                 self.assertEqual(spy_update_dashboard_item_cache.call_count, 1)
                 self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
                 self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+                self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")
 
             with freeze_time("2012-01-15T05:01:34.000Z"):
                 event_factory(team=self.team, event="$pageview", distinct_id="1")
@@ -298,6 +299,13 @@ def insight_test_factory(event_factory, person_factory):
                 self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
                 self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
                 self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
+                self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")  # did not change
+
+            with freeze_time("2012-01-25T05:01:34.000Z"):
+                response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
+                self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
+                self.assertEqual(response["last_refresh"], None)
+                self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")  # did not change
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 

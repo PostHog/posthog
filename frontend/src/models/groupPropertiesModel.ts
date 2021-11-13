@@ -28,7 +28,7 @@ export const groupPropertiesModel = kea<groupPropertiesModelType>({
             (s) => [s.allGroupProperties],
             (groupProperties: GroupTypeProperties) =>
                 (groupTypeIndex: number): Array<PersonProperty> =>
-                    groupProperties[groupTypeIndex],
+                    groupProperties[groupTypeIndex] || [],
         ],
         groupProperties_0: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['0']],
         groupProperties_1: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['1']],
