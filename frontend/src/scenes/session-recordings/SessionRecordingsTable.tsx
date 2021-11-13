@@ -15,9 +15,9 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { PropertyFilters } from 'lib/components/PropertyFilters'
 
 import './SessionRecordingTable.scss'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 interface SessionRecordingsTableProps {
     personUUID?: string
     isPersonPage?: boolean
@@ -53,24 +53,25 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         sessionRecordingsResponseLoading,
         sessionRecordingId,
         entityFilters,
+        propertyFilters,
         hasNext,
         hasPrev,
         fromDate,
         toDate,
         durationFilter,
-        showEntityFilter,
+        showFilters,
     } = useValues(sessionRecordingsTableLogicInstance)
     const {
         openSessionPlayer,
         closeSessionPlayer,
         setEntityFilters,
+        setPropertyFilters,
         loadNext,
         loadPrev,
         setDateRange,
         setDurationFilter,
-        enableEntityFilter,
+        enableFilter,
     } = useActions(sessionRecordingsTableLogicInstance)
-    const { preflight } = useValues(preflightLogic)
     const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
@@ -118,45 +119,69 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
     return (
         <div className="session-recordings-table" data-attr="session-recordings-table">
             <Row className="filter-row">
-                <div className="action-filter-container" style={{ display: showEntityFilter ? undefined : 'none' }}>
-                    <Typography.Text strong>
-                        {`Filter by events or actions `}
-                        <Tooltip title="Show recordings where all of the events or actions listed below happen.">
-                            <InfoCircleOutlined className="info-icon" />
-                        </Tooltip>
-                    </Typography.Text>
-                    <ActionFilter
-                        fullWidth={true}
-                        filters={entityFilters}
-                        setFilters={(payload) => {
-                            setEntityFilters(payload)
-                        }}
-                        typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
-                        hideMathSelector={true}
-                        buttonCopy="Add another filter"
-                        horizontalUI
-                        stripeActionRow={false}
-                        propertyFilterWrapperClassName="session-recording-action-property-filter"
-                        customRowPrefix=""
-                        hideRename
-                        showOr
-                        renderRow={(props) => <FilterRow {...props} />}
-                        showNestedArrow={false}
-                        propertyFilterTaxonomicGroupTypes={
-                            preflight?.is_clickhouse_enabled
-                                ? undefined
-                                : [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.Elements]
-                        }
-                    />
+                <div className="filter-container" style={{ display: showFilters ? undefined : 'none' }}>
+                    <div>
+                        <Typography.Text strong>
+                            {`Filter by events and actions `}
+                            <Tooltip title="Show recordings where all of the events or actions listed below happen.">
+                                <InfoCircleOutlined className="info-icon" />
+                            </Tooltip>
+                        </Typography.Text>
+                        <ActionFilter
+                            fullWidth={true}
+                            filters={entityFilters}
+                            setFilters={(payload) => {
+                                setEntityFilters(payload)
+                            }}
+                            typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
+                            hideMathSelector={true}
+                            buttonCopy="Add another filter"
+                            horizontalUI
+                            stripeActionRow={false}
+                            propertyFilterWrapperClassName="session-recording-action-property-filter"
+                            customRowPrefix=""
+                            hideRename
+                            showOr
+                            renderRow={(props) => <FilterRow {...props} />}
+                            showNestedArrow={false}
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
+                            propertyFilterTaxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.Elements,
+                            ]}
+                        />
+                    </div>
+                    {!isPersonPage && (
+                        <div className="mt-2">
+                            <Typography.Text strong>
+                                {`Filter by persons and cohorts `}
+                                <Tooltip title="Show recordings by persons who match the set criteria">
+                                    <InfoCircleOutlined className="info-icon" />
+                                </Tooltip>
+                            </Typography.Text>
+                            <PropertyFilters
+                                pageKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                ]}
+                                propertyFilters={propertyFilters}
+                                onChange={(properties) => {
+                                    setPropertyFilters(properties)
+                                }}
+                            />
+                        </div>
+                    )}
                 </div>
                 <Button
-                    style={{ display: showEntityFilter ? 'none' : undefined }}
+                    style={{ display: showFilters ? 'none' : undefined }}
                     onClick={() => {
-                        enableEntityFilter()
-
-                        const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                        if (entityFilterButtons.length > 0) {
-                            ;(entityFilterButtons[0] as HTMLElement).click()
+                        enableFilter()
+                        if (isPersonPage) {
+                            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                            if (entityFilterButtons.length > 0) {
+                                ;(entityFilterButtons[0] as HTMLElement).click()
+                            }
                         }
                     }}
                 >
