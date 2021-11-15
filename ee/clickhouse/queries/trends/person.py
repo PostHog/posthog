@@ -100,6 +100,12 @@ class TrendsPersonQuery:
             {**params, "offset": self.filter.offset, "limit": 200},
         )
 
+    def get_query(self) -> Tuple[str, Dict]:
+        if self.is_group_query:
+            return self.get_group_query()
+        else:
+            return self.get_person_query()
+
     def get_people(self) -> ReturnDict:
 
         if self.is_group_query:

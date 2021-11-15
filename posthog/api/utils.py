@@ -20,16 +20,19 @@ class PaginationMode(Enum):
 
 
 def get_target_entity(request: request.Request) -> Entity:
-    entity_id = request.GET.get(ENTITY_ID)
+    entity_id: Optional[Union[int, str]] = request.GET.get(ENTITY_ID)
     events = request.GET.get("events", "[]")
     actions = request.GET.get("actions", "[]")
     entity_type = request.GET.get(ENTITY_TYPE)
     entity_math = request.GET.get(ENTITY_MATH, None)
 
+    if not entity_id:
+        raise ValueError("An entity id must be provided to determine an entity")
+
     possible_entity = retrieve_entity_from(entity_id, json.loads(events), json.loads(actions))
     if possible_entity:
         return Entity(data=possible_entity)
-    if entity_id and entity_type:
+    elif entity_type:
         return Entity({"id": entity_id, "type": entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
