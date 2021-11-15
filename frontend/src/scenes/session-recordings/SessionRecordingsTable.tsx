@@ -17,7 +17,6 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 
 import './SessionRecordingTable.scss'
 interface SessionRecordingsTableProps {
