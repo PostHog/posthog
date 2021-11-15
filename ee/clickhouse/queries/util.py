@@ -1,5 +1,6 @@
+import json
 from datetime import datetime
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -126,3 +127,10 @@ def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
         return "AND {interval}(timestamp) >= {interval}(toDateTime(%(date_from)s))".format(interval=interval_annotation)
     else:
         return "AND timestamp >= %(date_from)s"
+
+
+def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
+    for key in params:
+        if isinstance(params[key], dict) or isinstance(params[key], list):
+            params[key] = json.dumps(params[key])
+    return params

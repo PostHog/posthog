@@ -13019,10 +13019,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.16.2:
-  version "1.16.2"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.16.2.tgz#cae080b628ac83661205998158a8edfa5bc353b6"
-  integrity sha512-UQYind/RgcL11b78ImNXyrvaVG9a8Rff45e//X+2ETgZjEqF5/c7odndqxWdsMqB5/+1v6YQUko8/cO/FTrM6w==
+posthog-js@1.16.3:
+  version "1.16.3"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.16.3.tgz#42f3acb2562809064289a7ad68671f781885c58e"
+  integrity sha512-xZ+CkQzRAkVM9MmwkPilofoWLKjtszoUl3CZqWoA2zSfNzDrzXVjavT1HHCzmXywUB6WdrCOpYgnM44THGakwg==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"
@@ -14691,7 +14691,7 @@ schema-utils@^3.0.0:
     ajv "^6.12.5"
     ajv-keywords "^3.5.2"
 
-screenfull@^5.0.0, screenfull@^5.0.2, screenfull@^5.1.0:
+screenfull@^5.0.0, screenfull@^5.0.2:
   version "5.1.0"
   resolved "https://registry.yarnpkg.com/screenfull/-/screenfull-5.1.0.tgz#85c13c70f4ead4c1b8a935c70010dfdcd2c0e5c8"
   integrity sha512-dYaNuOdzr+kc6J6CFcBrzkLCfyGcMg+gWkJ8us93IQ7y1cevhQAugFsaCdMHb6lw8KV3xPzSxzH7zM1dQap9mA==

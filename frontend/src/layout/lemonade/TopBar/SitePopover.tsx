@@ -18,16 +18,19 @@ import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
 import { lemonadeLogic } from '../lemonadeLogic'
-import { AvailableFeature, LicenseType, OrganizationBasicType } from '../../../types'
+import { LicenseType, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
-import { sceneLogic } from '../../../scenes/sceneLogic'
 import { navigationLogic } from '../../navigation/navigationLogic'
 import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
 import dayjs from 'dayjs'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
-import { membershipLevelToName } from '../../../lib/utils/permissioning'
+import {
+    AccessLevelIndicator,
+    NewOrganizationButton,
+    OtherOrganizationButton,
+} from '~/layout/navigation/OrganizationSwitcherOverlay'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -63,14 +66,6 @@ function AccountInfo(): JSX.Element {
     )
 }
 
-function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
-    return (
-        <div className="AccessLevelIndicator" title={`Your ${organization.name} organization access level`}>
-            {organization.membership_level ? membershipLevelToName.get(organization.membership_level) : '?'}
-        </div>
-    )
-}
-
 function CurrentOrganization({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     const { closeSitePopover } = useActions(lemonadeLogic)
 
@@ -94,24 +89,6 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     )
 }
 
-function OtherOrganizationButton({ organization }: { organization: OrganizationBasicType }): JSX.Element {
-    const { updateCurrentOrganization } = useActions(userLogic)
-
-    return (
-        <LemonButton
-            onClick={() => updateCurrentOrganization(organization.id)}
-            icon={<Lettermark name={organization.name} />}
-            className="SitePopover__organization"
-            type="stealth"
-            title={`Switch to organization ${organization.name}`}
-            fullWidth
-        >
-            {organization.name}
-            <AccessLevelIndicator organization={organization} />
-        </LemonButton>
-    )
-}
-
 function InviteMembersButton(): JSX.Element {
     const { closeSitePopover, showInviteModal } = useActions(lemonadeLogic)
 
@@ -126,35 +103,6 @@ function InviteMembersButton(): JSX.Element {
             data-attr="top-menu-invite-team-members"
         >
             Invite members
-        </LemonButton>
-    )
-}
-
-function NewOrganizationButton(): JSX.Element {
-    const { closeSitePopover, showCreateOrganizationModal } = useActions(lemonadeLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
-
-    return (
-        <LemonButton
-            icon={<IconPlus />}
-            onClick={() =>
-                guardAvailableFeature(
-                    AvailableFeature.ORGANIZATIONS_PROJECTS,
-                    'multiple organizations',
-                    'Organizations group people building products together. An organization can then have multiple projects.',
-                    () => {
-                        closeSitePopover()
-                        showCreateOrganizationModal()
-                    },
-                    {
-                        cloud: false,
-                        selfHosted: true,
-                    }
-                )
-            }
-            fullWidth
-        >
-            New organization
         </LemonButton>
     )
 }
@@ -217,7 +165,7 @@ function SystemStatus(): JSX.Element {
 }
 
 function Version(): JSX.Element {
-    const { closeSitePopover, showChangelogModal } = useActions(lemonadeLogic)
+    const { closeSitePopover } = useActions(lemonadeLogic)
     const { updateAvailable, latestVersion } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
     const { preflight } = useValues(preflightLogic)
 
@@ -235,8 +183,13 @@ function Version(): JSX.Element {
                     {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
                 <Link
+                    href={`https://posthog.com/blog/the-posthog-array-${preflight?.posthog_version?.replace(
+                        /\./g,
+                        '-'
+                    )}`}
+                    target="_blank"
+                    rel="noopener"
                     onClick={() => {
-                        showChangelogModal()
                         closeSitePopover()
                     }}
                     className="SitePopover__side-link"
@@ -314,7 +267,7 @@ export function SitePopover(): JSX.Element {
                 </>
             }
         >
-            <div className="SitePopover__crumb" onClick={toggleSitePopover}>
+            <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div
                     className="SitePopover__profile-picture"
                     title={systemStatus ? undefined : 'Potential system issue'}

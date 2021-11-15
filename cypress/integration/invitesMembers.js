@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 describe('Invite Signup', () => {
     it('Authenticated user can invite user but cannot use invite for someone else', () => {
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
 
         cy.location('pathname').should('eq', '/organization/settings')
@@ -42,7 +42,7 @@ describe('Invite Signup', () => {
             headers: { Authorization: 'Bearer e2e_demo_api_key' },
         }).then((response) => {
             expect(response.status).to.eq(201)
-            cy.get('[data-attr=top-navigation-whoami]').click()
+            cy.get('[data-attr=top-menu-toggle]').click()
             cy.get('[data-attr=top-menu-item-logout]').click()
             cy.visit('/signup/' + response.body.id)
         })
@@ -58,7 +58,7 @@ describe('Invite Signup', () => {
     })
 
     it('can navigate to organization settings and invite/change users', () => {
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
         cy.location('pathname').should('include', '/organization/settings')
 
@@ -72,7 +72,7 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=invite-link]')
             .last()
             .then((element) => {
-                cy.get('[data-attr=top-navigation-whoami]').click()
+                cy.get('[data-attr=top-menu-toggle]').click()
                 cy.get('[data-attr=top-menu-item-logout]').click()
                 cy.visit(element.text())
             })
@@ -83,12 +83,12 @@ describe('Invite Signup', () => {
         cy.location('pathname').should('include', urls.savedInsights())
 
         // Log out, log in as main
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-logout]').click()
         cy.login()
 
         // Go to organization settings
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
         cy.location('pathname').should('include', '/organization/settings')
         cy.get('.page-title').should('contain', 'Organization')

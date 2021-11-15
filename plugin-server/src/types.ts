@@ -101,6 +101,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     CAPTURE_INTERNAL_METRICS: boolean
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
+    SITE_URL: string | null
+    NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {

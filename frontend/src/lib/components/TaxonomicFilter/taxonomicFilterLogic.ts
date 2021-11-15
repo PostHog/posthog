@@ -22,7 +22,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
-    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']] },
+    connect: {
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            groupsModel,
+            ['groupTypes'],
+            groupPropertiesModel,
+            ['allGroupProperties'],
+        ],
+    },
     actions: () => ({
         moveUp: true,
         moveDown: true,

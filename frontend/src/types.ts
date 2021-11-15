@@ -538,10 +538,12 @@ export interface EventsTableAction {
 
 export interface EventType {
     elements: ElementType[]
-    elements_hash: string | null
+    elements_hash: string | null // Deprecated for elements_chain
+    elements_chain?: string | null
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    zeroOffsetTime?: number // Used in session recording events that have a start time offset
     person?: Partial<PersonType> | null
     event: string
 }
@@ -549,6 +551,7 @@ export interface EventType {
 export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
     percentage: number
     timestamp: number
+    queryValue?: string
 }
 
 export interface EventsTableRowItem {
@@ -811,6 +814,7 @@ export interface FilterType {
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+    breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -864,6 +868,10 @@ export interface FilterType {
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
+}
+
+export interface RecordingEventsFilters {
+    query: string
 }
 
 export interface SystemStatusSubrows {
@@ -953,6 +961,10 @@ export interface TrendResult {
 
 export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
+    persons: {
+        url: string
+        filter: Partial<FilterType>
+    }
 }
 
 export interface FunnelStep {
@@ -1373,4 +1385,9 @@ export enum HelpType {
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+}
+
+export interface VersionType {
+    version: string
+    release_date?: string
 }

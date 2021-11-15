@@ -2,7 +2,7 @@ import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { average, eventToName, successToast, sum } from 'lib/utils'
+import { average, autoCaptureEventToDescription, successToast, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -55,9 +55,11 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
+import { groupsModel } from '~/models/groupsModel'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -105,6 +107,10 @@ export const funnelLogic = kea<funnelLogicType>({
             ['hasAvailableFeature'],
             featureFlagLogic,
             ['featureFlags'],
+            groupsModel,
+            ['groupTypes'],
+            groupPropertiesModel,
+            ['groupProperties'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -954,7 +960,10 @@ export const funnelLogic = kea<funnelLogicType>({
                         return { first_value, second_value }
                     } else if (values[0] === '$autocapture' && values[1] === 'elements_chain') {
                         // special case for autocapture elements_chain
-                        first_value = eventToName({ ...record.event, event: '$autocapture' })
+                        first_value = autoCaptureEventToDescription({
+                            ...record.event,
+                            event: '$autocapture',
+                        }) as string
                         return { first_value, second_value }
                     } else {
                         // FunnelCorrelationResultsType.EventWithProperties
@@ -999,9 +1008,13 @@ export const funnelLogic = kea<funnelLogicType>({
             (currentTeam) => currentTeam?.correlation_config?.excluded_event_property_names || [],
         ],
         inversePropertyNames: [
-            (s) => [s.personProperties],
-            (personProperties) => (excludedPersonProperties: string[]) => {
-                return personProperties
+            (s) => [s.filters, s.personProperties, s.groupProperties],
+            (filters, personProperties, groupProperties) => (excludedPersonProperties: string[]) => {
+                const targetProperties =
+                    filters.aggregation_group_type_index !== undefined
+                        ? groupProperties(filters.aggregation_group_type_index)
+                        : personProperties
+                return targetProperties
                     .map((property) => property.name)
                     .filter((property) => !excludedPersonProperties.includes(property))
             },
@@ -1017,6 +1030,16 @@ export const funnelLogic = kea<funnelLogicType>({
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],
             (inversePropertyNames, excludedPropertyNames): string[] => {
                 return inversePropertyNames(excludedPropertyNames || [])
+            },
+        ],
+        aggregationTargetLabel: [
+            (s) => [s.filters, s.groupTypes],
+            (filters, groupTypes): { singular: string; plural: string } => {
+                if (filters.aggregation_group_type_index != undefined && groupTypes.length > 0) {
+                    const groupType = groupTypes[filters.aggregation_group_type_index]
+                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
+                }
+                return { singular: 'user', plural: 'users' }
             },
         ],
     }),
@@ -1114,6 +1137,22 @@ export const funnelLogic = kea<funnelLogicType>({
                 saved: true,
             })
         },
+        openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
+            // :TODO: Support 'person' modal for groups
+            if (values.filters.aggregation_group_type_index != undefined) {
+                return
+            }
+            personsModalLogic.actions.loadPeople({
+                action: 'session',
+                breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
+                label: step.name,
+                date_from: '',
+                date_to: '',
+                filters: { ...values.filters, breakdown, breakdown_type, funnel_custom_steps: customSteps },
+                saveOriginal: true,
+                funnelStep: stepNumber,
+            })
+        },
         openCorrelationPersonsModal: ({ correlation, success }) => {
             // :TODO: Support 'person' modal for groups
             if (values.filters.aggregation_group_type_index != undefined) {
@@ -1128,6 +1167,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: breakdown,
                     breakdown_value,
+                    action: 'session',
+                    date_from: '',
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(
@@ -1142,6 +1183,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: name,
+                    action: 'session',
+                    date_from: '',
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {

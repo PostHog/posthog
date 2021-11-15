@@ -13,12 +13,14 @@ export class TeamManager {
     teamCache: TeamCache<Team | null>
     eventNamesCache: Map<TeamId, Set<string>>
     eventPropertiesCache: Map<TeamId, Set<string>>
+    instanceSiteUrl: string
 
-    constructor(db: DB) {
+    constructor(db: DB, instanceSiteUrl?: string | null) {
         this.db = db
         this.teamCache = new Map()
         this.eventNamesCache = new Map()
         this.eventPropertiesCache = new Map()
+        this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -92,6 +94,11 @@ export class TeamManager {
                     sdk: properties.$lib,
                     realm: properties.realm,
                     host: properties.$host,
+                    $groups: {
+                        project: team.uuid,
+                        organization: team.organization_id,
+                        instance: this.instanceSiteUrl,
+                    },
                 })
             }
         }

@@ -1,29 +1,9 @@
-from typing import Any, Optional
+from typing import Optional
 
-from rest_framework.exceptions import ValidationError
-
-from posthog.constants import AGGREGATION_GROUP_TYPE_INDEX, GROUP_TYPES_LIMIT
+from posthog.constants import AGGREGATION_GROUP_TYPE_INDEX
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
-
-
-def validate_group_type_index(param_name: str, value: Any, required=False) -> Optional[int]:
-    error = ValidationError(
-        f"{param_name} is required to be greater than 0 and less than {GROUP_TYPES_LIMIT}", code="invalid"
-    )
-
-    if required and value is None:
-        raise error
-
-    if value is not None:
-        try:
-            value = int(value)
-        except:
-            raise error
-        if not (0 <= value < GROUP_TYPES_LIMIT):
-            raise error
-
-    return value
+from posthog.models.filters.utils import validate_group_type_index
 
 
 class GroupsAggregationMixin(BaseParamMixin):

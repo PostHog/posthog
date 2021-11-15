@@ -23,6 +23,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         correlationDetailedFeedbackVisible,
         correlationFeedbackRating,
         correlationAnalysisAvailable,
+        aggregationTargetLabel,
     } = useValues(funnelLogic(insightProps))
     const {
         sendCorrelationAnalysisFeedback,
@@ -43,8 +44,8 @@ export const FunnelCorrelation = (): JSX.Element | null => {
         return (
             <PayCard
                 identifier={AvailableFeature.CORRELATION_ANALYSIS}
-                title="Get a deeper understanding of why your users are not converting"
-                caption="Correlation analysis automatically finds signals for why users are converting or dropping off."
+                title={`Get a deeper understanding of why your ${aggregationTargetLabel.plural} are not converting`}
+                caption={`Correlation analysis automatically finds signals for why ${aggregationTargetLabel.plural} are converting or dropping off.`}
             />
         )
     }

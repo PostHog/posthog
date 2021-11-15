@@ -1,6 +1,6 @@
 import { InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -20,7 +20,7 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
 
 export function FunnelConversionWindowFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { conversionWindow } = useValues(funnelLogic(insightProps))
+    const { conversionWindow, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
     const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
@@ -48,8 +48,9 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                 <Tooltip
                     title={
                         <>
-                            <b>Recommended!</b> Limit to users who converted within a specific time frame. Users who do
-                            not convert in this time frame will be considered as drop-offs.
+                            <b>Recommended!</b> Limit to {aggregationTargetLabel.plural} who converted within a specific
+                            time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)} who do not convert in
+                            this time frame will be considered as drop-offs.
                         </>
                     }
                 >

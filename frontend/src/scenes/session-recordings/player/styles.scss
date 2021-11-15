@@ -1,5 +1,12 @@
 @import '~/vars';
 
+.session-drawer-body {
+    height: calc(100vh - 40px);
+    @media (max-width: $md) {
+        height: unset;
+    }
+}
+
 .session-player-v2 {
     display: flex;
     flex-direction: column;
@@ -7,26 +14,59 @@
     width: 100%;
 
     .session-player-body {
+        display: flex;
+        flex-wrap: wrap;
+        flex-direction: row;
         flex: 1;
-        overflow: hidden;
-        background-color: $recording_player_container_bg;
+        background-color: $bg_light;
+        height: calc(100% - 40px - 2 * #{$recording_spacing});
+
+        @media (max-width: $md) {
+            flex: unset;
+            // Subtract controller and top navbar heights + padding
+            height: calc(100vh - 2 * 40px - 2 * #{$recording_spacing});
+        }
 
         .player-container {
+            height: 100%;
+            flex: 1;
+            min-width: 1px;
             position: relative;
-            padding: $default_spacing;
+            padding: $recording_spacing $recording_spacing 0 $recording_spacing;
+
+            @media (max-width: $md) {
+                width: 100%;
+            }
+        }
+
+        .player-events {
+            width: 30%;
+            min-width: 300px;
+            max-width: 400px;
+            height: unset;
+            position: relative;
+            padding: $recording_spacing $recording_spacing 0 0;
         }
     }
 
-    .session-player-controller {
-        padding: $default_spacing / 2;
-        background-color: $recording_player_container_bg;
+    // In small screen view when player events is outside of player body
+    .player-events {
+        width: 100%;
+        min-width: unset;
+        max-width: unset;
+        padding: 0 $recording_spacing $recording_spacing $recording_spacing;
+    }
+
+    .player-controller {
+        padding: $recording_spacing;
+        background-color: $bg_light;
     }
 
     .rrweb-player {
         height: 100%;
         width: 100%;
         overflow: hidden;
-        border: 1px solid rgba(217, 217, 217, 0.25);
+        border: 1px solid $border;
         border-radius: $radius;
         background-color: $bg_depth;
         box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
@@ -104,7 +144,7 @@
         width: 100%;
         background-color: $bg_light;
         border-radius: $radius;
-        border: 1px solid $recording_player_container_bg;
+        border: 1px solid $border;
         padding: 0 $default_spacing;
         flex-direction: row;
         align-items: center;
@@ -136,6 +176,7 @@
                     position: absolute;
                     font-size: 6px;
                 }
+
                 .seek-icon {
                     position: absolute;
                     font-size: 18px;
@@ -156,7 +197,7 @@
 
         .inactivity-label {
             font-size: 14px;
-            margin-right: $default_spacing / 2;
+            margin-right: $recording_spacing;
         }
     }
 }
@@ -165,6 +206,7 @@
     .ant-drawer-body {
         padding: 0;
     }
+
     .ant-drawer-close {
         padding: 12px 0px;
     }

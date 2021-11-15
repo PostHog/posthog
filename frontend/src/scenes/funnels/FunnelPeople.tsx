@@ -12,7 +12,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function People(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { stepsWithCount, peopleSorted, peopleLoading, areFiltersValid } = useValues(funnelLogic(insightProps))
+    const { stepsWithCount, peopleSorted, peopleLoading, areFiltersValid, aggregationTargetLabel } = useValues(
+        funnelLogic(insightProps)
+    )
 
     if (!stepsWithCount && !areFiltersValid) {
         return null
@@ -23,7 +25,9 @@ export function People(): JSX.Element | null {
             {peopleLoading ? (
                 <Loading style={{ minHeight: 50 }} />
             ) : !peopleSorted || peopleSorted.length === 0 ? (
-                <div style={{ textAlign: 'center', margin: '3rem 0' }}>No users found for this funnel.</div>
+                <div style={{ textAlign: 'center', margin: '3rem 0' }}>
+                    No {aggregationTargetLabel.plural} found for this funnel.
+                </div>
             ) : (
                 <table className="table-bordered full-width">
                     <tbody>

@@ -229,8 +229,6 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectPersonsLabel = !dashboardItemId && onClick && showPersonsModal
-
         const tooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
             mode: 'nearest',
@@ -339,7 +337,7 @@ export function LineGraph({
                                 referenceDate={referenceDate}
                                 interval={interval}
                                 bodyLines={bodyLines}
-                                inspectPersonsLabel={inspectPersonsLabel}
+                                inspectPersonsLabel={onClick && showPersonsModal}
                                 preferAltTitle={tooltipPreferAltTitle}
                                 hideHeader={type === 'horizontalBar'}
                             />
@@ -422,9 +420,7 @@ export function LineGraph({
                                 : undefined,
                         day:
                             typeof point._index !== 'undefined' && dataset.days
-                                ? dataset['compare']
-                                    ? dataset.dates[point._index]
-                                    : dataset.days[point._index]
+                                ? dataset.days[point._index]
                                 : undefined,
                         value:
                             typeof point._index !== 'undefined' && dataset.data

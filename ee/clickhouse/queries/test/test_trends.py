@@ -63,27 +63,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
         )
 
-    @test_with_materialized_columns(["key"])
-    def test_breakdown_with_filter(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
-        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
-        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "oh"})
-        response = ClickhouseTrends().run(
-            Filter(
-                data={
-                    "date_from": "-14d",
-                    "breakdown": "key",
-                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-                    "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
-                }
-            ),
-            self.team,
-        )
-        self.assertEqual(len(response), 1)
-        # don't return none option when empty
-        self.assertEqual(response[0]["breakdown_value"], "val")
-
     @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups(self):
         self._create_groups()

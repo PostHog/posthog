@@ -56,6 +56,7 @@ function BreakdownBarGroupWrapper({
         visibleStepsWithConversionMetrics: steps,
         clickhouseFeaturesEnabled,
         flattenedBreakdowns,
+        aggregationTargetLabel,
     } = useValues(logic)
     const { openPersonsModal } = useActions(logic)
     const basisStep = getReferenceStep(steps, stepReference, step.order)
@@ -76,6 +77,7 @@ function BreakdownBarGroupWrapper({
                 }}
                 isClickable={isClickable}
                 isSingleSeries={flattenedBreakdowns.length === 1}
+                aggregationTargetLabel={aggregationTargetLabel}
             />
             <div className="funnel-bar-empty-space" />
             <div className="funnel-bar-axis">
