@@ -94,8 +94,9 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 type LoadPeopleFromUrlProps = {
     // The url from which we can load urls
     url: string
-    // The funnel step the dialog should display as the complete/dropped step
-    funnelStep: number
+    // The funnel step the dialog should display as the complete/dropped step.
+    // Optional as this call signature includes any parameter from any insght type
+    funnelStep?: number
     // Used to display in the modal title the property value we're filtering
     // with
     breakdown_value?: string | number // NOTE: using snake case to be consistent with the rest of the file
