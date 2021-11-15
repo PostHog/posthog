@@ -1149,6 +1149,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 funnelStep: converted ? step.order : -step.order,
                 breakdown_value: step.breakdown_value,
                 label: step.name,
+                // NOTE: session value copied from previous code, not clear that this should be the case
+                action: 'session',
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {

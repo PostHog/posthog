@@ -404,8 +404,8 @@ describe('funnelLogic', () => {
             }).toDispatchActions([
                 (action) => {
                     return (
-                        action.type === personsModalLogic.actionTypes.loadPeople &&
-                        action.payload.peopleParams?.label === '$pageview'
+                        action.type === personsModalLogic.actionTypes.loadPeopleFromUrl &&
+                        action.payload?.label === '$pageview'
                     )
                 },
             ])
