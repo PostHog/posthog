@@ -8,7 +8,7 @@ from rest_framework.mixins import ListModelMixin
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.group import ClickhouseGroupSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import format_paginated_url
+from posthog.api.utils import PaginationMode, format_paginated_url
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 
@@ -56,7 +56,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
         previous_url: Optional[str] = None
         if len(query_result) > limit:
             next_url = format_paginated_url(request, offset, limit)
-            previous_url = format_paginated_url(request, offset, limit, True)
+            previous_url = format_paginated_url(request, offset, limit, mode=PaginationMode.previous)
 
         return response.Response({"next_url": next_url, "previous_url": previous_url, "results": results})
 
