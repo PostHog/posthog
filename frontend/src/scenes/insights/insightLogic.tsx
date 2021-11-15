@@ -281,6 +281,7 @@ export const insightLogic = kea<insightLogicType>({
                 ...(shouldMergeWithExisting ? state : {}),
                 ...insight,
             }),
+            setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
         filters: [
