@@ -281,6 +281,8 @@ class QuerySuite:
             team=self.team,
         )
 
+        ClickhouseStickiness().run(filter, self.team)
+
     @benchmark_clickhouse
     def track_stickiness_filter_by_person_property(self):
         filter = StickinessFilter(
