@@ -303,7 +303,7 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
-            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
+            style={{ border: isHighlighted ? '1px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
         >
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>

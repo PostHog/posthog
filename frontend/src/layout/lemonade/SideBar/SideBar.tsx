@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcherOverlay'
+import { ProjectSwitcherOverlay } from '~/layout/lemonade/ProjectSwitcher'
 import {
     IconArrowDropDown,
     IconBarChart,
@@ -24,6 +24,7 @@ import {
     LemonButtonWithSideAction,
     SideAction,
 } from '../../../lib/components/LemonButton'
+import { LemonSpacer } from '../../../lib/components/LemonRow'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '../../../models/dashboardsModel'
 import { organizationLogic } from '../../../scenes/organizationLogic'
@@ -64,11 +65,6 @@ function SidebarProjectSwitcher(): JSX.Element {
         </div>
     )
 }
-
-function Spacer(): JSX.Element {
-    return <div className="SideBar__spacer" />
-}
-
 interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
@@ -130,7 +126,7 @@ function Pages(): JSX.Element {
                         identifier={Scene.OnboardingSetup}
                         to={urls.onboardingSetup()}
                     />
-                    <Spacer />
+                    <LemonSpacer />
                 </>
             )}
             <PageButton
@@ -148,7 +144,7 @@ function Pages(): JSX.Element {
                         overlay: (
                             <div className="SideBar__pinned-dashboards">
                                 <h5>Pinned dashboards</h5>
-                                <Spacer />
+                                <LemonSpacer />
                                 {pinnedDashboards.map((dashboard) => (
                                     <PageButton
                                         key={dashboard.id}
@@ -176,12 +172,12 @@ function Pages(): JSX.Element {
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-            <Spacer />
+            <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
             <PageButton icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
             <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
             <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-            <Spacer />
+            <LemonSpacer />
             {canViewPlugins(currentOrganization) && (
                 <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
             )}
@@ -200,7 +196,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             <div className="SideBar__slider">
                 <div className="SideBar__content">
                     <SidebarProjectSwitcher />
-                    <Spacer />
+                    <LemonSpacer />
                     <Pages />
                 </div>
             </div>
