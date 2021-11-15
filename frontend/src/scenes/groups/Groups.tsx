@@ -48,6 +48,7 @@ export function Groups(): JSX.Element {
                     rowExpandable: ({ group_properties }) =>
                         !!group_properties && Object.keys(group_properties).length > 0,
                 }}
+                pagination={false}
             />
             {(groups.previous_url || groups.next_url) && (
                 <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
