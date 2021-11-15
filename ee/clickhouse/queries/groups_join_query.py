@@ -46,7 +46,11 @@ class GroupsJoinQuery:
         for group_type_index in all_group_types:
             var = f"group_index_{group_type_index}"
             group_join_key = self._join_key or f"$group_{group_type_index}"
-            columns_to_add = [field for field in extra_fields[group_type_index] if field in ACCEPTED_EXTRA_FIELDS]
+            columns_to_add = (
+                [field for field in extra_fields[group_type_index] if field in ACCEPTED_EXTRA_FIELDS]
+                if extra_fields.get(group_type_index, None)
+                else []
+            )
             join_queries.append(
                 f"""
                 INNER JOIN (
