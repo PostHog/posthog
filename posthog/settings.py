@@ -61,7 +61,7 @@ E2E_TESTING = get_from_env(
 )  # whether the app is currently running for E2E tests
 if E2E_TESTING:
     print_warning(
-        ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
+        ["️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests."]
     )
 
 # These flags will be force-enabled on the frontend **and OVERRIDE all** flags from `/decide`
