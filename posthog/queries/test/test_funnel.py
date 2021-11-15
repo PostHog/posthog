@@ -257,7 +257,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             calculate_actions_from_last_calculation()
 
             result = funnel.run()
-
+            breakpoint()
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
