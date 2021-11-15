@@ -149,7 +149,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             },
         ],
     },
-    loaders: () => ({
+    loaders: {
         latestVersion: [
             null as string | null,
             {
@@ -174,7 +174,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 },
             },
         ],
-    }),
+    },
     listeners: ({ values, actions }) => ({
         collapseMenu: () => {
             if (!values.menuCollapsed && window.innerWidth <= 991) {
