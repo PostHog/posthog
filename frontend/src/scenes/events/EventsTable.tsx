@@ -331,7 +331,17 @@ export function EventsTable({
                     <Col flex="0">
                         {exportUrl && (
                             <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                <Button icon={<DownloadOutlined />} href={exportUrl}>
+                                <Button
+                                    icon={<DownloadOutlined />}
+                                    href={exportUrl}
+                                    onClick={(e) => {
+                                        const button = e.currentTarget as HTMLAnchorElement
+                                        button.toggleAttribute('disabled')
+                                        setTimeout(() => {
+                                            button.toggleAttribute('disabled')
+                                        }, 7000)
+                                    }}
+                                >
                                     Export events
                                 </Button>
                             </Tooltip>
