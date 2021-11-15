@@ -72,3 +72,29 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         self.assertEqual(response[0]["data"][0], 1)
         self.assertEqual(response[0]["data"][1], 0)
         self.assertEqual(response[0]["data"][2], 1)
+
+    @snapshot_clickhouse_queries
+    def test_aggregate_by_groups(self):
+        self._create_multiple_people(
+            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i // 2}"},
+        )
+
+        with freeze_time("2020-02-15T13:01:01Z"):
+            filter = StickinessFilter(
+                data={
+                    "shown_as": "Stickiness",
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-02-15",
+                    "events": [{"id": "watched movie"}],
+                    "interval": "week",
+                },
+                team=self.team,
+                get_earliest_timestamp=get_earliest_timestamp,
+            )
+            response = ClickhouseStickiness().run(filter, self.team)
+
+        self.assertEqual(response[0]["count"], 4)
+        self.assertEqual(response[0]["data"][0], 2)
+        self.assertEqual(response[0]["data"][1], 1)
+        self.assertEqual(response[0]["data"][2], 1)
+        self.assertEqual(response[0]["data"][6], 0)

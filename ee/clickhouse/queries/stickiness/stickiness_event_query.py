@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -35,9 +36,9 @@ class StickinessEventsQuery(ClickhouseEventQuery):
 
         query = f"""
             SELECT
-                pdi.person_id AS aggregation_target,
+                {self.aggregation_target()} AS aggregation_target,
                 countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp))) as num_intervals
-            FROM events
+            FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
             {person_query}
             {groups_query}
@@ -52,6 +53,11 @@ class StickinessEventsQuery(ClickhouseEventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
+
+    def aggregation_target(self):
+        return get_aggregation_target_field(
+            self._entity.math_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS
+        )
 
     def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
