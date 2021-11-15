@@ -36,9 +36,7 @@ class ClickhouseStickiness(Stickiness):
         ORDER BY num_intervals
         """
 
-        params = {**event_params, "num_intervals": filter.total_intervals}
-
-        counts = sync_execute(query, params)
+        counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
         return self.process_result(counts, filter)
 
     def stickiness_people_query(
