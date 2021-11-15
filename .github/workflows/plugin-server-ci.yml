@@ -9,6 +9,7 @@ on:
             - 'posthog/migrations/**'
             - 'posthog/plugins/**'
             - 'docker*.yml'
+            - '*Dockerfile'
 
 jobs:
     code-quality:
