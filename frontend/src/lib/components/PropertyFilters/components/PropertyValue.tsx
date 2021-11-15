@@ -129,10 +129,9 @@ export function PropertyValue({
         }
     }, [input, shouldBlur])
 
-    const displayOptions = (options[propertyKey]?.values || []).filter((option) => {
-        console.log({ input, option, matches: matchesLowerCase(input, toString(option?.name)) })
-        return input === '' || matchesLowerCase(input, toString(option?.name))
-    })
+    const displayOptions = (options[propertyKey]?.values || []).filter(
+        (option) => input === '' || matchesLowerCase(input, toString(option?.name))
+    )
 
     const validationError = operator ? getValidationError(operator, value) : null
 
