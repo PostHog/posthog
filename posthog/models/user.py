@@ -142,8 +142,17 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
-            self.current_team = self.organization.teams.order_by("access_control", "id").first()  # Prefer open projects
+            # If there's no current project, use the first one, with preference for open projects
+            self.current_team = self.organization.teams.order_by("access_control", "name").first()
+            if self.current_team.get_effective_membership_level(self) is None:
+                # Unset if the user does not have access to the autodetermined project
+                # In this case they'll just have to set it themselves
+                self.current_team = None
             self.save()
+        else:
+            if self.current_team.get_effective_membership_level(self) is None:
+                self.current_team = None
+                self.save()
         return self.current_team
 
     def join(
