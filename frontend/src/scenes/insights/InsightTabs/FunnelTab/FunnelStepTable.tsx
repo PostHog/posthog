@@ -52,7 +52,7 @@ export function FunnelStepTable(): JSX.Element | null {
         clickhouseFeaturesEnabled,
         aggregationTargetLabel,
     } = useValues(logic)
-    const { openPersonsModal, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
+    const { openPersonsModalForStep, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const isNewVertical =
@@ -180,20 +180,13 @@ export function FunnelStepTable(): JSX.Element | null {
             visibleStepsWithConversionMetrics.forEach((step, stepIndex) => {
                 _columns.push({
                     render: function RenderCompleted({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                        const breakdownStep = breakdown.steps?.[step.order]
                         return renderGraphAndHeader(
                             rowIndex,
                             step.order === 0 ? 3 : (stepIndex - 1) * 5 + 5,
-                            breakdown.steps?.[step.order]?.count != undefined ? (
+                            breakdownStep?.count != undefined ? (
                                 <ValueInspectorButton
-                                    onClick={() =>
-                                        openPersonsModal(
-                                            step,
-                                            step.order + 1,
-                                            breakdown.breakdown_value === 'Baseline'
-                                                ? undefined
-                                                : breakdown.breakdown_value
-                                        )
-                                    }
+                                    onClick={() => openPersonsModalForStep({ step: breakdownStep, converted: true })}
                                     disabled={!clickhouseFeaturesEnabled}
                                 >
                                     {breakdown.steps?.[step.order].count}
@@ -264,19 +257,17 @@ export function FunnelStepTable(): JSX.Element | null {
                 if (step.order !== 0) {
                     _columns.push({
                         render: function RenderDropoff({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                            const breakdownStep = breakdown.steps?.[step.order]
                             return renderGraphAndHeader(
                                 rowIndex,
                                 (stepIndex - 1) * 5 + 7,
-                                breakdown.steps?.[step.order]?.droppedOffFromPrevious != undefined ? (
+                                breakdownStep?.droppedOffFromPrevious != undefined ? (
                                     <ValueInspectorButton
                                         onClick={() =>
-                                            openPersonsModal(
-                                                step,
-                                                -(step.order + 1),
-                                                breakdown.breakdown === 'baseline'
-                                                    ? undefined
-                                                    : breakdown.breakdown_value
-                                            )
+                                            openPersonsModalForStep({
+                                                step: breakdownStep,
+                                                converted: false,
+                                            })
                                         }
                                         disabled={!clickhouseFeaturesEnabled}
                                     >
@@ -479,13 +470,7 @@ export function FunnelStepTable(): JSX.Element | null {
             render: function RenderCompleted({}, step: FlattenedFunnelStep): JSX.Element {
                 return (
                     <ValueInspectorButton
-                        onClick={() =>
-                            openPersonsModal(
-                                step,
-                                step.order + 1,
-                                step.isBreakdownParent ? undefined : step.breakdown_value
-                            )
-                        }
+                        onClick={() => openPersonsModalForStep({ step, converted: true })}
                         disabled={!clickhouseFeaturesEnabled}
                     >
                         {step.count}
@@ -516,13 +501,7 @@ export function FunnelStepTable(): JSX.Element | null {
                     EmptyValue
                 ) : (
                     <ValueInspectorButton
-                        onClick={() =>
-                            openPersonsModal(
-                                step,
-                                -(step.order + 1),
-                                step.isBreakdownParent ? undefined : step.breakdown_value
-                            )
-                        }
+                        onClick={() => openPersonsModalForStep({ step, converted: false })}
                         disabled={!clickhouseFeaturesEnabled}
                     >
                         {step.droppedOffFromPrevious}
