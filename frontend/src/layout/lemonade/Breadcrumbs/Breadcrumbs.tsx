@@ -46,23 +46,17 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
 }
 
 export function Breadcrumbs(): JSX.Element | null {
-    const { breadcrumbs, breadcrumbsLoading } = useValues(breadcrumbsLogic)
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
 
-    return breadcrumbsLoading || breadcrumbs.length > 0 ? (
-        <div className={clsx('Breadcrumbs', breadcrumbsLoading && 'Breadcrumbs--loading')}>
-            {breadcrumbsLoading ? (
-                <Skeleton active paragraph={false} title={{ width: 320 }} />
-            ) : (
-                <>
-                    <Breadcrumb breadcrumb={breadcrumbs[0]} />
-                    {breadcrumbs.slice(1).map((breadcrumb) => (
-                        <React.Fragment key={breadcrumb.name || '…'}>
-                            <IconExpandMore className="Breadcrumbs__separator" />
-                            <Breadcrumb breadcrumb={breadcrumb} />
-                        </React.Fragment>
-                    ))}
-                </>
-            )}
+    return breadcrumbs.length > 0 ? (
+        <div className="Breadcrumbs">
+            <Breadcrumb breadcrumb={breadcrumbs[0]} />
+            {breadcrumbs.slice(1).map((breadcrumb) => (
+                <React.Fragment key={breadcrumb.name || '…'}>
+                    <IconExpandMore className="Breadcrumbs__separator" />
+                    <Breadcrumb breadcrumb={breadcrumb} />
+                </React.Fragment>
+            ))}
         </div>
     ) : null
 }

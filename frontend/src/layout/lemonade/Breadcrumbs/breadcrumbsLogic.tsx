@@ -41,17 +41,15 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
     connect: {
         values: [
             preflightLogic,
-            ['preflight', 'preflightLoading'],
+            ['preflight'],
             sceneLogic,
             ['sceneConfig', 'activeScene'],
             userLogic,
-            ['user', 'userLoading', 'otherOrganizations'],
+            ['user', 'otherOrganizations'],
             organizationLogic,
-            ['currentOrganization', 'currentOrganizationLoading'],
+            ['currentOrganization'],
             teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
-            teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
+            ['currentTeam'],
             dashboardsModel,
             ['rawDashboards', 'lastDashboardId'],
             featureFlagLogic,
@@ -210,37 +208,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         })
                 }
                 return breadcrumbs
-            },
-        ],
-        breadcrumbsLoading: [
-            (s) => [
-                s.preflightLoading,
-                s.sceneConfig,
-                s.userLoading,
-                s.currentOrganizationLoading,
-                s.currentTeamLoading,
-            ],
-            (preflightLoading, sceneConfig, userLoading, currentOrganizationLoading, currentTeamLoading) => {
-                if (!sceneConfig) {
-                    return false
-                }
-                // User
-                if (sceneConfig.personal && userLoading) {
-                    return true
-                }
-                // Instance
-                if (sceneConfig.instanceLevel && preflightLoading) {
-                    return true
-                }
-                // Organization
-                if ((sceneConfig.organizationBased || sceneConfig.projectBased) && currentOrganizationLoading) {
-                    return true
-                }
-                // Project
-                if (sceneConfig.projectBased && currentTeamLoading) {
-                    return true
-                }
-                return false
             },
         ],
     }),
