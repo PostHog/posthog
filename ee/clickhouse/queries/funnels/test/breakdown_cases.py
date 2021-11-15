@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.breakdown_props import ALL_USERS_COHORT_ID
@@ -13,12 +15,140 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
+@dataclass
+class FunnelStepResult:
+    name: str
+    count: int
+    average_conversion_time: Optional[float]
+    median_conversion_time: Optional[float]
+    breakdown: Union[List[str], str]
+    type: Literal["events", "actions"] = "events"
+    action_id: Optional[str] = None
+
+
+def assert_funnel_breakdown_result_is_correct(result, steps: List[FunnelStepResult]):
+    def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
+        return {
+            "action_id": step.name if step.type == "events" else step.action_id,
+            "name": step.name,
+            "custom_name": None,
+            "order": order,
+            "people": [],
+            "count": step.count,
+            "type": step.type,
+            "average_conversion_time": step.average_conversion_time,
+            "median_conversion_time": step.median_conversion_time,
+            "breakdown": step.breakdown,
+            "breakdown_value": step.breakdown,
+        }
+
+    step_results = []
+    for index, step_result in enumerate(steps):
+        step_results.append(funnel_result(step_result, index))
+
+    assert_funnel_results_equal(
+        result, step_results,
+    )
+
+
 def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
     class TestFunnelBreakdown(APIBaseTest):
         def _get_people_at_step(self, filter, funnel_step, breakdown_value=None):
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
             result = FunnelPerson(person_filter, self.team)._exec_query()
             return [row[0] for row in result]
+
+        def test_funnel_step_multi_property_breakdown_event(self):
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": ["$browser", "$browser_version"],
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+
+            journey = {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"key": "val", "$browser": "Chrome", "$browser_version": 95},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"key": "val", "$browser": "Chrome", "$browser_version": 95},
+                    },
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 1, 15),
+                        "properties": {"key": "val", "$browser": "Chrome", "$browser_version": 95},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"key": "val", "$browser": "Safari", "$browser_version": 15},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 16),
+                        "properties": {"key": "val", "$browser": "Safari", "$browser_version": 15},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"key": "val", "$browser": "Safari", "$browser_version": 14},
+                    }
+                ],
+            }
+
+            people = journeys_for(events_by_person=journey, team=self.team)
+
+            result = funnel.run()
+
+            assert_funnel_breakdown_result_is_correct(
+                result[0],
+                [
+                    FunnelStepResult("sign up", 1, None, None, ["Safari", "14"]),
+                    FunnelStepResult("play movie", 0, None, None, ["Safari", "14"]),
+                    FunnelStepResult("buy", 0, None, None, ["Safari", "14"]),
+                ],
+            )
+
+            self.assertCountEqual(self._get_people_at_step(filter, 1, ["Safari", "14"]), [people["person3"].uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, ["Safari", "14"]), [])
+
+            assert_funnel_breakdown_result_is_correct(
+                result[1],
+                [
+                    FunnelStepResult("sign up", 1, None, None, ["Safari", "15"]),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari", "15"]),
+                    FunnelStepResult("buy", 0, None, None, ["Safari", "15"]),
+                ],
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 1, ["Safari", "15"]), [people["person2"].uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, ["Safari", "15"]), [people["person2"].uuid])
+
+            assert_funnel_breakdown_result_is_correct(
+                result[2],
+                [
+                    FunnelStepResult("sign up", 1, None, None, ["Chrome", "95"]),
+                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome", "95"]),
+                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Chrome", "95"]),
+                ],
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 1, ["Chrome", "95"]), [people["person1"].uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, ["Chrome", "95"]), [people["person1"].uuid])
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
@@ -78,94 +208,24 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(events_by_person=journey, team=self.team)
 
             result = funnel.run()
-            assert_funnel_results_equal(
+
+            assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 3600.0,
-                        "median_conversion_time": 3600.0,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
+                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
+                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome"]),
+                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Chrome"]),
                 ],
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [people["person1"].uuid])
-            assert_funnel_results_equal(
+
+            assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 2,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 0,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
+                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
+                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
                 ],
             )
 
@@ -228,98 +288,27 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             result = funnel.run()
 
-            assert_funnel_results_equal(
+            assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 2,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 0,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
+                    FunnelStepResult("sign up", 3, None, None, ["Other"]),
+                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Other"]),
+                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Other"]),
                 ],
             )
+
             self.assertCountEqual(
                 self._get_people_at_step(filter, 1, "Other"),
                 [people["person1"].uuid, people["person4"].uuid, people["person5"].uuid],
             )
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Other"), [people["person1"].uuid])
 
-            assert_funnel_results_equal(
+            assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 3,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Other"],
-                        "breakdown_value": ["Other"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 3600.0,
-                        "median_conversion_time": 3600.0,
-                        "breakdown": ["Other"],
-                        "breakdown_value": ["Other"],
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": ["Other"],
-                        "breakdown_value": ["Other"],
-                    },
+                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
+                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
                 ],
             )
 
@@ -369,94 +358,25 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(events_by_person, self.team)
 
             result = funnel.run()
-            assert_funnel_results_equal(
+
+            assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 3600.0,
-                        "median_conversion_time": 3600.0,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
+                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
+                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome"]),
+                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Chrome"]),
                 ],
             )
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [people["person1"].uuid])
-            assert_funnel_results_equal(
+
+            assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 2,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 0,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
+                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
+                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
                 ],
             )
 
@@ -498,97 +418,28 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             journeys_for(peoples_journeys, self.team)
 
             result = funnel.run()
-            assert_funnel_results_equal(
+
+            assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 3600.0,
-                        "median_conversion_time": 3600.0,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
+                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
+                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome"]),
+                    FunnelStepResult("buy", 1, 7200, 7200, ["Chrome"]),
                 ],
             )
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
 
-            assert_funnel_results_equal(
+            assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 0,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
+                    FunnelStepResult("sign up", 1, None, None, ["Safari"]),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
+                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
                 ],
             )
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 3, "Safari"), [])
 
@@ -781,84 +632,24 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = funnel.run()
             result = sorted(result, key=lambda res: res[0]["breakdown"])
 
-            assert_funnel_results_equal(
-                result[0],
-                [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["0"],
-                        "breakdown_value": ["0"],
-                    },
-                ],
-            )
+            assert_funnel_breakdown_result_is_correct(result[0], [FunnelStepResult("sign up", 1, None, None, ["0"]),])
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "0"), [people["person1"].uuid])
 
-            assert_funnel_results_equal(
-                result[1],
-                [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
-                ],
+            assert_funnel_breakdown_result_is_correct(
+                result[1], [FunnelStepResult("sign up", 1, None, None, ["Chrome"]),]
             )
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
 
-            assert_funnel_results_equal(
-                result[2],
-                [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Mac"],
-                        "breakdown_value": ["Mac"],
-                    },
-                ],
-            )
+            assert_funnel_breakdown_result_is_correct(result[2], [FunnelStepResult("sign up", 1, None, None, ["Mac"]),])
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Mac"), [people["person1"].uuid])
 
-            assert_funnel_results_equal(
-                result[3],
-                [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                ],
+            assert_funnel_breakdown_result_is_correct(
+                result[3], [FunnelStepResult("sign up", 1, None, None, ["Safari"]),]
             )
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [people["person1"].uuid])
 
         def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
@@ -905,71 +696,26 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             result = funnel.run()
-            assert_funnel_results_equal(
+
+            assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 0,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Chrome"],
-                        "breakdown_value": ["Chrome"],
-                    },
+                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
+                    FunnelStepResult("play movie", 0, None, None, ["Chrome"]),
                 ],
             )
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
 
-            assert_funnel_results_equal(
+            assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 3600,
-                        "median_conversion_time": 3600,
-                        "breakdown": ["Safari"],
-                        "breakdown_value": ["Safari"],
-                    },
+                    FunnelStepResult("sign up", 1, None, None, ["Safari"]),
+                    FunnelStepResult("play movie", 1, 3600, 3600, ["Safari"]),
                 ],
             )
+
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [people["person1"].uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person1"].uuid])
 
@@ -1089,37 +835,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             result = ClickhouseFunnel(Filter(data=filters), self.team).run()
 
-            assert_funnel_breakdown_results_equal(
-                result,
+            assert_funnel_breakdown_result_is_correct(
+                result[0],
                 [
-                    [
-                        {
-                            "action_id": "user signed up",
-                            "average_conversion_time": None,
-                            "breakdown": ["https://posthog.com/docs/x"],
-                            "breakdown_value": ["https://posthog.com/docs/x"],
-                            "count": 1,
-                            "median_conversion_time": None,
-                            "name": "user signed up",
-                            "custom_name": None,
-                            "order": 0,
-                            "people": [],
-                            "type": "events",
-                        },
-                        {
-                            "action_id": "paid",
-                            "average_conversion_time": 691200.0,
-                            "breakdown": ["https://posthog.com/docs/x"],
-                            "breakdown_value": ["https://posthog.com/docs/x"],
-                            "count": 1,
-                            "median_conversion_time": 691200.0,
-                            "name": "paid",
-                            "custom_name": None,
-                            "order": 1,
-                            "people": [],
-                            "type": "events",
-                        },
-                    ]
+                    FunnelStepResult("user signed up", 1, None, None, ["https://posthog.com/docs/x"]),
+                    FunnelStepResult("paid", 1, 691200.0, 691200.0, ["https://posthog.com/docs/x"]),
                 ],
             )
 
@@ -1179,37 +899,19 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             result = ClickhouseFunnel(Filter(data=filters), self.team).run()
 
-            assert_funnel_breakdown_results_equal(
-                result,
+            assert_funnel_breakdown_result_is_correct(
+                result[0],
                 [
-                    [
-                        {
-                            "action_id": user_signed_up_action.id,
-                            "average_conversion_time": None,
-                            "breakdown": ["https://posthog.com/docs/x"],
-                            "breakdown_value": ["https://posthog.com/docs/x"],
-                            "count": 1,
-                            "median_conversion_time": None,
-                            "name": "user signed up",
-                            "custom_name": None,
-                            "order": 0,
-                            "people": [],
-                            "type": "actions",
-                        },
-                        {
-                            "action_id": "paid",
-                            "average_conversion_time": 691200.0,
-                            "breakdown": ["https://posthog.com/docs/x"],
-                            "breakdown_value": ["https://posthog.com/docs/x"],
-                            "count": 1,
-                            "median_conversion_time": 691200.0,
-                            "name": "paid",
-                            "custom_name": None,
-                            "order": 1,
-                            "people": [],
-                            "type": "events",
-                        },
-                    ]
+                    FunnelStepResult(
+                        "user signed up",
+                        1,
+                        None,
+                        None,
+                        ["https://posthog.com/docs/x"],
+                        "actions",
+                        user_signed_up_action.id,
+                    ),
+                    FunnelStepResult("paid", 1, 691200.0, 691200.0, ["https://posthog.com/docs/x"]),
                 ],
             )
 
@@ -1284,95 +986,26 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             filter = Filter(data=filters, team=self.team)
             result = Funnel(filter, self.team).run()
-            assert_funnel_results_equal(
+
+            assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": "finance",
-                        "breakdown_value": "finance",
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 3600.0,
-                        "median_conversion_time": 3600.0,
-                        "breakdown": "finance",
-                        "breakdown_value": "finance",
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": "finance",
-                        "breakdown_value": "finance",
-                    },
+                    FunnelStepResult("sign up", 1, None, None, "finance"),
+                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, "finance"),
+                    FunnelStepResult("buy", 1, 7200.0, 7200.0, "finance"),
                 ],
             )
+
             # Querying persons when aggregating by persons should be ok, despite group breakdown
             self.assertCountEqual(self._get_people_at_step(filter, 1, "finance"), [people["person1"].uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "finance"), [people["person1"].uuid])
-            assert_funnel_results_equal(
+
+            assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 2,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": "technology",
-                        "breakdown_value": "technology",
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": "technology",
-                        "breakdown_value": "technology",
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 0,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": "technology",
-                        "breakdown_value": "technology",
-                    },
+                    FunnelStepResult("sign up", 2, None, None, "technology"),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, "technology"),
+                    FunnelStepResult("buy", 0, None, None, "technology"),
                 ],
             )
 
@@ -1441,104 +1074,32 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             result = Funnel(Filter(data=filters, team=self.team), self.team).run()
 
-            assert_funnel_results_equal(
+            assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": "finance",
-                        "breakdown_value": "finance",
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 3600.0,
-                        "median_conversion_time": 3600.0,
-                        "breakdown": "finance",
-                        "breakdown_value": "finance",
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": "finance",
-                        "breakdown_value": "finance",
-                    },
+                    FunnelStepResult("sign up", 1, None, None, "finance"),
+                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, "finance"),
+                    FunnelStepResult("buy", 1, 7200.0, 7200.0, "finance"),
                 ],
             )
 
-            assert_funnel_results_equal(
+            assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "custom_name": None,
-                        "order": 0,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "median_conversion_time": None,
-                        "breakdown": "technology",
-                        "breakdown_value": "technology",
-                    },
-                    {
-                        "action_id": "play movie",
-                        "name": "play movie",
-                        "custom_name": None,
-                        "order": 1,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200.0,
-                        "median_conversion_time": 7200.0,
-                        "breakdown": "technology",
-                        "breakdown_value": "technology",
-                    },
-                    {
-                        "action_id": "buy",
-                        "name": "buy",
-                        "custom_name": None,
-                        "order": 2,
-                        "people": [],
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": 7200,
-                        "median_conversion_time": 7200,
-                        "breakdown": "technology",
-                        "breakdown_value": "technology",
-                    },
+                    FunnelStepResult("sign up", 1, None, None, "technology"),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, "technology"),
+                    FunnelStepResult("buy", 1, 7200.0, 7200.0, "technology"),
                 ],
             )
 
     return TestFunnelBreakdown
 
 
-def exclude_prople_urls_from_funnel_response(steps):
+def exclude_people_urls_from_funnel_response(steps):
     return [{**step, "converted_people_url": None, "dropped_people_url": None} for step in steps]
 
 
-def assert_funnel_results_equal(left, right):
+def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str, Any]]):
     """
     Helper to be able to compare two funnel results, but exclude people urls
     from the comparison, as these include:
@@ -1548,13 +1109,22 @@ def assert_funnel_results_equal(left, right):
         2. contain timestamps which are not stable across runs
     """
 
-    assert exclude_prople_urls_from_funnel_response(left) == exclude_prople_urls_from_funnel_response(right)
+    assert len(left) == len(right)
+    for index, item in enumerate(exclude_people_urls_from_funnel_response(left)):
+        other = exclude_people_urls_from_funnel_response(right)[index]
+        assert item.keys() == other.keys()
+        for key in item.keys():
+            try:
+                assert item[key] == other[key]
+            except AssertionError as e:
+                e.args += (f"failed comparing ${key}", f'Got "{item[key]}" and "{other[key]}"')
+                raise
 
 
 def assert_funnel_breakdown_results_equal(left, right):
     """
     Helper to be able to compare two funnel with breakdown results.
     """
-    assert [exclude_prople_urls_from_funnel_response(result) for result in left] == [
-        exclude_prople_urls_from_funnel_response(result) for result in right
+    assert [exclude_people_urls_from_funnel_response(result) for result in left] == [
+        exclude_people_urls_from_funnel_response(result) for result in right
     ]
