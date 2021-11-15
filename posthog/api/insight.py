@@ -13,7 +13,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import format_next_url
+from posthog.api.utils import format_paginated_url
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
     FROM_DASHBOARD,
@@ -141,8 +141,10 @@ class InsightSerializer(InsightBasicSerializer):
         result = self.get_result(insight)
         if result is not None:
             return insight.last_refresh
-        insight.last_refresh = None
-        insight.save()
+        if insight.last_refresh is not None:
+            # Update last_refresh without updating "updated_at" (insight edit date)
+            Insight.objects.filter(pk=insight.pk).update(last_refresh=None)
+            insight.refresh_from_db()
         return None
 
     def to_representation(self, instance: Insight):
@@ -234,7 +236,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
-        next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        next = format_paginated_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
         return Response({**result, "next": next})
 
     @cached_function

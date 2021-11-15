@@ -37,10 +37,18 @@ if [[ -n $DYNO_RAM ]]; then
   export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
 fi
 
-cd plugins
+# don't do a full build on e2e tests
+if [[ -n $E2E_TESTING ]]; then
+  export DEBUG=1
+fi
 
-echo "🧐 Verifying installed packages..."
-yarn --frozen-lockfile
+cd plugin-server
+
+if [[ -n $DEBUG ]]; then
+  echo "🧐 Verifying installed packages..."
+  yarn --frozen-lockfile
+fi
+
 if [ $? -ne 0 ]; then
   echo "💥 Verification failed!"
   exit 1
@@ -48,11 +56,11 @@ fi
 
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting plugin server..."
-  yarn start
+  [[ -n $DEBUG ]] && yarn start:dev || yarn start:dist 
 else
   echo "🔁 Starting plugin server in a resiliency loop..."
   while true; do
-    yarn start
+    [[ -n $DEBUG ]] && yarn start:dev || yarn start:dist
     echo "💥 Plugin server crashed!"
     echo "⌛️ Waiting 2 seconds before restarting..."
     sleep 2

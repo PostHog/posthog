@@ -15,6 +15,7 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import './SessionRecordingTable.scss'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 interface SessionRecordingsTableProps {
     personUUID?: string
     isPersonPage?: boolean
@@ -138,6 +139,11 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         showOr
                         renderRow={(props) => <FilterRow {...props} />}
                         showNestedArrow={false}
+                        propertiesTaxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
                     />
                 </div>
                 <Button

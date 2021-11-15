@@ -6,9 +6,11 @@ from datetime import timedelta
 from typing import List, Tuple
 
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
+from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
@@ -265,6 +267,54 @@ class QuerySuite:
             team=self.team,
         )
         FunnelCorrelation(filter, self.team).run()
+
+    @benchmark_clickhouse
+    def track_stickiness(self):
+        filter = StickinessFilter(
+            data={
+                "insight": "STICKINESS",
+                "events": [{"id": "$pageview"}],
+                "shown_as": "Stickiness",
+                "display": "ActionsLineGraph",
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        ClickhouseStickiness().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_stickiness_filter_by_person_property(self):
+        filter = StickinessFilter(
+            data={
+                "insight": "STICKINESS",
+                "events": [{"id": "$pageview"}],
+                "shown_as": "Stickiness",
+                "display": "ActionsLineGraph",
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        with no_materialized_columns():
+            ClickhouseStickiness().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_stickiness_filter_by_person_property_materialized(self):
+        filter = StickinessFilter(
+            data={
+                "insight": "STICKINESS",
+                "events": [{"id": "$pageview"}],
+                "shown_as": "Stickiness",
+                "display": "ActionsLineGraph",
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        ClickhouseStickiness().run(filter, self.team)
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:

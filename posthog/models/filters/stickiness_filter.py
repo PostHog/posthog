@@ -32,7 +32,7 @@ class StickinessFilter(
     SimplifyFilterMixin,
     BaseFilter,
 ):
-    get_earliest_timestamp: Callable
+    get_earliest_timestamp: Optional[Callable]
     team: Team
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
@@ -41,10 +41,7 @@ class StickinessFilter(
         if not team:
             raise ValidationError("Team must be provided to stickiness filter")
         self.team = team
-        get_earliest_timestamp: Optional[Callable] = kwargs.get("get_earliest_timestamp", None)
-        if not get_earliest_timestamp:
-            raise ValidationError("Callable must be provided when date filtering is all time")
-        self.get_earliest_timestamp = get_earliest_timestamp  # type: ignore
+        self.get_earliest_timestamp = kwargs.get("get_earliest_timestamp", None)
 
     def trunc_func(self, field_name: str) -> Union[TruncMinute, TruncHour, TruncDay, TruncWeek, TruncMonth]:
         if self.interval == "minute":

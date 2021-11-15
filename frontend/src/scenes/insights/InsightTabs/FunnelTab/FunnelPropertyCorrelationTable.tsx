@@ -28,6 +28,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         inversePropertyNames,
         propertyNames,
         correlationPropKey,
+        allProperties,
     } = useValues(logic)
 
     const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal } = useActions(logic)
@@ -121,12 +122,16 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         CORRELATED PROPERTIES
                     </span>
                     <span className="table-options">
-                        <p className="title">PROPERTIES </p>
-                        <PropertyNamesSelect
-                            value={new Set(propertyNames)}
-                            onChange={(selectedProperties: string[]) => setPropertyNames(selectedProperties)}
-                            allProperties={inversePropertyNames(excludedPropertyNames || [])}
-                        />
+                        {allProperties.length > 0 && (
+                            <>
+                                <p className="title">PROPERTIES </p>
+                                <PropertyNamesSelect
+                                    value={new Set(propertyNames)}
+                                    onChange={(selectedProperties: string[]) => setPropertyNames(selectedProperties)}
+                                    allProperties={inversePropertyNames(excludedPropertyNames || [])}
+                                />
+                            </>
+                        )}
                         <p className="title">CORRELATION</p>
                         <div
                             className="tab-btn ant-btn"

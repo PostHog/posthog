@@ -58,10 +58,10 @@ function BreakdownBarGroupWrapper({
         flattenedBreakdowns,
         aggregationTargetLabel,
     } = useValues(logic)
-    const { openPersonsModal } = useActions(logic)
+    const { openPersonsModalForStep } = useActions(logic)
     const basisStep = getReferenceStep(steps, stepReference, step.order)
     const previousStep = getReferenceStep(steps, FunnelStepReference.previous, step.order)
-    const isClickable = !!(clickhouseFeaturesEnabled && !dashboardItemId && openPersonsModal)
+    const isClickable = !!(clickhouseFeaturesEnabled && !dashboardItemId && openPersonsModalForStep)
 
     return (
         <div className="funnel-bar-wrapper breakdown vertical">
@@ -70,9 +70,9 @@ function BreakdownBarGroupWrapper({
                 basisStep={basisStep}
                 previousStep={previousStep}
                 showLabels={showLabels}
-                onBarClick={(breakdown_value) => {
+                onBarClick={() => {
                     if (isClickable) {
-                        openPersonsModal(step, step.order + 1, breakdown_value)
+                        openPersonsModalForStep({ step, converted: true })
                     }
                 }}
                 isClickable={isClickable}

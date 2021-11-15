@@ -161,37 +161,8 @@
     }
 }
 
-.ant-dropdown-menu.saved-insights-menu {
-    max-width: 272px;
-    border: 1px solid var(--primary);
-    padding: 0;
-
-    .ant-dropdown-menu-item {
-        margin: 6px;
-        padding: 6px;
-        border-radius: 2px;
-        &.ant-dropdown-menu-item-active {
-            background: hsla(220, 100%, 96%, 1);
-        }
-        .ant-row.icon-menu {
-            flex-flow: row;
-            .ant-col:first-child {
-                min-width: 38px;
-            }
-        }
-    }
-    strong {
-        font-weight: 600;
-        display: block;
-    }
-    p {
-        white-space: break-spaces;
-        margin: 0;
-        color: var(--text_default);
-        font-size: 13px;
-        font-weight: 400;
-        line-height: 21px;
-    }
+.new-insight-overlay {
+    max-width: 18rem;
 }
 
 .insight-type-icon-dropdown {

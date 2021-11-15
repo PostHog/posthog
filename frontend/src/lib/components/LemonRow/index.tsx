@@ -14,9 +14,14 @@ declare module 'react' {
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref'> {
     icon?: React.ReactElement | null
+    /** HTML tag to render the row with. */
     tag?: T
     status?: 'success' | 'warning' | 'danger' | 'highlighted'
+    /** Extended content, e.g. a description, to show in the lower button area. */
+    extendedContent?: string
+    /** Tooltip to display on hover. */
     tooltip?: string
+    /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     'data-attr'?: string
 }
@@ -40,6 +45,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         className,
         tag,
         status,
+        extendedContent,
         tooltip,
         sideIcon,
         compact = false,
@@ -62,11 +68,19 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
             ref,
         },
         <>
-            {icon && <span className="LemonRow__icon">{icon}</span>}
-            <div className="LemonRow__content">{children}</div>
-            {sideIcon && <span className="LemonRow__icon">{sideIcon}</span>}
+            <div className="LemonRow__main-area">
+                {icon && <span className="LemonRow__icon">{icon}</span>}
+                {children && <div className="LemonRow__content">{children}</div>}
+                {sideIcon && <span className="LemonRow__icon">{sideIcon}</span>}
+            </div>
+            {extendedContent && <div className="LemonRow__extended-area">{extendedContent}</div>}
         </>
     )
     return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
 }
 export const LemonRow = React.forwardRef(LemonRowInternal)
+
+/** A separator ideal for being sandwiched between LemonRows. */
+export function LemonSpacer(): JSX.Element {
+    return <div className="LemonSpacer" />
+}

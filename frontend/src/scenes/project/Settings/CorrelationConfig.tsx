@@ -6,6 +6,8 @@ import { Divider, Select, SelectProps, Tag } from 'antd'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 import { Button } from 'antd'
+import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
+import { IconSelectEvents, IconSelectProperties } from 'lib/components/icons'
 
 export function CorrelationConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -57,20 +59,27 @@ export function CorrelationConfig(): JSX.Element {
             <h2 className="subtitle" id="internal-users-filtering">
                 Correlation analysis exclusions
             </h2>
-            <p>
+            <p>Globally exclude events or properties that do not provide relevant signals for your conversions.</p>
+
+            <InfoMessage>
                 Correlation analysis can automatically surface relevant signals for conversion, and help you understand
-                why your users dropped off and what makes them convert. Some events are excluded by default because they
-                are non-meaningful to the analysis.
-            </p>
+                why your users dropped off and what makes them convert.
+            </InfoMessage>
             <Divider />
             {currentTeam && (
                 <>
-                    <h3>Excluded person properties</h3>
+                    <h3 style={{ display: 'flex', alignItems: 'center', color: 'var(--muted-alt)' }}>
+                        <IconSelectProperties style={{ marginRight: 4, fontSize: '1.2em' }} />
+                        Excluded person properties
+                    </h3>
                     <PersonPropertySelect
                         onChange={(properties) => handleChange(properties)}
                         selectedProperties={currentTeam.correlation_config.excluded_person_property_names || []}
                     />
-                    <h3>Excluded events</h3>
+                    <h3 style={{ display: 'flex', alignItems: 'center', color: 'var(--muted-alt)' }}>
+                        <IconSelectEvents style={{ marginRight: 4, fontSize: '1.2em' }} />
+                        Excluded events
+                    </h3>
                     <EventSelect
                         onChange={(excludedEvents) => handleChange(undefined, excludedEvents)}
                         selectedEvents={currentTeam.correlation_config.excluded_event_names || []}
@@ -80,8 +89,10 @@ export function CorrelationConfig(): JSX.Element {
                             </Button>
                         }
                     />
-                    <h3>Excluded event Properties</h3>
-                    <p> Choose event properties to exclude across all events.</p>
+                    <h3 style={{ display: 'flex', alignItems: 'center', color: 'var(--muted-alt)' }}>
+                        <IconSelectEvents style={{ marginRight: 4, fontSize: '1.2em' }} />
+                        Excluded event properties
+                    </h3>
                     <div style={{ marginBottom: 8 }}>
                         <Select
                             mode="tags"

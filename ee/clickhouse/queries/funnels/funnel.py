@@ -1,3 +1,4 @@
+import urllib.parse
 from typing import List, Tuple, cast
 
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
@@ -88,6 +89,13 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
+            # Construct converted and dropped people urls. Previously this logic was
+            # part of
+            # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+            funnel_step = step.index + 1
+            converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
+            dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
+
             if with_breakdown:
                 # breakdown will return a display ready value
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
@@ -99,7 +107,26 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                         "breakdown_value": result[-1],
                     }
                 )
-                # important to not try and modify this value any how - as these are keys for fetching persons
+                # important to not try and modify this value any how - as these
+                # are keys for fetching persons
+
+                # Add in the breakdown to people urls as well
+                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": result[-1]})
+                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": result[-1]})
+
+            serialized_result.update(
+                {
+                    "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
+                    "dropped_people_url": (
+                        f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
+                        # NOTE: If we are looking at the first step, there is no drop off,
+                        # everyone converted, otherwise they would not have been
+                        # included in the funnel.
+                        if step.index > 0
+                        else None
+                    ),
+                }
+            )
 
             steps.append(serialized_result)
 

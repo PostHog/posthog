@@ -538,10 +538,12 @@ export interface EventsTableAction {
 
 export interface EventType {
     elements: ElementType[]
-    elements_hash: string | null
+    elements_hash: string | null // Deprecated for elements_chain
+    elements_chain?: string | null
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    zeroOffsetTime?: number // Used in session recording events that have a start time offset
     person?: Partial<PersonType> | null
     event: string
 }
@@ -549,6 +551,7 @@ export interface EventType {
 export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
     percentage: number
     timestamp: number
+    queryValue?: string
 }
 
 export interface EventsTableRowItem {
@@ -867,6 +870,10 @@ export interface FilterType {
     aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
+export interface RecordingEventsFilters {
+    query: string
+}
+
 export interface SystemStatusSubrows {
     columns: string[]
     rows: string[][]
@@ -973,6 +980,12 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+
+    // Url that you can GET to retrieve the people that converted in this step
+    converted_people_url: string
+
+    // Url that you can GET to retrieve the people that dropped in this step
+    dropped_people_url: string
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
@@ -1288,6 +1301,13 @@ export interface GroupType {
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
+
+export interface Group {
+    group_type_index: number
+    group_key: string
+    created_at: string
+    group_properties: Record<string, any>
+}
 
 export interface SelectOption {
     value: string

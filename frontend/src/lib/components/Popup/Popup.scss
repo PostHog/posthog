@@ -3,6 +3,7 @@
 .Popup {
     z-index: $z_popup;
     box-shadow: $shadow_popup;
+    margin-top: 0.25rem;
     background: #fff;
     padding: 0.5rem;
     border-radius: var(--radius);
@@ -21,5 +22,6 @@
         letter-spacing: 0.5px;
         padding-left: 0.5rem;
         margin: 0.25rem 0;
+        line-height: 2;
     }
 }

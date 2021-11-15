@@ -3,15 +3,24 @@ from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.test.client import Client
 from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import deep_dump_object
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.test.test_journeys import journeys_for
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
+from posthog.api.test.test_trends import (
+    TrendsRequest,
+    TrendsRequestBreakdown,
+    get_trends_aggregate_ok,
+    get_trends_people_ok,
+    get_trends_time_series_ok,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
@@ -19,7 +28,7 @@ from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 def _create_person(**kwargs):
     person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+    return Person(id=str(person.uuid))
 
 
 def _create_event(**kwargs):
@@ -30,148 +39,6 @@ def _create_event(**kwargs):
 class ClickhouseTestInsights(
     ClickhouseTestMixin, LicensedTestMixin, insight_test_factory(_create_event, _create_person)  # type: ignore
 ):
-    def test_insight_trends_basic(self):
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-            ).json()
-
-        self.assertEqual(response["result"][0]["count"], 2)
-        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
-
-        self.assertEqual(response["result"][0]["data"][-2], 2)
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
-
-        self.assertEqual(len(response["results"][0]["people"]), 2)
-
-    def test_insight_trends_aggregate(self):
-
-        with freeze_time("2012-01-13T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "display": "ActionsPie",
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-            }
-        )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["aggregated_value"], 2)
-        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
-
-        self.assertEqual(len(response["results"][0]["people"]), 2)
-
-    def test_insight_trends_cumulative(self):
-        with freeze_time("2012-01-13T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["3"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="3", properties={"key": "val"})
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            data = deep_dump_object(
-                {
-                    "date_from": "-14d",
-                    "display": "ActionsLineGraphCumulative",
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-                }
-            )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-        self.assertEqual(response["result"][0]["count"], 3)
-        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
-
-        self.assertEqual(response["result"][0]["data"][-3], 2)
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
-
-        self.assertEqual(len(response["results"][0]["people"]), 3)
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            data = deep_dump_object(
-                {
-                    "date_from": "-14d",
-                    "breakdown": "key",
-                    "display": "ActionsLineGraphCumulative",
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-                }
-            )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][1]["count"], 2)
-        self.assertEqual(response["result"][1]["breakdown_value"], "val")
-        self.assertEqual(response["result"][1]["action"]["name"], "$pageview")
-
-        self.assertEqual(response["result"][1]["data"][-3], 1)
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][1]["persons_urls"][-1]["url"]).json()
-
-        self.assertEqual(len(response["results"][0]["people"]), 2)
-
-    @test_with_materialized_columns(["key"])
-    def test_breakdown_with_filter(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
-        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
-        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "oh"})
-
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "breakdown": "key",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-                "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["count"], 1)
-        # don't return none option when empty
-        self.assertEqual(response["result"][0]["breakdown_value"], "val")
-        person_response = self.client.get("/" + response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(len(person_response["results"][0]["people"]), 1)
-
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "breakdown": "key",
-                "display": "ActionsPie",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["aggregated_value"], 1)
-
-        person_response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
-        self.assertEqual(len(person_response["results"][0]["people"]), 1)
-
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -237,6 +104,67 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["count"], 2)
         self.assertEqual(response["result"][1]["count"], 2)
 
+        # Should have 2 people, all got to the end of the funnel
+        assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {"name": "step one", "converted": ["1", "2"], "dropped": []},
+            {"name": "step two", "converted": ["1", "2"], "dropped": []},
+        ]
+
+    def test_unordered_funnel_with_breakdown_by_event_property(self):
+        # Setup three funnel people, with two different $browser values
+        person1_properties = {"key": "val", "$browser": "Chrome"}
+        person2_properties = {"key": "val", "$browser": "Safari"}
+        person3_properties = person2_properties
+
+        events = {
+            "person1": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": person1_properties},
+                {"event": "buy", "timestamp": "2020-01-02", "properties": person1_properties},
+                {"event": "play movie", "timestamp": "2020-01-03", "properties": person1_properties},
+            ],
+            "person2": [
+                {"event": "buy", "timestamp": "2020-01-01", "properties": person2_properties},
+                {"event": "sign up", "timestamp": "2020-01-02", "properties": person2_properties},
+                {"event": "play movie", "timestamp": "2020-01-03", "properties": person2_properties},
+            ],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
+        }
+
+        journeys_for(team=self.team, events_by_person=events)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/funnel/",
+            {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "insight": "FUNNELS",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "funnel_order_type": "unordered",
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            },
+        ).json()
+
+        assert get_funnel_breakdown_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {
+                "breakdown_value": "Chrome",
+                "steps": [
+                    {"name": "sign up", "converted": ["person1"], "dropped": []},
+                    {"name": "play movie", "converted": ["person1"], "dropped": []},
+                    {"name": "buy", "converted": ["person1"], "dropped": []},
+                ],
+            },
+            {
+                "breakdown_value": "Safari",
+                "steps": [
+                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
+                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
+                    {"name": "buy", "converted": ["person2"], "dropped": []},
+                ],
+            },
+        ]
+
     def test_funnel_strict_basic_post(self):
         _create_person(distinct_ids=["1"], team=self.team)
         _create_event(team=self.team, event="step one", distinct_id="1")
@@ -265,6 +193,132 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][1]["name"], "step two")
         self.assertEqual(response["result"][0]["count"], 2)
         self.assertEqual(response["result"][1]["count"], 1)
+
+        # Should have 2 people, all got through step one, but as this is a
+        # strict funnel, person with distinct_id "2" is not converted as they
+        # performed bleh in between step one and step two
+        assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {"name": "step one", "converted": ["1", "2"], "dropped": []},
+            {"name": "step two", "converted": ["1"], "dropped": ["2"]},
+        ]
+
+    def test_strict_funnel_with_breakdown_by_event_property(self):
+        # Setup three funnel people, with two different $browser values
+        chrome_properties = {"key": "val", "$browser": "Chrome"}
+        safari_properties = {"key": "val", "$browser": "Safari"}
+
+        events = {
+            "person1": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": chrome_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": chrome_properties},
+                {"event": "buy", "timestamp": "2020-01-03", "properties": chrome_properties},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": safari_properties},
+                {
+                    # This person should not convert here as we're in strict mode,
+                    # and this event is not in the funnel definition
+                    "event": "event not in funnel",
+                    "timestamp": "2020-01-03",
+                    "properties": safari_properties,
+                },
+                {"event": "buy", "timestamp": "2020-01-04", "properties": safari_properties},
+            ],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties},],
+        }
+
+        journeys_for(team=self.team, events_by_person=events)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/funnel/",
+            {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "insight": "FUNNELS",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "funnel_order_type": "strict",
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            },
+        ).json()
+
+        assert get_funnel_breakdown_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {
+                "breakdown_value": "Chrome",
+                "steps": [
+                    {"name": "sign up", "converted": ["person1"], "dropped": []},
+                    {"name": "play movie", "converted": ["person1"], "dropped": []},
+                    {"name": "buy", "converted": ["person1"], "dropped": []},
+                ],
+            },
+            {
+                "breakdown_value": "Safari",
+                "steps": [
+                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
+                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
+                    {"name": "buy", "converted": [], "dropped": ["person2"]},
+                ],
+            },
+        ]
+
+    def test_funnel_with_breakdown_by_event_property(self):
+        # Setup three funnel people, with two different $browser values
+        # NOTE: this is mostly copied from
+        # https://github.com/PostHog/posthog/blob/a0f5a0a46a0deca2e17a66dfb530ca18ac99e58c/ee/clickhouse/queries/funnels/test/breakdown_cases.py#L24:L24
+        #
+        person1_properties = {"key": "val", "$browser": "Chrome"}
+        person2_properties = {"key": "val", "$browser": "Safari"}
+        person3_properties = person2_properties
+
+        events = {
+            "person1": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": person1_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": person1_properties},
+                {"event": "buy", "timestamp": "2020-01-03", "properties": person1_properties},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": "2020-01-01", "properties": person2_properties},
+                {"event": "play movie", "timestamp": "2020-01-02", "properties": person2_properties},
+                {"event": "buy", "timestamp": "2020-01-03", "properties": person2_properties},
+            ],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
+        }
+
+        journeys_for(team=self.team, events_by_person=events)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/funnel/",
+            {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "insight": "FUNNELS",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            },
+        ).json()
+
+        assert get_funnel_breakdown_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {
+                "breakdown_value": "Chrome",
+                "steps": [
+                    {"name": "sign up", "converted": ["person1"], "dropped": []},
+                    {"name": "play movie", "converted": ["person1"], "dropped": []},
+                    {"name": "buy", "converted": ["person1"], "dropped": []},
+                ],
+            },
+            {
+                "breakdown_value": "Safari",
+                "steps": [
+                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
+                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
+                    {"name": "buy", "converted": ["person2"], "dropped": []},
+                ],
+            },
+        ]
 
     def test_funnel_trends_basic_post(self):
         _create_person(distinct_ids=["user_one"], team=self.team)
@@ -597,6 +651,14 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["count"], 1)
         self.assertEqual(response["result"][1]["count"], 1)
 
+        # Should only pick up the person with distinct id "2" as the "1" person
+        # performed the "step x" event, which we're explicitly asking to be
+        # excluded in the request payload
+        assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
+            {"name": "step one", "converted": ["2"], "dropped": []},
+            {"name": "step two", "converted": ["2"], "dropped": []},
+        ]
+
     def test_funnel_invalid_exclusions(self):
         _create_person(distinct_ids=["1"], team=self.team)
         _create_event(team=self.team, event="step one", distinct_id="1")
@@ -712,3 +774,44 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "breakdown": breakdown_properties,
             "breakdown_value": breakdown_properties,
         }
+
+
+def get_converted_and_dropped_people(client: Client, step):
+    # Helper for fetching converted/dropped people for a specified funnel step response
+    converted_people_response = client.get(step["converted_people_url"])
+    assert converted_people_response.status_code == status.HTTP_200_OK
+
+    converted_people = converted_people_response.json()["results"][0]["people"]
+    converted_distinct_ids = [distinct_id for people in converted_people for distinct_id in people["distinct_ids"]]
+
+    if step["order"] == 0:
+        #  If it's the first step, we don't expect a dropped people url
+        dropped_distinct_ids = []
+    else:
+        dropped_people_response = client.get(step["dropped_people_url"])
+        assert dropped_people_response.status_code == status.HTTP_200_OK
+
+        dropped_people = dropped_people_response.json()["results"][0]["people"]
+        dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
+
+    return {
+        "name": step["name"],
+        "converted": sorted(converted_distinct_ids),
+        "dropped": sorted(dropped_distinct_ids),
+    }
+
+
+def get_funnel_people_breakdown_by_step(client: Client, funnel_response):
+    # Helper to fetch converted/dropped people for a non-breakdown funnel response
+    return [get_converted_and_dropped_people(client=client, step=step) for step in funnel_response["result"]]
+
+
+def get_funnel_breakdown_people_breakdown_by_step(client: Client, funnel_response):
+    # Helper to fetch converted/dropped people for a breakdown funnel response
+    return [
+        {
+            "breakdown_value": breakdown_steps[0]["breakdown_value"],
+            "steps": [get_converted_and_dropped_people(client=client, step=step) for step in breakdown_steps],
+        }
+        for breakdown_steps in funnel_response["result"]
+    ]

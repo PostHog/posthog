@@ -83,6 +83,17 @@ export const userLogic = kea<userLogicType>({
                         is_demo_project: teamLogic.values.currentTeam?.is_demo,
                     })
 
+                    if (user.team) {
+                        posthog.group('project', user.team.uuid, {
+                            id: user.team.id,
+                            uuid: user.team.uuid,
+                            name: user.team.name,
+                            ingested_event: user.team.ingested_event,
+                            is_demo: user.team.is_demo,
+                            timezone: user.team.timezone,
+                        })
+                    }
+
                     if (user.organization) {
                         posthog.group('organization', user.organization.id, {
                             id: user.organization.id,
