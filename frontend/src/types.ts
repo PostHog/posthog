@@ -980,6 +980,12 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+
+    // Url that you can GET to retrieve the people that converted in this step
+    converted_people_url: string
+
+    // Url that you can GET to retrieve the people that dropped in this step
+    dropped_people_url: string
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
