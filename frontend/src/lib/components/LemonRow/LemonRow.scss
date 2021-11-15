@@ -82,7 +82,9 @@
     flex-grow: 1;
     display: flex;
     align-items: center;
-    padding-left: 0.5rem;
+    &:not(:first-child) {
+        padding-left: 0.5rem;
+    }
 }
 
 .LemonSpacer {
