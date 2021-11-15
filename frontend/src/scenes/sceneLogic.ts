@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { organizationLogic } from './organizationLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -228,7 +229,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
                 // Redirect to org/project creation if there's no org/project respectively, unless using invite
                 if (scene !== Scene.InviteSignup) {
-                    if (!user.organization) {
+                    if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (location.pathname !== urls.organizationCreateFirst()) {
                             router.actions.replace(urls.organizationCreateFirst())
                             return
