@@ -7,8 +7,13 @@ from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
 from ee.clickhouse.queries.util import deep_dump_object, get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
-from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
-from ee.clickhouse.sql.trends.volume import ACTIVE_USER_SQL, VOLUME_SQL, VOLUME_TOTAL_AGGREGATE_SQL
+from ee.clickhouse.sql.trends.volume import (
+    ACTIVE_USER_SQL,
+    AGGREGATE_SQL,
+    CUMULATIVE_SQL,
+    VOLUME_SQL,
+    VOLUME_TOTAL_AGGREGATE_SQL,
+)
 from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -52,6 +57,9 @@ class ClickhouseTrendsTotalVolume:
                     parsed_date_from=trend_event_query.parsed_date_from,
                     **trend_event_query.active_user_params,
                 )
+            elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
+                cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
+                content_sql = VOLUME_SQL.format(event_query=cumulative_sql, **content_sql_params)
             else:
                 content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)
 
