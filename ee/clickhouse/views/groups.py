@@ -56,13 +56,14 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
                 "limit": limit + 1,
             },
         )
-        results = ClickhouseGroupSerializer(query_result[:limit], many=True).data
-        next_url: Optional[str] = None
-        previous_url: Optional[str] = format_paginated_url(request, offset, limit, mode=PaginationMode.previous)
-        if len(query_result) > limit:
-            next_url = format_paginated_url(request, offset, limit)
 
-        return response.Response({"next_url": next_url, "previous_url": previous_url, "results": results})
+        return response.Response(
+            {
+                "next_url": format_paginated_url(request, offset, limit) if len(query_result) > limit else None,
+                "previous_url": format_paginated_url(request, offset, limit, mode=PaginationMode.previous),
+                "results": ClickhouseGroupSerializer(query_result[:limit], many=True).data,
+            }
+        )
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):
