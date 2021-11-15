@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pytest
 from django.test import Client
@@ -66,7 +66,7 @@ def test_includes_only_intervals_within_range(client: Client):
 
         trends = get_trends_ok(
             client,
-            request=TrendsRequest(
+            request=TrendsRequestBreakdown(
                 date_from="-14days",
                 date_to="2021-09-21",
                 interval="week",
@@ -120,29 +120,81 @@ class TrendsRequest:
     date_to: str
     interval: str
     insight: str
-    breakdown: Union[List[int], str]
-    breakdown_type: str
     display: str
     events: List[Dict[str, Any]]
 
 
-def get_trends(client, request: TrendsRequest, team: Team):
-    return client.get(
-        f"/api/projects/{team.id}/insights/trend/",
-        data={
-            "date_from": request.date_from,
-            "date_to": request.date_to,
-            "interval": request.interval,
-            "insight": request.insight,
-            "breakdown": request.breakdown,
-            "breakdown_type": request.breakdown_type,
-            "display": request.display,
-            "events": json.dumps(request.events),
-        },
-    )
+@dataclasses.dataclass
+class TrendsRequestBreakdown(TrendsRequest):
+    breakdown: Union[List[int], str]
+    breakdown_type: str
+
+
+def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], team: Team):
+    data: Dict[str, Any] = {
+        "date_from": request.date_from,
+        "date_to": request.date_to,
+        "interval": request.interval,
+        "insight": request.insight,
+        "display": request.display,
+        "events": json.dumps(request.events),
+    }
+
+    if isinstance(request, TrendsRequestBreakdown):
+        data["breakdown"] = request.breakdown
+        data["breakdown_type"] = request.breakdown_type
+
+    return client.get(f"/api/projects/{team.id}/insights/trend/", data=data,)
 
 
 def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
     response = get_trends(client=client, request=request, team=team)
     assert response.status_code == 200, response.content
     return response.json()
+
+
+@dataclasses.dataclass
+class NormalizedTrendResult:
+    value: float
+    label: str
+    person_url: str
+    breakdown_value: Optional[Union[str, int]]
+
+
+def get_trends_time_series_ok(
+    client: Client, request: TrendsRequest, team: Team
+) -> Dict[str, Dict[str, NormalizedTrendResult]]:
+    data = get_trends_ok(client=client, request=request, team=team)
+    res = {}
+    for item in data["result"]:
+        collect_dates = {}
+        for idx, date in enumerate(item["days"]):
+            collect_dates[date] = NormalizedTrendResult(
+                value=item["data"][idx],
+                label=item["labels"][idx],
+                person_url=item["persons_urls"][idx]["url"],
+                breakdown_value=item.get("breakdown_value", None),
+            )
+        res[item["label"]] = collect_dates
+
+    return res
+
+
+def get_trends_aggregate_ok(client: Client, request: TrendsRequest, team: Team) -> Dict[str, NormalizedTrendResult]:
+    data = get_trends_ok(client=client, request=request, team=team)
+    res = {}
+    for item in data["result"]:
+        res[item["label"]] = NormalizedTrendResult(
+            value=item["aggregated_value"],
+            label=item["action"]["name"],
+            person_url=item["persons"]["url"],
+            breakdown_value=item.get("breakdown_value", None),
+        )
+
+    return res
+
+
+def get_trends_people_ok(client: Client, url: str):
+    response = client.get("/" + url)
+    assert response.status_code == 200, response.content
+    return response.json()["results"][0]["people"]

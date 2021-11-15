@@ -1,3 +1,4 @@
+from enum import Enum, auto
 from typing import Any, Optional, Tuple
 
 from rest_framework import request, status
@@ -12,6 +13,11 @@ from posthog.models.user import User
 from posthog.utils import cors_response, is_clickhouse_enabled, load_data_from_request
 
 
+class PaginationMode(Enum):
+    next = auto()
+    previous = auto()
+
+
 def get_target_entity(request: request.Request) -> Entity:
     entity_id = request.GET.get(ENTITY_ID)
     entity_type = request.GET.get(ENTITY_TYPE)
@@ -23,21 +29,22 @@ def get_target_entity(request: request.Request) -> Entity:
         raise ValueError("An entity must be provided for target entity to be determined")
 
 
-def format_next_url(request: request.Request, offset: int, page_size: int):
-    next_url = request.get_full_path()
-    if not next_url:
+def format_paginated_url(request: request.Request, offset: int, page_size: int, mode=PaginationMode.next):
+    result = request.get_full_path()
+    if not result:
         return None
 
-    new_offset = str(offset + page_size)
+    new_offset = offset - page_size if mode == PaginationMode.previous else offset + page_size
 
-    if "offset" in next_url:
-        next_url = next_url[1:]
-        next_url = next_url.replace(f"offset={str(offset)}", f"offset={new_offset}")
+    if new_offset < 0:
+        return None
+
+    if "offset" in result:
+        result = result[1:]
+        result = result.replace(f"offset={offset}", f"offset={new_offset}")
     else:
-        next_url = request.build_absolute_uri(
-            "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + page_size)
-        )
-    return next_url
+        result = request.build_absolute_uri("{}{}offset={}".format(result, "&" if "?" in result else "?", new_offset))
+    return result
 
 
 def get_token(data, request) -> Optional[str]:
