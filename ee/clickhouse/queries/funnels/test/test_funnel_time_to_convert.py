@@ -1,46 +1,49 @@
 import unittest
-from datetime import datetime
+from uuid import uuid4
 
+from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
-from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models.filters import Filter
+from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
+def _create_person(**kwargs):
+    person = Person.objects.create(**kwargs)
+    return Person(id=person.uuid, uuid=person.uuid)
+
+
+def _create_event(**kwargs):
+    kwargs.update({"event_uuid": uuid4()})
+    create_event(**kwargs)
+
+
 class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def setup_trends_journey(self):
-        journeys_for(
-            {
-                "user a": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 18)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 19)},
-                    # Converted from 0 to 1 in 3600 s
-                    {"event": "step three", "timestamp": datetime(2021, 6, 8, 21)},
-                ],
-                "user b": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 13)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 9, 13, 37)},
-                    # Converted from 0 to 1 in 2200 s
-                ],
-                "user c": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 11, 7)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 6)},
-                    # Converted from 0 to 1 in 82_800 s
-                ],
-            },
-            self.team,
-        )
-
     def test_auto_bin_count_single_step(self):
-        self.setup_trends_journey()
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        # Converted from 0 to 1 in 3600 s
+        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+        # Converted from 0 to 1 in 2200 s
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+        # Converted from 0 to 1 in 82_800 s
 
         filter = Filter(
             data={
@@ -81,27 +84,22 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         # demonstrates existing CH bug. Current patch is to remove negative times from consideration
         # Reference on what happens: https://github.com/ClickHouse/ClickHouse/issues/26580
 
-        journeys_for(
-            {
-                "user a": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 18)},
-                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 19)},
-                    # Converted from 0 to 1 in 3600 s
-                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 21)},
-                ],
-                "user b": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 13)},
-                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 13, 37)},
-                    # Converted from 0 to 1 in 2200 s
-                ],
-                "user c": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 11, 7)},
-                    {"event": "step one", "timestamp": datetime(2021, 6, 12, 6)},
-                    # Converted from 0 to 1 in 82_800 s
-                ],
-            },
-            self.team,
-        )
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        # Converted from 0 to 1 in 3600 s
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+        # Converted from 0 to 1 in 2200 s
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+        # Converted from 0 to 1 in 82_800 s
 
         filter = Filter(
             data={
@@ -138,7 +136,22 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_custom_bin_count_single_step(self):
-        self.setup_trends_journey()
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        # Converted from 0 to 1 in 3600 s
+        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+        # Converted from 0 to 1 in 2200 s
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+        # Converted from 0 to 1 in 82_800 s
 
         filter = Filter(
             data={
@@ -180,7 +193,20 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_auto_bin_count_total(self):
-        self.setup_trends_journey()
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+        # Converted from 0 to 2 in 10_800 s
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
 
         filter = Filter(
             data={
@@ -215,34 +241,29 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
         funnel_trends_steps_specified = ClickhouseFunnelTimeToConvert(
-            Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2}), self.team, ClickhouseFunnel
+            Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2,}), self.team, ClickhouseFunnel
         )
         results_steps_specified = funnel_trends_steps_specified.run()
 
         self.assertEqual(results, results_steps_specified)
 
     def test_basic_unordered(self):
-        journeys_for(
-            {
-                "user a": [
-                    {"event": "step three", "timestamp": datetime(2021, 6, 8, 18)},
-                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 19)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 21)},
-                    # Converted from 0 to 1 in 7200 s
-                ],
-                "user b": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 13)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 9, 13, 37)},
-                    # Converted from 0 to 1 in 2200 s
-                ],
-                "user c": [
-                    {"event": "step two", "timestamp": datetime(2021, 6, 11, 7)},
-                    {"event": "step one", "timestamp": datetime(2021, 6, 12, 6)},
-                    # Converted from 0 to 1 in 82_800 s
-                ],
-            },
-            self.team,
-        )
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+        # Converted from 0 to 1 in 7200 s
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+        # Converted from 0 to 1 in 2200 s
+
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+        # Converted from 0 to 1 in 82_800 s
 
         filter = Filter(
             data={
@@ -280,35 +301,30 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_basic_strict(self):
-        journeys_for(
-            {
-                "user a": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 18)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 19)},
-                    # Converted from 0 to 1 in 3600 s
-                    {"event": "step three", "timestamp": datetime(2021, 6, 8, 21)},
-                ],
-                "user b": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 13)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 9, 13, 37)},
-                    # Converted from 0 to 1 in 2200 s
-                    {"event": "blah", "timestamp": datetime(2021, 6, 9, 13, 38)},
-                    {"event": "step three", "timestamp": datetime(2021, 6, 9, 13, 39)},
-                ],
-                "user c": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 11, 7)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 6)},
-                    # Converted from 0 to 1 in 82_800 s
-                ],
-                "user d": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 11, 7)},
-                    {"event": "blah", "timestamp": datetime(2021, 6, 9, 12, 7)},
-                    # Blah cancels conversion
-                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 9)},
-                ],
-            },
-            self.team,
-        )
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+        _create_person(distinct_ids=["user d"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        # Converted from 0 to 1 in 3600 s
+        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+        # Converted from 0 to 1 in 2200 s
+        _create_event(event="blah", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:38:00")
+        _create_event(event="step three", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:39:00")
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+        # Converted from 0 to 1 in 82_800 s
+
+        _create_event(event="step one", distinct_id="user d", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="blah", distinct_id="user d", team=self.team, timestamp="2021-06-12 07:00:00")
+        # Blah cancels conversion
+        _create_event(event="step two", distinct_id="user d", team=self.team, timestamp="2021-06-12 09:00:00")
 
         filter = Filter(
             data={
