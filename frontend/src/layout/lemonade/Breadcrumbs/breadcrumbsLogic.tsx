@@ -17,8 +17,8 @@ import { featureFlagLogic } from '../../../scenes/feature-flags/featureFlagLogic
 import { personsLogic } from '../../../scenes/persons/personsLogic'
 import { asDisplay } from '../../../scenes/persons/PersonHeader'
 import { PopupProps } from 'lib/components/Popup/Popup'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcherOverlay'
-import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcherOverlay'
+import { ProjectSwitcherOverlay } from '~/layout/lemonade/ProjectSwitcher'
+import { OrganizationSwitcherOverlay } from '~/layout/lemonade/OrganizationSwitcher'
 
 export interface Breadcrumb {
     /** Name to display. */

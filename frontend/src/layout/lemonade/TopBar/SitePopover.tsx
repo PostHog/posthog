@@ -30,7 +30,7 @@ import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
-} from '~/layout/navigation/OrganizationSwitcherOverlay'
+} from '~/layout/lemonade/OrganizationSwitcher'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (

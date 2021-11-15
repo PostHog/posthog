@@ -79,3 +79,8 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
     return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
 }
 export const LemonRow = React.forwardRef(LemonRowInternal)
+
+/** A separator ideal for being sandwiched between LemonRows. */
+export function LemonSpacer(): JSX.Element {
+    return <div className="LemonSpacer" />
+}
