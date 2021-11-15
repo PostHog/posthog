@@ -385,10 +385,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
             {
-                "events": [
-                    {"id": "step one", "type": "events", "order": 0},
-                    {"id": "step two", "type": "events", "order": 1},
-                ],
+                "events": [{"id": "step one", "type": "events"}, {"id": "step two", "type": "events"},],
                 "funnel_window_days": 14,
                 "funnel_order_type": "unordered",
                 "insight": "funnels",
@@ -432,7 +429,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
             {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [{"id": "sign up"}, {"id": "play movie"}, {"id": "buy"}],
                 "insight": "FUNNELS",
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -475,10 +472,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
             {
-                "events": [
-                    {"id": "step one", "type": "events", "order": 0},
-                    {"id": "step two", "type": "events", "order": 1},
-                ],
+                "events": [{"id": "step one", "type": "events"}, {"id": "step two", "type": "events"},],
                 "funnel_window_days": 14,
                 "funnel_order_type": "strict",
                 "insight": "funnels",
@@ -530,7 +524,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
             {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [{"id": "sign up"}, {"id": "play movie"}, {"id": "buy"}],
                 "insight": "FUNNELS",
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -588,7 +582,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
             {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [{"id": "sign up"}, {"id": "play movie"}, {"id": "buy"}],
                 "insight": "FUNNELS",
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -932,10 +926,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
             {
-                "events": [
-                    {"id": "step one", "type": "events", "order": 0},
-                    {"id": "step two", "type": "events", "order": 1},
-                ],
+                "events": [{"id": "step one", "type": "events"}, {"id": "step two", "type": "events"},],
                 "exclusions": [{"id": "step x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},],
                 "funnel_window_days": 14,
                 "insight": "funnels",
@@ -978,9 +969,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 f"/api/projects/{self.team.id}/insights/funnel/",
                 {
                     "events": [
-                        {"id": "step one", "type": "events", "order": 0},
-                        {"id": "step two", "type": "events", "order": 1},
-                        {"id": "step three", "type": "events", "order": 2},
+                        {"id": "step one", "type": "events"},
+                        {"id": "step two", "type": "events"},
+                        {"id": "step three", "type": "events"},
                     ],
                     "exclusions": [
                         {
@@ -1081,15 +1072,16 @@ def get_converted_and_dropped_people(client: Client, step):
     converted_people = converted_people_response.json()["results"][0]["people"]
     converted_distinct_ids = [distinct_id for people in converted_people for distinct_id in people["distinct_ids"]]
 
-    if step["order"] == 0:
-        #  If it's the first step, we don't expect a dropped people url
-        dropped_distinct_ids = []
-    else:
+    dropped_people_url = step.get("dropped_people_url")
+    if dropped_people_url:
         dropped_people_response = client.get(step["dropped_people_url"])
         assert dropped_people_response.status_code == status.HTTP_200_OK
 
         dropped_people = dropped_people_response.json()["results"][0]["people"]
         dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
+    else:
+        #  If it's the first step, we don't expect a dropped people url
+        dropped_distinct_ids = []
 
     return {
         "name": step["name"],
