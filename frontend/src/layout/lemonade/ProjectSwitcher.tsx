@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
-import { lemonadeLogic } from '../lemonade/lemonadeLogic'
+import { lemonadeLogic } from './lemonadeLogic'
 
 export function ProjectSwitcherOverlay(): JSX.Element {
     const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)

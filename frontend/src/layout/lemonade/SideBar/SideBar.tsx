@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { ProjectSwitcherOverlay } from '~/layout/lemonade/ProjectSwitcher'
 import {
     IconArrowDropDown,
     IconBarChart,

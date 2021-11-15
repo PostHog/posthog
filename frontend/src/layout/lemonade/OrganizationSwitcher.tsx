@@ -10,7 +10,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, OrganizationBasicType } from '~/types'
-import { lemonadeLogic } from '../lemonade/lemonadeLogic'
+import { lemonadeLogic } from './lemonadeLogic'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     return (
