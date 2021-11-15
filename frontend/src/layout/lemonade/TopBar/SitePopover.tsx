@@ -1,5 +1,4 @@
 import React from 'react'
-import { CaretDownOutlined } from '@ant-design/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
@@ -13,6 +12,7 @@ import {
     IconUpdate,
     IconExclamation,
     IconBill,
+    IconArrowDropDown,
 } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
@@ -275,7 +275,7 @@ export function SitePopover(): JSX.Element {
                     <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
                     {!systemStatus && <IconExclamation className="SitePopover__danger" />}
                 </div>
-                <CaretDownOutlined />
+                <IconArrowDropDown />
             </div>
         </Popup>
     )
