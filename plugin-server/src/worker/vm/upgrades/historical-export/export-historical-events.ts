@@ -63,7 +63,7 @@ export function addHistoricalEventsExportCapability(
         exec: async (payload) => {
             const storedTimestampCursor = await meta.storage.get(TIMESTAMP_CURSOR_KEY, null)
 
-            // if the cursor hasn't been incremented within 5 minutes of the restart
+            // if the cursor hasn't been incremented within 10 minutes of the restart
             // that means we didn't pick up from where we left off automatically
             // thus, kick off a new export chain with a new batchId
             if (payload && payload.storedTimestampCursor === storedTimestampCursor) {
