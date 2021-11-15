@@ -1,5 +1,4 @@
 from collections import defaultdict
-from typing import Optional
 
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -35,19 +34,18 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
 
         query_result = sync_execute(
             """
-                SELECT group_type_index, group_key, created_at, group_properties FROM groups
-                INNER JOIN (
-                    SELECT
-                        group_key,
-                        max(created_at) as created_at
-                    FROM groups
-                    WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-                    GROUP BY group_key
-                    LIMIT %(limit)s OFFSET %(offset)s
-                ) latest_groups
-                ON groups.group_key == latest_groups.group_key AND groups.created_at == latest_groups.created_at
-                WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-                ORDER BY created_at
+                SELECT
+                    %(group_type_index)s,
+                    group_key,
+                    argMax(created_at, _timestamp),
+                    argMax(group_properties, _timestamp)
+                FROM groups
+                WHERE team_id = %(team_id)s
+                  AND group_type_index = %(group_type_index)s
+                GROUP BY group_key
+                ORDER BY group_key
+                LIMIT %(limit)s
+                OFFSET %(offset)s
             """,
             {
                 "team_id": self.team_id,

@@ -48,7 +48,7 @@ class ClickhouseGroupSerializer(serializers.Serializer):
     group_properties = serializers.SerializerMethodField()
 
     def get_group_type_index(self, group):
-        return group[0]
+        return int(group[0])
 
     def get_group_key(self, group):
         return group[1]
