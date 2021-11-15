@@ -30,7 +30,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
     pagination_class = None
 
     def list(self, request, *args, **kwargs):
-        limit = 100
+        limit = int(request.GET.get("limit", 100))
         offset = int(request.GET.get("offset", 0))
 
         query_result = sync_execute(
@@ -43,20 +43,24 @@ class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.Gene
                     FROM groups
                     WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
                     GROUP BY group_key
-                    LIMIT 100 OFFSET %(offset)s
+                    LIMIT %(limit)s OFFSET %(offset)s
                 ) latest_groups
                 ON groups.group_key == latest_groups.group_key AND groups.created_at == latest_groups.created_at
                 WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
                 ORDER BY created_at
             """,
-            {"team_id": self.team_id, "group_type_index": request.GET["group_type_index"], "offset": offset},
+            {
+                "team_id": self.team_id,
+                "group_type_index": request.GET["group_type_index"],
+                "offset": offset,
+                "limit": limit + 1,
+            },
         )
-        results = ClickhouseGroupSerializer(query_result, many=True).data
+        results = ClickhouseGroupSerializer(query_result[:limit], many=True).data
         next_url: Optional[str] = None
-        previous_url: Optional[str] = None
+        previous_url: Optional[str] = format_paginated_url(request, offset, limit, mode=PaginationMode.previous)
         if len(query_result) > limit:
             next_url = format_paginated_url(request, offset, limit)
-            previous_url = format_paginated_url(request, offset, limit, mode=PaginationMode.previous)
 
         return response.Response({"next_url": next_url, "previous_url": previous_url, "results": results})
 

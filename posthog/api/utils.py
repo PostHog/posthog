@@ -34,11 +34,14 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
     if not result:
         return None
 
-    new_offset = str(offset - page_size if mode == PaginationMode.previous else offset + page_size)
+    new_offset = offset - page_size if mode == PaginationMode.previous else offset + page_size
+
+    if new_offset < 0:
+        return None
 
     if "offset" in result:
         result = result[1:]
-        result = result.replace(f"offset={str(offset)}", f"offset={new_offset}")
+        result = result.replace(f"offset={offset}", f"offset={new_offset}")
     else:
         result = request.build_absolute_uri("{}{}offset={}".format(result, "&" if "?" in result else "?", new_offset))
     return result
