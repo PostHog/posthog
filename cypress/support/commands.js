@@ -26,5 +26,5 @@ Cypress.Commands.add('login', () => {
 })
 
 Cypress.Commands.add('clickNavMenu', (name) => {
-    cy.get(`[data-attr="menu-item-${name}"]`).click({ force: true }).should('have.class', 'menu-item-active')
+    cy.get(`[data-attr="menu-item-${name}"]`).click().should('have.class', 'LemonButton--highlighted')
 })

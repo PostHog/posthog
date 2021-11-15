@@ -6,14 +6,11 @@
     height: 100%;
     padding: 0;
     position: relative;
-    box-shadow: 0 8px 10px rgba(0, 0, 0, 0.1);
-    border-radius: 5px;
+    box-shadow: $shadow_elevation;
+    border-radius: var(--radius);
+    border: 1px solid $border;
     overflow: hidden;
     z-index: 3;
-
-    &.react-draggable-dragging {
-        box-shadow: 0 20px 20px rgba(0, 0, 0, 0.3);
-    }
 
     .dashboard-item-container {
         display: flex;

@@ -22,6 +22,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.EventStats]: Scene.Events,
     [Scene.EventPropertyStats]: Scene.Events,
     [Scene.Person]: Scene.Persons,
+    [Scene.Groups]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
 }

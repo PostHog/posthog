@@ -9,7 +9,7 @@ from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, PathFilter
-from posthog.models.filters.mixins.groups import validate_group_type_index
+from posthog.models.filters.utils import validate_group_type_index
 
 MATH_FUNCTIONS = {
     "sum": "sum",

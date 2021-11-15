@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.filters.mixins.groups import validate_group_type_index
+from posthog.models.filters.utils import validate_group_type_index
 
 
 def test_validate_group_type_index():

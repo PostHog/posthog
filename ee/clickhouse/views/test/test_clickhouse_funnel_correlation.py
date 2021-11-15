@@ -12,6 +12,7 @@ from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized, FunnelCorrelation
+from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
 from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
 from posthog.models.person import Person, PersonDistinctId
@@ -83,7 +84,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             odds = get_funnel_correlation_ok(
                 client=self.client,
@@ -140,7 +141,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             odds_before = get_funnel_correlation_ok(
                 client=self.client,
@@ -152,7 +153,7 @@ class FunnelCorrelationTest(BaseTest):
             )
 
             other_team = create_team(organization=self.organization)
-            create_events(events_by_person=events, team=other_team)
+            journeys_for(events_by_person=events, team=other_team)
 
             # We need to make sure we clear the cache so we get the same results again
             cache.clear()
@@ -192,7 +193,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             # We need to make sure we clear the cache other tests that have run
             # done interfere with this test
@@ -234,7 +235,7 @@ class FunnelCorrelationTest(BaseTest):
             }
             # '' is a weird event name to have, but if it exists, our duty to report it
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             # We need to make sure we clear the cache other tests that have run
             # done interfere with this test
@@ -302,7 +303,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             odds = get_funnel_correlation_ok(
                 client=self.client,
@@ -352,7 +353,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             odds = get_funnel_correlation_ok(
                 client=self.client,
@@ -479,7 +480,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             odds = get_funnel_correlation_ok(
                 client=self.client,
@@ -630,22 +631,6 @@ def create_team(organization):
     return Team.objects.create(name="Test Team", organization=organization)
 
 
-def create_events(events_by_person, team: Team):
-    """
-    Helper for creating specific events for a team.
-    """
-    for distinct_id, events in events_by_person.items():
-        update_or_create_person(distinct_ids=[distinct_id], team_id=team.pk)
-        for event in events:
-            _create_event(
-                team=team,
-                distinct_id=distinct_id,
-                event=event["event"],
-                timestamp=event["timestamp"],
-                properties=event.get("properties", {}),
-            )
-
-
 class EventPattern(TypedDict):
     id: str
 
@@ -702,21 +687,6 @@ def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSer
 
 def create_person(**kwargs):
     return Person.objects.create(**kwargs)
-
-
-def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
-    (person, _) = Person.objects.update_or_create(
-        persondistinctid__distinct_id__in=distinct_ids,
-        persondistinctid__team_id=team_id,
-        defaults={**kwargs, "team_id": team_id},
-    )
-    for distinct_id in distinct_ids:
-        PersonDistinctId.objects.update_or_create(
-            distinct_id=distinct_id,
-            team_id=person.team_id,
-            defaults={"person_id": person.id, "team_id": team_id, "distinct_id": distinct_id},
-        )
-    return person
 
 
 def _create_event(**kwargs):

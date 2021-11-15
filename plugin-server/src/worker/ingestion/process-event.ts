@@ -209,7 +209,32 @@ export class EventsProcessor {
         return now
     }
 
+    public isNewPersonPropertiesUpdateEnabled(teamId: number): boolean {
+        try {
+            const teamsStrs = this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS.split(',').filter(String)
+            const teams = teamsStrs.map((teamId) => Number(teamId))
+            return !!teams.includes(teamId)
+        } catch (error) {
+            Sentry.captureException(error)
+            return false
+        }
+    }
+
     private async updatePersonProperties(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties,
+        timestamp: DateTime
+    ): Promise<void> {
+        if (this.isNewPersonPropertiesUpdateEnabled(teamId)) {
+            await this.db.updatePersonProperties(teamId, distinctId, properties, propertiesOnce, timestamp)
+        } else {
+            await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
+        }
+    }
+
+    private async updatePersonPropertiesDeprecated(
         teamId: number,
         distinctId: string,
         properties: Properties,
@@ -501,7 +526,8 @@ export class EventsProcessor {
                 teamId,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {}
+                properties['$set_once'] || {},
+                timestamp
             )
         }
 

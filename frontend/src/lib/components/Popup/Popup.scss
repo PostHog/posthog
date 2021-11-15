@@ -3,6 +3,7 @@
 .Popup {
     z-index: $z_popup;
     box-shadow: $shadow_popup;
+    margin-top: 0.25rem;
     background: #fff;
     padding: 0.5rem;
     border-radius: var(--radius);

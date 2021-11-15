@@ -143,11 +143,11 @@ function AppScene(): JSX.Element | null {
 
     const layoutContent = activeScene ? (
         <Layout.Content className="main-app-content" data-attr="layout-content">
-            {featureFlags[FEATURE_FLAGS.LEMONADE] && <Breadcrumbs />}
             {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
             {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                 <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
             ) : null}
+            {featureFlags[FEATURE_FLAGS.LEMONADE] && <Breadcrumbs />}
             <BillingAlerts />
             <BackTo />
             <SceneComponent user={user} {...params} />

@@ -30,7 +30,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 export function FunnelTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel } = useValues(
+        funnelLogic(insightProps)
+    )
     const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
@@ -115,6 +117,13 @@ export function FunnelTab(): JSX.Element {
                                 fullWidth
                                 sortable
                                 showNestedArrow={true}
+                                propertiesTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
                             />
 
                             {!clickhouseFeaturesEnabled && (
@@ -142,8 +151,9 @@ export function FunnelTab(): JSX.Element {
                                         <Tooltip
                                             title={
                                                 <>
-                                                    Exclude users who completed the specified event between two specific
-                                                    steps. Note that these users will be{' '}
+                                                    Exclude {aggregationTargetLabel.plural} who completed the specified
+                                                    event between two specific steps. Note that these
+                                                    {aggregationTargetLabel.plural} will be{' '}
                                                     <b>completely excluded from the entire funnel</b>.
                                                 </>
                                             }
