@@ -23,7 +23,7 @@ export function Groups(): JSX.Element {
             },
         },
         {
-            title: 'Last seen',
+            title: 'Last updated',
             key: 'created_at',
             span: 8,
             render: function Render(group: Group) {
