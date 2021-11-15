@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
@@ -105,7 +105,6 @@ export function PropertyValue({
                             values: [...Array.from(new Set(propValues))],
                             status: 'loaded',
                         },
-                        ...options,
                     })
                 }
             )
@@ -130,9 +129,10 @@ export function PropertyValue({
         }
     }, [input, shouldBlur])
 
-    const displayOptions = (options[propertyKey]?.values || []).filter(
-        (option) => input === '' || matchesLowerCase(input, toString(option?.name))
-    )
+    const displayOptions = (options[propertyKey]?.values || []).filter((option) => {
+        console.log({ input, option, matches: matchesLowerCase(input, toString(option?.name)) })
+        return input === '' || matchesLowerCase(input, toString(option?.name))
+    })
 
     const validationError = operator ? getValidationError(operator, value) : null
 
