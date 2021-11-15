@@ -47,7 +47,32 @@ export function addHistoricalEventsExportCapability(
         // the historical export to duplicate them
         meta.global.timestampBoundariesForTeam = timestampBoundaries
 
+        await meta.utils.cursor.init('batch_id')
+
+        const storedTimestampCursor = await meta.storage.get(TIMESTAMP_CURSOR_KEY, null)
+        if (storedTimestampCursor) {
+            await meta.jobs.restartExportIfNeeded({ storedTimestampCursor }).runIn(10, 'minutes')
+        }
+
         await oldSetupPlugin?.()
+    }
+
+    tasks.job['restartExportIfNeeded'] = {
+        name: 'restartExportIfNeeded',
+        type: PluginTaskType.Job,
+        exec: async (payload) => {
+            const storedTimestampCursor = await meta.storage.get(TIMESTAMP_CURSOR_KEY, null)
+
+            // if the cursor hasn't been incremented within 5 minutes of the restart
+            // that means we didn't pick up from where we left off automatically
+            // thus, kick off a new export chain with a new batchId
+            if (payload && payload.storedTimestampCursor === storedTimestampCursor) {
+                const batchId = await meta.utils.cursor.increment('batch_id')
+                await meta.jobs
+                    .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true, batchId })
+                    .runNow()
+            }
+        },
     }
 
     tasks.job['exportHistoricalEvents'] = {
@@ -77,8 +102,10 @@ export function addHistoricalEventsExportCapability(
 
             await meta.global.initTimestampsAndCursor(payload)
 
+            const batchId = await meta.utils.cursor.increment('batch_id')
+
             await meta.jobs
-                .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true })
+                .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true, batchId: batchId })
                 .runNow()
         },
     }
@@ -86,6 +113,12 @@ export function addHistoricalEventsExportCapability(
     meta.global.exportHistoricalEvents = async (payload): Promise<void> => {
         if (payload.retriesPerformedSoFar >= 15) {
             // create some log error here
+            return
+        }
+
+        // this is handling for duplicates when the plugin server restarts
+        const currentBatchId = await meta.storage.get('batch_id', 0)
+        if (currentBatchId !== payload.batchId) {
             return
         }
 
@@ -133,16 +166,19 @@ export function addHistoricalEventsExportCapability(
             fetchEventsError = error
         }
 
-        const incrementTimestampCursor = events.length === 0
+        if (payload.retriesPerformedSoFar === 0) {
+            const incrementTimestampCursor = events.length === 0
 
-        await meta.jobs
-            .exportHistoricalEvents({
-                timestampCursor,
-                incrementTimestampCursor,
-                retriesPerformedSoFar: 0,
-                intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
-            })
-            .runNow()
+            await meta.jobs
+                .exportHistoricalEvents({
+                    timestampCursor,
+                    incrementTimestampCursor,
+                    retriesPerformedSoFar: 0,
+                    intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
+                    batchId: payload.batchId,
+                })
+                .runNow()
+        }
 
         let exportEventsError: Error | unknown | null = null
 
