@@ -151,6 +151,90 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_people_at_step(filter, 2, ["Chrome", "95"]), [people["person1"].uuid])
 
         @test_with_materialized_columns(["$browser"])
+        def test_funnel_step_breakdown_event_with_string_only_breakdown(self):
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+
+            journey = {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 1, 15),
+                        "properties": {"key": "val", "$browser": "Chrome"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 16),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"key": "val", "$browser": "Safari"},
+                    }
+                ],
+            }
+
+            people = journeys_for(events_by_person=journey, team=self.team)
+
+            result = funnel.run()
+
+            assert_funnel_breakdown_result_is_correct(
+                result[0],
+                [
+                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
+                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome"]),
+                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Chrome"]),
+                ],
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [people["person1"].uuid])
+
+            assert_funnel_breakdown_result_is_correct(
+                result[1],
+                [
+                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
+                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1, "Safari"), [people["person2"].uuid, people["person3"].uuid]
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person2"].uuid])
+
+        @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
 
             filters = {
