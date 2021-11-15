@@ -12,7 +12,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import format_next_url, get_target_entity
+from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.constants import TRENDS_TABLE
 from posthog.models import Cohort, Event, Filter, Person, User
 from posthog.models.filters import RetentionFilter
@@ -249,7 +249,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 def paginated_result(
     entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0,
 ) -> Optional[str]:
-    return format_next_url(request, offset, 100) if len(entites) > 99 else None
+    return format_paginated_url(request, offset, 100) if len(entites) > 99 else None
 
 
 class LegacyPersonViewSet(PersonViewSet):

@@ -1296,6 +1296,13 @@ export interface GroupType {
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
+export interface Group {
+    group_type_index: number
+    group_key: string
+    created_at: string
+    group_properties: Record<string, any>
+}
+
 export interface SelectOption {
     value: string
     label?: string
