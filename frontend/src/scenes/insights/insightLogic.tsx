@@ -132,6 +132,25 @@ export const insightLogic = kea<insightLogicType>({
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     return updatedInsight
                 },
+                setInsightMetadata: async ({ metadata }, breakpoint) => {
+                    if (values.insightMode === ItemMode.Edit) {
+                        return { ...values.insight, ...metadata }
+                    }
+
+                    const response = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                        metadata
+                    )
+                    breakpoint()
+
+                    // only update the fields that we changed
+                    const updatedInsight = { ...values.insight }
+                    for (const key of Object.keys(metadata)) {
+                        updatedInsight[key] = response[key]
+                    }
+                    savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    return updatedInsight
+                },
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
                     // fetch this now, as it might be different when we report below
@@ -262,6 +281,7 @@ export const insightLogic = kea<insightLogicType>({
                 ...(shouldMergeWithExisting ? state : {}),
                 ...insight,
             }),
+            setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
         filters: [
@@ -566,13 +586,6 @@ export const insightLogic = kea<insightLogicType>({
                         fromItem: createdInsight.id,
                     })
                 }
-            }
-        },
-        setInsightMetadata: ({ metadata }) => {
-            if (values.insightMode === ItemMode.Edit) {
-                actions.setInsight(metadata, { shouldMergeWithExisting: true })
-            } else {
-                actions.updateInsight(metadata)
             }
         },
     }),
