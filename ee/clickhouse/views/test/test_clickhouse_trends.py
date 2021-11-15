@@ -4,11 +4,9 @@ from uuid import uuid4
 from freezegun.api import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.util import deep_dump_object
+from ee.clickhouse.models.group import create_group
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.api.test.test_insight import insight_test_factory
 from posthog.api.test.test_trends import (
     TrendsRequest,
     TrendsRequestBreakdown,
@@ -16,21 +14,11 @@ from posthog.api.test.test_trends import (
     get_trends_people_ok,
     get_trends_time_series_ok,
 )
-from posthog.models.person import Person
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=str(person.uuid))
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-class ClickhouseTestInsights(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
+class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -332,3 +320,67 @@ class ClickhouseTestInsights(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest
         assert sorted([p["id"] for p in prev_people]) == sorted(
             [str(created_people["p1"].uuid), str(created_people["p2"].uuid)]
         )
+
+
+class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
+    maxDiff = None
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _create_groups(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
+        )
+
+    @snapshot_clickhouse_queries
+    def test_aggregating_by_group(self):
+        self._create_groups()
+
+        events_by_person = {
+            "person1": [
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$group_0": "org:5"}},
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$group_0": "org:6"}},
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2020, 1, 2, 12),
+                    "properties": {"$group_0": "org:6", "$group_1": "company:10"},
+                },
+            ],
+        }
+        created_people = journeys_for(events_by_person, self.team)
+
+        request = TrendsRequest(
+            date_from="2020-01-01 00:00:00",
+            date_to="2020-01-12 00:00:00",
+            events=[
+                {"id": "$pageview", "type": "events", "order": 0, "math": "unique_group", "math_group_type_index": 0,}
+            ],
+        )
+        data_response = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data_response["$pageview"]["2020-01-01"].value == 0
+        assert data_response["$pageview"]["2020-01-02"].value == 2
+
+        curr_people = get_trends_people_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
+
+        assert sorted([p["group_key"] for p in curr_people]) == sorted(["org:5", "org:6"])
+
+        request = TrendsRequest(
+            date_from="2020-01-01 00:00:00",
+            date_to="2020-01-12 00:00:00",
+            events=[
+                {"id": "$pageview", "type": "events", "order": 0, "math": "unique_group", "math_group_type_index": 1,}
+            ],
+        )
+        data_response = get_trends_time_series_ok(self.client, request, self.team)
+        assert data_response["$pageview"]["2020-01-01"].value == 0
+        assert data_response["$pageview"]["2020-01-02"].value == 1
+
+        curr_people = get_trends_people_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
+
+        assert sorted([p["group_key"] for p in curr_people]) == sorted(["company:10"])

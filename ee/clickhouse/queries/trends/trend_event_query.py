@@ -2,6 +2,7 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.groups_join_query import GROUP_ALIASES
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -44,6 +45,13 @@ class TrendsEventQuery(ClickhouseEventQuery):
                 " ".join(
                     f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
                     for column_name in self._extra_person_fields
+                )
+            )
+            + (
+                " ".join(
+                    f", {GROUP_ALIASES[name]}{group_type_index}"
+                    for group_type_index, column_names in self._extra_group_fields.items()
+                    for name in column_names
                 )
             )
         )

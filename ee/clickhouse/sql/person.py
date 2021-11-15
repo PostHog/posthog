@@ -317,3 +317,19 @@ GROUP BY
 LIMIT %(limit)s
 OFFSET %(offset)s
 """
+
+GET_GROUPS_FROM_EVENT_QUERY = """
+SELECT 
+        {group_type_index},
+        $group_{group_type_index},
+        group_created_at_{group_type_index},
+        group_properties_{group_type_index}
+    FROM ({events_query})
+    GROUP BY 
+        {group_type_index},
+        $group_{group_type_index},
+        group_created_at_{group_type_index},
+        group_properties_{group_type_index}
+ LIMIT 200
+OFFSET 0
+"""

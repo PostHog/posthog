@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Set, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
@@ -13,11 +13,13 @@ from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.property import GroupTypeIndex
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
     DISTINCT_ID_TABLE_ALIAS = "pdi"
     PERSON_TABLE_ALIAS = "person"
+    GROUP_TABLE_PREFIX = "$group_"
     EVENT_TABLE_ALIAS = "e"
 
     _filter: Union[Filter, PathFilter, RetentionFilter]
@@ -29,6 +31,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     _should_round_interval = False
     _extra_fields: List[ColumnName]
     _extra_person_fields: List[ColumnName]
+    _extra_group_fields: Dict[GroupTypeIndex, ColumnName]
 
     def __init__(
         self,
@@ -40,6 +43,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         # Extra events/person table columns to fetch since parent query needs them
         extra_fields: List[ColumnName] = [],
         extra_person_fields: List[ColumnName] = [],
+        extra_group_fields: Dict[GroupTypeIndex, ColumnName] = {},
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -56,6 +60,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._should_join_persons = should_join_persons
         self._extra_fields = extra_fields
         self._extra_person_fields = extra_person_fields
+        self._extra_group_fields = extra_group_fields
 
         if not self._should_join_distinct_ids:
             self._determine_should_join_distinct_ids()
@@ -138,7 +143,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return "", {}
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
-        return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()
+        return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query(
+            extra_fields=self._extra_group_fields
+        )
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 
