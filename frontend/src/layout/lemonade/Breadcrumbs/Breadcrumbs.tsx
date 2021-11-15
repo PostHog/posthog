@@ -5,7 +5,6 @@ import { Link } from 'lib/components/Link'
 import './Breadcrumbs.scss'
 import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
 import clsx from 'clsx'
-import { Skeleton } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 
 function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
