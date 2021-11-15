@@ -18,7 +18,7 @@ RUN apk --update --no-cache add \
     "bash~=5.1" \
     "g++~=10.3" \
     "gcc~=10.3" \
-    "libpq~=13.4" \
+    "libpq~=13" \
     "libxml2-dev~=2.9" \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
@@ -99,10 +99,10 @@ COPY . .
 # the cache hit ratio of the layers above.
 # symlink musl -> ld-linux is required for re2 compat on alpine
 RUN cd plugin-server \
-    && ln -s /lib/ld-musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2 \  
+    && ln -s /lib/ld-musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2 \
     && yarn build \
     && yarn cache clean \
-    && cd .. 
+    && cd ..
 
 # Build the frontend
 #

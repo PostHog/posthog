@@ -19,7 +19,7 @@ RUN apk --update --no-cache add \
     "bash~=5.1" \
     "g++~=10.3" \
     "gcc~=10.3" \
-    "libpq~=13.4" \
+    "libpq~=13" \
     "libxml2-dev~=2.9" \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
