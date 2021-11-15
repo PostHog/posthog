@@ -12,6 +12,8 @@ from posthog.models.person import Person
 class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
     def get_query(self) -> str:
         drop_off = self._filter.drop_off
+        if drop_off is None:
+            raise ValidationError(f"Filter parameter {DROP_OFF} must be provided and a bool for funnel trends persons!")
 
         entrance_period_start = self._filter.entrance_period_start
         if not entrance_period_start:
