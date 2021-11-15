@@ -19,7 +19,7 @@ import {
     pluralize,
     toParams,
     eventToDescription,
-    ceilMsToClosestSecond,
+    floorOrCeilMsToClosestSecond,
 } from './utils'
 import { ActionFilter, PropertyOperator } from '~/types'
 
@@ -380,18 +380,36 @@ describe('eventToName()', () => {
     })
 })
 
-describe('ceilMsToClosestSecond()', () => {
-    it('handles ms as expected', () => {
-        expect(ceilMsToClosestSecond(10532)).toEqual(11000)
-        expect(ceilMsToClosestSecond(1500)).toEqual(2000)
-        expect(ceilMsToClosestSecond(500)).toEqual(1000)
-        expect(ceilMsToClosestSecond(-10532)).toEqual(-10000)
-        expect(ceilMsToClosestSecond(-1500)).toEqual(-1000)
-        expect(ceilMsToClosestSecond(-500)).toEqual(-0)
+describe('floorOrCeilMsToClosestSecond()', () => {
+    describe('ceil', () => {
+        it('handles ms as expected', () => {
+            expect(floorOrCeilMsToClosestSecond(10532, false)).toEqual(11000)
+            expect(floorOrCeilMsToClosestSecond(1500, false)).toEqual(2000)
+            expect(floorOrCeilMsToClosestSecond(500, false)).toEqual(1000)
+            expect(floorOrCeilMsToClosestSecond(-10532, false)).toEqual(-10000)
+            expect(floorOrCeilMsToClosestSecond(-1500, false)).toEqual(-1000)
+            expect(floorOrCeilMsToClosestSecond(-500, false)).toEqual(-0)
+        })
+        it('handles whole seconds as expected', () => {
+            expect(floorOrCeilMsToClosestSecond(0, false)).toEqual(0)
+            expect(floorOrCeilMsToClosestSecond(1000, false)).toEqual(1000)
+            expect(floorOrCeilMsToClosestSecond(-1000, false)).toEqual(-1000)
+        })
     })
-    it('handles whole seconds as expected', () => {
-        expect(ceilMsToClosestSecond(0)).toEqual(0)
-        expect(ceilMsToClosestSecond(1000)).toEqual(1000)
-        expect(ceilMsToClosestSecond(-1000)).toEqual(-1000)
+
+    describe('floor', () => {
+        it('handles ms as expected', () => {
+            expect(floorOrCeilMsToClosestSecond(10532, true)).toEqual(10000)
+            expect(floorOrCeilMsToClosestSecond(1500, true)).toEqual(1000)
+            expect(floorOrCeilMsToClosestSecond(500, true)).toEqual(0)
+            expect(floorOrCeilMsToClosestSecond(-10532, true)).toEqual(-11000)
+            expect(floorOrCeilMsToClosestSecond(-1500, true)).toEqual(-2000)
+            expect(floorOrCeilMsToClosestSecond(-500, true)).toEqual(-1000)
+        })
+        it('handles whole seconds as expected', () => {
+            expect(floorOrCeilMsToClosestSecond(0, true)).toEqual(0)
+            expect(floorOrCeilMsToClosestSecond(1000, true)).toEqual(1000)
+            expect(floorOrCeilMsToClosestSecond(-1000, true)).toEqual(-1000)
+        })
     })
 })

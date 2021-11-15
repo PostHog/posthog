@@ -3,7 +3,7 @@ import Grid from 'react-virtualized/dist/commonjs/Grid'
 import { EventType, RecordingEventsFilters } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
-import { clamp, colonDelimitedDuration, findLastIndex, ceilMsToClosestSecond } from 'lib/utils'
+import { clamp, colonDelimitedDuration, findLastIndex, floorOrCeilMsToClosestSecond } from 'lib/utils'
 import { CellMeasurerCache } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { RenderedRows } from 'react-virtualized/dist/commonjs/List'
@@ -84,21 +84,17 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 if (events.length < 1) {
                     return { start: 0, end: 0 }
                 }
-                return {
-                    start:
-                        ceilMsToClosestSecond(
-                            events[
-                                clamp(
-                                    events.findIndex(
-                                        (e) => (e.zeroOffsetTime ?? 0) > ceilMsToClosestSecond(time.current)
-                                    ) - 1,
-                                    0,
-                                    events.length - 1
-                                )
-                            ].zeroOffsetTime ?? 0
-                        ) - 1000,
-                    end: ceilMsToClosestSecond(time.current),
-                }
+                const startIndex = events.findIndex(
+                    (e) => (e.zeroOffsetTime ?? 0) > floorOrCeilMsToClosestSecond(time.current, false)
+                )
+                const end = floorOrCeilMsToClosestSecond(time.current, false)
+                const start = floorOrCeilMsToClosestSecond(
+                    events[clamp(startIndex === -1 ? events.length - 1 : startIndex - 1, 0, events.length - 1)]
+                        .zeroOffsetTime ?? 0,
+                    true
+                )
+
+                return { start, end }
             },
         ],
         isEventCurrent: [
@@ -126,10 +122,11 @@ export const eventsListLogic = kea<eventsListLogicType>({
                     }
                 }
 
-                const top = grid.getOffsetForCell({ alignment: 'start', rowIndex: firstEventIndex }).scrollTop
-                const lastEventSize = (
-                    grid.state as any
-                ).instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(lastEventIndex)
+                const gridState = grid.state as any
+                const top =
+                    gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(firstEventIndex).offset
+                const lastEventSize =
+                    gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(lastEventIndex)
                 return {
                     top,
                     height: lastEventSize.offset + lastEventSize.size - top,
