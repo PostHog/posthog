@@ -114,7 +114,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 total_people += results[step.index]
 
             serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
-            if cast(int, step.index) > 0:
+            if step.index:
                 serialized_result.update(
                     {
                         "average_conversion_time": results[cast(int, step.index) + len(self._filter.entities) - 1],
