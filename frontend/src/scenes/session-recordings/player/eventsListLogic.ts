@@ -6,6 +6,7 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { CellMeasurerCache } from 'react-virtualized/dist/commonjs/CellMeasurer'
 
 export const eventsListLogic = kea<eventsListLogicType>({
+    path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
     connect: {
         actions: [sessionRecordingLogic, ['setFilters']],
         values: [sessionRecordingLogic, ['eventsToShow']],
