@@ -89,11 +89,11 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 otherOrganizations
             ) => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (!activeScene) {
+                if (!activeScene || !sceneConfig) {
                     return breadcrumbs
                 }
                 // User
-                if (sceneConfig?.personal) {
+                if (sceneConfig.personal) {
                     if (!user) {
                         return breadcrumbs
                     }
@@ -103,7 +103,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     })
                 }
                 // Instance
-                if (sceneConfig?.instanceLevel) {
+                if (sceneConfig.instanceLevel) {
                     if (!preflight?.site_url) {
                         return breadcrumbs
                     }
@@ -113,7 +113,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     })
                 }
                 // Organization
-                if (sceneConfig?.organizationBased || sceneConfig?.projectBased) {
+                if (sceneConfig.organizationBased || sceneConfig.projectBased) {
                     if (!currentOrganization) {
                         return breadcrumbs
                     }
@@ -130,7 +130,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     })
                 }
                 // Project
-                if (sceneConfig?.projectBased) {
+                if (sceneConfig.projectBased) {
                     if (!currentTeam) {
                         return breadcrumbs
                     }
@@ -205,7 +205,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     default:
                         // Current place
                         breadcrumbs.push({
-                            name: sceneConfig?.name || identifierToHuman(activeScene),
+                            name: sceneConfig.name || identifierToHuman(activeScene),
                             here: true,
                         })
                 }
@@ -222,7 +222,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
             ],
             (preflightLoading, sceneConfig, userLoading, currentOrganizationLoading, currentTeamLoading) => {
                 if (!sceneConfig) {
-                    return true
+                    return false
                 }
                 // User
                 if (sceneConfig.personal && userLoading) {
