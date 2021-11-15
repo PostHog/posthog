@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonRow } from 'lib/components/LemonRow'
+import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import React from 'react'
@@ -11,7 +11,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, OrganizationBasicType } from '~/types'
 import { lemonadeLogic } from '../lemonade/lemonadeLogic'
-import './ScopeSwitchers.scss'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     return (
@@ -73,10 +72,9 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
     const { otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     return (
-        <div className="scope-switcher">
-            <div className="scope-header">
-                <h4>Organizations</h4>
-            </div>
+        <div>
+            <h5>Organizations</h5>
+            <LemonSpacer />
             {currentOrganization && (
                 <LemonRow status="highlighted" fullWidth icon={<Lettermark name={currentOrganization.name} />}>
                     <div className="SitePopover__main-info SitePopover__organization">

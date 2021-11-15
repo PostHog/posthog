@@ -84,3 +84,10 @@
     align-items: center;
     padding-left: 0.5rem;
 }
+
+.LemonSpacer {
+    width: 100%;
+    height: 1px;
+    background: var(--border);
+    margin: 0.5rem 0;
+}
