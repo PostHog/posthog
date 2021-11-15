@@ -30,7 +30,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 export function FunnelTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, steps } = useValues(
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps } = useValues(
         funnelLogic(insightProps)
     )
     const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
@@ -111,7 +111,7 @@ export function FunnelTab(): JSX.Element {
                                 setFilters={setFilters}
                                 typeKey={`EditFunnel-action`}
                                 hideMathSelector={true}
-                                hideDeleteBtn={steps.length === 1}
+                                hideDeleteBtn={filterSteps.length === 1}
                                 buttonCopy="Add funnel step"
                                 showSeriesIndicator={!isStepsEmpty}
                                 seriesIndicatorType="numeric"
