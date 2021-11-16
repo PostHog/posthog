@@ -430,7 +430,7 @@ export class DB {
         teamId: number,
         distinctId: string,
         client?: PoolClient,
-        forUpdate?: boolean
+        options: { forUpdate?: boolean } = {}
     ): Promise<Person | undefined> {
         let queryString = `SELECT
                 posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
@@ -443,7 +443,7 @@ export class DB {
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
                 AND posthog_persondistinctid.distinct_id = $2`
-        if (forUpdate) {
+        if (options.forUpdate) {
             // Locks the teamId and distinctId tied to this personId + this person's info
             queryString = queryString.concat(` FOR UPDATE`)
         }

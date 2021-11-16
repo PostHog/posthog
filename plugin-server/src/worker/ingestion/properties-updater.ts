@@ -34,7 +34,7 @@ export async function updatePersonProperties(
     }
 
     const [propertiesUpdate, person] = await db.postgresTransaction(async (client) => {
-        const person = await db.fetchPerson(teamId, distinctId, client, true)
+        const person = await db.fetchPerson(teamId, distinctId, client, { forUpdate: true })
         if (!person) {
             throw new Error(
                 `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update props`
