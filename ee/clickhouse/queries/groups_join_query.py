@@ -24,6 +24,7 @@ class GroupsJoinQuery:
     _filter: Union[Filter, PathFilter, RetentionFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
+    _extra_fields: Dict[GroupTypeIndex, ColumnName]
 
     def __init__(
         self,
@@ -31,24 +32,26 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
         join_key: Optional[str] = None,
+        extra_fields: Optional[Dict[GroupTypeIndex, ColumnName]] = None,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
         self._join_key = join_key
+        self._extra_fields = extra_fields or {}
 
-    def get_join_query(self, extra_fields: Dict[GroupTypeIndex, ColumnName] = {}) -> Tuple[str, Dict]:
+    def get_join_query(self) -> Tuple[str, Dict]:
         join_queries, params = [], {}
 
-        extra_group_types = set(extra_fields.keys())
+        extra_group_types = set(self._extra_fields.keys())
         all_group_types = self._column_optimizer.group_types_to_query | extra_group_types
 
         for group_type_index in all_group_types:
             var = f"group_index_{group_type_index}"
             group_join_key = self._join_key or f"$group_{group_type_index}"
             columns_to_add = (
-                [field for field in extra_fields[group_type_index] if field in ACCEPTED_EXTRA_FIELDS]
-                if extra_fields.get(group_type_index, None)
+                [field for field in self._extra_fields[group_type_index] if field in ACCEPTED_EXTRA_FIELDS]
+                if self._extra_fields.get(group_type_index, None)
                 else []
             )
             join_queries.append(

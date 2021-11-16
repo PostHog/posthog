@@ -143,9 +143,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return "", {}
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
-        return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query(
-            extra_fields=self._extra_group_fields
-        )
+        return GroupsJoinQuery(
+            self._filter, self._team_id, self._column_optimizer, extra_fields=self._extra_group_fields
+        ).get_join_query()
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 
