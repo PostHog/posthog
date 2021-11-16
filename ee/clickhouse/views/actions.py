@@ -62,11 +62,11 @@ class ClickhouseActionsViewSet(ActionViewSet):
             csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
             content = [
                 {
-                    "Name": person.get("properties", {}).get("name"),
-                    "Distinct ID": person.get("distinct_ids", [""])[0],
-                    "Internal ID": person.get("id"),
-                    "Email": person.get("properties", {}).get("email"),
-                    "Properties": person.get("properties", {}),
+                    "Name": person["name"],
+                    "Distinct ID": person["distinct_ids"][0] if person["distinct_ids"] else "",
+                    "Internal ID": person["id"],
+                    "Email": person["properties"].get("email"),
+                    "Properties": person["properties"],
                 }
                 for person in serialized_people
             ]

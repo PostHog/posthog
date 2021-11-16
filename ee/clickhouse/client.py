@@ -76,7 +76,7 @@ if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
     def async_execute(query, args=None, settings=None, with_column_types=False):
         raise ClickHouseNotConfigured()
 
-    def sync_execute(query, args=None, settings=None, with_column_types=False):
+    def sync_execute(query, args=None, settings=None, with_column_types=False, as_dict=False):
         raise ClickHouseNotConfigured()
 
     def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None, with_column_types=False):
@@ -170,7 +170,7 @@ else:
                     save_query(prepared_sql, execution_time)
         return result
 
-    def _convert_to_dict(result):
+    def _convert_to_dict(result) -> List[Dict[str, Any]]:
         final_list = []
         for row in result[0]:
             res = {}

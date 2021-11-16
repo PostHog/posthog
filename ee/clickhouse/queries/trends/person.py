@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -39,8 +39,13 @@ def _handle_date_interval(filter: Filter) -> Filter:
 
 
 class TrendsPersonQuery(ActorBaseQuery):
-    def __init__(self, team: Team, entity: Entity, filter: Filter):
+    entity: Entity
+
+    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter):
         new_filter = filter
+
+        if not entity:
+            raise ValueError("Entity is required")
 
         if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
             new_filter = _handle_date_interval(filter)

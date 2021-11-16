@@ -9,11 +9,11 @@ from posthog.models import Entity, Filter, Team
 
 class ActorResponse(TypedDict):
     id: str
-    created_at: str
-    properties: List[Dict[str, Any]]
+    created_at: Optional[str]
+    properties: Dict[str, Any]
     is_identified: Optional[bool]
     name: str
-    distinct_ids: Optional[List[str]]
+    distinct_ids: List[str]
 
 
 class ActorBaseQuery:
@@ -43,34 +43,28 @@ class ActorBaseQuery:
 
     def get_actors(self) -> List[ActorResponse]:
         query, params = self.get_query()
-        raw_result = sync_execute(query, params, as_dict=True)
-        return ActorSerializer(raw_result, many=True).data
+        raw_result: List[Dict[str, Any]] = sync_execute(query, params, as_dict=True)
+        res: List[ActorResponse] = []
+        for row in raw_result:
+            actor = self._serialize(row)
+            if actor:
+                res.append(actor)
+        return res
 
-
-class ActorSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
-    created_at = serializers.SerializerMethodField()
-    properties = serializers.SerializerMethodField()
-    is_identified = serializers.SerializerMethodField()
-    name = serializers.SerializerMethodField()
-    distinct_ids = serializers.SerializerMethodField()
-
-    def get_id(self, obj):
-        return obj["id"]
-
-    def get_created_at(self, obj):
-        return obj["created_at"]
-
-    def get_properties(self, obj):
-        return json.loads(obj["properties"])
-
-    def get_is_identified(self, obj):
-        return obj.get("is_identified", None)
-
-    def get_name(self, obj):
-        props = self.get_properties(obj)
-        alias = props.get("email", None) or props.get("name", None)
-        return alias or obj["id"]
-
-    def get_distinct_ids(self, obj):
-        return obj.get("distinct_ids", None)
+    def _serialize(self, data: Dict[str, Any]) -> Optional[ActorResponse]:
+        id = data.get("id", None)
+        if not id:
+            return None
+        created_at = data.get("created_at", None)
+        properties = json.loads(data.get("properties", "{}"))
+        is_identified: Optional[bool] = data.get("is_identified", None)
+        alias: str = properties.get("email", None) or properties.get("name", None)
+        distinct_ids: List[str] = data.get("distinct_ids", [])
+        return ActorResponse(
+            id=id,
+            created_at=created_at,
+            properties=properties,
+            is_identified=is_identified,
+            name=alias or id,
+            distinct_ids=distinct_ids,
+        )
