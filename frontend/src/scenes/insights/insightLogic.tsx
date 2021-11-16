@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { prompt } from 'lib/logic/prompt'
 import { errorToast, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
@@ -90,6 +91,7 @@ export const insightLogic = kea<insightLogicType>({
             insight,
             options,
         }),
+        saveAs: true,
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: true,
@@ -559,6 +561,27 @@ export const insightLogic = kea<insightLogicType>({
                 </div>
             )
             savedInsightsLogic.findMounted()?.actions.loadInsights()
+        },
+        saveAs: async () => {
+            prompt({ key: `save-as-insight` }).actions.prompt({
+                title: 'Save as',
+                placeholder: 'Please enter the new name',
+                value: values.insight.name + ' (copy)',
+                error: 'You must enter name',
+                success: async (name: string) => {
+                    const insight = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
+                        name,
+                        filters: values.filters,
+                        saved: true,
+                    })
+                    // Revert current insight
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/`, {
+                        filters: values.savedFilters,
+                    })
+                    toast(`You're now working on a copy of ${values.insight.name}`)
+                    actions.setInsight(insight, { fromPersistentApi: true })
+                },
+            })
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query

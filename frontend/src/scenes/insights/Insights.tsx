@@ -62,6 +62,7 @@ export function Insights(): JSX.Element {
         setInsightMetadata,
         saveNewTag,
         deleteTag,
+        saveAs,
     } = useActions(logic)
 
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
@@ -156,14 +157,26 @@ export function Insights(): JSX.Element {
                                 Edit
                             </HotkeyButton>
                         ) : (
-                            <Button
-                                style={{ marginLeft: 8 }}
-                                type="primary"
-                                onClick={saveInsight}
-                                data-attr="insight-save-button"
-                            >
-                                Save
-                            </Button>
+                            <>
+                                {insight.saved && (
+                                    <Button
+                                        style={{ marginLeft: 8 }}
+                                        type="link"
+                                        onClick={saveAs}
+                                        data-attr="insight-save-as-button"
+                                    >
+                                        Save as
+                                    </Button>
+                                )}
+                                <Button
+                                    style={{ marginLeft: 8 }}
+                                    type="primary"
+                                    onClick={saveInsight}
+                                    data-attr="insight-save-button"
+                                >
+                                    Save
+                                </Button>
+                            </>
                         )}
                     </Col>
                 </Row>
