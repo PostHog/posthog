@@ -1264,11 +1264,13 @@ export class DB {
         return [group_type_index, is_insert === 1]
     }
 
-    public async upsertGroup(
+    public async upsertGroupClickhouse(
         teamId: TeamId,
-        groupTypeIndex: number,
+        groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        properties: Properties
+        properties: Properties,
+        createdAt: DateTime,
+        version: number
     ): Promise<void> {
         if (this.kafkaProducer) {
             await this.kafkaProducer.queueMessage({
@@ -1281,10 +1283,8 @@ export class DB {
                                 group_key: groupKey,
                                 team_id: teamId,
                                 group_properties: JSON.stringify(properties),
-                                created_at: castTimestampOrNow(
-                                    DateTime.utc(),
-                                    TimestampFormat.ClickHouseSecondPrecision
-                                ),
+                                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                                version,
                             })
                         ),
                     },

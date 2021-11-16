@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
 import {
+    Group,
+    GroupTypeIndex,
     Person,
     PersonPropertyUpdateOperation,
     PropertiesLastOperation,
@@ -80,6 +82,66 @@ export async function updatePersonProperties(
             person.version
         )
         await db.kafkaProducer.queueMessage(kafkaMessage)
+    }
+}
+
+export async function upsertGroup(
+    db: DB,
+    teamId: TeamId,
+    groupTypeIndex: GroupTypeIndex,
+    groupKey: string,
+    properties: Properties,
+    timestamp: DateTime
+): Promise<void> {
+    const [propertiesUpdate, createdAt, version] = await db.postgresTransaction(async (client) => {
+        const group: Group | null = db.fetchGroup(teamId, groupKey, groupTypeIndex, { forUpdate: true })
+
+        const propertiesUpdate = calculateUpdate(
+            group?.group_properties || {},
+            properties,
+            {},
+            group?.properties_last_updated_at || {},
+            group?.properties_last_operation || {},
+            timestamp
+        )
+
+        if (!group) {
+            propertiesUpdate.updated = true
+        }
+
+        const createdAt = group?.created_at || timestamp
+        const version = (group?.version || 0) + 1
+        if (propertiesUpdate.updated) {
+            const updateResult: QueryResult = await client.query(
+                `
+                INSERT INTO groups (team_id, group_key, group_type_index, properties, created_at, properties_last_updated_at, properties_last_operation, version)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT DO UPDATE ...
+                `,
+                [
+                    teamId,
+                    groupKey,
+                    groupTypeIndex,
+                    propertiesUpdate.properties,
+                    createdAt.toISO(),
+                    propertiesUpdate.properties_last_updated_at,
+                    propertiesUpdate.properties_last_operation,
+                    version,
+                ]
+            )
+        }
+        return [propertiesUpdate, createdAt, version]
+    })
+
+    if (propertiesUpdate.updated) {
+        await db.upsertGroupClickhouse(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            propertiesUpdate.properties,
+            createdAt,
+            version
+        )
     }
 }
 
