@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import uuid4
 
 from django.utils import timezone
@@ -9,11 +10,13 @@ from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.trends.person import TrendsPersonQuery
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import TRENDS_BAR_VALUE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
+from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
@@ -112,47 +115,45 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
     def test_breakdown_by_group_props(self):
         self._create_groups()
 
-        _create_event(
-            event="sign up",
-            distinct_id="person1",
-            team=self.team,
-            properties={"$group_0": "org:5"},
-            timestamp="2020-01-02T12:00:00Z",
-        )
-        _create_event(
-            event="sign up",
-            distinct_id="person1",
-            team=self.team,
-            properties={"$group_0": "org:6"},
-            timestamp="2020-01-02T12:00:00Z",
-        )
-        _create_event(
-            event="sign up",
-            distinct_id="person1",
-            team=self.team,
-            properties={"$group_0": "org:7", "$group_1": "company:10"},
-            timestamp="2020-01-02T12:00:00Z",
-        )
+        journey = {
+            "person1": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$group_0": "org:5"},},
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$group_0": "org:6"},},
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 15),
+                    "properties": {"$group_0": "org:7", "$group_1": "company:10"},
+                },
+            ],
+        }
 
-        response = ClickhouseTrends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
-                    "breakdown": "industry",
-                    "breakdown_type": "group",
-                    "breakdown_group_type_index": 0,
-                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-                }
-            ),
-            self.team,
+        people = journeys_for(events_by_person=journey, team=self.team)
+
+        filter = Filter(
+            data={
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "breakdown": "industry",
+                "breakdown_type": "group",
+                "breakdown_group_type_index": 0,
+                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+            }
         )
+        response = ClickhouseTrends().run(filter, self.team,)
 
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
+
+        filter = filter.with_data(
+            {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03T00:00:00Z"}
+        )
+        entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0,})
+        res = self._get_trend_people(filter, entity)
+
+        self.assertEqual(res[0]["distinct_ids"], ["person1"])
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_with_person_filter(self):

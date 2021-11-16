@@ -14,6 +14,7 @@ from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.property import GroupTypeIndex
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -22,7 +23,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     GROUP_TABLE_PREFIX = "$group_"
     EVENT_TABLE_ALIAS = "e"
 
-    _filter: Union[Filter, PathFilter, RetentionFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter, SessionRecordingsFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _person_query: ClickhousePersonQuery
@@ -35,7 +36,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter, SessionRecordingsFilter],
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,

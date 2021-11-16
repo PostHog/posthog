@@ -11,9 +11,17 @@ import { posthog } from '../../src/utils/posthog'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
+import { updatePersonProperties } from '../../src/worker/ingestion/properties-updater'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
+jest.mock('../../src/worker/ingestion/properties-updater', () => {
+    const original = jest.requireActual('../../src/worker/ingestion/properties-updater')
+    return {
+        ...original,
+        updatePersonProperties: jest.fn(original.updatePersonProperties),
+    }
+})
 jest.setTimeout(600000) // 600 sec timeout.
 
 export async function delayUntilEventIngested(
@@ -291,14 +299,12 @@ export const createProcessEventTests = (
 
     test('capture new person', async () => {
         // Based on gating only one function should be used
-        const personUpdateFnSpy = jest.spyOn(
-            hub.db,
-            !includeNewPropertiesUpdatesTests ? 'updatePerson' : 'updatePersonProperties'
-        )
-        const personUpdateFnShouldntbeUsedSpy = jest.spyOn(
-            hub.db,
-            includeNewPropertiesUpdatesTests ? 'updatePerson' : 'updatePersonProperties'
-        )
+        const personUpdateFnSpy = includeNewPropertiesUpdatesTests
+            ? updatePersonProperties
+            : jest.spyOn(hub.db, 'updatePerson')
+        const personUpdateFnShouldntbeUsedSpy = !includeNewPropertiesUpdatesTests
+            ? updatePersonProperties
+            : jest.spyOn(hub.db, 'updatePerson')
 
         await hub.db.postgresQuery(
             `UPDATE posthog_team
@@ -344,6 +350,7 @@ export const createProcessEventTests = (
         expect(personUpdateFnSpy).not.toHaveBeenCalled()
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
+        expect(persons[0].version).toEqual(0)
         let expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
@@ -416,6 +423,7 @@ export const createProcessEventTests = (
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
         expect(persons.length).toEqual(1)
+        expect(persons[0].version).toEqual(1)
         expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
@@ -491,6 +499,16 @@ export const createProcessEventTests = (
 
         expect(personUpdateFnShouldntbeUsedSpy).not.toHaveBeenCalled()
         events = await hub.db.fetchEvents()
+        persons = await hub.db.fetchPersons()
+        expect(events.length).toEqual(3)
+        expect(persons.length).toEqual(1)
+
+        // no new props, person wasn't updated with old fn, was because of timestamps update with new fn
+        if (includeNewPropertiesUpdatesTests) {
+            expect(persons[0].version).toEqual(2)
+        } else {
+            expect(persons[0].version).toEqual(1)
+        }
 
         expect(events[2].properties.$set).toEqual({
             utm_medium: 'instagram',
