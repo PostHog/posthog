@@ -2196,9 +2196,9 @@ export const createProcessEventTests = (
             )
 
             expect((await hub.db.fetchEvents()).length).toBe(1)
-            await delayUntilEventIngested(() => hub.db.fetchGroups(), 1)
+            await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
 
-            const [group] = await hub.db.fetchGroups()
+            const [group] = await hub.db.fetchClickhouseGroups()
 
             expect(group).toEqual({
                 group_key: 'org::5',
