@@ -49,6 +49,8 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 actions.setChartFilter(ChartDisplayType.ActionsTable)
             } else if (insight === InsightType.FUNNELS) {
                 actions.setChartFilter(funnel_viz_type || FunnelVizType.Steps)
+            } else if (insight === InsightType.TRENDS) {
+                actions.setChartFilter(ChartDisplayType.ActionsLineGraphLinear)
             }
         },
     }),

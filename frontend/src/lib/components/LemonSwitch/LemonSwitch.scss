@@ -3,6 +3,7 @@
 .LemonSwitch {
     position: relative;
     display: inline-block;
+    flex-shrink: 0;
     width: 36px;
     height: 20px;
     background: none;

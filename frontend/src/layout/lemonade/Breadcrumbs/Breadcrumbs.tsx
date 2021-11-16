@@ -1,11 +1,10 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { IconExpandMore, IconArrowDropDown, IconChevronRight } from 'lib/components/icons'
+import { IconArrowDropDown, IconChevronRight } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
 import './Breadcrumbs.scss'
 import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
 import clsx from 'clsx'
-import { Skeleton } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 
 function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
@@ -46,23 +45,17 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
 }
 
 export function Breadcrumbs(): JSX.Element | null {
-    const { breadcrumbs, breadcrumbsLoading } = useValues(breadcrumbsLogic)
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
 
-    return breadcrumbsLoading || breadcrumbs.length > 0 ? (
-        <div className={clsx('Breadcrumbs', breadcrumbsLoading && 'Breadcrumbs--loading')}>
-            {breadcrumbsLoading ? (
-                <Skeleton active paragraph={false} title={{ width: 320 }} />
-            ) : (
-                <>
-                    <Breadcrumb breadcrumb={breadcrumbs[0]} />
-                    {breadcrumbs.slice(1).map((breadcrumb) => (
-                        <React.Fragment key={breadcrumb.name || '…'}>
-                            <IconChevronRight className="Breadcrumbs__separator" />
-                            <Breadcrumb breadcrumb={breadcrumb} />
-                        </React.Fragment>
-                    ))}
-                </>
-            )}
+    return breadcrumbs.length > 0 ? (
+        <div className="Breadcrumbs">
+            <Breadcrumb breadcrumb={breadcrumbs[0]} />
+            {breadcrumbs.slice(1).map((breadcrumb) => (
+                <React.Fragment key={breadcrumb.name || '…'}>
+                    <IconChevronRight className="Breadcrumbs__separator" />
+                    <Breadcrumb breadcrumb={breadcrumb} />
+                </React.Fragment>
+            ))}
         </div>
     ) : null
 }

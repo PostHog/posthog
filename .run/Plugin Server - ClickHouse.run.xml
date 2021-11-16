@@ -3,7 +3,7 @@
     <package-json value="$PROJECT_DIR$/plugin-server/package.json" />
     <command value="run" />
     <scripts>
-      <script value="start" />
+      <script value="start:dev" />
     </scripts>
     <node-interpreter value="project" />
     <envs>

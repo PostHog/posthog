@@ -394,6 +394,7 @@ export interface RecordingFilters {
     date_to?: string | null
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
@@ -767,7 +768,7 @@ export enum ChartDisplayType {
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
-export type BreakdownType = 'cohort' | 'person' | 'event'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export enum InsightType {
@@ -980,6 +981,12 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+
+    // Url that you can GET to retrieve the people that converted in this step
+    converted_people_url: string
+
+    // Url that you can GET to retrieve the people that dropped in this step
+    dropped_people_url: string
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {

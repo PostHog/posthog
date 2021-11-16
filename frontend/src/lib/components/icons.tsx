@@ -784,9 +784,9 @@ export function IconRecording(): JSX.Element {
 }
 
 /** Material Design Arrow Drop Down icon. */
-export function IconArrowDropDown({ style }: { style?: CSSProperties }): JSX.Element {
+export function IconArrowDropDown(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path d="m7 10 5 5 5-5z" fill="currentColor" />
         </svg>
     )
@@ -810,6 +810,18 @@ export function IconQuestionAnswer(): JSX.Element {
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path
                 d="m15 4v7h-9.83l-1.17 1.17v-8.17zm1-2h-13c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1zm5 4h-2v9h-13v2c0 .55.45 1 1 1h11l4 4v-15c0-.55-.45-1-1-1z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Help Outline icon. */
+export function IconHelpOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11 18h2v-2h-2zm1-16c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10-4.48-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
                 fill="currentColor"
             />
         </svg>

@@ -118,7 +118,8 @@ export const trendsLogic = kea<trendsLogicType>({
 
                 return (
                     (filters.events || []).every(isNotAggregatingByGroup) &&
-                    (filters.actions || []).every(isNotAggregatingByGroup)
+                    (filters.actions || []).every(isNotAggregatingByGroup) &&
+                    filters.breakdown_type !== 'group'
                 )
             },
         ],

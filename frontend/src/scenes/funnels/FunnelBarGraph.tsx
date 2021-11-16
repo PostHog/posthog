@@ -466,7 +466,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
         clickhouseFeaturesEnabled,
         aggregationTargetLabel,
     } = useValues(logic)
-    const { openPersonsModal } = useActions(logic)
+    const { openPersonsModalForStep } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
@@ -562,11 +562,10 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                     percentage={barSizePercentage}
                                                     name={breakdown.name}
                                                     onBarClick={() =>
-                                                        openPersonsModal(
+                                                        openPersonsModalForStep({
                                                             step,
-                                                            stepIndex + 1,
-                                                            cleanBreakdownValue(breakdown.breakdown_value)
-                                                        )
+                                                            converted: true,
+                                                        })
                                                     }
                                                     disabled={!!dashboardItemId}
                                                     layout={layout}
@@ -643,7 +642,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                             onClick={() =>
                                                 clickhouseFeaturesEnabled &&
                                                 !dashboardItemId &&
-                                                openPersonsModal(step, -(stepIndex + 1))
+                                                openPersonsModalForStep({ step, converted: false })
                                             } // dropoff value for steps is negative
                                             style={{
                                                 flex: `${1 - breakdownSum / basisStep.count} 1 0`,
@@ -658,7 +657,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                         <Bar
                                             percentage={step.conversionRates.fromBasisStep}
                                             name={step.name}
-                                            onBarClick={() => openPersonsModal(step, stepIndex + 1)}
+                                            onBarClick={() => openPersonsModalForStep({ step, converted: true })}
                                             disabled={!!dashboardItemId}
                                             layout={layout}
                                             popoverTitle={<PropertyKeyInfo value={step.name} />}
@@ -715,7 +714,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                             onClick={() =>
                                                 clickhouseFeaturesEnabled &&
                                                 !dashboardItemId &&
-                                                openPersonsModal(step, -(stepIndex + 1))
+                                                openPersonsModalForStep({ step, converted: false })
                                             } // dropoff value for steps is negative
                                             style={{
                                                 flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
@@ -733,7 +732,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                     <div className="step-stat">
                                         <div className="center-flex">
                                             <ValueInspectorButton
-                                                onClick={() => openPersonsModal(step, stepIndex + 1)}
+                                                onClick={() => openPersonsModalForStep({ step, converted: true })}
                                                 disabled={!clickhouseFeaturesEnabled || !!dashboardItemId}
                                             >
                                                 <span className="value-inspector-button-icon">
@@ -774,7 +773,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                     >
                                         <div className="center-flex">
                                             <ValueInspectorButton
-                                                onClick={() => openPersonsModal(step, -(stepIndex + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
+                                                onClick={() => openPersonsModalForStep({ step, converted: false })}
                                                 disabled={!clickhouseFeaturesEnabled || !!dashboardItemId}
                                             >
                                                 <span className="value-inspector-button-icon">
