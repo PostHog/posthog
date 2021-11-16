@@ -1,6 +1,5 @@
 import React from 'react'
 import './HelpButton.scss'
-import { QuestionCircleOutlined, CaretDownOutlined } from '@ant-design/icons'
 import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
@@ -8,7 +7,7 @@ import { helpButtonLogicType } from './HelpButtonType'
 import { Popup } from '../Popup/Popup'
 import { Placement } from '@popperjs/core'
 import { LemonButton } from '../LemonButton'
-import { IconArticle, IconGithub, IconMail, IconQuestionAnswer } from '../icons'
+import { IconArrowDropDown, IconArticle, IconGithub, IconHelpOutline, IconMail, IconQuestionAnswer } from '../icons'
 import clsx from 'clsx'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
@@ -125,8 +124,8 @@ export function HelpButton({ placement, customComponent, inline }: HelpButtonPro
             >
                 {customComponent || (
                     <>
-                        <QuestionCircleOutlined className="help-icon" />
-                        <CaretDownOutlined />
+                        <IconHelpOutline />
+                        <IconArrowDropDown />
                     </>
                 )}
             </div>

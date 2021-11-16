@@ -5,6 +5,8 @@
     height: 2.5rem;
     cursor: pointer;
     display: flex;
+    font-size: 1.5rem;
+    color: var(--primary-alt);
 
     &:not(.custom-component) {
         margin-left: 1.25rem !important;
@@ -12,10 +14,5 @@
 
     &.inline {
         display: inline-flex;
-    }
-
-    .help-icon {
-        color: var(--bg-navy);
-        font-size: 1.25rem;
     }
 }
