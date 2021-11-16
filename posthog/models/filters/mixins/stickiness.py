@@ -21,16 +21,20 @@ class SelectedIntervalMixin(BaseParamMixin):
 
 
 class StickinessDateMixin(DateMixin):
-    get_earliest_timestamp: Callable
+    get_earliest_timestamp: Optional[Callable]
     team: Team
 
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime]]:
-        if not self.team or not self.get_earliest_timestamp:
-            raise AttributeError("StickinessDateMixin requires team and get_earliest_timestamp to be provided")
+        if not self.team:
+            raise AttributeError("StickinessDateMixin requires team to be provided")
 
         _date_from = self._data.get(DATE_FROM, None)
         if _date_from == "all":
+            if not self.get_earliest_timestamp:
+                raise ValidationError(
+                    "get_earliest_timestamp: Callable must be provided when date filtering is all time"
+                )
             return self.get_earliest_timestamp(team_id=self.team.pk)
         elif _date_from:
             return _date_from

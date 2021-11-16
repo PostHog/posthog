@@ -82,6 +82,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             p = Person.objects.create(
                 team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
+            Person.objects.create(
+                team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
             base_time = now() - relativedelta(days=1)
             self.create_snapshot("user", "1", base_time)
             self.create_snapshot("user", "1", base_time + relativedelta(seconds=10))
@@ -113,6 +116,14 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_session_recordings_dont_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
+            Person.objects.create(
+                team=another_team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
+            Person.objects.create(
+                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
 
             self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=another_team.pk)
             self.create_snapshot("user", "2", now() - relativedelta(days=1))
@@ -139,6 +150,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][1]["person"]["id"], p.pk)
 
         def test_viewed_state_of_session_recording(self):
+            Person.objects.create(
+                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
             base_time = now() - timedelta(days=1)
             SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
             self.create_snapshot("u1", "1", base_time)
@@ -152,6 +166,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][1]["viewed"], True)
 
         def test_setting_viewed_state_of_session_recording(self):
+            Person.objects.create(
+                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
             self.create_snapshot("u1", "1", now() - relativedelta(days=1))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
             response_data = response.json()

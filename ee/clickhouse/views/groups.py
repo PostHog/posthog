@@ -1,15 +1,14 @@
-import json
 from collections import defaultdict
 
-from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.mixins import ListModelMixin
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
+from ee.clickhouse.models.group import ClickhouseGroupSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.utils import PaginationMode, format_paginated_url
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.utils import convert_property_value
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -18,10 +17,51 @@ class GroupTypeSerializer(serializers.ModelSerializer):
         fields = ["group_type", "group_type_index"]
 
 
-class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
+class ClickhouseGroupsTypesView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all()
     pagination_class = None
+
+
+class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = ClickhouseGroupSerializer
+    queryset = None
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        limit = int(request.GET.get("limit", 100))
+        offset = int(request.GET.get("offset", 0))
+
+        query_result = sync_execute(
+            """
+                SELECT
+                    %(group_type_index)s,
+                    group_key,
+                    argMax(created_at, _timestamp),
+                    argMax(group_properties, _timestamp)
+                FROM groups
+                WHERE team_id = %(team_id)s
+                  AND group_type_index = %(group_type_index)s
+                GROUP BY group_key
+                ORDER BY group_key
+                LIMIT %(limit)s
+                OFFSET %(offset)s
+            """,
+            {
+                "team_id": self.team_id,
+                "group_type_index": request.GET["group_type_index"],
+                "offset": offset,
+                "limit": limit + 1,
+            },
+        )
+
+        return response.Response(
+            {
+                "next_url": format_paginated_url(request, offset, limit) if len(query_result) > limit else None,
+                "previous_url": format_paginated_url(request, offset, limit, mode=PaginationMode.previous),
+                "results": ClickhouseGroupSerializer(query_result[:limit], many=True).data,
+            }
+        )
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):

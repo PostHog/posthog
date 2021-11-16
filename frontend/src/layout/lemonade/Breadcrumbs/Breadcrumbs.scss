@@ -28,14 +28,22 @@
 .Breadcrumbs__breadcrumb {
     display: flex;
     align-items: center;
-    color: var(--primary);
-    font-weight: 500;
+    font-weight: $medium;
     white-space: pre;
+    user-select: none;
+
     &--current {
-        font-style: italic;
+        color: $text_default;
+        cursor: default;
     }
+
     > :first-child {
         margin-right: 0.5rem;
+    }
+
+    &--actionable {
+        cursor: pointer;
+        color: $primary;
     }
 }
 

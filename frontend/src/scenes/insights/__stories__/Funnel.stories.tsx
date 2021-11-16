@@ -293,6 +293,8 @@ const sampleSkewedFunnelResponse: FunnelResponse = {
             type: 'events',
             average_conversion_time: null,
             median_conversion_time: null,
+            converted_people_url: 'https://api.posthog.com/some/people/url',
+            dropped_people_url: 'https://api.posthog.com/some/people/url',
         },
         {
             action_id: '$pageview',
@@ -304,6 +306,8 @@ const sampleSkewedFunnelResponse: FunnelResponse = {
             type: 'events',
             average_conversion_time: 3605.594525238891,
             median_conversion_time: 2.0,
+            converted_people_url: 'https://api.posthog.com/some/people/url',
+            dropped_people_url: 'https://api.posthog.com/some/people/url',
         },
         {
             action_id: '$pageview',
@@ -315,6 +319,8 @@ const sampleSkewedFunnelResponse: FunnelResponse = {
             type: 'events',
             average_conversion_time: 7734.935688918132,
             median_conversion_time: 6.0,
+            converted_people_url: 'https://api.posthog.com/some/people/url',
+            dropped_people_url: 'https://api.posthog.com/some/people/url',
         },
     ],
     last_refresh: '2021-10-11T15:00:52.117340Z',

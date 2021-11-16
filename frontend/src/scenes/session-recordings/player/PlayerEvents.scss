@@ -1,0 +1,88 @@
+@import '~/vars';
+
+.player-events-container {
+    display: flex;
+    flex-direction: column;
+    background-color: $bg_light;
+    height: 100%;
+    border: 1px solid $border;
+    border-radius: $radius;
+    padding: $recording_spacing;
+
+    @media (max-width: $md) {
+        height: 100vh;
+    }
+
+    .event-list {
+        flex: 1;
+
+        .event-list-item {
+            padding: $recording_spacing;
+            cursor: pointer;
+            border-radius: $radius;
+
+            &:hover {
+                background-color: $recording_hover_event;
+
+                .event-item-icon {
+                    .event-item-icon-wrapper {
+                        background-color: $recording_hover_event_dark;
+
+                        svg {
+                            path {
+                                fill: $bg_light;
+                            }
+                        }
+                    }
+                }
+            }
+
+            .event-item-icon {
+                display: flex;
+                margin-right: $recording_spacing;
+
+                .event-item-icon-wrapper {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    background-color: $bg_mid;
+                    border-radius: $radius;
+                    height: 44px;
+                    width: 44px;
+
+                    svg {
+                        width: 16px;
+                        height: 16px;
+
+                        path {
+                            fill: $bg_depth;
+                        }
+                    }
+                }
+            }
+
+            .event-item-text {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                padding: 0 $recording_spacing / 2;
+                min-width: 0;
+
+                .event-item-text-top-row {
+                    justify-content: space-between;
+                }
+
+                .event-item-text-title {
+                    font-weight: 600;
+                }
+
+                .event-item-text-subtitle {
+                    display: -webkit-box;
+                    -webkit-line-clamp: 2;
+                    -webkit-box-orient: vertical;
+                    overflow: hidden;
+                }
+            }
+        }
+    }
+}

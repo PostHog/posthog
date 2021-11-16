@@ -619,11 +619,22 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToName(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
+export function eventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>): string {
+    if (['$pageview', '$pageleave'].includes(event.event)) {
+        return event.properties.$pathname
+    }
+    if (event.event === '$autocapture') {
+        return autoCaptureEventToDescription(event)
+    }
+    // All other events and actions
+    return event.event
+}
+
+export function autoCaptureEventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
-    let name = ''
+    let name: string | JSX.Element = ''
     if (event.properties.$event_type === 'click') {
         name += 'clicked '
     }

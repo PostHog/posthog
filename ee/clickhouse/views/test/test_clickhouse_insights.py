@@ -11,9 +11,16 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import deep_dump_object
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
+from posthog.api.test.test_trends import (
+    TrendsRequest,
+    TrendsRequestBreakdown,
+    get_trends_aggregate_ok,
+    get_trends_people_ok,
+    get_trends_time_series_ok,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
@@ -21,7 +28,7 @@ from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 def _create_person(**kwargs):
     person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+    return Person(id=str(person.uuid))
 
 
 def _create_event(**kwargs):
@@ -32,148 +39,6 @@ def _create_event(**kwargs):
 class ClickhouseTestInsights(
     ClickhouseTestMixin, LicensedTestMixin, insight_test_factory(_create_event, _create_person)  # type: ignore
 ):
-    def test_insight_trends_basic(self):
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-            ).json()
-
-        self.assertEqual(response["result"][0]["count"], 2)
-        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
-
-        self.assertEqual(response["result"][0]["data"][-2], 2)
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
-
-        self.assertEqual(len(response["results"][0]["people"]), 2)
-
-    def test_insight_trends_aggregate(self):
-
-        with freeze_time("2012-01-13T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "display": "ActionsPie",
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-            }
-        )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["aggregated_value"], 2)
-        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
-
-        self.assertEqual(len(response["results"][0]["people"]), 2)
-
-    def test_insight_trends_cumulative(self):
-        with freeze_time("2012-01-13T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_person(distinct_ids=["3"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="3", properties={"key": "val"})
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            data = deep_dump_object(
-                {
-                    "date_from": "-14d",
-                    "display": "ActionsLineGraphCumulative",
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-                }
-            )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-        self.assertEqual(response["result"][0]["count"], 3)
-        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
-
-        self.assertEqual(response["result"][0]["data"][-3], 2)
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
-
-        self.assertEqual(len(response["results"][0]["people"]), 3)
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            data = deep_dump_object(
-                {
-                    "date_from": "-14d",
-                    "breakdown": "key",
-                    "display": "ActionsLineGraphCumulative",
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-                }
-            )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][1]["count"], 2)
-        self.assertEqual(response["result"][1]["breakdown_value"], "val")
-        self.assertEqual(response["result"][1]["action"]["name"], "$pageview")
-
-        self.assertEqual(response["result"][1]["data"][-3], 1)
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.get("/" + response["result"][1]["persons_urls"][-1]["url"]).json()
-
-        self.assertEqual(len(response["results"][0]["people"]), 2)
-
-    @test_with_materialized_columns(["key"])
-    def test_breakdown_with_filter(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
-        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
-        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "oh"})
-
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "breakdown": "key",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-                "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["count"], 1)
-        # don't return none option when empty
-        self.assertEqual(response["result"][0]["breakdown_value"], "val")
-        person_response = self.client.get("/" + response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(len(person_response["results"][0]["people"]), 1)
-
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "breakdown": "key",
-                "display": "ActionsPie",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["aggregated_value"], 1)
-
-        person_response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
-        self.assertEqual(len(person_response["results"][0]["people"]), 1)
-
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -931,8 +796,8 @@ def get_converted_and_dropped_people(client: Client, step):
 
     return {
         "name": step["name"],
-        "converted": converted_distinct_ids,
-        "dropped": dropped_distinct_ids,
+        "converted": sorted(converted_distinct_ids),
+        "dropped": sorted(dropped_distinct_ids),
     }
 
 
