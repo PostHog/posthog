@@ -5,6 +5,17 @@
     border-radius: var(--radius);
     border: 1px solid var(--border);
     overflow: auto;
+    .LemonTable__pagination {
+        display: flex;
+        align-items: center;
+        justify-content: end;
+        height: 3rem;
+        border-top: 1px solid var(--border);
+        padding: 0 1rem;
+        > span {
+            margin-right: 0.5rem;
+        }
+    }
     table {
         width: 100%;
         border-collapse: collapse;

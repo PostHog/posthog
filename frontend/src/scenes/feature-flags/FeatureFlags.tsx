@@ -1,20 +1,18 @@
 import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Switch, Typography, Input } from 'antd'
+import { Input } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
-import { ExportOutlined, PlusOutlined, DisconnectOutlined } from '@ant-design/icons'
+import { PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
-import { Tooltip } from 'lib/components/Tooltip'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -37,6 +35,8 @@ export function FeatureFlags(): JSX.Element {
     const { push } = useActions(router)
     // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
     const { tableScrollX } = useIsTableScrolling('lg')
+
+    const [morePopupShownId, setMorePopupShownId] = useState<FeatureFlagType['id'] | null>(null)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -94,20 +94,19 @@ export function FeatureFlags(): JSX.Element {
         {
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                const [isPopupVisible, setIsPopupVisible] = useState(false)
-
                 return (
                     <LemonButton
                         compact
                         icon={<IconEllipsis />}
                         type="stealth"
-                        onClick={() => {
-                            setIsPopupVisible((state) => !state)
+                        onClick={(e) => {
+                            setMorePopupShownId((state) => (state === null ? featureFlag.id : null))
+                            e.stopPropagation()
                         }}
                         popup={{
-                            visible: isPopupVisible,
-                            onClickOutside: () => setIsPopupVisible(false),
-                            onClickInside: () => setIsPopupVisible(false),
+                            visible: morePopupShownId === featureFlag.id,
+                            onClickOutside: () => setMorePopupShownId(null),
+                            onClickInside: () => setMorePopupShownId(null),
                             placement: 'bottom-end',
                             actionable: true,
                             overlay: (
@@ -137,7 +136,6 @@ export function FeatureFlags(): JSX.Element {
                                         <LemonButton
                                             type="stealth"
                                             style={{ color: 'var(--danger)' }}
-                                            to={`/feature_flags/${featureFlag.id}`}
                                             onClick={() => {
                                                 deleteWithUndo({
                                                     endpoint: `projects/${currentTeamId}/feature_flags`,
@@ -189,9 +187,12 @@ export function FeatureFlags(): JSX.Element {
             <LemonTable
                 dataSource={searchedFeatureFlags}
                 columns={columns}
+                rowKey="id"
                 onRow={(featureFlag) => ({
                     style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}
+                loading={featureFlagsLoading}
+                pagination={{ pageSize: 10 }}
                 data-attr="feature-flag-table"
             />
         </div>
