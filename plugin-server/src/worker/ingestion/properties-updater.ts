@@ -27,7 +27,7 @@ export async function updatePersonProperties(
             )
         }
 
-        const shouldUpdate = updatePersonPropertiesLocal(person, properties, propertiesOnce, timestamp)
+        const shouldUpdate = calculateUpdatedProperties(person, properties, propertiesOnce, timestamp)
         if (!shouldUpdate) {
             return
         }
@@ -63,13 +63,13 @@ export async function updatePersonProperties(
     }
 }
 
-export function updatePersonPropertiesLocal(
+export function calculateUpdatedProperties(
     person: Person,
     properties: Properties,
     propertiesOnce: Properties,
     timestamp: DateTime
 ): boolean {
-    // updates the person & returns true/false if anything was updated
+    // :TRICKY: This mutates the person object & returns true/false if anything was updated
     let updatedSomething = false
     Object.entries(propertiesOnce).forEach(([key, value]) => {
         if (
