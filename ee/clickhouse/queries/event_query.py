@@ -13,8 +13,8 @@ from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.property import GroupTypeIndex
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.models.property import GroupTypeIndex
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
