@@ -652,9 +652,9 @@
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
   SELECT 0,
-         $group_0,
-         group_created_at_0,
-         group_properties_0
+         $group_0 as group_key,
+         any(group_created_at_0),
+         any(group_properties_0)
   FROM
     (SELECT e.timestamp as timestamp,
             e.$group_0 as $group_0,
@@ -675,10 +675,7 @@
        AND timestamp <= '2020-01-02 23:59:59'
        AND NOT has([''], $group_0)
        AND team_id = 2 )
-  GROUP BY 0,
-           $group_0,
-           group_created_at_0,
-           group_properties_0
+  GROUP BY group_key
   LIMIT 200
   OFFSET 0
   '
@@ -718,9 +715,9 @@
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
   SELECT 1,
-         $group_1,
-         group_created_at_1,
-         group_properties_1
+         $group_1 as group_key,
+         any(group_created_at_1),
+         any(group_properties_1)
   FROM
     (SELECT e.timestamp as timestamp,
             e.$group_1 as $group_1,
@@ -741,10 +738,7 @@
        AND timestamp <= '2020-01-02 23:59:59'
        AND NOT has([''], $group_1)
        AND team_id = 2 )
-  GROUP BY 1,
-           $group_1,
-           group_created_at_1,
-           group_properties_1
+  GROUP BY group_key
   LIMIT 200
   OFFSET 0
   '

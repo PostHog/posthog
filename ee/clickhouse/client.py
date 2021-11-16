@@ -135,7 +135,7 @@ else:
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
-    def sync_execute(query, args=None, settings=None, with_column_types=False):
+    def sync_execute(query, args=None, settings=None, with_column_types=False, as_dict=False):
         with ch_pool.get_client() as client:
             start_time = perf_counter()
 
@@ -145,8 +145,12 @@ else:
 
             try:
                 result = client.execute(
-                    prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types
+                    prepared_sql,
+                    params=prepared_args,
+                    settings=settings,
+                    with_column_types=True if as_dict else with_column_types,
                 )
+                result = _convert_to_dict(result) if as_dict else result
             except Exception as err:
                 err = wrap_query_error(err)
                 tags["failed"] = True
@@ -165,6 +169,15 @@ else:
                 if _request_information is not None and _request_information.get("save", False):
                     save_query(prepared_sql, execution_time)
         return result
+
+    def _convert_to_dict(result):
+        final_list = []
+        for row in result[0]:
+            res = {}
+            for i, col in enumerate(row):
+                res[result[1][i][0]] = col
+            final_list.append(res)
+        return final_list
 
 
 def _prepare_query(client: SyncClient, query: str, args: QueryArgs):

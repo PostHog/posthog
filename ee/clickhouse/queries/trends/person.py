@@ -8,6 +8,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.group import ClickhouseGroupSerializer
 from ee.clickhouse.models.person import ClickhousePersonSerializer
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.sql.person import GET_GROUPS_FROM_EVENT_QUERY, GET_PERSONS_FROM_EVENT_QUERY
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
@@ -37,21 +38,16 @@ def _handle_date_interval(filter: Filter) -> Filter:
     return filter.with_data(data)
 
 
-class TrendsPersonQuery:
-    is_group_query = False
-
+class TrendsPersonQuery(ActorBaseQuery):
     def __init__(self, team: Team, entity: Entity, filter: Filter):
-        self.team = team
-        self.entity = entity
-        self.filter = filter
+        new_filter = filter
 
-        if self.filter.display != TRENDS_CUMULATIVE and not self.filter.display in TRENDS_DISPLAY_BY_VALUE:
-            self.filter = _handle_date_interval(self.filter)
+        if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
+            new_filter = _handle_date_interval(filter)
 
-        if self.entity.math == "unique_group":
-            self.is_group_query = True
+        super().__init__(team, new_filter, entity)
 
-    def get_person_query(self) -> Tuple[str, Dict]:
+    def person_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self.team.pk)
             self.filter = self.filter.with_data(
@@ -82,7 +78,7 @@ class TrendsPersonQuery:
             {**params, "offset": self.filter.offset, "limit": 200},
         )
 
-    def get_group_query(self) -> Tuple[str, Dict]:
+    def group_query(self) -> Tuple[str, Dict]:
 
         events_query, params = TrendsEventQuery(
             filter=self.filter,
@@ -100,20 +96,14 @@ class TrendsPersonQuery:
             {**params, "offset": self.filter.offset, "limit": 200},
         )
 
-    def get_query(self) -> Tuple[str, Dict]:
-        if self.is_group_query:
-            return self.get_group_query()
-        else:
-            return self.get_person_query()
-
     def get_people(self) -> ReturnDict:
 
-        if self.is_group_query:
-            query, params = self.get_group_query()
+        if self.aggregating_by_groups:
+            query, params = self.group_query()
             people = sync_execute(query, params)
             result = ClickhouseGroupSerializer(people, many=True).data
         else:
-            query, params = self.get_person_query()
+            query, params = self.person_query()
             people = sync_execute(query, params)
             result = ClickhousePersonSerializer(people, many=True).data
 
