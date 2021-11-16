@@ -3,7 +3,6 @@
 .person-header {
     display: flex;
     align-items: center;
-    @extend .text-ellipsis;
 
     .profile-picture {
         margin-right: 4px;
