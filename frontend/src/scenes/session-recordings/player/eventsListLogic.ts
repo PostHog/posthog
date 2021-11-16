@@ -161,13 +161,6 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 }
 
                 const gridState = list.Grid.state as any
-                console.log('GRIDSTATE', gridState)
-                console.log(
-                    'GRID',
-                    gridState,
-                    gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(indices.startIndex),
-                    indices
-                )
                 const top = gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(
                     indices.startIndex
                 ).offset
