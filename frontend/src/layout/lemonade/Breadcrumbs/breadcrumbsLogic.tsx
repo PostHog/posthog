@@ -41,17 +41,15 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
     connect: {
         values: [
             preflightLogic,
-            ['preflight', 'preflightLoading'],
+            ['preflight'],
             sceneLogic,
             ['sceneConfig', 'activeScene'],
             userLogic,
-            ['user', 'userLoading', 'otherOrganizations'],
+            ['user', 'otherOrganizations'],
             organizationLogic,
-            ['currentOrganization', 'currentOrganizationLoading'],
+            ['currentOrganization'],
             teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
-            teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
+            ['currentTeam'],
             dashboardsModel,
             ['rawDashboards', 'lastDashboardId'],
             featureFlagLogic,
@@ -89,11 +87,11 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 otherOrganizations
             ) => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (!activeScene) {
+                if (!activeScene || !sceneConfig) {
                     return breadcrumbs
                 }
                 // User
-                if (sceneConfig?.personal) {
+                if (sceneConfig.personal) {
                     if (!user) {
                         return breadcrumbs
                     }
@@ -103,7 +101,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     })
                 }
                 // Instance
-                if (sceneConfig?.instanceLevel) {
+                if (sceneConfig.instanceLevel) {
                     if (!preflight?.site_url) {
                         return breadcrumbs
                     }
@@ -113,7 +111,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     })
                 }
                 // Organization
-                if (sceneConfig?.organizationBased || sceneConfig?.projectBased) {
+                if (sceneConfig.organizationBased || sceneConfig.projectBased) {
                     if (!currentOrganization) {
                         return breadcrumbs
                     }
@@ -130,7 +128,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     })
                 }
                 // Project
-                if (sceneConfig?.projectBased) {
+                if (sceneConfig.projectBased) {
                     if (!currentTeam) {
                         return breadcrumbs
                     }
@@ -205,42 +203,11 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     default:
                         // Current place
                         breadcrumbs.push({
-                            name: sceneConfig?.name || identifierToHuman(activeScene),
+                            name: sceneConfig.name || identifierToHuman(activeScene),
                             here: true,
                         })
                 }
                 return breadcrumbs
-            },
-        ],
-        breadcrumbsLoading: [
-            (s) => [
-                s.preflightLoading,
-                s.sceneConfig,
-                s.userLoading,
-                s.currentOrganizationLoading,
-                s.currentTeamLoading,
-            ],
-            (preflightLoading, sceneConfig, userLoading, currentOrganizationLoading, currentTeamLoading) => {
-                if (!sceneConfig) {
-                    return true
-                }
-                // User
-                if (sceneConfig.personal && userLoading) {
-                    return true
-                }
-                // Instance
-                if (sceneConfig.instanceLevel && preflightLoading) {
-                    return true
-                }
-                // Organization
-                if ((sceneConfig.organizationBased || sceneConfig.projectBased) && currentOrganizationLoading) {
-                    return true
-                }
-                // Project
-                if (sceneConfig.projectBased && currentTeamLoading) {
-                    return true
-                }
-                return false
             },
         ],
     }),

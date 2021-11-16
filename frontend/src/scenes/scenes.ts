@@ -37,6 +37,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
+    [Scene.InsightRouter]: {
+        projectBased: true,
+        name: 'Insights',
+    },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
@@ -99,9 +103,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         hideDemoWarnings: true,
         name: 'Project settings',
-    },
-    [Scene.InsightRouter]: {
-        projectBased: true,
     },
     [Scene.Personalization]: {
         projectBased: true,
