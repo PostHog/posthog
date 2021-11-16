@@ -81,11 +81,10 @@
 # name: TestClickhouseTrends.test_breakdown_by_group_props.2
   '
   
-  SELECT person_id,
-         created_at,
-         team_id,
-         person_props,
-         is_identified,
+  SELECT person_id AS id ,
+         any(created_at) AS created_at,
+         any(person_props) AS properties,
+         any(is_identified) AS is_identified,
          arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
   FROM
     (SELECT e.timestamp as timestamp,
@@ -132,11 +131,7 @@
        AND timestamp <= '2020-01-02 23:59:59'
        AND has(['technology'], trim(BOTH '"'
                                     FROM JSONExtractRaw(group_properties_0, 'industry'))) )
-  GROUP BY person_id,
-           created_at,
-           team_id,
-           person_props,
-           is_identified
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '

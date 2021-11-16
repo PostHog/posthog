@@ -14,11 +14,10 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id,
-         created_at,
-         team_id,
-         person_props,
-         is_identified,
+  SELECT person_id AS id ,
+         any(created_at) AS created_at,
+         any(person_props) AS properties,
+         any(is_identified) AS is_identified,
          arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
   FROM
     (SELECT e.timestamp as timestamp,
@@ -56,11 +55,7 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-15 23:59:59' )
-  GROUP BY person_id,
-           created_at,
-           team_id,
-           person_props,
-           is_identified
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '
@@ -111,11 +106,10 @@
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id,
-         created_at,
-         team_id,
-         person_props,
-         is_identified,
+  SELECT person_id AS id ,
+         any(created_at) AS created_at,
+         any(person_props) AS properties,
+         any(is_identified) AS is_identified,
          arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
   FROM
     (SELECT e.timestamp as timestamp,
@@ -153,11 +147,7 @@
        AND event = '$pageview'
        AND timestamp >= '2012-01-14 00:00:00'
        AND timestamp <= '2012-01-14 23:59:59' )
-  GROUP BY person_id,
-           created_at,
-           team_id,
-           person_props,
-           is_identified
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '
@@ -193,11 +183,10 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id,
-         created_at,
-         team_id,
-         person_props,
-         is_identified,
+  SELECT person_id AS id ,
+         any(created_at) AS created_at,
+         any(person_props) AS properties,
+         any(is_identified) AS is_identified,
          arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
   FROM
     (SELECT e.timestamp as timestamp,
@@ -235,11 +224,7 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59' )
-  GROUP BY person_id,
-           created_at,
-           team_id,
-           person_props,
-           is_identified
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '
@@ -294,11 +279,10 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id,
-         created_at,
-         team_id,
-         person_props,
-         is_identified,
+  SELECT person_id AS id ,
+         any(created_at) AS created_at,
+         any(person_props) AS properties,
+         any(is_identified) AS is_identified,
          arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
   FROM
     (SELECT e.timestamp as timestamp,
@@ -336,11 +320,7 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59' )
-  GROUP BY person_id,
-           created_at,
-           team_id,
-           person_props,
-           is_identified
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '
@@ -414,11 +394,10 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id,
-         created_at,
-         team_id,
-         person_props,
-         is_identified,
+  SELECT person_id AS id ,
+         any(created_at) AS created_at,
+         any(person_props) AS properties,
+         any(is_identified) AS is_identified,
          arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
   FROM
     (SELECT e.timestamp as timestamp,
@@ -460,11 +439,7 @@
        AND has(['val'], trim(BOTH '"'
                              FROM JSONExtractRaw(properties, 'key')))
        AND team_id = 2 )
-  GROUP BY person_id,
-           created_at,
-           team_id,
-           person_props,
-           is_identified
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '
@@ -562,11 +537,10 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id,
-         created_at,
-         team_id,
-         person_props,
-         is_identified,
+  SELECT person_id AS id ,
+         any(created_at) AS created_at,
+         any(person_props) AS properties,
+         any(is_identified) AS is_identified,
          arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
   FROM
     (SELECT e.timestamp as timestamp,
@@ -608,11 +582,7 @@
        AND has(['val'], trim(BOTH '"'
                              FROM JSONExtractRaw(properties, 'key')))
        AND team_id = 2 )
-  GROUP BY person_id,
-           created_at,
-           team_id,
-           person_props,
-           is_identified
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '
