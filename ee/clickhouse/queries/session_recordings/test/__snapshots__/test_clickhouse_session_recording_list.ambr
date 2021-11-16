@@ -1,0 +1,311 @@
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties
+  '
+  
+  SELECT DISTINCT p.id
+  FROM
+    (SELECT *
+     FROM person
+     JOIN
+       (SELECT id,
+               max(_timestamp) as _timestamp,
+               max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id) as person_max ON person.id = person_max.id
+     AND person._timestamp = person_max._timestamp
+     WHERE team_id = 2
+       AND person_max.is_deleted = 0 ) AS p
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, _timestamp) as person_id
+     FROM
+       (SELECT distinct_id,
+               person_id,
+               max(_timestamp) as _timestamp
+        FROM person_distinct_id
+        WHERE team_id = 2
+        GROUP BY person_id,
+                 distinct_id,
+                 team_id
+        HAVING max(is_deleted) = 0)
+     GROUP BY distinct_id) AS pdi ON p.id = pdi.person_id
+  WHERE team_id = 2
+    AND pdi.distinct_id IN
+      (SELECT distinct_id
+       FROM
+         (SELECT distinct_id,
+                 argMax(person_id, _timestamp) as person_id
+          FROM
+            (SELECT distinct_id,
+                    person_id,
+                    max(_timestamp) as _timestamp
+             FROM person_distinct_id
+             WHERE team_id = 2
+             GROUP BY person_id,
+                      distinct_id,
+                      team_id
+             HAVING max(is_deleted) = 0)
+          GROUP BY distinct_id)
+       WHERE person_id IN
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (has(['some_val'], trim(BOTH '"'
+                                             FROM JSONExtractRaw(properties, '$some_prop')))) )) )
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.1
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.2
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.3
+  '
+  
+  SELECT DISTINCT p.id
+  FROM
+    (SELECT *
+     FROM person
+     JOIN
+       (SELECT id,
+               max(_timestamp) as _timestamp,
+               max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id) as person_max ON person.id = person_max.id
+     AND person._timestamp = person_max._timestamp
+     WHERE team_id = 2
+       AND person_max.is_deleted = 0 ) AS p
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, _timestamp) as person_id
+     FROM
+       (SELECT distinct_id,
+               person_id,
+               max(_timestamp) as _timestamp
+        FROM person_distinct_id
+        WHERE team_id = 2
+        GROUP BY person_id,
+                 distinct_id,
+                 team_id
+        HAVING max(is_deleted) = 0)
+     GROUP BY distinct_id) AS pdi ON p.id = pdi.person_id
+  WHERE team_id = 2
+    AND pdi.distinct_id IN
+      (SELECT distinct_id
+       FROM
+         (SELECT distinct_id,
+                 argMax(person_id, _timestamp) as person_id
+          FROM
+            (SELECT distinct_id,
+                    person_id,
+                    max(_timestamp) as _timestamp
+             FROM person_distinct_id
+             WHERE team_id = 2
+             GROUP BY person_id,
+                      distinct_id,
+                      team_id
+             HAVING max(is_deleted) = 0)
+          GROUP BY distinct_id)
+       WHERE person_id IN
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (has(['some_val'], trim(BOTH '"'
+                                             FROM JSONExtractRaw(properties, '$some_prop')))) )) )
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.4
+  '
+  
+  SELECT session_recordings.session_id,
+         any(session_recordings.start_time) as start_time,
+         any(session_recordings.end_time) as end_time,
+         any(session_recordings.duration) as duration,
+         any(session_recordings.distinct_id) as distinct_id,
+         arrayElement(groupArray(current_url), 1) as start_url,
+         arrayElement(groupArray(current_url), -1) as end_url
+  FROM
+    (SELECT distinct_id,
+            event,
+            team_id,
+            timestamp ,
+            trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$current_url')) as current_url
+     FROM events
+     WHERE team_id = 2
+       AND event IN ['$pageview']
+       AND timestamp >= '2021-08-13 12:00:00'
+       AND timestamp <= '2021-08-22 08:00:00' ) AS events
+  RIGHT OUTER JOIN
+    (SELECT session_id,
+            MIN(timestamp) AS start_time,
+            MAX(timestamp) AS end_time,
+            dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+            any(distinct_id) as distinct_id,
+            COUNT((JSONExtractInt(snapshot_data, 'type') = 2
+                   OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
+     FROM session_recording_events
+     WHERE team_id = 2
+       AND timestamp >= '2021-08-13 12:00:00'
+       AND timestamp <= '2021-08-22 08:00:00'
+     GROUP BY session_id
+     HAVING full_snapshots > 0
+     AND start_time >= '2021-08-14 00:00:00'
+     AND start_time <= '2021-08-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  JOIN
+    (SELECT distinct_id,
+            argMax(person_id, _timestamp) as person_id
+     FROM
+       (SELECT distinct_id,
+               person_id,
+               max(_timestamp) as _timestamp
+        FROM person_distinct_id
+        WHERE team_id = 2
+        GROUP BY person_id,
+                 distinct_id,
+                 team_id
+        HAVING max(is_deleted) = 0)
+     GROUP BY distinct_id) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+  INNER JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+  WHERE (empty(events.event)
+         OR (events.timestamp >= session_recordings.start_time
+             AND events.timestamp <= session_recordings.end_time))
+    AND person_id IN
+      (SELECT person_id
+       FROM cohortpeople
+       WHERE team_id = 2
+         AND cohort_id = 2
+       GROUP BY person_id,
+                cohort_id,
+                team_id
+       HAVING sum(sign) > 0)
+  GROUP BY session_recordings.session_id
+  HAVING 1 = 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_person_properties
+  '
+  
+  SELECT session_recordings.session_id,
+         any(session_recordings.start_time) as start_time,
+         any(session_recordings.end_time) as end_time,
+         any(session_recordings.duration) as duration,
+         any(session_recordings.distinct_id) as distinct_id,
+         arrayElement(groupArray(current_url), 1) as start_url,
+         arrayElement(groupArray(current_url), -1) as end_url
+  FROM
+    (SELECT distinct_id,
+            event,
+            team_id,
+            timestamp ,
+            trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$current_url')) as current_url
+     FROM events
+     WHERE team_id = 2
+       AND event IN ['$pageview']
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
+  RIGHT OUTER JOIN
+    (SELECT session_id,
+            MIN(timestamp) AS start_time,
+            MAX(timestamp) AS end_time,
+            dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+            any(distinct_id) as distinct_id,
+            COUNT((JSONExtractInt(snapshot_data, 'type') = 2
+                   OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
+     FROM session_recording_events
+     WHERE team_id = 2
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00'
+     GROUP BY session_id
+     HAVING full_snapshots > 0
+     AND start_time >= '2021-01-14 00:00:00'
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  JOIN
+    (SELECT distinct_id,
+            argMax(person_id, _timestamp) as person_id
+     FROM
+       (SELECT distinct_id,
+               person_id,
+               max(_timestamp) as _timestamp
+        FROM person_distinct_id
+        WHERE team_id = 2
+        GROUP BY person_id,
+                 distinct_id,
+                 team_id
+        HAVING max(is_deleted) = 0)
+     GROUP BY distinct_id) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+  INNER JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND has(['bla'], trim(BOTH '"'
+                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')))) person ON person.id = pdi.person_id
+  WHERE (empty(events.event)
+         OR (events.timestamp >= session_recordings.start_time
+             AND events.timestamp <= session_recordings.end_time))
+  GROUP BY session_recordings.session_id
+  HAVING 1 = 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---

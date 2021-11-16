@@ -484,11 +484,13 @@ export interface BasePerson {
 /** Raw Person row from database. */
 export interface RawPerson extends BasePerson {
     created_at: string
+    version: string | null
 }
 
 /** Usable Person model. */
 export interface Person extends BasePerson {
     created_at: DateTime
+    version: number
 }
 
 /** Clickhouse Person model. */

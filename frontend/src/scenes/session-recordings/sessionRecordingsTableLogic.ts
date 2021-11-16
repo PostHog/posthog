@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
+    AnyPropertyFilter,
     EntityTypes,
     FilterType,
     PropertyOperator,
@@ -33,6 +34,8 @@ export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
+export const DEFAULT_PROPERTY_FILTERS = []
+
 export const DEFAULT_ENTITY_FILTERS = {
     events: [],
     actions: [],
@@ -63,9 +66,12 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         }),
         closeSessionPlayer: true,
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setPropertyFilters: (filters: AnyPropertyFilter[]) => {
+            return { filters }
+        },
         loadNext: true,
         loadPrev: true,
-        enableEntityFilter: true,
+        enableFilter: true,
         setOffset: (offset: number) => ({ offset }),
         setDateRange: (incomingFromDate: string | undefined, incomingToDate: string | undefined) => ({
             incomingFromDate,
@@ -101,10 +107,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         },
     }),
     reducers: {
-        entityFilterEnabled: [
+        filterEnabled: [
             false,
             {
-                enableEntityFilter: () => true,
+                enableFilter: () => true,
             },
         ],
         sessionRecordings: [
@@ -142,6 +148,15 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                 setEntityFilters: (_, { filters }) => ({ ...filters }),
             },
         ],
+        propertyFilters: [
+            DEFAULT_PROPERTY_FILTERS as AnyPropertyFilter[],
+            {
+                setPropertyFilters: (_, { filters }) => {
+                    console.log('setPropertyFilters', filters)
+                    return [...filters]
+                },
+            },
+        ],
         durationFilter: [
             DEFAULT_DURATION_FILTER as RecordingDurationFilter,
             {
@@ -173,6 +188,9 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         setEntityFilters: () => {
             actions.getSessionRecordings()
         },
+        setPropertyFilters: () => {
+            actions.getSessionRecordings()
+        },
         setDateRange: () => {
             actions.getSessionRecordings()
         },
@@ -192,18 +210,23 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             (s) => [s.sessionRecordingsResponse],
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
         ],
-        showEntityFilter: [
-            (s) => [s.entityFilterEnabled, s.entityFilters],
-            (entityFilterEnabled, entityFilters) => {
-                return entityFilterEnabled || entityFilters !== DEFAULT_ENTITY_FILTERS
+        showFilters: [
+            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters],
+            (filterEnabled, entityFilters, propertyFilters) => {
+                return (
+                    filterEnabled ||
+                    entityFilters !== DEFAULT_ENTITY_FILTERS ||
+                    propertyFilters !== DEFAULT_PROPERTY_FILTERS
+                )
             },
         ],
         filterQueryParams: [
-            (s) => [s.entityFilters, s.fromDate, s.toDate, s.offset, s.durationFilter],
-            (entityFilters, fromDate, toDate, offset, durationFilter) => {
+            (s) => [s.entityFilters, s.fromDate, s.toDate, s.offset, s.durationFilter, s.propertyFilters],
+            (entityFilters, fromDate, toDate, offset, durationFilter, propertyFilters) => {
                 return {
                     actions: entityFilters.actions,
                     events: entityFilters.events,
+                    properties: propertyFilters,
                     date_from: fromDate,
                     date_to: toDate,
                     offset: offset,
@@ -237,6 +260,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             openSessionPlayer: ({ source }) => buildURL({ source }),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
             setEntityFilters: () => buildURL({}, true),
+            setPropertyFilters: () => buildURL({}, true),
             setDateRange: () => buildURL({}, true),
             setDurationFilter: () => buildURL({}, true),
             loadNext: () => buildURL({}, true),
@@ -261,6 +285,9 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                         events: filters.events || [],
                         actions: filters.actions || [],
                     })
+                }
+                if (!equal(filters.properties, values.propertyFilters)) {
+                    actions.setPropertyFilters(filters.properties ?? [])
                 }
                 if (filters.date_from !== values.fromDate || filters.date_to !== values.toDate) {
                     actions.setDateRange(filters.date_from ?? undefined, filters.date_to ?? undefined)

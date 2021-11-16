@@ -111,7 +111,6 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                 # are keys for fetching persons
 
                 # Add in the breakdown to people urls as well
-                # TODO: handle cohorts?
                 converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": result[-1]})
                 dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": result[-1]})
 

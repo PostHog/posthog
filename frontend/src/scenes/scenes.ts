@@ -37,6 +37,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
+    [Scene.InsightRouter]: {
+        projectBased: true,
+        name: 'Insights',
+    },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
@@ -76,6 +80,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Action]: {
         projectBased: true,
     },
+    [Scene.Groups]: {
+        projectBased: true,
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
@@ -99,9 +106,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         hideDemoWarnings: true,
         name: 'Project settings',
-    },
-    [Scene.InsightRouter]: {
-        projectBased: true,
     },
     [Scene.Personalization]: {
         projectBased: true,
@@ -194,6 +198,7 @@ export const routes: Record<string, Scene> = {
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*')]: Scene.Person,
     [urls.persons()]: Scene.Persons,
+    [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.cohort(':id')]: Scene.Cohorts,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.featureFlags()]: Scene.FeatureFlags,

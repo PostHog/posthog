@@ -26,7 +26,7 @@ export const groupsModel = kea<groupsModelType>({
             {
                 loadAllGroupTypes: async () => {
                     if (values.groupsEnabled) {
-                        return await api.get(`api/projects/${values.currentTeamId}/groups`)
+                        return await api.get(`api/projects/${values.currentTeamId}/groups_types`)
                     }
                     return []
                 },
