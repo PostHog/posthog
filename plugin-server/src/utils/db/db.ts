@@ -150,12 +150,17 @@ export class DB {
     public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
         queryTextOrConfig: string | QueryConfig<I>,
         values: I | undefined,
-        tag: string
+        tag: string,
+        client?: PoolClient
     ): Promise<QueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
             const timeout = timeoutGuard('Postgres slow query warning after 30 sec', { queryTextOrConfig, values })
             try {
-                return await this.postgres.query(queryTextOrConfig, values)
+                if (client) {
+                    return await client.query(queryTextOrConfig, values)
+                } else {
+                    return await this.postgres.query(queryTextOrConfig, values)
+                }
             } finally {
                 clearTimeout(timeout)
             }
@@ -443,12 +448,7 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        let selectResult: QueryResult | null = null
-        if (client) {
-            selectResult = await client.query(queryString, values)
-        } else {
-            selectResult = await this.postgresQuery(queryString, values, 'fetchPerson')
-        }
+        const selectResult: QueryResult = await this.postgresQuery(queryString, values, 'fetchPerson', client)
 
         if (selectResult.rows.length > 0) {
             const rawPerson: RawPerson = selectResult.rows[0]
@@ -485,7 +485,7 @@ export class DB {
         })
 
         const person = await this.postgresTransaction(async (client) => {
-            const insertResult = await client.query(
+            const insertResult = await this.postgresQuery(
                 'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
                 [
                     createdAt.toISO(),
@@ -497,7 +497,9 @@ export class DB {
                     isIdentified,
                     uuid,
                     0,
-                ]
+                ],
+                'insertPerson',
+                client
             )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {
@@ -870,9 +872,11 @@ export class DB {
 
         try {
             await this.postgresTransaction(async (client) => {
-                const insertResult = await client.query(
+                const insertResult = await this.postgresQuery(
                     'INSERT INTO posthog_elementgroup (hash, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING *',
-                    [hash, teamId]
+                    [hash, teamId],
+                    'createElementGroup',
+                    client
                 )
 
                 if (insertResult.rows.length > 0) {
@@ -912,11 +916,13 @@ export class DB {
                         )
                     }
 
-                    await client.query(
+                    await this.postgresQuery(
                         `INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ${rowStrings.join(
                             ', '
                         )}`,
-                        values
+                        values,
+                        'insertElement',
+                        client
                     )
                 }
             })

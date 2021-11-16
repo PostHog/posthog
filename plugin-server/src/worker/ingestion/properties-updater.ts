@@ -32,7 +32,7 @@ export async function updatePersonProperties(
             return
         }
 
-        const updateResult: QueryResult = await client.query(
+        const updateResult: QueryResult = await db.postgresQuery(
             `UPDATE posthog_person SET
                 properties = $1,
                 properties_last_updated_at = $2,
@@ -45,7 +45,9 @@ export async function updatePersonProperties(
                 JSON.stringify(person.properties_last_updated_at),
                 JSON.stringify(person.properties_last_operation || {}),
                 person.id,
-            ]
+            ],
+            'updatePersonProperties',
+            client
         )
         person.version = Number(updateResult.rows[0].version)
     })
