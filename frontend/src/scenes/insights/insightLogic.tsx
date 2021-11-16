@@ -94,7 +94,7 @@ export const insightLogic = kea<insightLogicType>({
         saveAs: true,
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
-        saveInsight: true,
+        saveInsight: ({ setViewMode }: { setViewMode?: boolean }) => ({ setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
@@ -541,7 +541,7 @@ export const insightLogic = kea<insightLogicType>({
         deleteTag: async ({ tag }) => {
             actions.setInsightMetadata({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
-        saveInsight: async () => {
+        saveInsight: async ({ setViewMode }) => {
             const savedInsight = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                 {
@@ -553,7 +553,9 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
             )
-            actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+            if (setViewMode) {
+                actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+            }
             toast(
                 <div data-attr="success-toast">
                     Insight saved!&nbsp;

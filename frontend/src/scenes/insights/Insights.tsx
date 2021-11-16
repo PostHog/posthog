@@ -25,6 +25,7 @@ import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
+import { InsightSaveButton } from './InsightSaveButton'
 
 dayjs.extend(relativeTime)
 
@@ -146,6 +147,7 @@ export function Insights(): JSX.Element {
                             </Popconfirm>
                         ) : null}
                         {insight.id && <SaveToDashboard insight={insight} />}
+
                         {insightMode === ItemMode.View ? (
                             <HotkeyButton
                                 type="primary"
@@ -157,26 +159,7 @@ export function Insights(): JSX.Element {
                                 Edit
                             </HotkeyButton>
                         ) : (
-                            <>
-                                {insight.saved && (
-                                    <Button
-                                        style={{ marginLeft: 8 }}
-                                        type="link"
-                                        onClick={saveAs}
-                                        data-attr="insight-save-as-button"
-                                    >
-                                        Save as
-                                    </Button>
-                                )}
-                                <Button
-                                    style={{ marginLeft: 8 }}
-                                    type="primary"
-                                    onClick={saveInsight}
-                                    data-attr="insight-save-button"
-                                >
-                                    Save
-                                </Button>
-                            </>
+                            <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
                         )}
                     </Col>
                 </Row>
