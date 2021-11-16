@@ -105,6 +105,11 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     def _get_properties_select_clause(self) -> str:
         current_url_clause, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
         clause = f", {current_url_clause} as current_url "
+        clause += (
+            f", events.elements_chain as elements_chain"
+            if self._column_optimizer.should_query_elements_chain_column
+            else ""
+        )
         clause += " ".join(
             f", events.{column_name} as {column_name}" for column_name in self._column_optimizer.event_columns_to_query
         )
