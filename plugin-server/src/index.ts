@@ -1,5 +1,6 @@
 import { defaultConfig, formatConfigHelp } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
+import { startServer } from './httpserver'
 import { initApp } from './init'
 import { GraphileQueue } from './main/job-queues/concurrent/graphile-queue'
 import { startPluginsServer } from './main/pluginsServer'
@@ -33,6 +34,9 @@ if (argv.includes('--help') || argv.includes('-h')) {
 const status = new Status(alternativeMode)
 
 status.info('⚡', `@posthog/plugin-server v${version}`)
+
+status.info('🩺', 'Starting health check endpoint')
+startServer(status)
 
 switch (alternativeMode) {
     case AlternativeMode.Version:

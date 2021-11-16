@@ -87,6 +87,7 @@ services:
             - ..:/code
         restart: on-failure
         environment:
+            DEBUG: 1
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
@@ -102,3 +103,5 @@ services:
             - redis:redis
             - clickhouse:clickhouse
             - kafka:kafka
+        ports:
+            - '5000:5000'
