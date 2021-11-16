@@ -1,10 +1,10 @@
 import './PlayerEvents.scss'
-import React, { useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useRef } from 'react'
 import { Col, Input, Row, Skeleton } from 'antd'
 import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
-import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
+import List, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
 import {
     defaultCellRangeRenderer,
     GridCellRangeProps,
@@ -18,6 +18,7 @@ import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recording
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
 import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { EventType } from '~/types'
 
 function overscanIndicesGetter({
     cellCount,
@@ -33,92 +34,23 @@ function overscanIndicesGetter({
     }
 }
 
-function rowRenderer({
-    event,
-    numEvents,
-    cellMeasurerCache,
-    isEventCurrent,
-    isRowIndexRendered,
-    index,
-    style,
-    key,
-    parent,
-}: ListRowProps & Record<any, any>): JSX.Element {
-    const hasDescription = getKeyMapping(event.event, 'event')
-    const renderAllRows = numEvents <= OVERSCANNED_ROW_COUNT
-
-    const renderIcon = (): JSX.Element => {
-        if (event.event === '$pageview') {
-            return <PageviewIcon />
-        }
-        if (event.event === '$pageleave') {
-            return <PageleaveIcon />
-        }
-        if (event.event === '$autocapture') {
-            return <AutocaptureIcon />
-        }
-        return <EventIcon />
-        // TODO: Have api/events return `event_type` parameter to help distinguish btwn custom events, events, and actions
-        // return <ActionIcon />
+const renderIcon = (event: EventType): JSX.Element => {
+    if (event.event === '$pageview') {
+        return <PageviewIcon />
     }
-
-    return (
-        <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
-            <Row
-                className={clsx('event-list-item', { 'current-event': isEventCurrent(index) })}
-                align="top"
-                style={style}
-            >
-                <Col className="event-item-icon">
-                    <div className="event-item-icon-wrapper">{renderIcon()}</div>
-                </Col>
-                <Col
-                    className={clsx('event-item-content', {
-                        rendering: !renderAllRows && !isRowIndexRendered(index),
-                    })}
-                >
-                    <Row className="event-item-content-top-row">
-                        <PropertyKeyInfo
-                            className="event-item-content-title"
-                            value={event.event}
-                            disableIcon
-                            disablePopover
-                            ellipsis={true}
-                        />
-                        <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
-                    </Row>
-                    {hasDescription && (
-                        <span className="event-item-content-subtitle">
-                            {capitalizeFirstLetter(eventToDescription(event))}
-                        </span>
-                    )}
-                    <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
-                </Col>
-            </Row>
-        </CellMeasurer>
-    )
-}
-
-function cellRangeRenderer({
-    currentEventsBoxSizeAndPosition,
-    ...props
-}: GridCellRangeProps & { currentEventsBoxSizeAndPosition: { top: number; height: number } }): React.ReactNode[] {
-    const children = defaultCellRangeRenderer(props)
-    console.log('SCROLL LING', props.isScrolling, props.scrollTop)
-    children.push(
-        <div
-            className="current-events-highlight-box"
-            style={{
-                height: currentEventsBoxSizeAndPosition.height,
-                transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
-            }}
-        />
-    )
-    return children
+    if (event.event === '$pageleave') {
+        return <PageleaveIcon />
+    }
+    if (event.event === '$autocapture') {
+        return <AutocaptureIcon />
+    }
+    return <EventIcon />
+    // TODO: Have api/events return `event_type` parameter to help distinguish btwn custom events, events, and actions
+    // return <ActionIcon />
 }
 
 export function PlayerEvents(): JSX.Element {
-    const listRef = useRef<VirtualizedList>(null)
+    const listRef = useRef<List>(null)
     const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
     const {
         localFilters,
@@ -129,14 +61,84 @@ export function PlayerEvents(): JSX.Element {
         isRowIndexRendered,
         isEventCurrent,
         isDirectionUp,
+        renderedRows,
     } = useValues(eventsListLogic)
-    const { setLocalFilters, setRenderedRows, setList, scrollTo } = useActions(eventsListLogic)
+    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder } = useActions(eventsListLogic)
 
     useEffect(() => {
         if (listRef?.current) {
             setList(listRef.current)
         }
     }, [listRef.current])
+
+    const rowRenderer = useCallback(
+        function _rowRenderer({ index, style, key, parent }: ListRowProps): JSX.Element {
+            const event = listEvents[index]
+            const hasDescription = getKeyMapping(event.event, 'event')
+            const renderAllRows = listEvents.length <= OVERSCANNED_ROW_COUNT
+
+            return (
+                <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
+                    <Row
+                        className={clsx('event-list-item', { 'current-event': isEventCurrent(index) })}
+                        align="top"
+                        style={style}
+                    >
+                        <Col className="event-item-icon">
+                            <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
+                        </Col>
+                        <Col
+                            className={clsx('event-item-content', {
+                                rendering: !renderAllRows && !isRowIndexRendered(index),
+                            })}
+                        >
+                            <Row className="event-item-content-top-row">
+                                <PropertyKeyInfo
+                                    className="event-item-content-title"
+                                    value={event.event}
+                                    disableIcon
+                                    disablePopover
+                                    ellipsis={true}
+                                />
+                                <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
+                            </Row>
+                            {hasDescription && (
+                                <span className="event-item-content-subtitle">
+                                    {capitalizeFirstLetter(eventToDescription(event))}
+                                </span>
+                            )}
+                            <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
+                        </Col>
+                    </Row>
+                </CellMeasurer>
+            )
+        },
+        [
+            listEvents.length,
+            renderedRows.startIndex,
+            renderedRows.stopIndex,
+            currentEventsBoxSizeAndPosition.top,
+            currentEventsBoxSizeAndPosition.height,
+        ]
+    )
+
+    const cellRangeRenderer = useCallback(
+        function _cellRangeRenderer(props: GridCellRangeProps): React.ReactNode[] {
+            const children = defaultCellRangeRenderer(props)
+            children.push(
+                <div
+                    key="highlight-box"
+                    className="current-events-highlight-box"
+                    style={{
+                        height: currentEventsBoxSizeAndPosition.height,
+                        transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
+                    }}
+                />
+            )
+            return children
+        },
+        [currentEventsBoxSizeAndPosition.top, currentEventsBoxSizeAndPosition.height]
+    )
 
     return (
         <Col className="player-events-container">
@@ -159,37 +161,34 @@ export function PlayerEvents(): JSX.Element {
                         {isDirectionUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
                         Jump to current event
                     </Row>
-                    <Row className="right" align="middle" justify="center" wrap={false}>
+                    <Row
+                        className="right"
+                        align="middle"
+                        justify="center"
+                        wrap={false}
+                        onClick={() => {
+                            disablePositionFinder()
+                        }}
+                    >
                         <CloseOutlined />
                     </Row>
                 </div>
                 <AutoSizer>
                     {({ height, width }: { height: number; width: number }) => {
                         return (
-                            <VirtualizedList
+                            <List
                                 ref={listRef}
                                 className="event-list-virtual"
                                 height={height}
                                 width={width}
                                 onRowsRendered={setRenderedRows}
                                 noRowsRenderer={sessionEventsDataLoading ? () => <Loading /> : undefined}
-                                cellRangeRenderer={(props) =>
-                                    cellRangeRenderer({ currentEventsBoxSizeAndPosition, ...props })
-                                }
+                                cellRangeRenderer={cellRangeRenderer}
                                 deferredMeasurementCache={cellMeasurerCache}
                                 overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                 overscanIndicesGetter={overscanIndicesGetter}
                                 rowCount={listEvents.length}
-                                rowRenderer={(props) =>
-                                    rowRenderer({
-                                        event: listEvents[props.index],
-                                        numEvents: listEvents.length,
-                                        cellMeasurerCache,
-                                        isEventCurrent,
-                                        isRowIndexRendered,
-                                        ...props,
-                                    })
-                                }
+                                rowRenderer={rowRenderer}
                                 rowHeight={cellMeasurerCache.rowHeight}
                             />
                         )

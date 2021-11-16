@@ -278,6 +278,7 @@ export const eventUsageLogic = kea<
             type: SessionRecordingUsageType,
             delay?: number
         ) => ({ recordingData, source, loadTime, type, delay }),
+        reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
@@ -662,6 +663,9 @@ export const eventUsageLogic = kea<
         },
         reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
             posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
+        },
+        reportRecordingScrollTo: ({ rowIndex }) => {
+            posthog.capture(`recording event list scrolled to row index ${rowIndex ?? -1}`)
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)

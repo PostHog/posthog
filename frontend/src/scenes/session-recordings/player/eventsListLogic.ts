@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { DEFAULT_SCROLLING_RESET_TIME_INTERVAL } from 'react-virtualized/dist/commonjs/Grid'
 import { EventType, RecordingEventsFilters } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
@@ -7,13 +6,16 @@ import { clamp, colonDelimitedDuration, findLastIndex, floorOrCeilMsToClosestSec
 import { CellMeasurerCache } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/commonjs/List'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const DEFAULT_ROW_HEIGHT = 50
 export const OVERSCANNED_ROW_COUNT = 50
+export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
 export const eventsListLogic = kea<eventsListLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
     connect: {
+        logics: [eventUsageLogic],
         actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess']],
         values: [
             sessionRecordingLogic,
@@ -28,6 +30,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
         setList: (list: List) => ({ list }),
         clearCellCache: true,
         enablePositionFinder: true,
+        disablePositionFinder: true,
         scrollTo: (rowIndex?: number) => ({ rowIndex }),
     },
     reducers: {
@@ -59,6 +62,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
             {
                 scrollTo: () => true,
                 enablePositionFinder: () => false,
+                disablePositionFinder: () => true,
             },
         ],
     },
@@ -78,13 +82,8 @@ export const eventsListLogic = kea<eventsListLogicType>({
         scrollTo: async ({ rowIndex: _rowIndex }, breakpoint) => {
             const rowIndex = _rowIndex ?? values.currentEventsIndices.startIndex
             if (values.list) {
-                console.log(
-                    'SCROLL TO',
-                    values.list,
-                    rowIndex,
-                    values.list.getOffsetForRow({ alignment: 'center', index: rowIndex })
-                )
                 values.list.scrollToPosition(values.list.getOffsetForRow({ alignment: 'center', index: rowIndex }))
+                eventUsageLogic.actions.reportRecordingScrollTo(rowIndex)
             }
             // Enable position finder so that it can become visible again. Turning it off at scroll start
             // makes sure that it stays hidden for the duration of the auto scroll.
