@@ -651,10 +651,9 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT 0,
-         $group_0 as group_key,
-         any(group_created_at_0),
-         any(group_properties_0)
+  SELECT $group_0 AS id ,
+         any(group_created_at_0) AS created_at,
+         any(group_properties_0) AS properties
   FROM
     (SELECT e.timestamp as timestamp,
             e.$group_0 as $group_0,
@@ -675,7 +674,7 @@
        AND timestamp <= '2020-01-02 23:59:59'
        AND NOT has([''], $group_0)
        AND team_id = 2 )
-  GROUP BY group_key
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '
@@ -714,10 +713,9 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.3
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT 1,
-         $group_1 as group_key,
-         any(group_created_at_1),
-         any(group_properties_1)
+  SELECT $group_1 AS id ,
+         any(group_created_at_1) AS created_at,
+         any(group_properties_1) AS properties
   FROM
     (SELECT e.timestamp as timestamp,
             e.$group_1 as $group_1,
@@ -738,7 +736,7 @@
        AND timestamp <= '2020-01-02 23:59:59'
        AND NOT has([''], $group_1)
        AND team_id = 2 )
-  GROUP BY group_key
+  GROUP BY id
   LIMIT 200
   OFFSET 0
   '

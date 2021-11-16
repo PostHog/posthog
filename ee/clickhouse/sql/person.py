@@ -235,7 +235,7 @@ AND team_id = %(team_id)s
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT person_id as id FROM ({query})
+    SELECT id FROM ({query})
 )
 """
 

@@ -47,7 +47,7 @@ class TrendsPersonQuery(ActorBaseQuery):
 
         super().__init__(team, new_filter, entity)
 
-    def person_query(self) -> Tuple[str, Dict]:
+    def people_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self.team.pk)
             self.filter = self.filter.with_data(
@@ -89,7 +89,7 @@ class TrendsPersonQuery(ActorBaseQuery):
             {**params, "offset": self.filter.offset, "limit": 200},
         )
 
-    def group_query(self) -> Tuple[str, Dict]:
+    def groups_query(self) -> Tuple[str, Dict]:
         group_type_index = self.entity.math_group_type_index
         events_query, params = TrendsEventQuery(
             filter=self.filter,
@@ -119,18 +119,3 @@ class TrendsPersonQuery(ActorBaseQuery):
 
     def _format_select_fields(self, fields: Dict[str, str]) -> str:
         return " ".join(f", {selector} AS {column_name}" for column_name, selector in fields.items())
-
-    def get_people(self) -> ReturnDict:
-
-        if self.aggregating_by_groups:
-            query, params = self.group_query()
-            people = sync_execute(query, params)
-            print(sync_execute(query, params, as_dict=True))
-            result = ClickhouseGroupSerializer(people, many=True).data
-        else:
-            query, params = self.person_query()
-            people = sync_execute(query, params)
-            print(sync_execute(query, params, as_dict=True))
-            result = ClickhousePersonSerializer(people, many=True).data
-
-        return result

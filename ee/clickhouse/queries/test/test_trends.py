@@ -49,7 +49,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
     maxDiff = None
 
     def _get_trend_people(self, filter, entity):
-        result = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_people()
+        result = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_actors()
         return result
 
     def _create_groups(self):

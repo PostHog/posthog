@@ -368,7 +368,7 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         curr_people = get_trends_people_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
 
-        assert sorted([p["group_key"] for p in curr_people]) == sorted(["org:5", "org:6"])
+        assert sorted([p["id"] for p in curr_people]) == sorted(["org:5", "org:6"])
 
         request = TrendsRequest(
             date_from="2020-01-01 00:00:00",
@@ -383,4 +383,4 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         curr_people = get_trends_people_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
 
-        assert sorted([p["group_key"] for p in curr_people]) == sorted(["company:10"])
+        assert sorted([p["id"] for p in curr_people]) == sorted(["company:10"])

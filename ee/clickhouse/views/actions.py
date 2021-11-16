@@ -42,7 +42,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         entity = get_target_entity(request)
 
         current_url = request.get_full_path()
-        serialized_people = TrendsPersonQuery(team, entity, filter).get_people()
+        serialized_people = TrendsPersonQuery(team, entity, filter).get_actors()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
