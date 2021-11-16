@@ -11,9 +11,17 @@ import { posthog } from '../../src/utils/posthog'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
+import { updatePersonProperties } from '../../src/worker/ingestion/properties-updater'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
+jest.mock('../../src/worker/ingestion/properties-updater', () => {
+    const original = jest.requireActual('../../src/worker/ingestion/properties-updater')
+    return {
+        ...original,
+        updatePersonProperties: jest.fn(original.updatePersonProperties),
+    }
+})
 jest.setTimeout(600000) // 600 sec timeout.
 
 export async function delayUntilEventIngested(
@@ -291,14 +299,12 @@ export const createProcessEventTests = (
 
     test('capture new person', async () => {
         // Based on gating only one function should be used
-        const personUpdateFnSpy = jest.spyOn(
-            hub.db,
-            !includeNewPropertiesUpdatesTests ? 'updatePerson' : 'updatePersonProperties'
-        )
-        const personUpdateFnShouldntbeUsedSpy = jest.spyOn(
-            hub.db,
-            includeNewPropertiesUpdatesTests ? 'updatePerson' : 'updatePersonProperties'
-        )
+        const personUpdateFnSpy = includeNewPropertiesUpdatesTests
+            ? updatePersonProperties
+            : jest.spyOn(hub.db, 'updatePerson')
+        const personUpdateFnShouldntbeUsedSpy = !includeNewPropertiesUpdatesTests
+            ? updatePersonProperties
+            : jest.spyOn(hub.db, 'updatePerson')
 
         await hub.db.postgresQuery(
             `UPDATE posthog_team
