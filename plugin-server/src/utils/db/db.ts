@@ -1264,6 +1264,15 @@ export class DB {
         return [group_type_index, is_insert === 1]
     }
 
+    public async fetchGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        client?: PoolClient
+    ) {
+
+    }
+
     public async upsertGroupClickhouse(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,

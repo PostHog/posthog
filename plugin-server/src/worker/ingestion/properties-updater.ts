@@ -95,6 +95,8 @@ export async function upsertGroup(
 ): Promise<void> {
     const [propertiesUpdate, createdAt, version] = await db.postgresTransaction(async (client) => {
         const group: Group | null = db.fetchGroup(teamId, groupKey, groupTypeIndex, { forUpdate: true })
+        const createdAt = group?.created_at || timestamp
+        const version = (group?.version || 0) + 1
 
         const propertiesUpdate = calculateUpdate(
             group?.group_properties || {},
@@ -109,10 +111,8 @@ export async function upsertGroup(
             propertiesUpdate.updated = true
         }
 
-        const createdAt = group?.created_at || timestamp
-        const version = (group?.version || 0) + 1
         if (propertiesUpdate.updated) {
-            const updateResult: QueryResult = await client.query(
+            await db.postgresQuery(
                 `
                 INSERT INTO groups (team_id, group_key, group_type_index, properties, created_at, properties_last_updated_at, properties_last_operation, version)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -127,7 +127,9 @@ export async function upsertGroup(
                     propertiesUpdate.properties_last_updated_at,
                     propertiesUpdate.properties_last_operation,
                     version,
-                ]
+                ],
+                'upsertGroup',
+                client
             )
         }
         return [propertiesUpdate, createdAt, version]
