@@ -100,11 +100,11 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
         },
-        loadRecordingSnapshotsSuccess: async () => {
+        loadRecordingSnapshotsSuccess: () => {
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
             if (!!values.sessionPlayerData?.next) {
-                await actions.loadRecordingSnapshots(undefined, values.sessionPlayerData.next)
+                actions.loadRecordingSnapshots(undefined, values.sessionPlayerData.next)
             }
             // Finished loading entire recording. Now make it known!
             else {
