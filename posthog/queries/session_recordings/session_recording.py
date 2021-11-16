@@ -83,7 +83,7 @@ class SessionRecording:
         if len(all_snapshots) == 0:
             return RecordingMetadata(start_time=None, end_time=None, duration=None, session_id=None, distinct_id=None,)
 
-        snapshot_data_list = [event.snapshot_data for event in list(self._query_recording_snapshots())]
+        snapshot_data_list = [event.snapshot_data for event in list(all_snapshots)]
         first_chunk, last_chunk = self._get_first_and_last_chunk(snapshot_data_list)
 
         first_event = first_chunk[0]
