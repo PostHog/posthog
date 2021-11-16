@@ -1,4 +1,5 @@
 import hashlib
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 from django.contrib.auth.models import AnonymousUser
@@ -20,6 +21,11 @@ from .person import Person, PersonDistinctId
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 
+@dataclass
+class FeatureFlagMatch:
+    variant: Optional[str] = None
+
+
 class FeatureFlag(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -38,11 +44,8 @@ class FeatureFlag(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
 
-    def matches(self, distinct_id: str) -> bool:
-        return FeatureFlagMatcher(distinct_id, self).is_match()
-
-    def get_variant(self, distinct_id: str) -> Optional[str]:
-        return FeatureFlagMatcher(distinct_id, self).get_matching_variant()
+    def matches(self, distinct_id: str) -> Optional[FeatureFlagMatch]:
+        return FeatureFlagMatcher(distinct_id, self).get_match()
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(group.get("properties", [])) for group in self.match_groups)
@@ -110,8 +113,12 @@ class FeatureFlagMatcher:
         self.distinct_id = distinct_id
         self.feature_flag = feature_flag
 
-    def is_match(self):
-        return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.match_groups))
+    def get_match(self) -> Optional[FeatureFlagMatch]:
+        is_match = any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.match_groups))
+        if is_match:
+            return FeatureFlagMatch(variant=self.get_matching_variant())
+        else:
+            return None
 
     def get_matching_variant(self) -> Optional[str]:
         for variant in self.variant_lookup_table:
@@ -200,14 +207,9 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bo
 
     for feature_flag in feature_flags:
         try:
-            if not feature_flag.matches(distinct_id):
-                continue
-            if len(feature_flag.variants) > 0:
-                variant = feature_flag.get_variant(distinct_id)
-                if variant is not None:
-                    flags_enabled[feature_flag.key] = variant
-            else:
-                flags_enabled[feature_flag.key] = True
+            match = feature_flag.matches(distinct_id)
+            if match:
+                flags_enabled[feature_flag.key] = match.variant or True
         except Exception as err:
             capture_exception(err)
     return flags_enabled
