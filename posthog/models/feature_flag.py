@@ -31,6 +31,7 @@ class FeatureFlag(models.Model):
 
     filters: models.JSONField = models.JSONField(default=dict)
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
+    aggregation_group_type_index: models.IntegerField = models.IntegerField(null=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
