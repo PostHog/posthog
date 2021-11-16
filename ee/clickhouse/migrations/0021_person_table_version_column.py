@@ -3,7 +3,7 @@ from infi.clickhouse_orm import migrations
 from ee.clickhouse.sql.person import *
 from posthog.settings import CLICKHOUSE_CLUSTER
 
-TEMPORARY_TABLE_NAME = "person_tmp_migration_0019"
+TEMPORARY_TABLE_NAME = "person_tmp_migration_0021"
 
 operations = [
     migrations.RunSQL(
@@ -18,7 +18,7 @@ operations = [
     migrations.RunSQL(
         f"""
         RENAME TABLE
-            {CLICKHOUSE_DATABASE}.{PERSONS_TABLE} to {CLICKHOUSE_DATABASE}.person_backup_0019,
+            {CLICKHOUSE_DATABASE}.{PERSONS_TABLE} to {CLICKHOUSE_DATABASE}.person_backup_0021,
             {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{PERSONS_TABLE}
         ON CLUSTER {CLICKHOUSE_CLUSTER}
     """
