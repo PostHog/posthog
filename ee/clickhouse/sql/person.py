@@ -299,28 +299,12 @@ GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC
 """
 
-GET_PERSONS_FROM_EVENT_QUERY = """
-SELECT
-    person_id,
-    any(created_at),
-    any(team_id),
-    any(person_props),
-    any(is_identified),
-    arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
-FROM ({events_query})
-GROUP BY person_id
-LIMIT %(limit)s
-OFFSET %(offset)s
-"""
-
-GET_GROUPS_FROM_EVENT_QUERY = """
+GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT 
-    {group_type_index},
-    $group_{group_type_index} as group_key,
-    any(group_created_at_{group_type_index}),
-    any(group_properties_{group_type_index})
+    {id_field} AS id
+    {select_fields}
 FROM ({events_query})
-GROUP BY group_key
+GROUP BY id
 LIMIT %(limit)s
 OFFSET %(offset)s
 """

@@ -31,4 +31,5 @@ class ActorBaseQuery:
 
     def get_actors(self):
         query, params = self.get_query()
-        return sync_execute(query, params)
+        raw_result = sync_execute(query, params)
+        return raw_result
