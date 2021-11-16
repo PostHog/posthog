@@ -15,7 +15,6 @@ from rest_framework import status
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.models import Person, PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag, FeatureFlagOverride
-from posthog.models.person import PersonDistinctId
 from posthog.test.base import BaseTest
 
 
