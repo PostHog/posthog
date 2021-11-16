@@ -168,23 +168,23 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     }),
     loaders: ({ values }) => ({
         sessionPlayerData: {
-            loadRecordingMeta: async ({ sessionRecordingId }): Promise<SessionPlayerData> => {
+            loadRecordingMeta: async ({ sessionRecordingId }, breakpoint): Promise<SessionPlayerData> => {
                 const params = toParams({ save_view: true })
                 const response = await api.get(
                     `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}?${params}`
                 )
-
+                breakpoint()
                 return {
                     ...response.result,
                     session_recording: parseMetadataResponse(response.result?.session_recording),
                     snapshots: values.sessionPlayerData?.snapshots ?? [],
                 }
             },
-            loadRecordingSnapshots: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
+            loadRecordingSnapshots: async ({ sessionRecordingId, url }, breakpoint): Promise<SessionPlayerData> => {
                 const apiUrl =
                     url || `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
                 const response = await api.get(apiUrl)
-
+                breakpoint()
                 const currData = values.sessionPlayerData
                 return {
                     ...currData,
@@ -194,13 +194,14 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             },
         },
         sessionEventsData: {
-            loadEvents: async ({ url }) => {
+            loadEvents: async ({ url }, breakpoint) => {
                 if (!values.eventsApiParams) {
                     return values.sessionEventsData
                 }
                 // Use `url` if there is a `next` url to fetch
                 const apiUrl = url || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
                 const response = await api.get(apiUrl)
+                breakpoint()
 
                 return {
                     ...values.sessionEventsData,
