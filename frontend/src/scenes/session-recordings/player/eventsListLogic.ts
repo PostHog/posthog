@@ -1,12 +1,12 @@
 import { kea } from 'kea'
-import Grid from 'react-virtualized/dist/commonjs/Grid'
+import { DEFAULT_SCROLLING_RESET_TIME_INTERVAL } from 'react-virtualized/dist/commonjs/Grid'
 import { EventType, RecordingEventsFilters } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorOrCeilMsToClosestSecond } from 'lib/utils'
 import { CellMeasurerCache } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { RenderedRows } from 'react-virtualized/dist/commonjs/List'
+import List, { RenderedRows } from 'react-virtualized/dist/commonjs/List'
 
 export const DEFAULT_ROW_HEIGHT = 50
 export const OVERSCANNED_ROW_COUNT = 50
@@ -25,8 +25,10 @@ export const eventsListLogic = kea<eventsListLogicType>({
     actions: {
         setLocalFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setRenderedRows: (renderMeta: RenderedRows) => ({ renderMeta }),
-        setGrid: (grid: Grid) => ({ grid }),
+        setList: (list: List) => ({ list }),
         clearCellCache: true,
+        enablePositionFinder: true,
+        scrollTo: (rowIndex?: number) => ({ rowIndex }),
     },
     reducers: {
         localFilters: [
@@ -46,10 +48,17 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 setRenderedRows: (_, { renderMeta }) => renderMeta,
             },
         ],
-        grid: [
-            null as Grid | null,
+        list: [
+            null as List | null,
             {
-                setGrid: (_, { grid }) => grid,
+                setList: (_, { list }) => list,
+            },
+        ],
+        shouldHidePositionFinder: [
+            false,
+            {
+                scrollTo: () => true,
+                enablePositionFinder: () => false,
             },
         ],
     },
@@ -66,6 +75,22 @@ export const eventsListLogic = kea<eventsListLogicType>({
             await breakpoint(250)
             cache.cellMeasurerCache?.clearAll()
         },
+        scrollTo: async ({ rowIndex: _rowIndex }, breakpoint) => {
+            const rowIndex = _rowIndex ?? values.currentEventsIndices.startIndex
+            if (values.list) {
+                console.log(
+                    'SCROLL TO',
+                    values.list,
+                    rowIndex,
+                    values.list.getOffsetForRow({ alignment: 'center', index: rowIndex })
+                )
+                values.list.scrollToPosition(values.list.getOffsetForRow({ alignment: 'center', index: rowIndex }))
+            }
+            // Enable position finder so that it can become visible again. Turning it off at scroll start
+            // makes sure that it stays hidden for the duration of the auto scroll.
+            await breakpoint(DEFAULT_SCROLLING_RESET_TIME_INTERVAL)
+            actions.enablePositionFinder()
+        },
     }),
     selectors: ({ cache }) => ({
         listEvents: [
@@ -78,7 +103,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
             },
         ],
         cellMeasurerCache: [() => [], () => cache.cellMeasurerCache],
-        currentEventsIndices: [
+        currentEventsTimeRange: [
             (selectors) => [selectors.listEvents, selectors.zeroOffsetTime],
             (events, time) => {
                 if (events.length < 1) {
@@ -98,23 +123,36 @@ export const eventsListLogic = kea<eventsListLogicType>({
             },
         ],
         isEventCurrent: [
-            (selectors) => [selectors.currentEventsIndices, selectors.listEvents],
+            (selectors) => [selectors.currentEventsTimeRange, selectors.listEvents],
             (indices, events) => (index: number) =>
                 (events?.[index]?.zeroOffsetTime ?? 0) >= indices.start &&
                 (events?.[index]?.zeroOffsetTime ?? 0) < indices.end,
         ],
+        currentEventsIndices: [
+            (selectors) => [selectors.listEvents, selectors.isEventCurrent],
+            (events, isEventCurrent) => ({
+                startIndex: clamp(
+                    events.findIndex((_, i) => isEventCurrent(i)),
+                    0,
+                    events.length - 1
+                ),
+                stopIndex: clamp(
+                    findLastIndex(events, (_, i) => isEventCurrent(i)),
+                    0,
+                    events.length - 1
+                ),
+            }),
+        ],
         currentEventsBoxSizeAndPosition: [
-            (selectors) => [selectors.listEvents, selectors.isEventCurrent, selectors.grid],
-            (events, isEventCurrent, grid) => {
-                const firstEventIndex = events.findIndex((_, i) => isEventCurrent(i))
-                const lastEventIndex = findLastIndex(events, (_, i) => isEventCurrent(i))
-
+            (selectors) => [selectors.currentEventsIndices, selectors.list],
+            (indices, list) => {
                 if (
-                    !grid ||
-                    firstEventIndex >= grid.props.rowCount ||
-                    lastEventIndex > grid.props.rowCount ||
-                    (firstEventIndex < 1 && lastEventIndex < 1) ||
-                    lastEventIndex < firstEventIndex
+                    !list ||
+                    !list.Grid ||
+                    indices.startIndex >= list.Grid.props.rowCount ||
+                    indices.stopIndex > list.Grid.props.rowCount ||
+                    (indices.startIndex < 1 && indices.stopIndex < 1) ||
+                    indices.stopIndex < indices.startIndex
                 ) {
                     return {
                         top: 0,
@@ -122,11 +160,20 @@ export const eventsListLogic = kea<eventsListLogicType>({
                     }
                 }
 
-                const gridState = grid.state as any
-                const top =
-                    gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(firstEventIndex).offset
-                const lastEventSize =
-                    gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(lastEventIndex)
+                const gridState = list.Grid.state as any
+                console.log('GRIDSTATE', gridState)
+                console.log(
+                    'GRID',
+                    gridState,
+                    gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(indices.startIndex),
+                    indices
+                )
+                const top = gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(
+                    indices.startIndex
+                ).offset
+                const lastEventSize = gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(
+                    indices.stopIndex
+                )
                 return {
                     top,
                     height: lastEventSize.offset + lastEventSize.size - top,
@@ -137,6 +184,24 @@ export const eventsListLogic = kea<eventsListLogicType>({
             (selectors) => [selectors.renderedRows],
             (renderedRows) => (index: number) =>
                 index >= renderedRows.overscanStartIndex && index <= renderedRows.overscanStopIndex,
+        ],
+        showPositionFinder: [
+            (selectors) => [selectors.renderedRows, selectors.currentEventsIndices, selectors.shouldHidePositionFinder],
+            (visibleRange, currentEventsRange, shouldHidePositionFinder) => {
+                // Only show finder if there's no overlap of view range and current events range
+                return (
+                    !shouldHidePositionFinder &&
+                    (visibleRange.stopIndex < currentEventsRange.startIndex ||
+                        visibleRange.startIndex > currentEventsRange.stopIndex)
+                )
+            },
+        ],
+        isDirectionUp: [
+            (selectors) => [selectors.renderedRows, selectors.currentEventsIndices],
+            (visibleRange, currentEventsRange) => {
+                // Where are we relative to the current event
+                return visibleRange.startIndex > currentEventsRange.stopIndex
+            },
         ],
     }),
     events: ({ cache, actions }) => ({

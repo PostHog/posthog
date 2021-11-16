@@ -1,11 +1,16 @@
 import './PlayerEvents.scss'
 import React, { useEffect, useRef } from 'react'
 import { Col, Input, Row, Skeleton } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
+import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
-import { defaultCellRangeRenderer, GridCellRangeProps } from 'react-virtualized/dist/commonjs/Grid'
+import {
+    defaultCellRangeRenderer,
+    GridCellRangeProps,
+    OverscanIndices,
+    OverscanIndicesGetterParams,
+} from 'react-virtualized/dist/commonjs/Grid'
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
 import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
@@ -13,6 +18,20 @@ import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recording
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
 import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+
+function overscanIndicesGetter({
+    cellCount,
+    overscanCellsCount,
+    startIndex,
+    stopIndex,
+}: OverscanIndicesGetterParams): OverscanIndices {
+    const under = Math.floor(overscanCellsCount / 2)
+    const over = overscanCellsCount - under
+    return {
+        overscanStartIndex: Math.max(0, startIndex - under),
+        overscanStopIndex: Math.min(cellCount - 1, stopIndex + over),
+    }
+}
 
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<VirtualizedList>(null)
@@ -24,8 +43,10 @@ export function PlayerEvents(): JSX.Element {
         isEventCurrent,
         isRowIndexRendered,
         currentEventsBoxSizeAndPosition,
+        showPositionFinder,
+        isDirectionUp,
     } = useValues(eventsListLogic)
-    const { setLocalFilters, setRenderedRows, setGrid } = useActions(eventsListLogic)
+    const { setLocalFilters, setRenderedRows, setList, scrollTo } = useActions(eventsListLogic)
 
     function Event({ index, style, key, parent }: ListRowProps): JSX.Element {
         const event = listEvents[index]
@@ -84,8 +105,11 @@ export function PlayerEvents(): JSX.Element {
         )
     }
 
+    console.log('POSITION', showPositionFinder)
+
     function cellRangeRenderer(props: GridCellRangeProps): React.ReactNode[] {
         const children = defaultCellRangeRenderer(props)
+        console.log('SCROLL LING', props.isScrolling, props.scrollTop)
         children.push(
             <div
                 className="current-events-highlight-box"
@@ -99,8 +123,8 @@ export function PlayerEvents(): JSX.Element {
     }
 
     useEffect(() => {
-        if (listRef?.current?.Grid) {
-            setGrid(listRef.current.Grid)
+        if (listRef?.current) {
+            setList(listRef.current)
         }
     }, [listRef.current])
 
@@ -113,6 +137,22 @@ export function PlayerEvents(): JSX.Element {
                 onChange={(e) => setLocalFilters({ query: e.target.value })}
             />
             <Col className="event-list">
+                <div className={clsx('current-events-position-finder', { visible: showPositionFinder })}>
+                    <Row
+                        className="left"
+                        align="middle"
+                        wrap={false}
+                        onClick={() => {
+                            scrollTo()
+                        }}
+                    >
+                        {isDirectionUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                        Jump to current event
+                    </Row>
+                    <Row className="right" align="middle" justify="center" wrap={false}>
+                        <CloseOutlined />
+                    </Row>
+                </div>
                 <AutoSizer>
                     {({ height, width }: { height: number; width: number }) => {
                         return (
@@ -123,11 +163,10 @@ export function PlayerEvents(): JSX.Element {
                                 width={width}
                                 onRowsRendered={setRenderedRows}
                                 noRowsRenderer={sessionEventsDataLoading ? () => <Loading /> : undefined}
-                                // scrollToIndex={currentEventStartIndex}
-                                // scrollToAlignment="center"
                                 cellRangeRenderer={cellRangeRenderer}
                                 deferredMeasurementCache={cellMeasurerCache}
                                 overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
+                                overscanIndicesGetter={overscanIndicesGetter}
                                 rowCount={listEvents.length}
                                 rowRenderer={Event}
                                 rowHeight={cellMeasurerCache.rowHeight}

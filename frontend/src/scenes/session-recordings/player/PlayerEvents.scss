@@ -28,6 +28,54 @@
             border-radius: $radius;
         }
 
+        .current-events-position-finder {
+            display: none;
+            flex-direction: row;
+            justify-content: space-around;
+            position: absolute;
+            top: $recording_spacing;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 35px;
+            width: 240px;
+            z-index: 10;
+            text-align: center;
+            overflow: hidden;
+
+            border-radius: 100px;
+            color: white;
+
+            &.visible {
+                display: flex;
+            }
+
+            .left {
+                cursor: pointer;
+                flex: 1;
+                background-color: $primary;
+                &:hover {
+                    background-color: lighten($primary, 10%);
+                }
+
+                span.anticon {
+                    margin: 0 $recording_spacing 0 $default_spacing;
+                }
+            }
+            .right {
+                cursor: pointer;
+                width: calc(35px + #{$recording_spacing} / 4);
+                background-color: lighten($primary, 5%);
+
+                &:hover {
+                    background-color: lighten($primary, 15%);
+                }
+
+                span.anticon {
+                    margin-right: $recording_spacing / 4;
+                }
+            }
+        }
+
         .event-list-virtual {
             scroll-behavior: smooth;
         }
