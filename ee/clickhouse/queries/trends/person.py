@@ -56,9 +56,18 @@ class TrendsPersonQuery:
             and isinstance(self.filter.breakdown, str)
             and isinstance(self.filter.breakdown_value, str)
         ):
-            breakdown_prop = Property(
-                key=self.filter.breakdown, value=self.filter.breakdown_value, type=self.filter.breakdown_type
-            )
+            if self.filter.breakdown_type == "group":
+                breakdown_prop = Property(
+                    key=self.filter.breakdown,
+                    value=self.filter.breakdown_value,
+                    type=self.filter.breakdown_type,
+                    group_type_index=self.filter.breakdown_group_type_index,
+                )
+            else:
+                breakdown_prop = Property(
+                    key=self.filter.breakdown, value=self.filter.breakdown_value, type=self.filter.breakdown_type
+                )
+
             self.filter = self.filter.with_data({"properties": self.filter.properties + [breakdown_prop]})
 
         events_query, params = TrendsEventQuery(

@@ -294,9 +294,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     ?.values.featureFlags.find((flag) => flag.id === parsedId)
                 if (foundFlag) {
                     actions.setFeatureFlag(foundFlag)
-                    actions.loadFeatureFlag() // reload cache
                 } else {
                     actions.setFeatureFlag(NEW_FLAG)
+                }
+                if (id !== 'new') {
+                    actions.loadFeatureFlag()
                 }
             }
         },
