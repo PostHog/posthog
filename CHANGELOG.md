@@ -1,11 +1,5 @@
 # Changelog
 
-### 1.30.0 - Wednesday 17 November 2021
-- **Fresh new look-and-feel**. PostHog just got a lot fresher! We have a brand new UI and layout that had been on the works, codename `lemonade` (because it's fresh). It's not only a coat of paint, we've pushed a lot of improvements to overall navigation and performance, we call it turbo mode.
-- **Correlation analysis**. Trying to understand why your users are converting or dropping? Presenting Correlation analysis. This nifty new insight will automatically match your funnels to any relevant signals on why your users convert or drop (e.g. "Users in Canada are 5x more likely to convert" or "Users in Chrome are 3x less likely to convert").
-- **Saved insights**. No more recreating the same insight multiple times. You will now be able to save insights on PostHog without adding them to a dashboard. Further, you'll be able to see a list of insights created by other team members, and easily search them and filter them. We're investing a lot of effort to make sure you can better collaborate within PostHog.
-- **Fully revamped recordings**. The recordings playback experience just got a lot better. From significant performance improvements (you'll no longer need to wait for the entire recording to load), to a brand new playback interface. Find the right spot in a recording quickly and understand better what your users are doing.
-
 ### 1.29.1 - Monday 25 October 2021
 
 -   Fixes locking migration that would cause the upgrade progress to 1.29.0 to halt (see PR #6640 for details).
