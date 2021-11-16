@@ -87,6 +87,7 @@ export const FEATURE_FLAGS = {
     LEMONADE: '5346-lemonade', // owner: @Twixes
     TURBO_MODE: 'turbo-mode', // owner: @mariusandra
     GROUP_ANALYTICS: 'group-analytics', // owner: @macobo
+    SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
