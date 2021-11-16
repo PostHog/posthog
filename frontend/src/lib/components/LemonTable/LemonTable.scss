@@ -31,10 +31,19 @@
     }
     th,
     td {
-        padding-left: 1.5rem;
-        &:last-child {
-            padding-right: 1.5rem;
-        }
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    h4.row-name {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: inherit;
+        margin-bottom: 0.125rem;
+    }
+
+    span.row-description {
+        font-size: 0.75rem;
     }
 }
 

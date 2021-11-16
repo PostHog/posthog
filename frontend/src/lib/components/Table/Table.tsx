@@ -7,11 +7,13 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 
 export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): {
     title: React.ReactElement
+    align: 'right'
     render: (_: any, item: T) => JSX.Element | undefined | ''
     sorter: (a: any, b: any) => number
 } {
     return {
         title: normalizeColumnTitle('Created'),
+        align: 'right',
         render: function RenderCreatedAt(_: any, item: T): JSX.Element | undefined | '' {
             return (
                 item.created_at && (

@@ -10,7 +10,7 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sorter?: (a: T, b: T) => number
     span?: number
     className?: string
-    /** Column content alignment. Left by default */
+    /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */
     align?: 'left' | 'right' | 'center'
     /** TODO: Whether the column should be sticky when scrolling */
     sticky?: boolean

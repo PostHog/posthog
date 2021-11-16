@@ -748,25 +748,23 @@ export function dateFilterToText(
     return name
 }
 
-export function copyToClipboard(value: string, description?: string): boolean {
+export function copyToClipboard(value: string, description: string = 'text'): boolean {
     if (!navigator.clipboard) {
-        toast.info('Oops! Clipboard capabilities are only available over HTTPS or localhost.')
+        toast.info('Oops! Clipboard capabilities are only available over HTTPS or on localhost.')
         return false
     }
-    const descriptionAdjusted = description
-        ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
-        : ''
+
     try {
         navigator.clipboard.writeText(value)
         toast(
             <div>
                 <h1 className="text-success">Copied to clipboard!</h1>
-                <p>{descriptionAdjusted} has been copied to your clipboard.</p>
+                <p>{capitalizeFirstLetter(description)} has been copied to your clipboard.</p>
             </div>
         )
         return true
     } catch (e) {
-        toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
+        toast.error(`Could not copy ${description} to clipboard: ${e}`)
         return false
     }
 }

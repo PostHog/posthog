@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { Switch, Typography, Input } from 'antd'
 import { Link } from 'lib/components/Link'
-import { deleteWithUndo } from 'lib/utils'
+import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DisconnectOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -45,46 +45,20 @@ export function FeatureFlags(): JSX.Element {
             className: 'ph-no-capture',
             sticky: true,
             width: '15%',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            maxWidth: 210,
-                            width: 'auto',
-                        }}
-                    >
-                        <CopyToClipboardInline explicitValue={featureFlag.key}>
-                            <strong>{stringWithWBR(featureFlag.key, 17)}</strong>
-                        </CopyToClipboardInline>
-                    </div>
+                    <>
+                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}>
+                            <h4 className="row-name">{stringWithWBR(featureFlag.key, 17)}</h4>
+                        </Link>
+                        {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
+                    </>
                 )
             },
         },
-        {
-            title: normalizeColumnTitle('Description'),
-            render: function Render(_, featureFlag: FeatureFlagType) {
-                return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            wordWrap: 'break-word',
-                            maxWidth: 450,
-                            width: 'auto',
-                            whiteSpace: 'break-spaces',
-                        }}
-                    >
-                        {featureFlag.name}
-                    </div>
-                )
-            },
-            className: 'ph-no-capture',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
-        },
-        createdAtColumn(),
         createdByColumn(featureFlags),
+        createdAtColumn(),
         {
             title: 'Release conditions',
             render: function Render(_, featureFlag: FeatureFlagType) {
@@ -100,11 +74,10 @@ export function FeatureFlags(): JSX.Element {
         {
             title: 'Status',
             width: 90,
-            align: 'right',
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 const switchId = `feature-flag-${featureFlag.id}-switch`
                 return (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'end' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <label htmlFor={switchId}>{featureFlag.active ? 'Enabled' : 'Disabled'}</label>
                         <LemonSwitch
                             id={switchId}
@@ -134,10 +107,20 @@ export function FeatureFlags(): JSX.Element {
                         popup={{
                             visible: isPopupVisible,
                             onClickOutside: () => setIsPopupVisible(false),
+                            onClickInside: () => setIsPopupVisible(false),
                             placement: 'bottom-end',
                             actionable: true,
                             overlay: (
                                 <>
+                                    <LemonButton
+                                        type="stealth"
+                                        onClick={() => {
+                                            copyToClipboard(featureFlag.key, 'feature flag key')
+                                        }}
+                                        fullWidth
+                                    >
+                                        Copy key
+                                    </LemonButton>
                                     <LemonButton type="stealth" to={`/feature_flags/${featureFlag.id}`} fullWidth>
                                         Edit
                                     </LemonButton>
