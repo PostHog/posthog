@@ -33,7 +33,7 @@ class ActorBaseQuery:
     def people_query(self) -> Tuple[str, Dict]:
         raise NotImplementedError()
 
-    def get_query(self) -> Tuple[str, Dict]:
+    def get_actor_query(self) -> Tuple[str, Dict]:
         if self.aggregating_by_groups:
             query, params = self.groups_query()
             return query, params
@@ -42,7 +42,7 @@ class ActorBaseQuery:
             return query, params
 
     def get_actors(self) -> List[ActorResponse]:
-        query, params = self.get_query()
+        query, params = self.get_actor_query()
         raw_result: List[Dict[str, Any]] = sync_execute(query, params, as_dict=True)
         res: List[ActorResponse] = []
         for row in raw_result:
