@@ -412,6 +412,7 @@ export class DB {
                     ({
                         ...rawPerson,
                         created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
+                        version: Number(rawPerson.version || 0),
                     } as Person)
             )
         } else {
@@ -451,7 +452,11 @@ export class DB {
 
         if (selectResult.rows.length > 0) {
             const rawPerson: RawPerson = selectResult.rows[0]
-            return { ...rawPerson, created_at: DateTime.fromISO(rawPerson.created_at).toUTC() }
+            return {
+                ...rawPerson,
+                created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
+                version: Number(rawPerson.version || 0),
+            }
         }
     }
 
@@ -481,7 +486,7 @@ export class DB {
 
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await client.query(
-                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
                 [
                     createdAt.toISO(),
                     JSON.stringify(props),
@@ -491,16 +496,20 @@ export class DB {
                     isUserId,
                     isIdentified,
                     uuid,
+                    0,
                 ]
             )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {
                 ...personCreated,
                 created_at: DateTime.fromISO(personCreated.created_at).toUTC(),
+                version: Number(personCreated.version || 0),
             } as Person
 
             if (this.kafkaProducer) {
-                kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, props, teamId, isIdentified, uuid))
+                kafkaMessages.push(
+                    generateKafkaPersonUpdateMessage(createdAt, props, teamId, isIdentified, uuid, person.version)
+                )
             }
 
             for (const distinctId of distinctIds || []) {
@@ -529,18 +538,31 @@ export class DB {
         update: Partial<Person>,
         client?: PoolClient
     ): Promise<Person | ProducerRecord[]> {
-        const updatedPerson: Person = { ...person, ...update }
-        const values = [...Object.values(unparsePersonPartial(update)), person.id]
+        const updateValues = Object.values(unparsePersonPartial(update))
 
-        const queryString = `UPDATE posthog_person SET ${Object.keys(update).map(
-            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${Object.values(update).length + 1}`
-
-        if (client) {
-            await client.query(queryString, values)
-        } else {
-            await this.postgresQuery(queryString, values, 'updatePerson')
+        // short circuit if there are no updates to be made
+        if (updateValues.length === 0) {
+            return client ? [] : person
         }
+
+        const values = [...updateValues, person.id]
+
+        const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
+            update
+        ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
+            Object.values(update).length + 1
+        }
+        RETURNING version`
+
+        let updateResult: QueryResult | null = null
+        if (client) {
+            updateResult = await client.query(queryString, values)
+        } else {
+            updateResult = await this.postgresQuery(queryString, values, 'updatePerson')
+        }
+
+        const updatedPersonVersion: Person['version'] = Number(updateResult.rows[0].version)
+        const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
 
         const kafkaMessages = []
         if (this.kafkaProducer) {
@@ -549,7 +571,8 @@ export class DB {
                 updatedPerson.properties,
                 updatedPerson.team_id,
                 updatedPerson.is_identified,
-                updatedPerson.uuid
+                updatedPerson.uuid,
+                updatedPersonVersion
             )
             if (client) {
                 kafkaMessages.push(message)
@@ -644,12 +667,14 @@ export class DB {
                 return
             }
 
-            await client.query(
+            const updateResult: QueryResult = await client.query(
                 `UPDATE posthog_person SET
                     properties = $1,
                     properties_last_updated_at = $2,
-                    properties_last_operation = $3
-                WHERE id = $4`,
+                    properties_last_operation = $3,
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE id = $4
+                RETURNING version`,
                 [
                     JSON.stringify(person.properties),
                     JSON.stringify(person.properties_last_updated_at),
@@ -657,6 +682,7 @@ export class DB {
                     person.id,
                 ]
             )
+            person.version = Number(updateResult.rows[0].version)
         })
 
         if (this.kafkaProducer && person) {
@@ -665,7 +691,8 @@ export class DB {
                 person.properties,
                 person.team_id,
                 person.is_identified,
-                person.uuid
+                person.uuid,
+                person.version
             )
             await this.kafkaProducer.queueMessage(kafkaMessage)
         }
@@ -682,6 +709,7 @@ export class DB {
                     person.team_id,
                     person.is_identified,
                     person.uuid,
+                    null,
                     1
                 )
             )
