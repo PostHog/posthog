@@ -439,7 +439,7 @@ export class EventsProcessor {
                     client
                 )
 
-                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto)
+                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 

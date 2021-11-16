@@ -672,7 +672,7 @@ export class DB {
         }
     }
 
-    public async moveDistinctIds(source: Person, target: Person): Promise<ProducerRecord[]> {
+    public async moveDistinctIds(source: Person, target: Person, client?: PoolClient): Promise<ProducerRecord[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgresQuery(
@@ -684,7 +684,8 @@ export class DB {
                     RETURNING *
                 `,
                 [target.id, source.id, target.team_id],
-                'updateDistinctIdPerson'
+                'updateDistinctIdPerson',
+                client
             )
         } catch (error) {
             if (
