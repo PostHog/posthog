@@ -394,6 +394,7 @@ export interface RecordingFilters {
     date_to?: string | null
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
@@ -768,7 +769,7 @@ export enum ChartDisplayType {
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
-export type BreakdownType = 'cohort' | 'person' | 'event'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export enum InsightType {

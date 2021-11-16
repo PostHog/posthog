@@ -28,6 +28,9 @@ export interface ExportEventsJobPayload extends Record<string, any> {
 
     // tells us we're ready to pick up a new interval
     incrementTimestampCursor: boolean
+
+    // used for ensuring only one "export task" is running if the server restarts
+    batchId: number
 }
 
 export interface HistoricalExportEvent extends PluginEvent {
