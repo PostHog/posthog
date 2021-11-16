@@ -24,7 +24,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     }
 })
 
-export function startServer(logger: Status) {
+export function startServer(logger: Status): void {
     server.listen(port, () => {
         logger.info('🩺', `Status server listening on port ${port}`)
     })
