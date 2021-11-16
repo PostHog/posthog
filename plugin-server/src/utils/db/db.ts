@@ -25,6 +25,7 @@ import {
     ElementGroup,
     Event,
     EventDefinitionType,
+    GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
     Person,
@@ -1229,7 +1230,11 @@ export class DB {
         return result
     }
 
-    public async insertGroupType(teamId: TeamId, groupType: string, index: number): Promise<[number | null, boolean]> {
+    public async insertGroupType(
+        teamId: TeamId,
+        groupType: string,
+        index: number
+    ): Promise<[GroupTypeIndex | null, boolean]> {
         if (index >= this.MAX_GROUP_TYPES_PER_TEAM) {
             return [null, false]
         }
