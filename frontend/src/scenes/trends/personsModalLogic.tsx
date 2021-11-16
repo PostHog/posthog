@@ -118,7 +118,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
-        loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
@@ -309,7 +308,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 action,
                 label,
                 pathsDropoff,
-            }) => {
+            }: LoadPeopleFromUrlProps) => {
                 const people = await api.get(url)
 
                 return {
