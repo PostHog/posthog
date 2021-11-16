@@ -45,21 +45,22 @@ class FeatureFlag(models.Model):
         return FeatureFlagMatcher(distinct_id, self).get_matching_variant()
 
     def get_analytics_metadata(self) -> Dict:
-        filter_count = sum(len(group.get("properties", [])) for group in self.groups)
+        filter_count = sum(len(group.get("properties", [])) for group in self.match_groups)
         variants_count = len(self.variants)
 
         return {
-            "groups_count": len(self.groups),
+            "groups_count": len(self.match_groups),
             "has_variants": variants_count > 0,
             "variants_count": variants_count,
             "has_filters": filter_count > 0,
-            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.groups),
+            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.match_groups),
             "filter_count": filter_count,
             "created_at": self.created_at,
         }
 
     @property
-    def groups(self):
+    def match_groups(self):
+        "Each feature flag can have multiple conditions to match, they are OR-ed together."
         return self.get_filters().get("groups", []) or []
 
     @property
@@ -110,7 +111,7 @@ class FeatureFlagMatcher:
         self.feature_flag = feature_flag
 
     def is_match(self):
-        return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.groups))
+        return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.match_groups))
 
     def get_matching_variant(self) -> Optional[str]:
         for variant in self.variant_lookup_table:
@@ -118,10 +119,10 @@ class FeatureFlagMatcher:
                 return variant["key"]
         return None
 
-    def is_group_match(self, group: Dict, group_index: int):
+    def is_group_match(self, group: Dict, match_group_index: int):
         rollout_percentage = group.get("rollout_percentage")
         if len(group.get("properties", [])) > 0:
-            if not self._match_distinct_id(group_index):
+            if not self._match_distinct_id(match_group_index):
                 return False
             elif not rollout_percentage:
                 return True
@@ -131,8 +132,8 @@ class FeatureFlagMatcher:
 
         return True
 
-    def _match_distinct_id(self, group_index: int) -> bool:
-        return len(self.query_groups) > 0 and self.query_groups[0][group_index]
+    def _match_distinct_id(self, match_group_index: int) -> bool:
+        return len(self.query_match_groups) > 0 and self.query_match_groups[0][match_group_index]
 
     # Define contiguous sub-domains within [0, 1].
     # By looking up a random hash value, you can find the associated variant key.
@@ -149,7 +150,7 @@ class FeatureFlagMatcher:
         return lookup_table
 
     @cached_property
-    def query_groups(self) -> List[List[bool]]:
+    def query_match_groups(self) -> List[List[bool]]:
         query: QuerySet = Person.objects.filter(
             team_id=self.feature_flag.team_id,
             persondistinctid__distinct_id=self.distinct_id,
@@ -157,12 +158,12 @@ class FeatureFlagMatcher:
         )
 
         fields = []
-        for index, group in enumerate(self.feature_flag.groups):
-            key = f"group_{index}"
+        for index, match_group in enumerate(self.feature_flag.match_groups):
+            key = f"match_group_{index}"
 
-            if len(group.get("properties", {})) > 0:
+            if len(match_group.get("properties", {})) > 0:
                 expr: Any = properties_to_Q(
-                    Filter(data=group).properties, team_id=self.feature_flag.team_id, is_person_query=True
+                    Filter(data=match_group).properties, team_id=self.feature_flag.team_id, is_person_query=True
                 )
             else:
                 expr = RawSQL("true", [])
