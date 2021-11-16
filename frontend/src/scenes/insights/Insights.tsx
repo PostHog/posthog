@@ -3,7 +3,7 @@ import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { Row, Col, Card, Button, Popconfirm } from 'antd'
+import { Row, Col, Card, Button, Popconfirm, Alert } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
@@ -25,6 +25,8 @@ import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
+import posthog from 'posthog-js'
+import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 
 dayjs.extend(relativeTime)
 
@@ -69,6 +71,7 @@ export function Insights(): JSX.Element {
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
+    const { showHelp } = useActions(helpButtonLogic)
 
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === InsightType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
@@ -200,6 +203,42 @@ export function Insights(): JSX.Element {
                     <Row style={{ marginTop: 16 }}>
                         <InsightsNav />
                     </Row>
+
+                    {activeView === InsightType.SESSIONS && featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && (
+                        <Alert
+                            style={{ marginBottom: 16 }}
+                            type="warning"
+                            showIcon
+                            message={
+                                <div>
+                                    We're deprecating and removing this feature soon as session-based analytics is not
+                                    fully supported in PostHog.{' '}
+                                    <a
+                                        href="https://posthog.com/blog/sessions-removal?utm_campaign=sessions-insight-deprecation&utm_medium=in-product"
+                                        target="_blank"
+                                        rel="noopener"
+                                    >
+                                        Read more
+                                    </a>{' '}
+                                    about this change in our docs.
+                                    <div>
+                                        <b>Still interested in this feature?</b>{' '}
+                                        <Button
+                                            type="link"
+                                            onClick={() => {
+                                                showHelp()
+                                                posthog.capture('session removal still interested')
+                                            }}
+                                            style={{ paddingLeft: 0, paddingRight: 0 }}
+                                        >
+                                            Share your feedback
+                                        </Button>
+                                        .
+                                    </div>
+                                </div>
+                            }
+                        ></Alert>
+                    )}
 
                     <Row gutter={16}>
                         <Col span={24} xl={verticalLayout ? 8 : undefined}>
