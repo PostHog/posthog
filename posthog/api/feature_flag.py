@@ -148,7 +148,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
                 override = my_overrides[0]
 
             match = feature_flag.matches(request.user.distinct_id)
-            value_for_user_without_override = match.variant if match else None
+            value_for_user_without_override = (match.variant or True) if match else False
 
             flags.append(
                 {

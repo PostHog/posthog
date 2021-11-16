@@ -126,9 +126,9 @@ class FeatureFlagMatcher:
                 return variant["key"]
         return None
 
-    def is_group_match(self, group: Dict, match_group_index: int):
-        rollout_percentage = group.get("rollout_percentage")
-        if len(group.get("properties", [])) > 0:
+    def is_group_match(self, match_group: Dict, match_group_index: int):
+        rollout_percentage = match_group.get("rollout_percentage")
+        if len(match_group.get("properties", [])) > 0:
             if not self._match_distinct_id(match_group_index):
                 return False
             elif not rollout_percentage:
