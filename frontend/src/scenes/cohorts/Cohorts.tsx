@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import dayjs from 'dayjs'
 import { DeleteWithUndo, toParams } from 'lib/utils'
 import { Table, Spin, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
@@ -15,13 +14,11 @@ import './Cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { Tooltip } from 'lib/components/Tooltip'
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
-
-dayjs.extend(relativeTime)
+import { dayjs } from 'lib/dayjs'
 
 const NEW_COHORT: CohortType = {
     id: 'new',
