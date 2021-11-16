@@ -344,6 +344,7 @@ export const createProcessEventTests = (
         expect(personUpdateFnSpy).not.toHaveBeenCalled()
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
+        expect(persons[0].version).toEqual(0)
         let expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
@@ -416,6 +417,7 @@ export const createProcessEventTests = (
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
         expect(persons.length).toEqual(1)
+        expect(persons[0].version).toEqual(1)
         expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
@@ -491,6 +493,16 @@ export const createProcessEventTests = (
 
         expect(personUpdateFnShouldntbeUsedSpy).not.toHaveBeenCalled()
         events = await hub.db.fetchEvents()
+        persons = await hub.db.fetchPersons()
+        expect(events.length).toEqual(3)
+        expect(persons.length).toEqual(1)
+
+        // no new props, person wasn't updated with old fn, was because of timestamps update with new fn
+        if (includeNewPropertiesUpdatesTests) {
+            expect(persons[0].version).toEqual(2)
+        } else {
+            expect(persons[0].version).toEqual(1)
+        }
 
         expect(events[2].properties.$set).toEqual({
             utm_medium: 'instagram',
