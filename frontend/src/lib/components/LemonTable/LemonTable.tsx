@@ -56,7 +56,10 @@ export function LemonTable<T extends Record<string, any>>({
     const currentEndIndex = currentStartIndex + currentFrame.length
 
     return (
-        <div className={clsx('LemonTable', showPagination && 'LemonTable--paginated')} {...divProps}>
+        <div
+            className={clsx('LemonTable', loading && 'LemonTable--loading', showPagination && 'LemonTable--paginated')}
+            {...divProps}
+        >
             <table>
                 <thead>
                     <tr>
@@ -72,25 +75,32 @@ export function LemonTable<T extends Record<string, any>>({
                     </tr>
                 </thead>
                 <tbody>
-                    {currentFrame.map((data, rowIndex) => (
-                        <tr key={`LemonTable-row-${rowKey ? data[rowKey] : rowIndex}`} {...onRow?.(data)}>
-                            {columns.map((rowCol, rowColIndex) => (
-                                <td
-                                    key={rowColIndex}
-                                    className={clsx(rowCol.sticky && 'LemonTable__cell--sticky', rowCol.className)}
-                                    style={{ textAlign: rowCol.align }}
-                                >
-                                    {rowCol.render
-                                        ? rowCol.render(rowCol.dataIndex ? data[rowCol.dataIndex] : undefined, data)
-                                        : rowCol.dataIndex
-                                        ? data[rowCol.dataIndex]
-                                        : undefined}
-                                </td>
-                            ))}
+                    {dataSource.length ? (
+                        currentFrame.map((data, rowIndex) => (
+                            <tr key={`LemonTable-row-${rowKey ? data[rowKey] : rowIndex}`} {...onRow?.(data)}>
+                                {columns.map((rowCol, rowColIndex) => (
+                                    <td
+                                        key={rowColIndex}
+                                        className={clsx(rowCol.sticky && 'LemonTable__cell--sticky', rowCol.className)}
+                                        style={{ textAlign: rowCol.align }}
+                                    >
+                                        {rowCol.render
+                                            ? rowCol.render(rowCol.dataIndex ? data[rowCol.dataIndex] : undefined, data)
+                                            : rowCol.dataIndex
+                                            ? data[rowCol.dataIndex]
+                                            : undefined}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))
+                    ) : (
+                        <tr>
+                            <td colSpan={columns.length}>No data</td>
                         </tr>
-                    ))}
+                    )}
                 </tbody>
             </table>
+            <div className="LemonTable__loader" />
             {showPagination && (
                 <div className="LemonTable__pagination">
                     <span className="LemonTable__locator">
