@@ -302,34 +302,25 @@ ORDER BY count DESC, key ASC
 GET_PERSONS_FROM_EVENT_QUERY = """
 SELECT
     person_id,
-    created_at,
-    team_id,
-    person_props,
-    is_identified,
+    any(created_at),
+    any(team_id),
+    any(person_props),
+    any(is_identified),
     arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
 FROM ({events_query})
-GROUP BY
-    person_id,
-    created_at,
-    team_id,
-    person_props,
-    is_identified
+GROUP BY person_id
 LIMIT %(limit)s
 OFFSET %(offset)s
 """
 
 GET_GROUPS_FROM_EVENT_QUERY = """
 SELECT 
-        {group_type_index},
-        $group_{group_type_index},
-        group_created_at_{group_type_index},
-        group_properties_{group_type_index}
-    FROM ({events_query})
-    GROUP BY 
-        {group_type_index},
-        $group_{group_type_index},
-        group_created_at_{group_type_index},
-        group_properties_{group_type_index}
- LIMIT 200
-OFFSET 0
+    {group_type_index},
+    $group_{group_type_index} as group_key,
+    any(group_created_at_{group_type_index}),
+    any(group_properties_{group_type_index})
+FROM ({events_query})
+GROUP BY group_key
+LIMIT %(limit)s
+OFFSET %(offset)s
 """
