@@ -6,22 +6,22 @@ class TestFeatureFlag(BaseTest):
     def test_blank_flag(self):
         # Blank feature flags now default to be released for everyone
         feature_flag = self.create_feature_flag()
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertTrue(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
+        self.assertTrue(feature_flag.matches("another_id"))
 
     def test_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"rollout_percentage": 50}]})
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
+        self.assertFalse(feature_flag.matches("another_id"))
 
     def test_empty_group(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{}]})
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertTrue(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
+        self.assertTrue(feature_flag.matches("another_id"))
 
     def test_null_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": None}]})
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
 
     def test_complicated_flag(self):
         Person.objects.create(
@@ -42,9 +42,9 @@ class TestFeatureFlag(BaseTest):
             }
         )
 
-        self.assertTrue(feature_flag.distinct_id_matches("test_id"))
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.matches("test_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
+        self.assertFalse(feature_flag.matches("another_id"))
 
     def test_multi_property_filters(self):
         Person.objects.create(
@@ -62,10 +62,10 @@ class TestFeatureFlag(BaseTest):
             }
         )
         with self.assertNumQueries(1):
-            self.assertTrue(feature_flag.distinct_id_matches("example_id"))
+            self.assertTrue(feature_flag.matches("example_id"))
         with self.assertNumQueries(1):
-            self.assertTrue(feature_flag.distinct_id_matches("another_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("false_id"))
+            self.assertTrue(feature_flag.matches("another_id"))
+        self.assertFalse(feature_flag.matches("false_id"))
 
     def test_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$some_prop": "something"})
@@ -78,13 +78,13 @@ class TestFeatureFlag(BaseTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}]}
         )
 
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
+        self.assertFalse(feature_flag.matches("another_id"))
 
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
+        self.assertFalse(feature_flag.matches("another_id"))
 
     def test_legacy_property_filters(self):
         Person.objects.create(
@@ -94,8 +94,8 @@ class TestFeatureFlag(BaseTest):
             team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"},
         )
         feature_flag = self.create_feature_flag(filters={"properties": [{"key": "email", "value": "tim@posthog.com"}]},)
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
+        self.assertFalse(feature_flag.matches("another_id"))
 
     def test_legacy_rollout_and_property_filter(self):
         Person.objects.create(
@@ -112,9 +112,9 @@ class TestFeatureFlag(BaseTest):
             filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
         )
         with self.assertNumQueries(1):
-            self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("id_number_3"))
+            self.assertTrue(feature_flag.matches("example_id"))
+        self.assertFalse(feature_flag.matches("another_id"))
+        self.assertFalse(feature_flag.matches("id_number_3"))
 
     def test_legacy_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$some_prop": "something"})
@@ -127,8 +127,8 @@ class TestFeatureFlag(BaseTest):
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}
         )
 
-        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.matches("example_id"))
+        self.assertFalse(feature_flag.matches("another_id"))
 
     def create_feature_flag(self, **kwargs):
         return FeatureFlag.objects.create(

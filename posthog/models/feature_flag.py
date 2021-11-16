@@ -38,10 +38,10 @@ class FeatureFlag(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
 
-    def distinct_id_matches(self, distinct_id: str) -> bool:
+    def matches(self, distinct_id: str) -> bool:
         return FeatureFlagMatcher(distinct_id, self).is_match()
 
-    def get_variant_for_distinct_id(self, distinct_id: str) -> Optional[str]:
+    def get_variant(self, distinct_id: str) -> Optional[str]:
         return FeatureFlagMatcher(distinct_id, self).get_matching_variant()
 
     def get_analytics_metadata(self) -> Dict:
@@ -199,10 +199,10 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bo
 
     for feature_flag in feature_flags:
         try:
-            if not feature_flag.distinct_id_matches(distinct_id):
+            if not feature_flag.matches(distinct_id):
                 continue
             if len(feature_flag.variants) > 0:
-                variant = feature_flag.get_variant_for_distinct_id(distinct_id)
+                variant = feature_flag.get_variant(distinct_id)
                 if variant is not None:
                     flags_enabled[feature_flag.key] = variant
             else:
