@@ -17,6 +17,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
+    [Scene.InsightRouter]: Scene.Insights,
     [Scene.Action]: Scene.Events,
     [Scene.Actions]: Scene.Events,
     [Scene.EventStats]: Scene.Events,
