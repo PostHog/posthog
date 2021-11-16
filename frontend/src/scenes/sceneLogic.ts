@@ -231,11 +231,13 @@ export const sceneLogic = kea<sceneLogicType>({
                 if (scene !== Scene.InviteSignup) {
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (location.pathname !== urls.organizationCreateFirst()) {
+                            console.log('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
                             return
                         }
                     } else if (teamLogic.values.isCurrentTeamUnavailable) {
                         if (location.pathname !== urls.projectCreateFirst()) {
+                            console.log('Organization not available, redirecting to project creation')
                             router.actions.replace(urls.projectCreateFirst())
                             return
                         }
@@ -245,7 +247,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/personalization')
                     ) {
-                        // If ingestion tutorial not completed, redirect to it
+                        console.log('Ingestion tutorial not completed, redirecting to it')
                         router.actions.replace(urls.ingestion())
                         return
                     }
