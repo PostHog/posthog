@@ -515,7 +515,7 @@ export class DB {
             }
 
             for (const distinctId of distinctIds || []) {
-                const kafkaMessage = await this.addDistinctIdPooled(client, person, distinctId)
+                const kafkaMessage = await this.addDistinctIdPooled(person, distinctId, client)
                 if (kafkaMessage) {
                     kafkaMessages.push(kafkaMessage)
                 }
@@ -556,12 +556,7 @@ export class DB {
         }
         RETURNING version`
 
-        let updateResult: QueryResult | null = null
-        if (client) {
-            updateResult = await client.query(queryString, values)
-        } else {
-            updateResult = await this.postgresQuery(queryString, values, 'updatePerson')
-        }
+        const updateResult: QueryResult = this.postgresQuery(queryString, values, 'updatePerson', client)
 
         const updatedPersonVersion: Person['version'] = Number(updateResult.rows[0].version)
         const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
@@ -644,20 +639,22 @@ export class DB {
     }
 
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
-        const kafkaMessage = await this.addDistinctIdPooled(this.postgres, person, distinctId)
+        const kafkaMessage = await this.addDistinctIdPooled(person, distinctId)
         if (this.kafkaProducer && kafkaMessage) {
             await this.kafkaProducer.queueMessage(kafkaMessage)
         }
     }
 
     public async addDistinctIdPooled(
-        client: PoolClient | Pool,
         person: Person,
-        distinctId: string
+        distinctId: string,
+        client?: PoolClient
     ): Promise<ProducerRecord | void> {
-        const insertResult = await client.query(
+        const insertResult = await this.postgresQuery(
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) RETURNING *',
-            [distinctId, person.id, person.team_id]
+            [distinctId, person.id, person.team_id],
+            'addDistinctIdPooled',
+            client
         )
 
         const personDistinctIdCreated = insertResult.rows[0] as PersonDistinctId
