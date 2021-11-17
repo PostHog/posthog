@@ -92,9 +92,10 @@ export const insightLogic = kea<insightLogicType>({
             options,
         }),
         saveAs: true,
+        saveAsNamingSuccess: (name: string) => ({ name }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
-        saveInsight: ({ setViewMode }: { setViewMode?: boolean }) => ({ setViewMode }),
+        saveInsight: (setViewMode?: boolean) => ({ setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
@@ -576,20 +577,17 @@ export const insightLogic = kea<insightLogicType>({
                 placeholder: 'Please enter the new name',
                 value: values.insight.name + ' (copy)',
                 error: 'You must enter name',
-                success: async (name: string) => {
-                    const insight = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
-                        name,
-                        filters: values.filters,
-                        saved: true,
-                    })
-                    // Revert current insight
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/`, {
-                        filters: values.savedFilters,
-                    })
-                    toast(`You're now working on a copy of ${values.insight.name}`)
-                    actions.setInsight(insight, { fromPersistentApi: true })
-                },
+                success: actions.saveAsNamingSuccess,
             })
+        },
+        saveAsNamingSuccess: async ({ name }) => {
+            const insight = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
+                name,
+                filters: values.filters,
+                saved: true,
+            })
+            toast(`You're now working on a copy of ${values.insight.name}`)
+            actions.setInsight(insight, { fromPersistentApi: true })
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
@@ -621,6 +619,11 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     actionToUrl: ({ values }) => ({
+        setInsight: ({ insight }) => {
+            if (router.values.hashParams.fromItem !== insight.id) {
+                return ['/insights', values.filters, { ...router.values.hashParams, fromItem: insight.id }]
+            }
+        },
         setFilters: () => {
             if (values.syncWithUrl) {
                 return ['/insights', values.filters, router.values.hashParams, { replace: true }]

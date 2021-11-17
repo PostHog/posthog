@@ -29,11 +29,13 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-save-button"]').click()
         cy.get('[data-attr="insight-edit-button"]').click()
 
-        cy.get('[data-attr="add-action-event-button"').click()
-        cy.get('[data-attr="insight-save-as-button"').click()
+        cy.get('[data-attr="add-action-event-button"]').click()
+        cy.get('[data-attr="insight-save-as-button"]').click()
 
         cy.get('.ant-modal .ant-btn-primary').click()
         cy.get('[data-attr="insight-name"').contains('(copy)').should('exist')
+        // Check we're in edit mode
+        cy.get('[data-attr="insight-save-button"]').should('exist')
     })
 
     it('Shows not found error with invalid short URL', () => {
