@@ -27,8 +27,8 @@ export function CreateOrganizationModal({
 
     return (
         <Modal
-            title="Creating an Organization"
-            okText="Create Organization"
+            title="Creating an organization"
+            okText="Create organization"
             cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
             closable={!!onClose}
             onOk={() => {
@@ -48,7 +48,17 @@ export function CreateOrganizationModal({
             onCancel={closeModal}
             visible={isVisible}
         >
-            <p>Organizations gather people building products together.</p>
+            <p>
+                Organizations gather people building products together.
+                <br />
+                <a
+                    href="https://posthog.com/docs/user-guides/organizations-and-projects"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    Learn more about organizations in Docs.
+                </a>
+            </p>
             <Input
                 addonBefore="Name"
                 ref={inputRef}
