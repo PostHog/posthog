@@ -39,7 +39,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def _get_session_recording_list(self, filter):
-        return SessionRecordingList(filter=filter, team=self.team).run()
+        return SessionRecordingList(filter=filter, team_id=self.team.pk).run()
 
     def _get_session_recording_snapshots(self, request, filter, session_recording_id):
         return SessionRecording(

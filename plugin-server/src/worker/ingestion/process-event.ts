@@ -4,7 +4,7 @@ import * as Sentry from '@sentry/node'
 import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
-import { DatabaseError, QueryResult } from 'pg'
+import { DatabaseError } from 'pg'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
@@ -29,10 +29,11 @@ import {
     timeoutGuard,
 } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, RaceConditionError, UUID, UUIDT } from '../../utils/utils'
+import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
+import { updatePersonProperties } from './properties-updater'
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
 
@@ -228,7 +229,7 @@ export class EventsProcessor {
         timestamp: DateTime
     ): Promise<void> {
         if (this.isNewPersonPropertiesUpdateEnabled(teamId)) {
-            await this.db.updatePersonProperties(teamId, distinctId, properties, propertiesOnce, timestamp)
+            await updatePersonProperties(this.db, teamId, distinctId, properties, propertiesOnce, timestamp)
         } else {
             await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
         }
@@ -262,7 +263,7 @@ export class EventsProcessor {
 
         const arePersonsEqual = equal(personFound.properties, updatedProperties)
 
-        if (arePersonsEqual && !this.db.kafkaProducer) {
+        if (arePersonsEqual) {
             return
         }
 

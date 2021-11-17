@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { LemonRow } from 'lib/components/LemonRow'
+import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import React from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -10,8 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
-import { lemonadeLogic } from '../lemonade/lemonadeLogic'
-import './ScopeSwitchers.scss'
+import { lemonadeLogic } from './lemonadeLogic'
 
 export function ProjectSwitcherOverlay(): JSX.Element {
     const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
@@ -20,35 +19,32 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     const { showCreateProjectModal, hideProjectSwitcher } = useActions(lemonadeLogic)
 
     return (
-        <div className="scope-switcher">
-            <>
-                <div className="scope-header">
-                    <h4>Projects</h4>
-                </div>
-                <CurrentProjectButton />
-                {currentOrganization?.teams &&
-                    currentOrganization.teams
-                        .filter((team) => team.id !== currentTeam?.id)
-                        .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                        .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+        <div>
+            <h5>Projects</h5>
+            <LemonSpacer />
+            <CurrentProjectButton />
+            {currentOrganization?.teams &&
+                currentOrganization.teams
+                    .filter((team) => team.id !== currentTeam?.id)
+                    .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                    .map((team) => <OtherProjectButton key={team.id} team={team} />)}
 
-                <LemonButton
-                    icon={<IconPlus />}
-                    fullWidth
-                    disabled={isProjectCreationForbidden}
-                    onClick={() => {
-                        hideProjectSwitcher()
-                        guardAvailableFeature(
-                            AvailableFeature.ORGANIZATIONS_PROJECTS,
-                            'multiple projects',
-                            'Projects allow you to separate data and configuration for different products or environments.',
-                            showCreateProjectModal
-                        )
-                    }}
-                >
-                    New project
-                </LemonButton>
-            </>
+            <LemonButton
+                icon={<IconPlus />}
+                fullWidth
+                disabled={isProjectCreationForbidden}
+                onClick={() => {
+                    hideProjectSwitcher()
+                    guardAvailableFeature(
+                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                        'multiple projects',
+                        'Projects allow you to separate data and configuration for different products or environments.',
+                        showCreateProjectModal
+                    )
+                }}
+            >
+                New project
+            </LemonButton>
         </div>
     )
 }
