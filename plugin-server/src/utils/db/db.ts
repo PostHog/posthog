@@ -556,7 +556,7 @@ export class DB {
         }
         RETURNING version`
 
-        const updateResult: QueryResult = this.postgresQuery(queryString, values, 'updatePerson', client)
+        const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
 
         const updatedPersonVersion: Person['version'] = Number(updateResult.rows[0].version)
         const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
