@@ -1,8 +1,9 @@
+from datetime import datetime
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
@@ -20,67 +21,58 @@ def _create_person(**kwargs):
     return Person(id=person.uuid, uuid=person.uuid)
 
 
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
+        events_by_person = {}
         for i in range(5):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            user_id = f"user_{i}"
+            events_by_person[user_id] = [
+                {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+            ]
 
         for i in range(5, 15):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            user_id = f"user_{i}"
+            events_by_person[user_id] = [
+                {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+            ]
 
         for i in range(15, 35):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            user_id = f"user_{i}"
+            events_by_person[user_id] = [
+                {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+            ]
+
+        journeys_for(events_by_person, self.team)
 
     def _create_browser_breakdown_events(self):
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$country": "PL"})
-        _create_event(
-            team=self.team,
-            event="sign up",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T12:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="play movie",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T13:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="buy",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T15:00:00Z",
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$country": "EE"})
+        journeys_for(
+            {
+                "person1": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 15), "properties": {"$browser": "Chrome"}},
+                ],
+                "person2": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}},
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 16),
+                        "properties": {"$browser": "Safari"},
+                    },
+                ],
+            },
+            self.team,
         )
 
-        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$country": "EE"})
-        _create_event(
-            team=self.team,
-            event="sign up",
-            distinct_id="person2",
-            properties={"key": "val", "$browser": "Safari"},
-            timestamp="2020-01-02T14:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="play movie",
-            distinct_id="person2",
-            properties={"key": "val", "$browser": "Safari"},
-            timestamp="2020-01-02T16:00:00Z",
-        )
         return person1, person2
 
     def test_first_step(self):
@@ -161,10 +153,16 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
     def _create_sample_data(self):
         for i in range(110):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            journeys_for(
+                {
+                    f"user_{i}": [
+                        {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                        {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                        {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                    ]
+                },
+                self.team,
+            )
 
     def test_basic_offset(self):
         self._create_sample_data()
@@ -353,9 +351,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     @test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
     def test_funnel_cohort_breakdown_persons(self):
         person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
-        _create_event(
-            team=self.team, event="sign up", distinct_id=f"person1", properties={}, timestamp="2020-01-02T12:00:00Z",
-        )
+        journeys_for({"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},]}, self.team)
         cohort = Cohort.objects.create(
             team=self.team,
             name="test_cohort",

@@ -4,7 +4,16 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
-import { Database, Event, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import {
+    Database,
+    Event,
+    Hub,
+    LogLevel,
+    Person,
+    PluginsServerConfig,
+    PropertyUpdateOperation,
+    Team,
+} from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
@@ -2196,16 +2205,96 @@ export const createProcessEventTests = (
             )
 
             expect((await hub.db.fetchEvents()).length).toBe(1)
-            await delayUntilEventIngested(() => hub.db.fetchGroups(), 1)
+            await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
 
-            const [group] = await hub.db.fetchGroups()
-
-            expect(group).toEqual({
+            const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
+            expect(clickhouseGroup).toEqual({
                 group_key: 'org::5',
                 group_properties: JSON.stringify({ foo: 'bar' }),
                 group_type_index: 0,
-                team_id: 2,
+                team_id: team.id,
                 created_at: expect.any(String),
+            })
+
+            const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
+            expect(group).toEqual({
+                id: expect.any(Number),
+                team_id: team.id,
+                group_type_index: 0,
+                group_key: 'org::5',
+                group_properties: { foo: 'bar' },
+                created_at: now,
+                properties_last_updated_at: { foo: now.toISO() },
+                properties_last_operation: { foo: PropertyUpdateOperation.Set },
+                version: 1,
+            })
+        })
+
+        test('$groupidentify updating properties', async () => {
+            const next: DateTime = now.plus({ minutes: 1 })
+
+            await createPerson(hub, team, ['distinct_id1'])
+            await hub.db.upsertGroup(
+                team.id,
+                0,
+                'org::5',
+                { a: 1, b: 2 },
+                now,
+                { a: now.toISO(), b: now.toISO() },
+                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set },
+                1
+            )
+
+            await processEvent(
+                'distinct_id1',
+                '',
+                '',
+                {
+                    event: '$groupidentify',
+                    properties: {
+                        token: team.api_token,
+                        distinct_id: 'distinct_id1',
+                        $group_type: 'organization',
+                        $group_key: 'org::5',
+                        $group_set: {
+                            foo: 'bar',
+                            a: 3,
+                        },
+                    },
+                } as any as PluginEvent,
+                team.id,
+                next,
+                next,
+                new UUIDT().toString()
+            )
+
+            expect((await hub.db.fetchEvents()).length).toBe(1)
+            await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
+
+            const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
+            expect(clickhouseGroup).toEqual({
+                group_key: 'org::5',
+                group_properties: JSON.stringify({ a: 3, b: 2, foo: 'bar' }),
+                group_type_index: 0,
+                team_id: team.id,
+                created_at: expect.any(String),
+            })
+
+            const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
+            expect(group).toEqual({
+                id: expect.any(Number),
+                team_id: team.id,
+                group_type_index: 0,
+                group_key: 'org::5',
+                group_properties: { a: 3, b: 2, foo: 'bar' },
+                created_at: now,
+                properties_last_updated_at: { a: next.toISO(), b: now.toISO(), foo: next.toISO() },
+                properties_last_operation: {
+                    a: PropertyUpdateOperation.Set,
+                    b: PropertyUpdateOperation.Set,
+                    foo: PropertyUpdateOperation.Set,
+                },
+                version: 2,
             })
         })
     }
