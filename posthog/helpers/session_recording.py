@@ -119,18 +119,24 @@ def decompress(base64data: str) -> str:
 
 
 def paginate_snapshot_list(list_to_paginate: List, limit: int, offset: int) -> PaginatedSnapshotList:
-    if offset + limit < len(list_to_paginate):
+    if not limit:
+        has_next = False
+        paginated_list = list_to_paginate[offset:]
+    elif offset + limit < len(list_to_paginate):
         has_next = True
         paginated_list = list_to_paginate[offset : offset + limit]
     else:
         has_next = False
         paginated_list = list_to_paginate[offset:]
-
     return PaginatedSnapshotList(has_next=has_next, paginated_list=paginated_list)
 
 
 def paginate_chunk_decompression(
-    team_id: int, session_recording_id: str, all_recording_snapshots: List[SnapshotData], limit: int, offset: int
+    team_id: int,
+    session_recording_id: str,
+    all_recording_snapshots: List[SnapshotData],
+    limit: int = None,
+    offset: int = 0,
 ) -> PaginatedSnapshotList:
     if len(all_recording_snapshots) == 0:
         return PaginatedSnapshotList(has_next=False, paginated_list=[])
@@ -144,11 +150,11 @@ def paginate_chunk_decompression(
     for snapshot in all_recording_snapshots:
         chunks_collector[snapshot["chunk_id"]].append(snapshot)
 
-    paginated_chunks_list = paginate_snapshot_list(list(chunks_collector.values()), limit, offset)
+    chunks_list = paginate_snapshot_list(list(chunks_collector.values()), limit, offset)
 
     decompressed_data_list: List[SnapshotData] = []
 
-    for chunks in paginated_chunks_list.paginated_list:
+    for chunks in chunks_list.paginated_list:
         if len(chunks) != chunks[0]["chunk_count"]:
             capture_message(
                 "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} chunks".format(
@@ -161,4 +167,4 @@ def paginate_chunk_decompression(
         decompressed_data = json.loads(decompress(b64_compressed_data))
 
         decompressed_data_list.extend(decompressed_data)
-    return PaginatedSnapshotList(has_next=paginated_chunks_list.has_next, paginated_list=decompressed_data_list)
+    return PaginatedSnapshotList(has_next=chunks_list.has_next, paginated_list=decompressed_data_list)

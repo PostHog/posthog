@@ -8,7 +8,7 @@ from posthog.queries.session_recordings.session_recording import SessionRecordin
 
 class ClickhouseSessionRecording(SessionRecording):
     _recording_snapshot_query = """
-        SELECT session_id, distinct_id, timestamp, snapshot_data
+        SELECT session_id, window_id, distinct_id, timestamp, snapshot_data
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s
@@ -23,9 +23,10 @@ class ClickhouseSessionRecording(SessionRecording):
         return [
             SessionRecordingEvent(
                 session_id=session_id,
+                window_id=window_id,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 snapshot_data=json.loads(snapshot_data),
             )
-            for session_id, distinct_id, timestamp, snapshot_data in response
+            for session_id, window_id, distinct_id, timestamp, snapshot_data in response
         ]
