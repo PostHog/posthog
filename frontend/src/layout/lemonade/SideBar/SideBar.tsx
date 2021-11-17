@@ -161,7 +161,9 @@ function Pages(): JSX.Element {
                                         onClick={() => setArePinnedDashboardsShown(false)}
                                         to={urls.dashboards()}
                                     >
-                                        <i>Pin dashboards for quick access</i>
+                                        <span style={{ color: 'var(--muted)' }}>
+                                            Pin some dashboards for quick access
+                                        </span>
                                     </LemonButton>
                                 )}
                             </div>
