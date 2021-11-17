@@ -233,9 +233,8 @@ def get_overridden_feature_flags(team: Team, distinct_id: str,) -> Dict[str, Uni
     for feature_flag_override in feature_flag_overrides:
         key = feature_flag_override.feature_flag.key
         value = feature_flag_override.override_value
-        if value is False:
-            if key in feature_flags:
-                del feature_flags[key]
+        if value is False and key in feature_flags:
+            del feature_flags[key]
         else:
             feature_flags[key] = value
 
