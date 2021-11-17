@@ -633,7 +633,7 @@ def create_team(organization):
 
 class EventPattern(TypedDict):
     id: str
-    type: Union[Literal['events'], Literal["actions"]]
+    type: Union[Literal["events"], Literal["actions"]]
 
 
 @dataclasses.dataclass

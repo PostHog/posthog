@@ -17,37 +17,38 @@ class RetentionTests(TestCase):
 
         self.client.force_login(user)
 
-        journeys_for(events_by_person={
-            "person that stays forever": [
-                {"event": "target event" , "timestamp": "2020-01-01"},
-                {"event": "target event" , "timestamp": "2020-01-02"}
-            ],
-            "person that leaves on 2020-01-02": [
-                {"event": "target event", "timestamp": "2020-01-01"}
-            ]
-        }, team=team)
-
-        retention = get_retention_ok(
-            client=self.client, 
-            team_id=team.pk, 
-            request=RetentionRequest(
-                target_entity={"id": "target event", "type": "events"},
-                returning_entity={"id": "target event", "type": "events"}, 
-                date_from="2020-01-01",
-                total_intervals=2, 
-                date_to="2020-01-02", 
-                display="ActionsLineGraph",
-                period="Day",
-                retention_type='retention_first_time'
-            )
+        journeys_for(
+            events_by_person={
+                "person that stays forever": [
+                    {"event": "target event", "timestamp": "2020-01-01"},
+                    {"event": "target event", "timestamp": "2020-01-02"},
+                ],
+                "person that leaves on 2020-01-02": [{"event": "target event", "timestamp": "2020-01-01"}],
+            },
+            team=team,
         )
 
-        trend_series = retention['result'][0]
+        retention = get_retention_ok(
+            client=self.client,
+            team_id=team.pk,
+            request=RetentionRequest(
+                target_entity={"id": "target event", "type": "events"},
+                returning_entity={"id": "target event", "type": "events"},
+                date_from="2020-01-01",
+                total_intervals=2,
+                date_to="2020-01-02",
+                display="ActionsLineGraph",
+                period="Day",
+                retention_type="retention_first_time",
+            ),
+        )
+
+        trend_series = retention["result"][0]
         retention_by_day = get_people_for_retention_trend_series(client=self.client, trend_series=trend_series)
 
         assert retention_by_day == {
             "2020-01-01": ["person that leaves on 2020-01-02", "person that stays forever"],
-            "2020-01-02": ["person that stays forever"]
+            "2020-01-02": ["person that stays forever"],
         }
 
 
@@ -65,9 +66,10 @@ class RetentionRequest(TypedDict):
 class Series(TypedDict):
     days: List[str]
     data: List[int]
-    
+
     # List of people urls corresponding to `data`
     people_urls: List[str]
+
 
 class RetentionTrendResponse(TypedDict):
     result: List[Series]
@@ -91,9 +93,9 @@ def get_people_for_retention_trend_series(client: Client, trend_series: Series):
     def get_people_ids_via_url(people_url):
         response = client.get(people_url)
         assert response.status_code == 200, response.content
-        return sorted([distinct_id for person in response.json()['result'] for distinct_id in person['distinct_ids']])
+        return sorted([distinct_id for person in response.json()["result"] for distinct_id in person["distinct_ids"]])
 
     return {
-        day: get_people_ids_via_url(people_url) if count else [] for day, count, people_url in zip(trend_series['days'], trend_series['data'], trend_series['people_urls'])
+        day: get_people_ids_via_url(people_url) if count else []
+        for day, count, people_url in zip(trend_series["days"], trend_series["data"], trend_series["people_urls"])
     }
-        

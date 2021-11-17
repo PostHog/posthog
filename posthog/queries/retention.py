@@ -84,17 +84,15 @@ class Retention(BaseQuery):
             "count": data[0] if data else 0,
             "days": days,
             "people_urls": [
-                self._construct_people_url_for_trend_interval(
-                    filter=filter, 
-                    selected_interval=index
-                ) for index, _ in enumerate(data)
-            ]
+                self._construct_people_url_for_trend_interval(filter=filter, selected_interval=index)
+                for index, _ in enumerate(data)
+            ],
         }
         return [result]
 
     def _construct_people_url_for_trend_interval(self, filter: RetentionFilter, selected_interval: int):
-        params = filter.with_data({'selected_interval': selected_interval}).to_params()
-        return f'{self._base_uri}api/person/retention/?{urlencode(params)}'
+        params = filter.with_data({"selected_interval": selected_interval}).to_params()
+        return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
     def _determine_query_params(self, filter: RetentionFilter, team: Team):
 
