@@ -25,7 +25,6 @@ import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/Da
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import dayjs from 'dayjs'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
@@ -48,6 +47,7 @@ import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonButton } from '../../lib/components/LemonButton'
 import Meta from 'antd/lib/card/Meta'
+import { dayjs } from 'lib/dayjs'
 
 const { TabPane } = Tabs
 

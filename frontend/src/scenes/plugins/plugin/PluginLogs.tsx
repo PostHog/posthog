@@ -1,13 +1,13 @@
 import { Button, Checkbox, Row, Space } from 'antd'
 import Search from 'antd/lib/input/Search'
 import { LoadingOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { ResizableColumnType, ResizableTable } from '../../../lib/components/ResizableTable'
 import { pluralize } from '../../../lib/utils'
 import { PluginLogEntry, PluginLogEntryType } from '../../../types'
 import { LOGS_PORTION_LIMIT, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
+import { dayjs } from 'lib/dayjs'
 
 function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     let color: string | undefined

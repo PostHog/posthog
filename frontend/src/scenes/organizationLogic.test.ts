@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { defaultAPIMocks, mockAPI } from '../lib/api.mock'
+import { defaultAPIMocks, mockAPI, MOCK_DEFAULT_ORGANIZATION } from '../lib/api.mock'
 import { AppContext } from '../types'
 import { organizationLogic, OrganizationUpdatePayload } from './organizationLogic'
 import { organizationLogicType } from './organizationLogicType'
@@ -47,7 +47,10 @@ describe('organizationLogic', () => {
         it('loads organization from API', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'])
             await expectLogic(logic).toMatchValues({
-                currentOrganization: { id: 'ABCD' },
+                currentOrganization: {
+                    available_features: [],
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                },
             })
         })
     })

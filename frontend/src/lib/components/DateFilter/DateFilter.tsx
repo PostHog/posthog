@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react'
 import { Select } from 'antd'
-import dayjs from 'dayjs'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
+import { dayjs } from 'lib/dayjs'
 
 export interface DateFilterProps {
     defaultValue: string

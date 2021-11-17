@@ -432,12 +432,14 @@ export class EventsProcessor {
                 )
 
                 // Merge the distinct IDs
-                await client.query('UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2', [
-                    mergeInto.id,
-                    otherPerson.id,
-                ])
+                await this.db.postgresQuery(
+                    'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
+                    [mergeInto.id, otherPerson.id],
+                    'updateCohortPeople',
+                    client
+                )
 
-                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto)
+                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 

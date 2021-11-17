@@ -19,6 +19,7 @@ export async function updatePersonProperties(
     }
 
     let person: Person | undefined
+    let shouldUpdate = false
     await db.postgresTransaction(async (client) => {
         person = await db.fetchPerson(teamId, distinctId, client, true)
         if (!person) {
@@ -27,12 +28,12 @@ export async function updatePersonProperties(
             )
         }
 
-        const shouldUpdate = calculateUpdatedProperties(person, properties, propertiesOnce, timestamp)
+        shouldUpdate = calculateUpdatedProperties(person, properties, propertiesOnce, timestamp)
         if (!shouldUpdate) {
             return
         }
 
-        const updateResult: QueryResult = await client.query(
+        const updateResult: QueryResult = await db.postgresQuery(
             `UPDATE posthog_person SET
                 properties = $1,
                 properties_last_updated_at = $2,
@@ -45,12 +46,14 @@ export async function updatePersonProperties(
                 JSON.stringify(person.properties_last_updated_at),
                 JSON.stringify(person.properties_last_operation || {}),
                 person.id,
-            ]
+            ],
+            'updatePersonProperties',
+            client
         )
         person.version = Number(updateResult.rows[0].version)
     })
 
-    if (db.kafkaProducer && person) {
+    if (shouldUpdate && db.kafkaProducer && person) {
         const kafkaMessage = generateKafkaPersonUpdateMessage(
             timestamp,
             person.properties,
