@@ -48,21 +48,21 @@ class FeatureFlag(models.Model):
         return FeatureFlagMatcher(distinct_id, self).get_match()
 
     def get_analytics_metadata(self) -> Dict:
-        filter_count = sum(len(group.get("properties", [])) for group in self.match_groups)
+        filter_count = sum(len(group.get("properties", [])) for group in self.conditions)
         variants_count = len(self.variants)
 
         return {
-            "groups_count": len(self.match_groups),
+            "groups_count": len(self.conditions),
             "has_variants": variants_count > 0,
             "variants_count": variants_count,
             "has_filters": filter_count > 0,
-            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.match_groups),
+            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.conditions),
             "filter_count": filter_count,
             "created_at": self.created_at,
         }
 
     @property
-    def match_groups(self):
+    def conditions(self):
         "Each feature flag can have multiple conditions to match, they are OR-ed together."
         return self.get_filters().get("groups", []) or []
 
@@ -114,7 +114,7 @@ class FeatureFlagMatcher:
         self.feature_flag = feature_flag
 
     def get_match(self) -> Optional[FeatureFlagMatch]:
-        is_match = any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.match_groups))
+        is_match = any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.conditions))
         if is_match:
             return FeatureFlagMatch(variant=self.get_matching_variant())
         else:
@@ -140,7 +140,7 @@ class FeatureFlagMatcher:
         return True
 
     def _match_distinct_id(self, match_group_index: int) -> bool:
-        return len(self.query_match_groups) > 0 and self.query_match_groups[0][match_group_index]
+        return len(self.query_conditions) > 0 and self.query_conditions[0][match_group_index]
 
     # Define contiguous sub-domains within [0, 1].
     # By looking up a random hash value, you can find the associated variant key.
@@ -157,7 +157,7 @@ class FeatureFlagMatcher:
         return lookup_table
 
     @cached_property
-    def query_match_groups(self) -> List[List[bool]]:
+    def query_conditions(self) -> List[List[bool]]:
         query: QuerySet = Person.objects.filter(
             team_id=self.feature_flag.team_id,
             persondistinctid__distinct_id=self.distinct_id,
@@ -165,7 +165,7 @@ class FeatureFlagMatcher:
         )
 
         fields = []
-        for index, match_group in enumerate(self.feature_flag.match_groups):
+        for index, match_group in enumerate(self.feature_flag.conditions):
             key = f"match_group_{index}"
 
             if len(match_group.get("properties", {})) > 0:
