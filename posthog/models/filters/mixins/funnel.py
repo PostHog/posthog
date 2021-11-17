@@ -176,7 +176,14 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
         """
         The breakdown value for which to get persons for.
         """
-        return self._data.get(FUNNEL_STEP_BREAKDOWN)
+        raw_data = self._data.get(FUNNEL_STEP_BREAKDOWN)
+        if isinstance(raw_data, str):
+            # need to account for this being an array sent as a string
+            funnel_step_breakdown = json.loads(raw_data)
+        else:
+            funnel_step_breakdown = raw_data
+
+        return funnel_step_breakdown
 
     @include_dict
     def funnel_person_breakdown_to_dict(self):
