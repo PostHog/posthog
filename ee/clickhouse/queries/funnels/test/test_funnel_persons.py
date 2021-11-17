@@ -285,7 +285,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "event",
                 "breakdown": "$browser",
             }
@@ -321,7 +321,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "person",
                 "breakdown": "$country",
             }
@@ -358,7 +358,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
         filters = {
-            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
             "date_to": "2020-01-08",

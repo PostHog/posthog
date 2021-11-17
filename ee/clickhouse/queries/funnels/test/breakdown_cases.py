@@ -375,6 +375,20 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
+                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
+                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
+                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1, "Safari"), [people["person2"].uuid, people["person3"].uuid]
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person2"].uuid])
+
+            assert_funnel_breakdown_result_is_correct(
+                result[1],
+                [
                     FunnelStepResult("sign up", 3, None, None, ["Other"]),
                     FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Other"]),
                     FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Other"]),
@@ -386,20 +400,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 [people["person1"].uuid, people["person4"].uuid, people["person5"].uuid],
             )
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Other"), [people["person1"].uuid])
-
-            assert_funnel_breakdown_result_is_correct(
-                result[1],
-                [
-                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
-                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
-                ],
-            )
-
-            self.assertCountEqual(
-                self._get_people_at_step(filter, 1, "Safari"), [people["person2"].uuid, people["person3"].uuid]
-            )
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_no_type(self):

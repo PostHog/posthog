@@ -437,19 +437,31 @@ class ClickhouseFunnelBase(ABC, Funnel):
             raise ValueError("Missing both funnel_step and funnel_custom_steps")
 
         if self._filter.funnel_step_breakdown is not None:
-            prop_vals = self._parse_breakdown_prop_value()
-            self.params.update({"breakdown_prop_value": prop_vals})
-            conditions.append("prop IN %(breakdown_prop_value)s")
+            funnel_step_breakdown = self._filter.funnel_step_breakdown
+
+            if self._filter.breakdown_type == "group":
+                # then the breakdown is a string
+                assert isinstance(funnel_step_breakdown, str)
+                self.params.update({"breakdown_prop_value": [val.strip() for val in funnel_step_breakdown.split(",")]})
+                conditions.append("prop in %(breakdown_prop_value)s")
+            elif self._filter.breakdown_type == "cohort":
+                # then the breakdown is a list of ints
+                self.params.update({"breakdown_prop_value": [cast(int, n) for n in box_value(funnel_step_breakdown)]})
+                conditions.append("prop in %(breakdown_prop_value)s")
+            else:
+                if isinstance(funnel_step_breakdown, List):
+                    self.params.update({"breakdown_prop_value": (funnel_step_breakdown)})
+                    conditions.append("prop = %(breakdown_prop_value)s")
+                else:
+                    assert isinstance(funnel_step_breakdown, str)
+                    self.params.update(
+                        {"breakdown_prop_value": [val.strip() for val in funnel_step_breakdown.split(",")]}
+                    )
+                    # prop is always an array now,
+                    # so check for any intersection between that array and breakdown prop values
+                    conditions.append("hasAny(prop, %(breakdown_prop_value)s)")
 
         return " AND ".join(conditions)
-
-    def _parse_breakdown_prop_value(self):
-        prop_vals: List[Union[str, int]] = (
-            [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
-            if isinstance(self._filter.funnel_step_breakdown, str)
-            else [cast(int, self._filter.funnel_step_breakdown)]
-        )
-        return prop_vals
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
