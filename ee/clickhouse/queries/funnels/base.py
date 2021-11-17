@@ -443,11 +443,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 # then the breakdown is a string
                 assert isinstance(funnel_step_breakdown, str)
                 self.params.update({"breakdown_prop_value": [val.strip() for val in funnel_step_breakdown.split(",")]})
-                conditions.append("prop in %(breakdown_prop_value)s")
+                conditions.append("prop IN %(breakdown_prop_value)s")
             elif self._filter.breakdown_type == "cohort":
                 # then the breakdown is a list of ints
                 self.params.update({"breakdown_prop_value": [cast(int, n) for n in box_value(funnel_step_breakdown)]})
-                conditions.append("prop in %(breakdown_prop_value)s")
+                conditions.append("prop IN %(breakdown_prop_value)s")
             else:
                 if isinstance(funnel_step_breakdown, List):
                     self.params.update({"breakdown_prop_value": (funnel_step_breakdown)})
