@@ -55,6 +55,7 @@ describe('Merge person', () => {
         cy.contains('deborah.fernandez@gmail.com').click()
     })
 
+    // Note: This test also checks that the plugin server has processed an event.
     it('Should merge person', () => {
         cy.get('.extra-ids').should('not.exist') // No extra IDs
         cy.contains('$create_alias').should('not.exist')

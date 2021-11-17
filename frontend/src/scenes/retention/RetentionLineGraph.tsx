@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import dayjs from 'dayjs'
 import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
@@ -10,6 +9,7 @@ import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { dayjs } from 'lib/dayjs'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null

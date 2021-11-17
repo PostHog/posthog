@@ -1,9 +1,7 @@
 import React from 'react'
 import { Modal, Table } from 'antd'
 import api from 'lib/api'
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
-dayjs.extend(relativeTime)
+import { dayjs } from 'lib/dayjs'
 
 export async function debugCHQueries(): Promise<void> {
     const results = await api.get('api/debug_ch_queries/')

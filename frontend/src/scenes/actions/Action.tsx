@@ -6,12 +6,12 @@ import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import api from 'lib/api'
 import { Spin } from 'antd'
 import { EventsTable } from 'scenes/events'
-import dayjs from 'dayjs'
 import { urls } from 'scenes/urls'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ActionType } from '~/types'
 
 import { actionLogicType } from './ActionType'
+import { dayjs } from 'lib/dayjs'
 interface ActionLogicProps {
     id?: ActionType['id']
     onComplete: () => void

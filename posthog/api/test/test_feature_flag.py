@@ -265,7 +265,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
         self.assertEqual(instance.name, "Updated name")
-        self.assertEqual(instance.groups[0]["rollout_percentage"], 65)
+        self.assertEqual(instance.conditions[0]["rollout_percentage"], 65)
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(

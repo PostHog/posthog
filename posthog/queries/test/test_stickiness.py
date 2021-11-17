@@ -17,7 +17,7 @@ from posthog.test.base import APIBaseTest
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
     class TestStickiness(APIBaseTest, AbstractCompareTest):
-        def _create_multiple_people(self, period=timedelta(days=1)):
+        def _create_multiple_people(self, period=timedelta(days=1), event_properties=lambda index: {}):
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
             event_factory(
@@ -25,7 +25,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 event="watched movie",
                 distinct_id="person1",
                 timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", **event_properties(1)},
             )
 
             p2 = person_factory(team_id=self.team.id, distinct_ids=["person2"], properties={"name": "person2"})
@@ -34,14 +34,14 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 event="watched movie",
                 distinct_id="person2",
                 timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", **event_properties(2)},
             )
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person2",
                 timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", **event_properties(2)},
             )
             # same day
             event_factory(
@@ -49,7 +49,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 event="watched movie",
                 distinct_id="person2",
                 timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", **event_properties(2)},
             )
 
             p3 = person_factory(
@@ -60,21 +60,21 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 event="watched movie",
                 distinct_id="person3a",
                 timestamp=(base_time).replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", **event_properties(3)},
             )
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3b",
                 timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", **event_properties(3)},
             )
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3a",
                 timestamp=(base_time + period * 2).replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", **event_properties(3)},
             )
 
             p4 = person_factory(team_id=self.team.id, distinct_ids=["person4"], properties={"name": "person4"})
@@ -83,7 +83,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 event="watched movie",
                 distinct_id="person4",
                 timestamp=(base_time + period * 4).replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Safari"},
+                properties={"$browser": "Safari", **event_properties(4)},
             )
 
             return p1, p2, p3, p4

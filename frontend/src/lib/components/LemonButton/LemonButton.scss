@@ -4,11 +4,15 @@
     color: var(--primary);
     font-weight: 600;
     cursor: pointer;
-    &:hover {
+    &:not(:disabled):hover {
         background: var(--primary-bg-hover);
     }
-    &:active {
+    &:not(:disabled):active {
         background: var(--primary-bg-active);
+    }
+    &:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
     }
     .LemonRow__icon {
         color: var(--primary);
@@ -18,10 +22,10 @@
 .LemonButton--primary {
     background: var(--primary);
     color: #fff;
-    &:hover {
+    &:not(:disabled):hover {
         background: var(--primary-hover);
     }
-    &:active {
+    &:not(:disabled):active {
         background: var(--primary-active);
     }
     .LemonRow__icon {
