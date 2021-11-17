@@ -96,17 +96,17 @@ class Property:
         if self.operator == "is_not":
             return Q(~lookup_q(f"properties__{self.key}", value) | ~Q(properties__has_key=self.key))
         if self.operator == "is_set":
-            return Q(**{"properties__{}__isnull".format(self.key): False})
+            return Q(**{f"properties__{self.key}__isnull": False})
         if self.operator == "is_not_set":
-            return Q(**{"properties__{}__isnull".format(self.key): True})
+            return Q(**{f"properties__{self.key}__isnull": True})
         if self.operator in ("regex", "not_regex") and not is_valid_regex(value):
             # Return no data for invalid regexes
             return Q(pk=-1)
         if isinstance(self.operator, str) and self.operator.startswith("not_"):
             return Q(
-                ~Q(**{"properties__{}__{}".format(self.key, self.operator[4:]): value})
+                ~Q(**{f"properties__{self.key}__{self.operator[4:]}": value})
                 | ~Q(properties__has_key=self.key)
-                | Q(**{"properties__{}".format(self.key): None})
+                | Q(**{f"properties__{self.key}": None})
             )
 
         if self.operator == "exact" or self.operator is None:
