@@ -73,11 +73,13 @@ export const eventsListLogic = kea<eventsListLogicType>({
             actions.clearCellCache()
         },
         loadEventsSuccess: () => {
+            // TODO: We could be smarter here and only clear the cache of event rows that were recently added
             actions.clearCellCache()
         },
         clearCellCache: async (_, breakpoint) => {
             await breakpoint(250)
             cache.cellMeasurerCache?.clearAll()
+            values.list?.measureAllRows()
         },
         scrollTo: async ({ rowIndex: _rowIndex }, breakpoint) => {
             const rowIndex = _rowIndex ?? values.currentEventsIndices.startIndex
