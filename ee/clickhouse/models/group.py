@@ -16,7 +16,7 @@ from posthog.utils import is_clickhouse_enabled
 if is_clickhouse_enabled():
 
     @receiver(post_save, sender=Group)
-    def person_created(sender, instance: Group, created, **kwargs):
+    def group_created(sender, instance: Group, created, **kwargs):
         create_group(
             team_id=instance.team.pk,
             group_type_index=instance.group_type_index,

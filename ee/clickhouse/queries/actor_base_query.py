@@ -13,6 +13,7 @@ from django.db.models.query import QuerySet
 
 from ee.clickhouse.client import sync_execute
 from posthog.models import Entity, Filter, Team
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.person import Person
 
@@ -46,9 +47,6 @@ class ActorBaseQuery:
         self.entity = entity
         self.filter = filter
 
-        if self.entity and self.entity.math == "unique_group":
-            self.aggregating_by_groups = True
-
     def groups_query(self) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must return list of group uuids """
         raise NotImplementedError()
@@ -56,6 +54,13 @@ class ActorBaseQuery:
     def people_query(self) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must return list of person uuids """
         raise NotImplementedError()
+
+    @cached_property
+    def is_aggregating_by_groups(self) -> bool:
+        if self.entity and self.entity.math == "unique_group":
+            return True
+        else:
+            return False
 
     def get_actor_query(self) -> Tuple[str, Dict]:
         if self.aggregating_by_groups:
@@ -71,7 +76,7 @@ class ActorBaseQuery:
         raw_result = sync_execute(query, params)
         actors: QuerySet[Actor]
         serialized_actors: List[SerializedActor] = []
-        if self.aggregating_by_groups:
+        if self.is_aggregating_by_groups:
             actors, serialized_actors = self._get_groups(raw_result)
         else:
             actors, serialized_actors = self._get_people(raw_result)
