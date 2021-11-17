@@ -84,15 +84,15 @@ class ActorBaseQuery:
 
     def _get_groups(self, results) -> Tuple[QuerySet[Actor], List[SerializedActor]]:
         """ Get groups from raw SQL results in data model and dict formats """
-        groups: QuerySet[Actor] = Group.objects.filter(team_id=self.team.pk, group_key__in=[val[0] for val in results])
+        groups: QuerySet[Group] = Group.objects.filter(team_id=self.team.pk, group_key__in=[val[0] for val in results])
         return groups, self._serialize_groups(groups)
 
     def _get_people(self, results) -> Tuple[QuerySet[Actor], List[SerializedActor]]:
         """ Get people from raw SQL results in data model and dict formats """
-        persons: QuerySet[Actor] = Person.objects.filter(team_id=self.team.pk, uuid__in=[val[0] for val in results])
+        persons: QuerySet[Person] = Person.objects.filter(team_id=self.team.pk, uuid__in=[val[0] for val in results])
         return persons, self._serialize_people(persons)
 
-    def _serialize_people(self, data: QuerySet[Actor]) -> List[SerializedActor]:
+    def _serialize_people(self, data: QuerySet[Person]) -> List[SerializedActor]:
         from posthog.api.person import get_person_name
 
         return [
@@ -106,14 +106,12 @@ class ActorBaseQuery:
                 distinct_ids=person.distinct_ids,
             )
             for person in data
-            if isinstance(person, Person)
         ]
 
-    def _serialize_groups(self, data: QuerySet[Actor]) -> List[SerializedActor]:
+    def _serialize_groups(self, data: QuerySet[Group]) -> List[SerializedActor]:
         return [
             SerializedGroup(
                 type="group", group_key=group.group_key, created_at=group.created_at, properties=group.group_properties
             )
             for group in data
-            if isinstance(group, Group)
         ]
