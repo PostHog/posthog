@@ -179,6 +179,14 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         )
 
     def test_basic_funnel_with_repeat_step_updated_param(self):
+        people = journeys_for(
+            {
+                "stopped_after_signup1": [{"event": "user signed up"}, {"event": "user signed up"}],
+                "stopped_after_signup2": [{"event": "user signed up"}],
+            },
+            self.team,
+        )
+
         filters = {
             "events": [
                 {"id": "user signed up", "type": "events", "order": 0},
@@ -188,14 +196,6 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             "funnel_window_interval": 14,
             "funnel_window_interval_unit": "day",
         }
-
-        # event
-        person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-
-        person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup2")
 
         filter = Filter(data=filters)
         funnel = ClickhouseFunnel(filter, self.team)
@@ -208,11 +208,11 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
-            [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+            [people["stopped_after_signup1"].uuid, people["stopped_after_signup2"].uuid],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
+            self._get_people_at_step(filter, 2), [people["stopped_after_signup1"].uuid],
         )
 
         filters = {
