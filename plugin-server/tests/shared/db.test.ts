@@ -182,7 +182,20 @@ describe('DB', () => {
 
     describe('fetchGroup() and upsertGroup()', () => {
         it('returns undefined if no group type exists', async () => {
-            expect(await db.fetchGroup(2, 0, 'group_key')).toEqual(undefined)
+            await db.upsertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'val' },
+                TIMESTAMP,
+                { prop: TIMESTAMP },
+                { prop: '$set' },
+                1
+            )
+
+            expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
+            expect(await db.fetchGroup(2, 1, 'group_key')).toEqual(undefined)
+            expect(await db.fetchGroup(2, 1, 'group_key2')).toEqual(undefined)
         })
 
         it('allows inserts and fetches', async () => {
