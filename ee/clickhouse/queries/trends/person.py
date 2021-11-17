@@ -84,22 +84,10 @@ class TrendsPersonQuery(ActorBaseQuery):
             should_join_distinct_ids=True,
             should_join_persons=True,
             extra_fields=["distinct_id", "team_id"],
-            extra_person_fields=["created_at", "person_props", "is_identified"],
         ).get_query()
 
-        select_fields = {
-            "created_at": f"any(created_at)",
-            "properties": f"any(person_props)",
-            "is_identified": f"any(is_identified)",
-            "distinct_ids": f"arrayReduce('groupUniqArray', groupArray(distinct_id))",
-        }
-
-        formatted_select_fields = self._format_select_fields(fields=select_fields)
-
         return (
-            GET_ACTORS_FROM_EVENT_QUERY.format(
-                id_field="person_id", select_fields=formatted_select_fields, events_query=events_query
-            ),
+            GET_ACTORS_FROM_EVENT_QUERY.format(id_field="person_id", events_query=events_query),
             {**params, "offset": self.filter.offset, "limit": 200},
         )
 
@@ -111,23 +99,11 @@ class TrendsPersonQuery(ActorBaseQuery):
             entity=self.entity,
             should_join_distinct_ids=False,
             should_join_persons=False,
-            extra_group_fields={group_type_index: ["created_at", "group_properties"]},
+            is_actor_query=True,
         ).get_query()
 
-        select_fields = {
-            "created_at": f"any(group_created_at_{group_type_index})",
-            "properties": f"any(group_properties_{group_type_index})",
-        }
-
-        formatted_select_fields = self._format_select_fields(fields=select_fields)
-
         return (
-            GET_ACTORS_FROM_EVENT_QUERY.format(
-                id_field=f"$group_{group_type_index}",
-                select_fields=formatted_select_fields,
-                events_query=events_query,
-                group_type_index=self.entity.math_group_type_index,
-            ),
+            GET_ACTORS_FROM_EVENT_QUERY.format(id_field=f"$group_{group_type_index}", events_query=events_query,),
             {**params, "offset": self.filter.offset, "limit": 200},
         )
 

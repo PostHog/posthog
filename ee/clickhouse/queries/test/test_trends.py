@@ -52,8 +52,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
     maxDiff = None
 
     def _get_trend_people(self, filter, entity):
-        result = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_actors()
-        return result
+        _, serialized_actors = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_actors()
+        return serialized_actors
 
     def _create_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)

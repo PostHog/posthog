@@ -302,7 +302,6 @@ ORDER BY count DESC, key ASC
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT 
     {id_field} AS id
-    {select_fields}
 FROM ({events_query})
 GROUP BY id
 LIMIT %(limit)s

@@ -14,6 +14,7 @@ from posthog.api.test.test_trends import (
     get_trends_people_ok,
     get_trends_time_series_ok,
 )
+from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
@@ -322,6 +323,10 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         )
 
 
+def _create_group(**kwargs) -> Group:
+    return Group.objects.create(**kwargs, version=0)
+
+
 class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
@@ -330,11 +335,13 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
-        create_group(
-            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
+        _create_group(team=self.team, group_type_index=0, group_key="org:5", group_properties={"industry": "finance"})
+        _create_group(
+            team=self.team, group_type_index=0, group_key="org:6", group_properties={"industry": "technology"}
+        )
+        _create_group(team=self.team, group_type_index=0, group_key="org:7", group_properties={"industry": "finance"})
+        _create_group(
+            team=self.team, group_type_index=1, group_key="company:10", group_properties={"industry": "finance"}
         )
 
     @snapshot_clickhouse_queries
@@ -352,7 +359,7 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                 },
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         request = TrendsRequest(
             date_from="2020-01-01 00:00:00",
@@ -368,19 +375,4 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         curr_people = get_trends_people_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
 
-        assert sorted([p["id"] for p in curr_people]) == sorted(["org:5", "org:6"])
-
-        request = TrendsRequest(
-            date_from="2020-01-01 00:00:00",
-            date_to="2020-01-12 00:00:00",
-            events=[
-                {"id": "$pageview", "type": "events", "order": 0, "math": "unique_group", "math_group_type_index": 1,}
-            ],
-        )
-        data_response = get_trends_time_series_ok(self.client, request, self.team)
-        assert data_response["$pageview"]["2020-01-01"].value == 0
-        assert data_response["$pageview"]["2020-01-02"].value == 1
-
-        curr_people = get_trends_people_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
-
-        assert sorted([p["id"] for p in curr_people]) == sorted(["company:10"])
+        assert sorted([p["group_key"] for p in curr_people]) == sorted(["org:5", "org:6"])

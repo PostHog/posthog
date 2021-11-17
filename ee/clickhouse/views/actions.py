@@ -13,11 +13,13 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.trends.person import TrendsPersonQuery
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.action import ActionSerializer, ActionViewSet
+from posthog.api.person import get_person_name
 from posthog.api.utils import get_target_entity
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.person import Person
 
 
 class ClickhouseActionSerializer(ActionSerializer):
@@ -42,12 +44,12 @@ class ClickhouseActionsViewSet(ActionViewSet):
         entity = get_target_entity(request)
 
         current_url = request.get_full_path()
-        serialized_people = TrendsPersonQuery(team, entity, filter).get_actors()
+        actors, serialized_actors = TrendsPersonQuery(team, entity, filter).get_actors()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
         offset = filter.offset
-        if len(serialized_people) > 100 and next_url:
+        if len(actors) > 100 and next_url:
             if "offset" in next_url:
                 next_url = next_url[1:]
                 next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
@@ -62,19 +64,20 @@ class ClickhouseActionsViewSet(ActionViewSet):
             csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
             content = [
                 {
-                    "Name": person["name"],
-                    "Distinct ID": person["distinct_ids"][0] if person["distinct_ids"] else "",
-                    "Internal ID": person["id"],
-                    "Email": person["properties"].get("email"),
-                    "Properties": person["properties"],
+                    "Name": get_person_name(person),
+                    "Distinct ID": person.distinct_ids[0] if person.distinct_ids else "",
+                    "Internal ID": person.uuid,
+                    "Email": person.properties.get("email"),
+                    "Properties": person.properties,
                 }
-                for person in serialized_people
+                for person in actors
+                if isinstance(person, Person)
             ]
             return Response(content)
 
         return Response(
             {
-                "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:100])}],
+                "results": [{"people": serialized_actors[0:100], "count": len(serialized_actors[0:100])}],
                 "next": next_url,
                 "previous": current_url[1:],
             }

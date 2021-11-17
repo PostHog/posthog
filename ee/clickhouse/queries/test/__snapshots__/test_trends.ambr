@@ -81,19 +81,12 @@
 # name: TestClickhouseTrends.test_breakdown_by_group_props.2
   '
   
-  SELECT person_id AS id ,
-         any(created_at) AS created_at,
-         any(person_props) AS properties,
-         any(is_identified) AS is_identified,
-         arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+  SELECT person_id AS id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            person.created_at as created_at,
-            person.person_props as person_props,
-            person.is_identified as is_identified
+            e.team_id as team_id
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -110,10 +103,7 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id,
-               argMax(created_at, _timestamp) as created_at,
-               argMax(is_identified, _timestamp) as is_identified,
-               argMax(properties, _timestamp) as person_props
+       (SELECT id
         FROM person
         WHERE team_id = 2
         GROUP BY id

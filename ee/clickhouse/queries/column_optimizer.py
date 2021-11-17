@@ -19,9 +19,10 @@ class ColumnOptimizer:
     This speeds up queries since clickhouse ends up selecting less data.
     """
 
-    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter], team_id: int):
+    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter], team_id: int, is_actor_query: bool = False):
         self.filter = filter
         self.team_id = team_id
+        self.is_actor_query = is_actor_query
 
     @cached_property
     def event_columns_to_query(self) -> Set[ColumnName]:
@@ -104,7 +105,10 @@ class ColumnOptimizer:
             #
             # See ee/clickhouse/queries/trends/util.py#process_math
             if entity.math == "unique_group":
-                counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
+                if self.is_actor_query:
+                    counter[(f"$group_{entity.math_group_type_index}", "group", entity.math_group_type_index)] += 1
+                else:
+                    counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
 
             # :TRICKY: If action contains property filters, these need to be included
             #

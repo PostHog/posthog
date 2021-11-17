@@ -14,19 +14,12 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id ,
-         any(created_at) AS created_at,
-         any(person_props) AS properties,
-         any(is_identified) AS is_identified,
-         arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+  SELECT person_id AS id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            person.created_at as created_at,
-            person.person_props as person_props,
-            person.is_identified as is_identified
+            e.team_id as team_id
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -43,10 +36,7 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id,
-               argMax(created_at, _timestamp) as created_at,
-               argMax(is_identified, _timestamp) as is_identified,
-               argMax(properties, _timestamp) as person_props
+       (SELECT id
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -106,19 +96,12 @@
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id ,
-         any(created_at) AS created_at,
-         any(person_props) AS properties,
-         any(is_identified) AS is_identified,
-         arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+  SELECT person_id AS id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            person.created_at as created_at,
-            person.person_props as person_props,
-            person.is_identified as is_identified
+            e.team_id as team_id
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -135,10 +118,7 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id,
-               argMax(created_at, _timestamp) as created_at,
-               argMax(is_identified, _timestamp) as is_identified,
-               argMax(properties, _timestamp) as person_props
+       (SELECT id
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -183,19 +163,12 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id ,
-         any(created_at) AS created_at,
-         any(person_props) AS properties,
-         any(is_identified) AS is_identified,
-         arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+  SELECT person_id AS id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            person.created_at as created_at,
-            person.person_props as person_props,
-            person.is_identified as is_identified
+            e.team_id as team_id
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -212,10 +185,7 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id,
-               argMax(created_at, _timestamp) as created_at,
-               argMax(is_identified, _timestamp) as is_identified,
-               argMax(properties, _timestamp) as person_props
+       (SELECT id
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -279,19 +249,12 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id ,
-         any(created_at) AS created_at,
-         any(person_props) AS properties,
-         any(is_identified) AS is_identified,
-         arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+  SELECT person_id AS id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            person.created_at as created_at,
-            person.person_props as person_props,
-            person.is_identified as is_identified
+            e.team_id as team_id
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -308,10 +271,7 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id,
-               argMax(created_at, _timestamp) as created_at,
-               argMax(is_identified, _timestamp) as is_identified,
-               argMax(properties, _timestamp) as person_props
+       (SELECT id
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -394,20 +354,13 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id ,
-         any(created_at) AS created_at,
-         any(person_props) AS properties,
-         any(is_identified) AS is_identified,
-         arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+  SELECT person_id AS id
   FROM
     (SELECT e.timestamp as timestamp,
             e.properties as properties,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            person.created_at as created_at,
-            person.person_props as person_props,
-            person.is_identified as is_identified
+            e.team_id as team_id
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -424,10 +377,7 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id,
-               argMax(created_at, _timestamp) as created_at,
-               argMax(is_identified, _timestamp) as is_identified,
-               argMax(properties, _timestamp) as person_props
+       (SELECT id
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -537,20 +487,13 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id ,
-         any(created_at) AS created_at,
-         any(person_props) AS properties,
-         any(is_identified) AS is_identified,
-         arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+  SELECT person_id AS id
   FROM
     (SELECT e.timestamp as timestamp,
             e.properties as properties,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            person.created_at as created_at,
-            person.person_props as person_props,
-            person.is_identified as is_identified
+            e.team_id as team_id
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -567,10 +510,7 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id,
-               argMax(created_at, _timestamp) as created_at,
-               argMax(is_identified, _timestamp) as is_identified,
-               argMax(properties, _timestamp) as person_props
+       (SELECT id
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -621,19 +561,14 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT $group_0 AS id ,
-         any(group_created_at_0) AS created_at,
-         any(group_properties_0) AS properties
+  SELECT $group_0 AS id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$group_0 as $group_0,
-            group_created_at_0,
-            group_properties_0
+            e.$group_0 as $group_0
      FROM events e
      INNER JOIN
        (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0 ,
-               argMax(created_at, _timestamp) AS group_created_at_0
+               argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
@@ -643,68 +578,6 @@
        AND timestamp >= '2020-01-02 00:00:00'
        AND timestamp <= '2020-01-02 23:59:59'
        AND NOT has([''], $group_0)
-       AND team_id = 2 )
-  GROUP BY id
-  LIMIT 200
-  OFFSET 0
-  '
----
-# name: ClickhouseTestTrendsGroups.test_aggregating_by_group.2
-  '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
-  SELECT groupArray(day_start) as date,
-         groupArray(count) as data
-  FROM
-    (SELECT SUM(total) AS count,
-            day_start
-     from
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 23:59:59') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toDateTime('2020-01-01 00:00:00'), toDateTime('2020-01-12 23:59:59')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-01 00:00:00'))
-        UNION ALL SELECT count(DISTINCT $group_1) as data,
-                         toDateTime(toStartOfDay(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e.$group_1 as $group_1
-           FROM events e
-           WHERE team_id = 2
-             AND event = '$pageview'
-             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
-             AND timestamp <= '2020-01-12 23:59:59'
-             AND NOT has([''], $group_1)
-             AND team_id = 2 )
-        GROUP BY toStartOfDay(timestamp))
-     group by day_start
-     order by day_start)
-  '
----
-# name: ClickhouseTestTrendsGroups.test_aggregating_by_group.3
-  '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT $group_1 AS id ,
-         any(group_created_at_1) AS created_at,
-         any(group_properties_1) AS properties
-  FROM
-    (SELECT e.timestamp as timestamp,
-            e.$group_1 as $group_1,
-            group_created_at_1,
-            group_properties_1
-     FROM events e
-     INNER JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_1 ,
-               argMax(created_at, _timestamp) AS group_created_at_1
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 1
-        GROUP BY group_key) groups_1 ON $group_1 == groups_1.group_key
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND timestamp >= '2020-01-02 00:00:00'
-       AND timestamp <= '2020-01-02 23:59:59'
-       AND NOT has([''], $group_1)
        AND team_id = 2 )
   GROUP BY id
   LIMIT 200
