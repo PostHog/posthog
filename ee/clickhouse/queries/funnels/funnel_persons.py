@@ -8,6 +8,8 @@ from posthog.models.team import Team
 
 
 class ClickhouseFunnelPersons(ClickhouseFunnel):
+    _is_actor_query = True
+
     def get_query(self, extra_fields: Optional[List[str]] = None):
         extra_fields_string = ", ".join([self._get_timestamp_outer_select()] + (extra_fields or []))
         return FUNNEL_PERSONS_BY_STEP_SQL.format(
