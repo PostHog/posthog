@@ -34,7 +34,7 @@ class AppearanceRow:
 
 
 class Retention(BaseQuery):
-    def __init__(self, base_uri, **kwargs):
+    def __init__(self, base_uri: str = "/", **kwargs):
         self._base_uri = base_uri
         super().__init__(**kwargs)
 
