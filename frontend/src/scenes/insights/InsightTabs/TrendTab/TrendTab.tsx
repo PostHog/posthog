@@ -42,15 +42,16 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const formulaAvailable = isTrends && preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
-    const taxonomicTypes = isTrends
-        ? [
-              TaxonomicFilterGroupType.EventProperties,
-              TaxonomicFilterGroupType.PersonProperties,
-              ...groupsTaxonomicTypes,
-              TaxonomicFilterGroupType.Cohorts,
-              TaxonomicFilterGroupType.Elements,
-          ]
-        : undefined
+    const taxonomicTypes =
+        isTrends || filters.insight === InsightType.STICKINESS
+            ? [
+                  TaxonomicFilterGroupType.EventProperties,
+                  TaxonomicFilterGroupType.PersonProperties,
+                  ...groupsTaxonomicTypes,
+                  TaxonomicFilterGroupType.Cohorts,
+                  TaxonomicFilterGroupType.Elements,
+              ]
+            : undefined
 
     return (
         <>
