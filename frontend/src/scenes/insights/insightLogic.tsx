@@ -564,6 +564,7 @@ export const insightLogic = kea<insightLogicType>({
                 </div>
             )
             savedInsightsLogic.findMounted()?.actions.loadInsights()
+            dashboardsModel.actions.updateDashboardItem(savedInsight)
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
