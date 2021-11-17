@@ -173,7 +173,7 @@ function NewInsightButton(): JSX.Element {
                 router.actions.push(urls.newInsight(InsightType.TRENDS))
             }}
             overlay={menu}
-            icon={<IconArrowDropDown style={{ fontSize: 25 }} />}
+            icon={<IconArrowDropDown style={{ fontSize: 25 }} data-attr="saved-insights-new-insight-dropdown" />}
         >
             New Insight
         </Dropdown.Button>

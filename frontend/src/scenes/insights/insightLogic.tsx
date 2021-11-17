@@ -95,7 +95,7 @@ export const insightLogic = kea<insightLogicType>({
         saveAsNamingSuccess: (name: string) => ({ name }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
-        saveInsight: (setViewMode?: boolean) => ({ setViewMode }),
+        saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({

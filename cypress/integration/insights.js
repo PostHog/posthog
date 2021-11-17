@@ -16,7 +16,7 @@ describe('Insights', () => {
 
     it('Create new insight and save copy', () => {
         cy.visit('/saved_insights')
-        cy.get('[data-attr=saved-insights-new-insight-button]').click()
+        cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
         cy.get('[data-attr-insight-type="TRENDS"').click()
 
         // apply filter
@@ -26,11 +26,19 @@ describe('Insights', () => {
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
+        // Save
         cy.get('[data-attr="insight-save-button"]').click()
         cy.get('[data-attr="insight-edit-button"]').click()
 
+        // Save and continue editing
+        cy.get('[data-attr="insight-save-dropdown"]').click()
+        cy.get('[data-attr="insight-save-and-continue"]').click()
+        cy.get('[data-attr="add-action-event-button"]').should('exist')
+
+        // Add another graph series, and save as new insight
         cy.get('[data-attr="add-action-event-button"]').click()
-        cy.get('[data-attr="insight-save-as-button"]').click()
+        cy.get('[data-attr="insight-save-dropdown"]').click()
+        cy.get('[data-attr="insight-save-as-new-insight"]').click()
 
         cy.get('.ant-modal .ant-btn-primary').click()
         cy.get('[data-attr="insight-name"').contains('(copy)').should('exist')
