@@ -36,7 +36,6 @@ class AppearanceRow:
 class Retention(BaseQuery):
     def __init__(self, base_uri: str = "/", **kwargs):
         self._base_uri = base_uri
-        super().__init__(**kwargs)
 
     def process_table_result(
         self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
