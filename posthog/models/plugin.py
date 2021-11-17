@@ -32,12 +32,12 @@ def raise_if_plugin_installed(url: str, organization_id: str):
     url_without_private_key = url.split("?")[0]
     if (
         Plugin.objects.filter(
-            models.Q(url=url_without_private_key) | models.Q(url__startswith="{}?".format(url_without_private_key))
+            models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
         )
         .filter(organization_id=organization_id)
         .exists()
     ):
-        raise ValidationError('Plugin from URL "{}" already installed!'.format(url_without_private_key))
+        raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
 def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict:
@@ -47,7 +47,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         json_path = os.path.join(plugin_path, "plugin.json")
         json = load_json_file(json_path)
         if not json:
-            raise ValidationError("Could not load plugin.json from: {}".format(json_path))
+            raise ValidationError(f"Could not load plugin.json from: {json_path}")
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
