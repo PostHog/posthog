@@ -81,12 +81,6 @@ class TrendsEventQuery(ClickhouseEventQuery):
         if self._entity.math == "dau":
             self._should_join_distinct_ids = True
 
-    def _should_include_group_key(self) -> bool:
-        if self._entity.math == "unique_group":
-            return True
-        else:
-            return False
-
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_filter = ""
         date_params: Dict[str, Any] = {}
