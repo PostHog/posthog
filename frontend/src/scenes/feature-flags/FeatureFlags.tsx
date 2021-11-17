@@ -95,6 +95,7 @@ export function FeatureFlags(): JSX.Element {
                 return (
                     <LemonButton
                         compact
+                        data-attr="more-button"
                         icon={<IconEllipsis />}
                         type="stealth"
                         onClick={(e) => {
@@ -185,7 +186,7 @@ export function FeatureFlags(): JSX.Element {
             <LemonTable
                 dataSource={searchedFeatureFlags}
                 columns={columns}
-                rowKey="id"
+                rowKey="key"
                 onRow={(featureFlag) => ({
                     style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}

@@ -171,7 +171,11 @@ export function LemonTable<T extends Record<string, any>>({
                     <tbody>
                         {dataSource.length ? (
                             currentFrame.map((data, rowIndex) => (
-                                <tr key={`LemonTable-row-${rowKey ? data[rowKey] : rowIndex}`} {...onRow?.(data)}>
+                                <tr
+                                    key={`LemonTable-row-${rowKey ? data[rowKey] : rowIndex}`}
+                                    data-row-key={rowKey ? data[rowKey] : rowIndex}
+                                    {...onRow?.(data)}
+                                >
                                     {columns.map((column, columnIndex) => (
                                         <td
                                             key={columnIndex}
