@@ -53,20 +53,32 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "person1": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
+                    },
                     {
                         "event": "play movie",
                         "timestamp": datetime(2020, 1, 1, 13),
-                        "properties": {"$browser": "Chrome"},
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
                     },
-                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 15), "properties": {"$browser": "Chrome"}},
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 1, 15),
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
+                    },
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}},
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$browser": "Safari", "$browser_version": "14"},
+                    },
                     {
                         "event": "play movie",
                         "timestamp": datetime(2020, 1, 2, 16),
-                        "properties": {"$browser": "Safari"},
+                        "properties": {"$browser": "Safari", "$browser_version": "14"},
                     },
                 ],
             },
@@ -288,6 +300,41 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "event",
                 "breakdown": "$browser",
+            }
+        )
+        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+
+        self.assertCountEqual([val[0] for val in results], [person1.uuid, person2.uuid])
+
+        results = ClickhouseFunnelPersons(
+            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
+        )._exec_query()
+
+        self.assertCountEqual([val[0] for val in results], [person1.uuid])
+
+        results = ClickhouseFunnelPersons(
+            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
+        )._exec_query()
+        self.assertCountEqual([val[0] for val in results], [person2.uuid])
+
+        results = ClickhouseFunnelPersons(
+            filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
+        )._exec_query()
+        self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])
+
+    def test_first_step_breakdowns_with_multi_property_breakdown(self):
+        person1, person2 = self._create_browser_breakdown_events()
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "interval": "day",
+                "funnel_window_days": 7,
+                "funnel_step": 1,
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "breakdown_type": "event",
+                "breakdown": ["$browser", "$browser_version"],
             }
         )
         results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
