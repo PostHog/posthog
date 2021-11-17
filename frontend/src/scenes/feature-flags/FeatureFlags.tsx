@@ -10,7 +10,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { LinkButton } from 'lib/components/LinkButton'
-import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'

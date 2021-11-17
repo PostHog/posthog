@@ -17,16 +17,16 @@
         pointer-events: none;
     }
     &::before {
-        box-shadow: 16px 0 16px -32px rgba(0, 0, 0, 0.2) inset;
+        box-shadow: 16px 0 16px -32px rgba(0, 0, 0, 0.25) inset;
     }
     &.LemonTable--scrollable-left::before {
-        box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.2) inset;
+        box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
     }
     &::after {
-        box-shadow: -16px 0 16px -32px rgba(0, 0, 0, 0.2) inset;
+        box-shadow: -16px 0 16px -32px rgba(0, 0, 0, 0.25) inset;
     }
     &.LemonTable--scrollable-right::after {
-        box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.2) inset;
+        box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
     }
     table {
         width: 100%;
