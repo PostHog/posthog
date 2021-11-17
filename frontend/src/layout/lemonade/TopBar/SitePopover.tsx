@@ -23,7 +23,6 @@ import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
 import { navigationLogic } from '../../navigation/navigationLogic'
 import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
-import dayjs from 'dayjs'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import {
@@ -31,6 +30,7 @@ import {
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/lemonade/OrganizationSwitcher'
+import { dayjs } from 'lib/dayjs'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (

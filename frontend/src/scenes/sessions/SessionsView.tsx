@@ -7,7 +7,6 @@ import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDetailedTime, stripHTTP, pluralize, humanFriendlyDuration } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
-import dayjs from 'dayjs'
 import { SessionType } from '~/types'
 import {
     CaretLeftOutlined,
@@ -32,6 +31,7 @@ import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { urls } from 'scenes/urls'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { dayjs } from 'lib/dayjs'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
