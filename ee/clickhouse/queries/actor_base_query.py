@@ -63,7 +63,7 @@ class ActorBaseQuery:
             return False
 
     def get_actor_query(self) -> Tuple[str, Dict]:
-        if self.aggregating_by_groups:
+        if self.is_aggregating_by_groups:
             query, params = self.groups_query()
             return query, params
         else:
