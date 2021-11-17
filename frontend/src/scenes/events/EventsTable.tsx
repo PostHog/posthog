@@ -287,14 +287,15 @@ export function EventsTable({
     )
 
     return (
-        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 32 } : {}}>
-            {sceneIsEventsPage ? <EventsTabs tab={EventsTab.Events} /> : null}
+        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 16 } : undefined}>
             <div className="events" data-attr="events-table">
                 <PageHeader
                     title="Events"
                     caption="See events being sent to this project in near real time."
                     style={{ marginTop: 0 }}
+                    tabbedPage
                 />
+                {sceneIsEventsPage ? <EventsTabs tab={EventsTab.Events} /> : null}
 
                 <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12}>

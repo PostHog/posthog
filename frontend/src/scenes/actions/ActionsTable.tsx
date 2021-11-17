@@ -184,8 +184,7 @@ export function ActionsTable(): JSX.Element {
     }
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <EventsTabs tab={EventsTab.Actions} />
+        <div data-attr="manage-events-table" style={{ paddingTop: 16 }}>
             <PageHeader
                 title="Actions"
                 caption={
@@ -200,7 +199,9 @@ export function ActionsTable(): JSX.Element {
                     </>
                 }
                 style={{ marginTop: 0 }}
+                tabbedPage
             />
+            <EventsTabs tab={EventsTab.Actions} />
             <div>
                 <div />
                 <div className="tutorial-container">

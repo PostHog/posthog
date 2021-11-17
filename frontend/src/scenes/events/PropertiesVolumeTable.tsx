@@ -21,14 +21,15 @@ export function PropertiesVolumeTable(): JSX.Element | null {
     const { propertyDefinitions, loaded } = useValues(propertyDefinitionsModel)
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <EventsTabs tab={EventsTab.EventPropertyStats} />
+        <div data-attr="manage-events-table" style={{ paddingTop: 16 }}>
             <PageHeader
                 title="Properties Stats"
                 caption="See all property keys that have ever been sent to this team, including the volume and how often
                 queries where made using this property key."
                 style={{ marginTop: 0 }}
+                tabbedPage
             />
+            <EventsTabs tab={EventsTab.EventPropertyStats} />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (

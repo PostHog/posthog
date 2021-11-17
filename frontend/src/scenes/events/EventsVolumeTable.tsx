@@ -20,13 +20,14 @@ export function EventsVolumeTable(): JSX.Element | null {
     const { eventDefinitions, loaded } = useValues(eventDefinitionsModel)
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <EventsTabs tab={EventsTab.EventStats} />
+        <div data-attr="manage-events-table" style={{ paddingTop: 16 }}>
             <PageHeader
                 title="Events Stats"
                 caption="See all event names that have ever been sent to this team, including the volume and how often queries where made using this event."
                 style={{ marginTop: 0 }}
+                tabbedPage
             />
+            <EventsTabs tab={EventsTab.EventStats} />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
