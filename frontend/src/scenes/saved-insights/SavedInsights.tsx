@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
-import React, { useState } from 'react'
+import React from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import {
@@ -45,8 +45,6 @@ import { ColumnsType } from 'antd/lib/table'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonButton } from '../../lib/components/LemonButton'
-import Meta from 'antd/lib/card/Meta'
 import { dayjs } from 'lib/dayjs'
 
 const { TabPane } = Tabs
