@@ -145,15 +145,25 @@ function Pages(): JSX.Element {
                             <div className="SideBar__pinned-dashboards">
                                 <h5>Pinned dashboards</h5>
                                 <LemonSpacer />
-                                {pinnedDashboards.map((dashboard) => (
-                                    <PageButton
-                                        key={dashboard.id}
-                                        title={dashboard.name}
-                                        identifier={dashboard.id}
+                                {pinnedDashboards.length > 0 ? (
+                                    pinnedDashboards.map((dashboard) => (
+                                        <PageButton
+                                            key={dashboard.id}
+                                            title={dashboard.name}
+                                            identifier={dashboard.id}
+                                            onClick={() => setArePinnedDashboardsShown(false)}
+                                            to={urls.dashboard(dashboard.id)}
+                                        />
+                                    ))
+                                ) : (
+                                    <LemonButton
+                                        fullWidth
                                         onClick={() => setArePinnedDashboardsShown(false)}
-                                        to={urls.dashboard(dashboard.id)}
-                                    />
-                                ))}
+                                        to={urls.dashboards()}
+                                    >
+                                        <i>Pin dashboards for quick access</i>
+                                    </LemonButton>
+                                )}
                             </div>
                         ),
                     },
