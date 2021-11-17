@@ -16,11 +16,12 @@ from posthog.models import Entity, Filter, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.person import Person
+from posthog.models.utils import UUIDT
 
 
 class SerializedPerson(TypedDict):
     type: Literal["person"]
-    id: str
+    id: UUIDT
     created_at: Optional[str]
     properties: Dict[str, Any]
     is_identified: Optional[bool]
@@ -98,7 +99,7 @@ class ActorBaseQuery:
         return [
             SerializedPerson(
                 type="person",
-                id=str(person.uuid),
+                id=person.uuid,
                 created_at=person.created_at,
                 properties=person.properties,
                 is_identified=person.is_identified,
