@@ -39,7 +39,8 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
 
     return (
         <div className="persons-list">
-            {!cohort && (groupsEnabled ? <GroupsTabs /> : <PageHeader title="Persons" />)}
+            <PageHeader title="Persons" caption="List of persons (end users) on your app or website." />
+            {!cohort && groupsEnabled && <GroupsTabs />}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
                     <PersonsSearch autoFocus={!cohort} />

@@ -8,9 +8,10 @@ import { groupsListLogic } from './groupsListLogic'
 import { GroupsTabs } from './GroupsTabs'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function Groups(): JSX.Element {
-    const { groups, groupsLoading } = useValues(groupsListLogic)
+    const { groups, groupsLoading, currentTabName } = useValues(groupsListLogic)
     const { loadGroups } = useActions(groupsListLogic)
 
     const columns: ResizableColumnType<Partial<Group>>[] = [
@@ -34,6 +35,11 @@ export function Groups(): JSX.Element {
 
     return (
         <>
+            <PageHeader
+                title={currentTabName}
+                tabbedPage
+                caption="List of instances of this group (e.g. companies list)."
+            />
             <GroupsTabs />
             <ResizableTable
                 size="small"
