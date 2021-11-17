@@ -186,6 +186,9 @@ def properties_to_Q(properties: List[Property], team_id: int, is_direct_query: b
                     )
                 )
 
+    if len(prop for prop in properties if prop.type == "group"):
+        raise ValueError("Group properties are not supported for indirect filtering via postgres")
+
     return filters
 
 
