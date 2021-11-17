@@ -1,6 +1,6 @@
 import dataclasses
 from typing import Any, Dict, List, Literal, Tuple, Union
-
+from urllib.parse import urlencode
 from django.db import connection
 from django.db.models import Min
 from django.db.models.expressions import Exists, F, OuterRef
@@ -33,6 +33,10 @@ class AppearanceRow:
 
 
 class Retention(BaseQuery):
+    def __init__(self, base_uri, **kwargs):
+        self._base_uri = base_uri
+        super().__init__(**kwargs)
+
     def process_table_result(
         self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
     ):
@@ -79,8 +83,18 @@ class Retention(BaseQuery):
             "labels": labels,
             "count": data[0] if data else 0,
             "days": days,
+            "people_urls": [
+                self._construct_people_url_for_trend_interval(
+                    filter=filter, 
+                    selected_interval=index
+                ) for index, _ in enumerate(data)
+            ]
         }
         return [result]
+
+    def _construct_people_url_for_trend_interval(self, filter: RetentionFilter, selected_interval: int):
+        params = filter.with_data({'selected_interval': selected_interval}).to_params()
+        return f'{self._base_uri}api/person/retention/?{urlencode(params)}'
 
     def _determine_query_params(self, filter: RetentionFilter, team: Team):
 
