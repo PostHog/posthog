@@ -48,7 +48,7 @@ class FeatureFlag(models.Model):
         return FeatureFlagMatcher(distinct_id, self).get_match()
 
     def get_analytics_metadata(self) -> Dict:
-        filter_count = sum(len(group.get("properties", [])) for group in self.conditions)
+        filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
 
         return {
@@ -56,7 +56,7 @@ class FeatureFlag(models.Model):
             "has_variants": variants_count > 0,
             "variants_count": variants_count,
             "has_filters": filter_count > 0,
-            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.conditions),
+            "has_rollout_percentage": any(condition.get("rollout_percentage") for condition in self.conditions),
             "filter_count": filter_count,
             "created_at": self.created_at,
         }
@@ -114,7 +114,9 @@ class FeatureFlagMatcher:
         self.feature_flag = feature_flag
 
     def get_match(self) -> Optional[FeatureFlagMatch]:
-        is_match = any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.conditions))
+        is_match = any(
+            self.is_condition_match(condition, index) for index, condition in enumerate(self.feature_flag.conditions)
+        )
         if is_match:
             return FeatureFlagMatch(variant=self.get_matching_variant())
         else:
@@ -126,10 +128,10 @@ class FeatureFlagMatcher:
                 return variant["key"]
         return None
 
-    def is_group_match(self, match_group: Dict, match_group_index: int):
-        rollout_percentage = match_group.get("rollout_percentage")
-        if len(match_group.get("properties", [])) > 0:
-            if not self._match_distinct_id(match_group_index):
+    def is_condition_match(self, condition: Dict, condition_index: int):
+        rollout_percentage = condition.get("rollout_percentage")
+        if len(condition.get("properties", [])) > 0:
+            if not self._match_distinct_id(condition_index):
                 return False
             elif not rollout_percentage:
                 return True
@@ -139,8 +141,8 @@ class FeatureFlagMatcher:
 
         return True
 
-    def _match_distinct_id(self, match_group_index: int) -> bool:
-        return len(self.query_conditions) > 0 and self.query_conditions[0][match_group_index]
+    def _match_distinct_id(self, condition_index: int) -> bool:
+        return len(self.query_conditions) > 0 and self.query_conditions[0][condition_index]
 
     # Define contiguous sub-domains within [0, 1].
     # By looking up a random hash value, you can find the associated variant key.
@@ -165,12 +167,12 @@ class FeatureFlagMatcher:
         )
 
         fields = []
-        for index, match_group in enumerate(self.feature_flag.conditions):
-            key = f"match_group_{index}"
+        for index, condition in enumerate(self.feature_flag.conditions):
+            key = f"condition_{index}"
 
-            if len(match_group.get("properties", {})) > 0:
+            if len(condition.get("properties", {})) > 0:
                 expr: Any = properties_to_Q(
-                    Filter(data=match_group).properties, team_id=self.feature_flag.team_id, is_person_query=True
+                    Filter(data=condition).properties, team_id=self.feature_flag.team_id, is_person_query=True
                 )
             else:
                 expr = RawSQL("true", [])

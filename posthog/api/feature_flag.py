@@ -42,7 +42,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     #  That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
         return len(feature_flag.conditions) == 1 and all(
-            len(group.get("properties", [])) == 0 for group in feature_flag.conditions
+            len(condition.get("properties", [])) == 0 for condition in feature_flag.conditions
         )
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
