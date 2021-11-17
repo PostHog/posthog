@@ -25,7 +25,6 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -86,7 +85,6 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
 
     if cache_type == CacheType.FUNNEL:
         result = _calculate_funnel(filter, key, team_id)
-        # result = protect_old_clients_from_multi_property_default(filter_dict, result)
     else:
         result = _calculate_by_filter(filter, key, team_id, cache_type)
     cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL)
