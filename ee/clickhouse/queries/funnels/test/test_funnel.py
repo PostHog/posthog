@@ -836,96 +836,36 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         funnel = ClickhouseFunnel(filter, self.team)
 
         # event
-        person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-
-        person2_stopped_after_one_pageview = _create_person(
-            distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
-        )
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview1")
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview1",
-            properties={"$current_url": "aloha.com"},
-        )
-
-        person3_stopped_after_two_pageview = _create_person(
-            distinct_ids=["stopped_after_pageview2"], team_id=self.team.pk
-        )
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview2")
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview2",
-            properties={"$current_url": "aloha.com"},
-        )
-        _create_event(
-            team=self.team,
-            event="blaah blaa",
-            distinct_id="stopped_after_pageview2",
-            properties={"$current_url": "aloha.com"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview2",
-            properties={"$current_url": "aloha2.com"},
-        )
-
-        person4_stopped_after_three_pageview = _create_person(
-            distinct_ids=["stopped_after_pageview3"], team_id=self.team.pk
-        )
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview3")
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview3",
-            properties={"$current_url": "aloha.com"},
-        )
-        _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_pageview3")
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview3",
-            properties={"$current_url": "aloha2.com"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview3",
-            properties={"$current_url": "aloha2.com"},
-        )
-        _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_pageview3")
-
-        person5_stopped_after_many_pageview = _create_person(
-            distinct_ids=["stopped_after_pageview4"], team_id=self.team.pk
-        )
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview4")
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview4",
-            properties={"$current_url": "aloha.com"},
-        )
-        _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_pageview4")
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview4",
-            properties={"$current_url": "aloha2.com"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview4",
-            properties={"$current_url": "aloha.com"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview4",
-            properties={"$current_url": "aloha2.com"},
+        people = journeys_for(
+            {
+                "stopped_after_signup1": [{"event": "user signed up"}],
+                "stopped_after_pageview1": [
+                    {"event": "user signed up"},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                ],
+                "stopped_after_pageview2": [
+                    {"event": "user signed up"},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                    {"event": "blaah blaa", "properties": {"$current_url": "aloha.com"}},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                ],
+                "stopped_after_pageview3": [
+                    {"event": "user signed up"},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                    {"event": "blaah blaa"},
+                ],
+                "stopped_after_pageview4": [
+                    {"event": "user signed up"},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                    {"event": "blaah blaa"},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                ],
+            },
+            self.team,
         )
 
         result = funnel.run()
@@ -942,36 +882,36 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
             [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
+                people["stopped_after_signup1"].uuid,
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
             ],
         )
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 2),
             [
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
             ],
         )
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 3),
             [
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
             ],
         )
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 4),
-            [person4_stopped_after_three_pageview.uuid, person5_stopped_after_many_pageview.uuid],
+            [people["stopped_after_pageview3"].uuid, people["stopped_after_pageview4"].uuid,],
         )
 
         self.assertCountEqual(
