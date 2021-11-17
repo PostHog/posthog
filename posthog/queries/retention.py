@@ -1,6 +1,7 @@
 import dataclasses
 from typing import Any, Dict, List, Literal, Tuple, Union
 from urllib.parse import urlencode
+
 from django.db import connection
 from django.db.models import Min
 from django.db.models.expressions import Exists, F, OuterRef

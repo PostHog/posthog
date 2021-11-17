@@ -1,9 +1,11 @@
-from typing import List, Literal, TypedDict, Union
-import pytest
 import json
 import numbers
+from typing import List, Literal, TypedDict, Union
+
+import pytest
 from django.test import TestCase
 from django.test.client import Client
+
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.views.test.test_clickhouse_funnel_correlation import EventPattern, create_team
 from posthog.api.test.test_event_definition import create_organization, create_user
