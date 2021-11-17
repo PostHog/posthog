@@ -26,6 +26,7 @@
             height: 0;
             background-color: $recording_hover_event;
             border-radius: $radius;
+            z-index: 1;
         }
 
         .current-events-position-finder {
@@ -84,6 +85,7 @@
             padding: $recording_spacing;
             cursor: pointer;
             border-radius: $radius;
+            z-index: 2;
 
             &:hover,
             &.current-event {
