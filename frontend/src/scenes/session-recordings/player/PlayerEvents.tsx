@@ -159,7 +159,7 @@ export function PlayerEvents(): JSX.Element {
                         }}
                     >
                         {isDirectionUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                        Jump to current event
+                        Jump to current time
                     </Row>
                     <Row
                         className="right"
