@@ -4,7 +4,30 @@
     background: #fff;
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    overflow: auto;
+    overflow: hidden;
+    &::before,
+    &::after {
+        transition: box-shadow 200ms ease;
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+    &::before {
+        box-shadow: 16px 0 16px -32px rgba(0, 0, 0, 0.2) inset;
+    }
+    &.LemonTable--scrollable-left::before {
+        box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.2) inset;
+    }
+    &::after {
+        box-shadow: -16px 0 16px -32px rgba(0, 0, 0, 0.2) inset;
+    }
+    &.LemonTable--scrollable-right::after {
+        box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.2) inset;
+    }
     table {
         width: 100%;
         border-collapse: collapse;
@@ -45,6 +68,11 @@
     span.row-description {
         font-size: 0.75rem;
     }
+}
+
+.LemonTable__content {
+    width: 100%;
+    overflow: auto hidden;
 }
 
 .LemonTable__loader {
@@ -92,10 +120,6 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-}
-
-.LemonTable__cell--sticky {
-    position: sticky;
 }
 
 @keyframes loading-bar {

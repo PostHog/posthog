@@ -30,8 +30,6 @@ export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { featureFlags, featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
-    // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
-    const { tableScrollX } = useIsTableScrolling('lg')
 
     const [morePopupShownId, setMorePopupShownId] = useState<FeatureFlagType['id'] | null>(null)
 

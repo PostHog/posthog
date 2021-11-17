@@ -1,6 +1,7 @@
 import clsx from 'clsx'
-import React, { HTMLProps, useMemo, useReducer, useState } from 'react'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { columnSort } from '../../../scenes/saved-insights/SavedInsights'
+import { useResizeObserver } from '../../hooks/useResizeObserver'
 import { IconChevronLeft, IconChevronRight } from '../icons'
 import { LemonButton } from '../LemonButton'
 import './LemonTable.scss'
@@ -36,10 +37,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
 /** 0 means unsorted, 1 means ascending, -1 means descending. */
 type SortOrder = 0 | 1 | -1
 
-function isHorizontallyScrollable(element: HTMLElement): boolean {
-    return element.scrollWidth > element.clientWidth
-}
-
 export function LemonTable<T extends Record<string, any>>({
     columns,
     dataSource,
@@ -49,6 +46,7 @@ export function LemonTable<T extends Record<string, any>>({
     pagination,
     ...divProps
 }: LemonTableProps<T>): JSX.Element {
+    const [isScrollable, setIsScrollable] = useState([false, false]) // Left and right
     const [currentPage, setCurrentPage] = useState(1)
     const [sortOrdersState, sortOrdersDispatch] = useReducer(
         (state: Record<number, SortOrder>, action: { columnIndex: number }) => {
@@ -72,8 +70,36 @@ export function LemonTable<T extends Record<string, any>>({
         {}
     )
 
+    const contentRef = useRef<HTMLDivElement>(null)
+
     const pageCount = pagination ? Math.ceil(dataSource.length / pagination.pageSize) : 1
     const showPagination = pageCount > 1 || pagination?.hideOnSinglePage === true
+
+    const updateIsScrollable = useCallback(() => {
+        const element = contentRef.current
+        if (element) {
+            const left = element.scrollLeft > 0
+            const right =
+                element.scrollWidth > element.clientWidth &&
+                element.scrollWidth > element.scrollLeft + element.clientWidth
+            if (left !== isScrollable[0] || right !== isScrollable[1]) {
+                setIsScrollable([left, right])
+            }
+        }
+    }, [isScrollable])
+
+    useResizeObserver({
+        ref: contentRef,
+        onResize: updateIsScrollable,
+    })
+
+    useEffect(() => {
+        const element = contentRef.current
+        if (element) {
+            element.addEventListener('scroll', updateIsScrollable)
+            return () => element.removeEventListener('scroll', updateIsScrollable)
+        }
+    }, [updateIsScrollable])
 
     const { currentFrame, currentStartIndex, currentEndIndex } = useMemo(() => {
         const sortedDataSource = dataSource.slice().sort((a, b) => {
@@ -104,90 +130,100 @@ export function LemonTable<T extends Record<string, any>>({
 
     return (
         <div
-            className={clsx('LemonTable', loading && 'LemonTable--loading', showPagination && 'LemonTable--paginated')}
+            className={clsx(
+                'LemonTable',
+                loading && 'LemonTable--loading',
+                showPagination && 'LemonTable--paginated',
+                isScrollable[0] && 'LemonTable--scrollable-left',
+                isScrollable[1] && 'LemonTable--scrollable-right'
+            )}
             {...divProps}
         >
-            <table>
-                <thead>
-                    <tr>
-                        {columns.map((column, columnIndex) => (
-                            <th
-                                key={columnIndex}
-                                className={clsx(
-                                    column.sorter && 'LemonTable__header--actionable',
-                                    column.sticky && 'LemonTable__cell--sticky',
-                                    column.className
-                                )}
-                                style={{ textAlign: column.align }}
-                                onClick={column.sorter ? () => sortOrdersDispatch({ columnIndex }) : undefined}
-                            >
-                                <div className="LemonTable__header-content">
-                                    {column.title}
-                                    {column.sorter &&
-                                        columnSort(
-                                            sortOrdersState[columnIndex] === -1
-                                                ? 'down'
-                                                : sortOrdersState[columnIndex] === 1
-                                                ? 'up'
-                                                : 'none'
-                                        )}
-                                </div>
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {dataSource.length ? (
-                        currentFrame.map((data, rowIndex) => (
-                            <tr key={`LemonTable-row-${rowKey ? data[rowKey] : rowIndex}`} {...onRow?.(data)}>
-                                {columns.map((column, columnIndex) => (
-                                    <td
-                                        key={columnIndex}
-                                        className={clsx(column.sticky && 'LemonTable__cell--sticky', column.className)}
-                                        style={{ textAlign: column.align }}
-                                    >
-                                        {column.render
-                                            ? column.render(column.dataIndex ? data[column.dataIndex] : undefined, data)
-                                            : column.dataIndex
-                                            ? data[column.dataIndex]
-                                            : undefined}
-                                    </td>
-                                ))}
-                            </tr>
-                        ))
-                    ) : (
+            <div className="LemonTable__content" ref={contentRef}>
+                <table>
+                    <thead>
                         <tr>
-                            <td colSpan={columns.length}>No data</td>
+                            {columns.map((column, columnIndex) => (
+                                <th
+                                    key={columnIndex}
+                                    className={clsx(
+                                        column.sorter && 'LemonTable__header--actionable',
+                                        column.className
+                                    )}
+                                    style={{ textAlign: column.align }}
+                                    onClick={column.sorter ? () => sortOrdersDispatch({ columnIndex }) : undefined}
+                                >
+                                    <div className="LemonTable__header-content">
+                                        {column.title}
+                                        {column.sorter &&
+                                            columnSort(
+                                                sortOrdersState[columnIndex] === -1
+                                                    ? 'down'
+                                                    : sortOrdersState[columnIndex] === 1
+                                                    ? 'up'
+                                                    : 'none'
+                                            )}
+                                    </div>
+                                </th>
+                            ))}
                         </tr>
-                    )}
-                </tbody>
-            </table>
-            <div className="LemonTable__loader" />
-            {showPagination && (
-                <div className="LemonTable__pagination">
-                    <span className="LemonTable__locator">
-                        {currentFrame.length === 0
-                            ? 'No entries'
-                            : currentFrame.length === 1
-                            ? `${currentEndIndex} of ${dataSource.length} entries`
-                            : `${currentStartIndex + 1}-${currentEndIndex} of ${dataSource.length} entries`}
-                    </span>
-                    <LemonButton
-                        compact
-                        icon={<IconChevronLeft />}
-                        type="stealth"
-                        disabled={currentPage === 1}
-                        onClick={() => setCurrentPage((state) => Math.max(1, Math.min(pageCount, state) - 1))}
-                    />
-                    <LemonButton
-                        compact
-                        icon={<IconChevronRight />}
-                        type="stealth"
-                        disabled={currentPage === pageCount}
-                        onClick={() => setCurrentPage((state) => Math.min(pageCount, state + 1))}
-                    />
-                </div>
-            )}
+                    </thead>
+                    <tbody>
+                        {dataSource.length ? (
+                            currentFrame.map((data, rowIndex) => (
+                                <tr key={`LemonTable-row-${rowKey ? data[rowKey] : rowIndex}`} {...onRow?.(data)}>
+                                    {columns.map((column, columnIndex) => (
+                                        <td
+                                            key={columnIndex}
+                                            className={column.className}
+                                            style={{ textAlign: column.align }}
+                                        >
+                                            {column.render
+                                                ? column.render(
+                                                      column.dataIndex ? data[column.dataIndex] : undefined,
+                                                      data
+                                                  )
+                                                : column.dataIndex
+                                                ? data[column.dataIndex]
+                                                : undefined}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td colSpan={columns.length}>No data</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+                <div className="LemonTable__loader" />
+                {showPagination && (
+                    <div className="LemonTable__pagination">
+                        <span className="LemonTable__locator">
+                            {currentFrame.length === 0
+                                ? 'No entries'
+                                : currentFrame.length === 1
+                                ? `${currentEndIndex} of ${dataSource.length} entries`
+                                : `${currentStartIndex + 1}-${currentEndIndex} of ${dataSource.length} entries`}
+                        </span>
+                        <LemonButton
+                            compact
+                            icon={<IconChevronLeft />}
+                            type="stealth"
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage((state) => Math.max(1, Math.min(pageCount, state) - 1))}
+                        />
+                        <LemonButton
+                            compact
+                            icon={<IconChevronRight />}
+                            type="stealth"
+                            disabled={currentPage === pageCount}
+                            onClick={() => setCurrentPage((state) => Math.min(pageCount, state + 1))}
+                        />
+                    </div>
+                )}
+            </div>
         </div>
     )
 }
