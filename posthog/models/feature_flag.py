@@ -45,7 +45,7 @@ class FeatureFlag(models.Model):
     active: models.BooleanField = models.BooleanField(default=True)
 
     def matches(self, distinct_id: str) -> Optional[FeatureFlagMatch]:
-        return FeatureFlagMatcher(distinct_id, self).get_match()
+        return FeatureFlagMatcher(self, distinct_id).get_match()
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
@@ -109,9 +109,9 @@ class FeatureFlagOverride(models.Model):
 
 
 class FeatureFlagMatcher:
-    def __init__(self, distinct_id: str, feature_flag: FeatureFlag):
-        self.distinct_id = distinct_id
+    def __init__(self, feature_flag: FeatureFlag, distinct_id: str):
         self.feature_flag = feature_flag
+        self.distinct_id = distinct_id
 
     def get_match(self) -> Optional[FeatureFlagMatch]:
         is_match = any(
