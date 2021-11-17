@@ -67,6 +67,11 @@ class FeatureFlag(models.Model):
         return self.get_filters().get("groups", []) or []
 
     @property
+    def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
+        "If None, aggregating this feature flag by persons, otherwise by groups of given group_type_index"
+        return self.get_filters().get("aggregation_group_type_index", None)
+
+    @property
     def variants(self):
         # :TRICKY: .get("multivariate", {}) returns "None" if the key is explicitly set to "null" inside json filters
         multivariate = self.get_filters().get("multivariate", None)
