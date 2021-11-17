@@ -60,7 +60,7 @@ function ProjectSwitcherInternal(): JSX.Element {
                     actionable: true,
                 }}
             >
-                <strong>{currentTeam?.name}</strong>
+                <strong>{currentTeam ? currentTeam.name : <i>Choose project</i>}</strong>
             </LemonButton>
         </div>
     )
@@ -188,6 +188,7 @@ function Pages(): JSX.Element {
 }
 
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
     const { isSideBarShown, isToolbarModalShown } = useValues(lemonadeLogic)
     const { hideSideBar, hideToolbarModal } = useActions(lemonadeLogic)
 
@@ -196,8 +197,12 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             <div className="SideBar__slider">
                 <div className="SideBar__content">
                     <ProjectSwitcherInternal />
-                    <LemonSpacer />
-                    <Pages />
+                    {currentTeam && (
+                        <>
+                            <LemonSpacer />
+                            <Pages />
+                        </>
+                    )}
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBar} />
