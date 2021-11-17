@@ -2,7 +2,6 @@ import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
-import dayjs from 'dayjs'
 import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -11,6 +10,7 @@ import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
+import { dayjs } from 'lib/dayjs'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -619,11 +619,22 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToName(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
+export function eventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>): string {
+    if (['$pageview', '$pageleave'].includes(event.event)) {
+        return event.properties.$pathname
+    }
+    if (event.event === '$autocapture') {
+        return autoCaptureEventToDescription(event)
+    }
+    // All other events and actions
+    return event.event
+}
+
+export function autoCaptureEventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
-    let name = ''
+    let name: string | JSX.Element = ''
     if (event.properties.$event_type === 'click') {
         name += 'clicked '
     }

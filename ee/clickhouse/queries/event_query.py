@@ -13,6 +13,7 @@ from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -20,7 +21,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
 
-    _filter: Union[Filter, PathFilter, RetentionFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter, SessionRecordingsFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _person_query: ClickhousePersonQuery
@@ -32,7 +33,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter, SessionRecordingsFilter],
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,
@@ -98,11 +99,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if any(
             self._should_property_join_persons(prop) for entity in self._filter.entities for prop in entity.properties
         ):
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
-            return
-
-        if self._filter.breakdown_type == "person":
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return

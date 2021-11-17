@@ -2,7 +2,6 @@ import React from 'react'
 import { kea, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
-
 import { preflightLogic } from './PreflightCheck/logic'
 import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
@@ -67,15 +66,15 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { sceneConfig } = useValues(sceneLogic({ scenes: appScenes }))
     const { featureFlags } = useValues(featureFlagLogic)
+    useMountedLogic(sceneLogic({ scenes: appScenes }))
 
     if (showApp) {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
                 {featureFlags[FEATURE_FLAGS.TURBO_MODE] ? <LoadedSceneLogics /> : null}
-                {(!sceneConfig?.projectBased || currentTeamId) && <AppScene />}
+                <AppScene />
             </>
         )
     }
@@ -143,11 +142,11 @@ function AppScene(): JSX.Element | null {
 
     const layoutContent = activeScene ? (
         <Layout.Content className="main-app-content" data-attr="layout-content">
-            {featureFlags[FEATURE_FLAGS.LEMONADE] && <Breadcrumbs />}
             {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
             {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                 <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
             ) : null}
+            {featureFlags[FEATURE_FLAGS.LEMONADE] && <Breadcrumbs />}
             <BillingAlerts />
             <BackTo />
             <SceneComponent user={user} {...params} />

@@ -3,7 +3,7 @@ import { Table } from 'antd'
 import { humanFriendlyDetailedTime, humanFriendlyDiff } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
-import { eventToName } from 'lib/utils'
+import { autoCaptureEventToDescription } from 'lib/utils'
 import { EventType, SessionType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -34,7 +34,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
             title: 'Event',
             key: 'id',
             render: function RenderEvent(event: EventType) {
-                return <PropertyKeyInfo value={eventToName(event)} ellipsis={false} />
+                return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} ellipsis={false} />
             },
         },
         {

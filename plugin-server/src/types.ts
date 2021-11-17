@@ -102,6 +102,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
+    NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -483,11 +484,13 @@ export interface BasePerson {
 /** Raw Person row from database. */
 export interface RawPerson extends BasePerson {
     created_at: string
+    version: string | null
 }
 
 /** Usable Person model. */
 export interface Person extends BasePerson {
     created_at: DateTime
+    version: number
 }
 
 /** Clickhouse Person model. */

@@ -1,18 +1,15 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
-import dayjs from 'dayjs'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { DownloadOutlined, ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button, Col, Row, Spin } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { eventToName, toParams } from 'lib/utils'
+import { autoCaptureEventToDescription, toParams } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import relativeTime from 'dayjs/plugin/relativeTime'
-import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
@@ -29,10 +26,6 @@ import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
 import { urls } from 'scenes/urls'
-
-dayjs.extend(LocalizedFormat)
-dayjs.extend(relativeTime)
-
 export interface FixedFilters {
     action_id?: ActionType['id']
     person_id?: string | number
@@ -121,7 +114,7 @@ export function EventsTable({
                         return newEventsRender(item, tableWidth)
                     }
                     const { event } = item
-                    return <PropertyKeyInfo value={eventToName(event)} />
+                    return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
                 },
                 ellipsis: true,
             },

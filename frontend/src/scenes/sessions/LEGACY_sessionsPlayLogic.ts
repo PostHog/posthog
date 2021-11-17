@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { errorToast, eventToName, toParams } from 'lib/utils'
+import { errorToast, autoCaptureEventToDescription, toParams } from 'lib/utils'
 import {
     LEGACY_SessionPlayerData,
     SessionPlayerData,
@@ -8,7 +8,6 @@ import {
     SessionRecordingUsageType,
     SessionType,
 } from '~/types'
-import dayjs from 'dayjs'
 import { LEGACY_sessionsPlayLogicType } from './LEGACY_sessionsPlayLogicType'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -16,6 +15,8 @@ import { toast } from 'react-toastify'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
+import { dayjs } from 'lib/dayjs'
+
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 const convertToNewSessionPlayerDataType = (legacyData: LEGACY_SessionPlayerData): SessionPlayerData => {
@@ -279,7 +280,7 @@ export const LEGACY_sessionsPlayLogic = kea<LEGACY_sessionsPlayLogicType>({
                 }))
                 const highlightedEvents = events.map((event) => ({
                     playerTime: +dayjs(event.timestamp) - startTime,
-                    text: eventToName(event),
+                    text: autoCaptureEventToDescription(event),
                     color: 'orange',
                 }))
                 return [...pageChangeEvents, ...highlightedEvents].sort((a, b) => a.playerTime - b.playerTime)

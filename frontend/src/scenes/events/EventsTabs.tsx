@@ -54,8 +54,8 @@ export function EventsTabs({ tab }: { tab: EventsTab }): JSX.Element {
         <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as EventsTab)}>
             <Tabs.TabPane tab="Events" key="events" />
             <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions" />
-            <Tabs.TabPane tab="Events Stats" key="stats" />
-            <Tabs.TabPane tab="Properties Stats" key="properties" />
+            <Tabs.TabPane tab="Events stats" key="stats" />
+            <Tabs.TabPane tab="Properties stats" key="properties" />
         </Tabs>
     )
 }

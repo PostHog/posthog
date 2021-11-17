@@ -6,7 +6,10 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
-from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
+from ee.clickhouse.queries.funnels.test.breakdown_cases import (
+    assert_funnel_results_equal,
+    funnel_breakdown_test_factory,
+)
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
@@ -83,7 +86,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         )
 
         result = funnel.run()
-        self.assertEqual(
+        assert_funnel_results_equal(
             result[0],
             [
                 {
@@ -117,7 +120,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
         self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
 
-        self.assertEqual(
+        assert_funnel_results_equal(
             result[1],
             [
                 {

@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react'
 import { Select } from 'antd'
-import dayjs from 'dayjs'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
+import { dayjs } from 'lib/dayjs'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -97,10 +97,7 @@ export function DateFilter({
             id="daterange_selector"
             value={parsedValue}
             onChange={_onChange}
-            style={{
-                marginRight: 4,
-                ...style,
-            }}
+            style={style}
             open={open || dateRangeOpen}
             onBlur={onBlur}
             onClick={onClick}

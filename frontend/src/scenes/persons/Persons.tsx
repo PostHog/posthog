@@ -13,6 +13,8 @@ import { toParams } from 'lib/utils'
 import { PersonsSearch } from './PersonsSearch'
 import { IconExternalLink } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
+import { groupsModel } from '~/models/groupsModel'
+import { GroupsTabs } from 'scenes/groups/GroupsTabs'
 
 export const scene: SceneExport = {
     component: Persons,
@@ -26,6 +28,7 @@ interface PersonsProps {
 export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
+    const { groupsEnabled } = useValues(groupsModel)
 
     useEffect(() => {
         if (cohort) {
@@ -36,7 +39,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
 
     return (
         <div className="persons-list">
-            {!cohort && <PageHeader title="Persons" />}
+            {!cohort && (groupsEnabled ? <GroupsTabs /> : <PageHeader title="Persons" />)}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
                     <PersonsSearch autoFocus={!cohort} />
@@ -94,7 +97,9 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
             <div className="mb text-right">
                 {cohort ? (
                     <LinkButton
-                        to={`/sessions?${toParams({ properties: [{ key: 'id', value: cohort.id, type: 'cohort' }] })}`}
+                        to={`/sessions?${toParams({
+                            properties: [{ key: 'id', value: cohort.id, type: 'cohort' }],
+                        })}`}
                         target="_blank"
                     >
                         <ClockCircleFilled /> View sessions

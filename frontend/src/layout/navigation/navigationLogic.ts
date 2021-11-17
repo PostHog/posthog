@@ -4,13 +4,11 @@ import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogi
 import { navigationLogicType } from './navigationLogicType'
 import { SystemStatus, VersionType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
-import dayjs from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import utc from 'dayjs/plugin/utc'
-dayjs.extend(utc)
+import { dayjs } from 'lib/dayjs'
 
 type WarningType =
     | 'welcome'

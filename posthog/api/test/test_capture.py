@@ -13,8 +13,8 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
-from posthog.models import PersonalAPIKey
-from posthog.models.feature_flag import FeatureFlag
+from posthog.models import Person, PersonalAPIKey
+from posthog.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from posthog.test.base import BaseTest
 
 
@@ -769,6 +769,30 @@ class TestCapture(BaseTest):
             },
         )
         arguments = self._to_arguments(patch_process_event_with_plugins)
+        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
+
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_add_feature_flags_with_overrides_if_missing(self, patch_process_event_with_plugins) -> None:
+        feature_flag_instance = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="test-ff", rollout_percentage=0
+        )
+        Person.objects.create(
+            team=self.team, distinct_ids=[self.user.distinct_id], properties={"email": self.user.email},
+        )
+        FeatureFlagOverride.objects.create(
+            team=self.team, user=self.user, feature_flag=feature_flag_instance, override_value=True
+        )
+        self.client.post(
+            "/track/",
+            data={
+                "data": json.dumps(
+                    [{"event": "purchase", "properties": {"distinct_id": self.user.distinct_id, "$lib": "web"}}]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+        arguments = self._to_arguments(patch_process_event_with_plugins)
+        self.assertEqual(arguments["data"]["properties"]["$feature/test-ff"], True)
         self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
 
     def test_handle_lacking_event_name_field(self):

@@ -1,4 +1,3 @@
-import dayjs from 'dayjs'
 import {
     areObjectValuesEmpty,
     average,
@@ -18,8 +17,10 @@ import {
     objectDiffShallow,
     pluralize,
     toParams,
+    eventToDescription,
 } from './utils'
 import { ActionFilter, PropertyOperator } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
     it('handles unusual input', () => {
@@ -338,5 +339,42 @@ describe('objectDiffShallow()', () => {
             a: '2',
             c: undefined,
         })
+    })
+})
+
+describe('eventToName()', () => {
+    const baseEvent = {
+        elements: [],
+        event: '',
+        properties: {},
+        person: {},
+    }
+
+    it('handles page events as expected', () => {
+        expect(eventToDescription({ ...baseEvent, event: '$pageview', properties: { $pathname: '/hello' } })).toEqual(
+            '/hello'
+        )
+        expect(eventToDescription({ ...baseEvent, event: '$pageleave', properties: { $pathname: '/bye' } })).toEqual(
+            '/bye'
+        )
+    })
+
+    it('handles autocapture as expected', () => {
+        expect(
+            eventToDescription({
+                ...baseEvent,
+                event: '$autocapture',
+                properties: { $event_type: 'click' },
+            })
+        ).toEqual('clicked ')
+    })
+
+    it('handles unknown event/action', () => {
+        expect(
+            eventToDescription({
+                ...baseEvent,
+                event: 'custom event/action',
+            })
+        ).toEqual('custom event/action')
     })
 })

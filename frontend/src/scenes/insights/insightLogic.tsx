@@ -120,16 +120,40 @@ export const insightLogic = kea<insightLogicType>({
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
-                        return
+                        return values.insight
                     }
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         insight
                     )
                     breakpoint()
-                    const updatedInsight = { ...response, result: response.result || values.insight.result }
+                    const updatedInsight: Partial<DashboardItemType> = {
+                        ...response,
+                        result: response.result || values.insight.result,
+                    }
                     callback?.(updatedInsight)
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
+                    return updatedInsight
+                },
+                setInsightMetadata: async ({ metadata }, breakpoint) => {
+                    if (values.insightMode === ItemMode.Edit) {
+                        return { ...values.insight, ...metadata }
+                    }
+
+                    const response = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                        metadata
+                    )
+                    breakpoint()
+
+                    // only update the fields that we changed
+                    const updatedInsight: Partial<DashboardItemType> = { ...values.insight }
+                    for (const key of Object.keys(metadata)) {
+                        updatedInsight[key] = response[key]
+                    }
+                    savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
                     return updatedInsight
                 },
                 // using values.filters, query for new insight results
@@ -262,6 +286,7 @@ export const insightLogic = kea<insightLogicType>({
                 ...(shouldMergeWithExisting ? state : {}),
                 ...insight,
             }),
+            setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
         filters: [
@@ -539,6 +564,7 @@ export const insightLogic = kea<insightLogicType>({
                 </div>
             )
             savedInsightsLogic.findMounted()?.actions.loadInsights()
+            dashboardsModel.actions.updateDashboardItem(savedInsight)
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
@@ -566,13 +592,6 @@ export const insightLogic = kea<insightLogicType>({
                         fromItem: createdInsight.id,
                     })
                 }
-            }
-        },
-        setInsightMetadata: ({ metadata }) => {
-            if (values.insightMode === ItemMode.Edit) {
-                actions.setInsight(metadata, { shouldMergeWithExisting: true })
-            } else {
-                actions.updateInsight(metadata)
             }
         },
     }),

@@ -16,6 +16,9 @@ import { dashboardsModel } from '../../../models/dashboardsModel'
 import { featureFlagLogic } from '../../../scenes/feature-flags/featureFlagLogic'
 import { personsLogic } from '../../../scenes/persons/personsLogic'
 import { asDisplay } from '../../../scenes/persons/PersonHeader'
+import { PopupProps } from 'lib/components/Popup/Popup'
+import { ProjectSwitcherOverlay } from '~/layout/lemonade/ProjectSwitcher'
+import { OrganizationSwitcherOverlay } from '~/layout/lemonade/OrganizationSwitcher'
 
 export interface Breadcrumb {
     /** Name to display. */
@@ -24,10 +27,10 @@ export interface Breadcrumb {
     symbol?: React.ReactNode
     /** Path to link to. */
     path?: string
-    /** Tooltip on hover. */
-    tooltip?: string
     /** Whether this breadcrumb refers to the current location. */
     here?: boolean
+    /** Whether to show a custom popup */
+    popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
 }
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
@@ -38,17 +41,15 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
     connect: {
         values: [
             preflightLogic,
-            ['preflight', 'preflightLoading'],
+            ['preflight'],
             sceneLogic,
             ['sceneConfig', 'activeScene'],
             userLogic,
-            ['user', 'userLoading'],
+            ['user', 'otherOrganizations'],
             organizationLogic,
-            ['currentOrganization', 'currentOrganizationLoading'],
+            ['currentOrganization'],
             teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
-            teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
+            ['currentTeam'],
             dashboardsModel,
             ['rawDashboards', 'lastDashboardId'],
             featureFlagLogic,
@@ -57,7 +58,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
             ['person'],
         ],
     },
-    selectors: {
+    selectors: () => ({
         breadcrumbs: [
             (s) => [
                 s.preflight,
@@ -70,6 +71,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 s.lastDashboardId,
                 s.featureFlag,
                 s.person,
+                s.otherOrganizations,
             ],
             (
                 preflight,
@@ -81,53 +83,61 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 rawDashboards,
                 lastDashboardId,
                 featureFlag,
-                person
+                person,
+                otherOrganizations
             ) => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (!activeScene) {
+                if (!activeScene || !sceneConfig) {
                     return breadcrumbs
                 }
                 // User
-                if (sceneConfig?.personal) {
+                if (sceneConfig.personal) {
                     if (!user) {
                         return breadcrumbs
                     }
                     breadcrumbs.push({
                         name: user.first_name,
-                        tooltip: 'You',
                         symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
                     })
                 }
                 // Instance
-                if (sceneConfig?.instanceLevel) {
+                if (sceneConfig.instanceLevel) {
                     if (!preflight?.site_url) {
                         return breadcrumbs
                     }
                     breadcrumbs.push({
                         name: stripHTTP(preflight.site_url),
-                        tooltip: 'This PostHog instance',
                         symbol: <Lettermark name="@" />,
                     })
                 }
                 // Organization
-                if (sceneConfig?.organizationBased || sceneConfig?.projectBased) {
+                if (sceneConfig.organizationBased || sceneConfig.projectBased) {
                     if (!currentOrganization) {
                         return breadcrumbs
                     }
                     breadcrumbs.push({
                         name: currentOrganization.name,
                         symbol: <Lettermark name={currentOrganization.name} />,
-                        tooltip: 'Current organization',
+                        popup:
+                            otherOrganizations?.length || preflight?.can_create_org
+                                ? {
+                                      overlay: <OrganizationSwitcherOverlay />,
+                                      actionable: true,
+                                  }
+                                : undefined,
                     })
                 }
                 // Project
-                if (sceneConfig?.projectBased) {
+                if (sceneConfig.projectBased) {
                     if (!currentTeam) {
                         return breadcrumbs
                     }
                     breadcrumbs.push({
                         name: currentTeam.name,
-                        tooltip: 'Current project',
+                        popup: {
+                            overlay: <ProjectSwitcherOverlay />,
+                            actionable: true,
+                        },
                     })
                 }
                 // Parent page handling
@@ -193,43 +203,12 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                     default:
                         // Current place
                         breadcrumbs.push({
-                            name: identifierToHuman(activeScene),
+                            name: sceneConfig.name || identifierToHuman(activeScene),
                             here: true,
                         })
                 }
                 return breadcrumbs
             },
         ],
-        breadcrumbsLoading: [
-            (s) => [
-                s.preflightLoading,
-                s.sceneConfig,
-                s.userLoading,
-                s.currentOrganizationLoading,
-                s.currentTeamLoading,
-            ],
-            (preflightLoading, sceneConfig, userLoading, currentOrganizationLoading, currentTeamLoading) => {
-                if (!sceneConfig) {
-                    return true
-                }
-                // User
-                if (sceneConfig.personal && userLoading) {
-                    return true
-                }
-                // Instance
-                if (sceneConfig.instanceLevel && preflightLoading) {
-                    return true
-                }
-                // Organization
-                if ((sceneConfig.organizationBased || sceneConfig.projectBased) && currentOrganizationLoading) {
-                    return true
-                }
-                // Project
-                if (sceneConfig.projectBased && currentTeamLoading) {
-                    return true
-                }
-                return false
-            },
-        ],
-    },
+    }),
 })

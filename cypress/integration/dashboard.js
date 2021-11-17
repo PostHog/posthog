@@ -21,9 +21,9 @@ describe('Dashboard', () => {
 
     it('Pinned dashboards on menu', () => {
         cy.clickNavMenu('events') // to make sure the dashboards menu item is not the active one
-        cy.get('[data-attr=menu-item-dashboards]').trigger('mouseover') // hover over dashboards menu item
-        cy.get('.pinned-dashboards').should('be.visible')
-        cy.get('[data-attr=menu-item-dashboard-0]').should('be.visible')
+        cy.get('[data-attr=menu-item-pinned-dashboards]').click()
+        cy.get('.SideBar__pinned-dashboards').should('be.visible')
+        cy.get('.SideBar__pinned-dashboards div').should('contain', 'App Analytics')
     })
 
     it('Share dashboard', () => {

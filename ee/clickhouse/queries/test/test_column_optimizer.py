@@ -66,6 +66,17 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             properties_used_in_filter(filter), {("random_column", "person", None): 1, ("$browser", "person", None): 1}
         )
 
+        filter = BASE_FILTER.with_data(
+            {
+                "funnel_correlation_type": "properties",
+                "funnel_correlation_names": ["random_column", "$browser"],
+                "aggregation_group_type_index": 2,
+            }
+        )
+        self.assertEqual(
+            properties_used_in_filter(filter), {("random_column", "group", 2): 1, ("$browser", "group", 2): 1}
+        )
+
         filter = BASE_FILTER.with_data({"funnel_correlation_type": "properties"})
         self.assertEqual(properties_used_in_filter(filter), {})
 

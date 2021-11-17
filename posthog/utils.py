@@ -241,18 +241,22 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
     context["js_url"] = settings.JS_URL
 
+    posthog_app_context: Dict[str, Any] = {
+        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+    }
+
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.team import TeamSerializer
         from posthog.api.user import User, UserSerializer
         from posthog.views import preflight_check
 
-        posthog_app_context: Dict[str, Any] = {
+        posthog_app_context = {
             "current_user": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
-            "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+            **posthog_app_context,
         }
 
         if request.user.pk:
@@ -263,9 +267,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
                 posthog_app_context["current_team"] = team_serialized.data
 
-        context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
-    else:
-        context["posthog_app_context"] = "null"
+    context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
     html = template.render(context, request=request)
     return HttpResponse(html)

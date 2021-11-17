@@ -3,35 +3,41 @@
 .Breadcrumbs {
     display: flex;
     align-items: center;
-    width: 100vw;
     // Make the container full width to aid horizontal scroll while automatically retaining proper padding
+    width: 100vw;
     padding: 0 calc((100vw - 100%) / 2);
     margin-left: calc((100vw - 100%) / -2);
-    margin-top: 1.5rem;
+    margin-top: 1rem;
     cursor: default;
     overflow-x: auto;
-    &--loading {
-        margin-top: 0.75rem;
-    }
-    @media (max-width: $md) {
-        margin-top: 1rem;
-        &--loading {
-            margin-top: 0.25rem;
-        }
+    @media screen and (min-width: $lg) {
+        // Disable fullwidth hacks for viewport widths where the sidebar affects layout
+        width: auto;
+        padding: 0;
+        margin-left: 0;
+        margin-top: 1.5rem;
     }
 }
 
 .Breadcrumbs__breadcrumb {
     display: flex;
     align-items: center;
-    color: var(--primary);
-    font-weight: 500;
+    font-weight: $medium;
     white-space: pre;
+    user-select: none;
+
     &--current {
-        font-style: italic;
+        color: $text_default;
+        cursor: default;
     }
+
     > :first-child {
         margin-right: 0.5rem;
+    }
+
+    &--actionable {
+        cursor: pointer;
+        color: $primary;
     }
 }
 

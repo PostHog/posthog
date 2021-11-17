@@ -23,7 +23,6 @@ export const userLogic = kea<userLogicType>({
     loaders: ({ values, actions }) => ({
         user: [
             // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
-            // TODO: We already send the current user in `posthog_app_context`, so we don't have to do this extra request
             null as UserType | null,
             {
                 loadUser: async () => {
@@ -83,6 +82,17 @@ export const userLogic = kea<userLogicType>({
                     posthog.register({
                         is_demo_project: teamLogic.values.currentTeam?.is_demo,
                     })
+
+                    if (user.team) {
+                        posthog.group('project', user.team.uuid, {
+                            id: user.team.id,
+                            uuid: user.team.uuid,
+                            name: user.team.name,
+                            ingested_event: user.team.ingested_event,
+                            is_demo: user.team.is_demo,
+                            timezone: user.team.timezone,
+                        })
+                    }
 
                     if (user.organization) {
                         posthog.group('organization', user.organization.id, {

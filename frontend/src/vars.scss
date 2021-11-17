@@ -4,6 +4,10 @@ when changing any base config here, please remember to update antd.less too  */
 // Main colors
 $primary: #5375ff;
 $primary_alt: #35416b;
+$primary_hover: #7d9bff;
+$primary_active: #3d57d9;
+$primary_bg_hover: rgba($primary, 0.1);
+$primary_bg_active: rgba($primary, 0.2);
 $success: #77b96c;
 $warning: #f7a501;
 $danger: #f96132;
@@ -56,6 +60,14 @@ $antd_table_background_dark: #fafafa;
 // Session Recording
 $recording_player_container_bg: #797973;
 $recording_buffer_bg: #faaf8c;
+$recording_hover_event: rgba($primary, 0.1);
+$recording_hover_event_dark: $primary;
+$recording_current_event: #eef2ff;
+$recording_current_event_dark: #35416b;
+$recording_failure_event: #fee9e2;
+$recording_failure_event_dark: #cd3000;
+$recording_highlight_event: #fdedc9;
+$recording_highlight_event_dark: #946508;
 
 // Blue Swatch
 $blue_700: #35416b;
@@ -124,6 +136,9 @@ $default_spacing: 1rem;
 $radius: 4px;
 $top_nav_height: 50px;
 
+// Session Recording
+$recording_spacing: $default_spacing * 2 / 3;
+
 .text-ellipsis {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -155,6 +170,7 @@ $z_city_background_content: 1;
 $z_city_background_image: 0;
 
 // Shadows
+$shadow_elevation: 0px 16px 16px -16px rgba(0, 0, 0, 0.25);
 $shadow_popup: 0 3px 6px -4px rgb(0 0 0 / 12%), 0 6px 16px 0 rgb(0 0 0 / 8%), 0 9px 28px 8px rgb(0 0 0 / 5%);
 
 // Breakpoints (from AntD)

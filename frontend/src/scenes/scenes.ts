@@ -28,64 +28,84 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
+        name: 'Dashboards',
     },
     [Scene.Dashboard]: {
         projectBased: true,
     },
     [Scene.Insights]: {
         projectBased: true,
+        name: 'Insights',
+    },
+    [Scene.InsightRouter]: {
+        projectBased: true,
+        name: 'Insights',
     },
     [Scene.Cohorts]: {
         projectBased: true,
+        name: 'Cohorts',
     },
     [Scene.Events]: {
         projectBased: true,
+        name: 'Events & actions',
     },
     [Scene.Actions]: {
         projectBased: true,
+        name: 'Actions',
     },
     [Scene.EventStats]: {
         projectBased: true,
+        name: 'Event stats',
     },
     [Scene.EventPropertyStats]: {
         projectBased: true,
+        name: 'Property stats',
     },
     [Scene.Sessions]: {
         projectBased: true,
+        name: 'Sessions',
     },
     [Scene.SessionRecordings]: {
         projectBased: true,
+        name: 'Recordings',
     },
     [Scene.Person]: {
         projectBased: true,
+        name: 'Person',
     },
     [Scene.Persons]: {
         projectBased: true,
+        name: 'Persons',
     },
     [Scene.Action]: {
         projectBased: true,
     },
+    [Scene.Groups]: {
+        projectBased: true,
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
+        name: 'Feature flags',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
     },
     [Scene.Annotations]: {
         projectBased: true,
+        name: 'Annotations',
     },
     [Scene.Plugins]: {
         projectBased: true,
+        name: 'Plugins',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
+        name: 'Insights',
     },
     [Scene.ProjectSettings]: {
         projectBased: true,
         hideDemoWarnings: true,
-    },
-    [Scene.InsightRouter]: {
-        projectBased: true,
+        name: 'Project settings',
     },
     [Scene.Personalization]: {
         projectBased: true,
@@ -178,6 +198,7 @@ export const routes: Record<string, Scene> = {
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*')]: Scene.Person,
     [urls.persons()]: Scene.Persons,
+    [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.cohort(':id')]: Scene.Cohorts,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.featureFlags()]: Scene.FeatureFlags,

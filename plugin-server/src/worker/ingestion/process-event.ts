@@ -4,7 +4,7 @@ import * as Sentry from '@sentry/node'
 import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
-import { DatabaseError, QueryResult } from 'pg'
+import { DatabaseError } from 'pg'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
@@ -29,10 +29,11 @@ import {
     timeoutGuard,
 } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, RaceConditionError, UUID, UUIDT } from '../../utils/utils'
+import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
+import { updatePersonProperties } from './properties-updater'
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
 
@@ -209,7 +210,32 @@ export class EventsProcessor {
         return now
     }
 
+    public isNewPersonPropertiesUpdateEnabled(teamId: number): boolean {
+        try {
+            const teamsStrs = this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS.split(',').filter(String)
+            const teams = teamsStrs.map((teamId) => Number(teamId))
+            return !!teams.includes(teamId)
+        } catch (error) {
+            Sentry.captureException(error)
+            return false
+        }
+    }
+
     private async updatePersonProperties(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties,
+        timestamp: DateTime
+    ): Promise<void> {
+        if (this.isNewPersonPropertiesUpdateEnabled(teamId)) {
+            await updatePersonProperties(this.db, teamId, distinctId, properties, propertiesOnce, timestamp)
+        } else {
+            await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
+        }
+    }
+
+    private async updatePersonPropertiesDeprecated(
         teamId: number,
         distinctId: string,
         properties: Properties,
@@ -237,7 +263,7 @@ export class EventsProcessor {
 
         const arePersonsEqual = equal(personFound.properties, updatedProperties)
 
-        if (arePersonsEqual && !this.db.kafkaProducer) {
+        if (arePersonsEqual) {
             return
         }
 
@@ -406,12 +432,14 @@ export class EventsProcessor {
                 )
 
                 // Merge the distinct IDs
-                await client.query('UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2', [
-                    mergeInto.id,
-                    otherPerson.id,
-                ])
+                await this.db.postgresQuery(
+                    'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
+                    [mergeInto.id, otherPerson.id],
+                    'updateCohortPeople',
+                    client
+                )
 
-                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto)
+                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 
@@ -501,7 +529,8 @@ export class EventsProcessor {
                 teamId,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {}
+                properties['$set_once'] || {},
+                timestamp
             )
         }
 

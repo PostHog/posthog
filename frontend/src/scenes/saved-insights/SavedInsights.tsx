@@ -3,14 +3,13 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
-import React from 'react'
+import React, { useState } from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import {
     AppstoreFilled,
     ArrowDownOutlined,
     ArrowUpOutlined,
-    CaretDownFilled,
     EllipsisOutlined,
     LeftOutlined,
     MenuOutlined,
@@ -25,7 +24,6 @@ import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/Da
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import dayjs from 'dayjs'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
@@ -45,6 +43,8 @@ import { ColumnsType } from 'antd/lib/table'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { LemonButton } from '../../lib/components/LemonButton'
+import { dayjs } from 'lib/dayjs'
 
 const { TabPane } = Tabs
 
@@ -120,6 +120,52 @@ const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
     </div>
 )
 
+function NewInsightButton(): JSX.Element {
+    const [isNewInsightsPopupVisible, setIsNewInsightsPopupVisible] = useState(false)
+
+    return (
+        <LemonButton
+            type="primary"
+            onClick={() => setIsNewInsightsPopupVisible((state) => !state)}
+            popup={{
+                placement: 'bottom-end',
+                visible: isNewInsightsPopupVisible,
+                onClickOutside: () => setIsNewInsightsPopupVisible(false),
+                className: 'new-insight-overlay',
+                actionable: true,
+                overlay: insightTypes.map(
+                    (listedInsightType) =>
+                        listedInsightType.inMenu && (
+                            <LemonButton
+                                key={listedInsightType.type}
+                                type="stealth"
+                                icon={
+                                    listedInsightType.icon && (
+                                        <listedInsightType.icon color="var(--muted-alt)" noBackground />
+                                    )
+                                }
+                                to={urls.newInsight(listedInsightType.type)}
+                                data-attr="saved-insights-create-new-insight"
+                                data-attr-insight-type={listedInsightType.type}
+                                onClick={() => {
+                                    setIsNewInsightsPopupVisible(false)
+                                    eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType.type)
+                                }}
+                                fullWidth
+                                extendedContent={listedInsightType.description}
+                            >
+                                <strong>{listedInsightType.name}</strong>
+                            </LemonButton>
+                        )
+                ),
+            }}
+            data-attr="saved-insights-new-insight-button"
+        >
+            New insight
+        </LemonButton>
+    )
+}
+
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
@@ -128,6 +174,7 @@ export function SavedInsights(): JSX.Element {
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
+
     const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
@@ -295,52 +342,7 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <Row style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <PageHeader title={'Insights'} />
-                <Dropdown
-                    overlay={
-                        <Menu className="saved-insights-menu">
-                            {insightTypes
-                                .filter((i) => i.inMenu)
-                                .map((menuItem) => (
-                                    <Menu.Item key={menuItem.type}>
-                                        <Link
-                                            to={urls.newInsight(menuItem.type)}
-                                            data-attr="saved-insights-create-new-insight"
-                                            data-attr-insight-type={menuItem.type}
-                                            onClick={() =>
-                                                eventUsageLogic.actions.reportSavedInsightNewInsightClicked(
-                                                    menuItem.type
-                                                )
-                                            }
-                                        >
-                                            <Row className="icon-menu">
-                                                <Col>
-                                                    {menuItem.icon ? (
-                                                        <menuItem.icon color="#747EA2" noBackground />
-                                                    ) : null}
-                                                </Col>
-                                                <Col>
-                                                    <strong>{menuItem.name}</strong>
-                                                    <p>{menuItem.description}</p>
-                                                </Col>
-                                            </Row>
-                                        </Link>
-                                    </Menu.Item>
-                                ))}
-                        </Menu>
-                    }
-                    trigger={['click']}
-                >
-                    <button
-                        className="new-insight-dropdown-btn"
-                        onClick={(e) => e.preventDefault()}
-                        data-attr="saved-insights-new-insight-button"
-                    >
-                        New Insight <CaretDownFilled style={{ paddingLeft: 12 }} />
-                    </button>
-                </Dropdown>
-            </Row>
+            <PageHeader title="Insights" buttons={<NewInsightButton />} />
 
             <Tabs
                 activeKey={tab}
