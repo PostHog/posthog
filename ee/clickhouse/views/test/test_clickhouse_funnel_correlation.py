@@ -631,7 +631,7 @@ def create_team(organization):
     return Team.objects.create(name="Test Team", organization=organization)
 
 
-class EventPattern(TypedDict):
+class EventPattern(TypedDict, total=False):
     id: str
     type: Union[Literal["events"], Literal["actions"]]
 
