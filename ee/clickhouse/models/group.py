@@ -2,6 +2,7 @@ import datetime
 import json
 from typing import Dict, Optional
 
+from django.conf import settings
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils.timezone import now
@@ -13,7 +14,7 @@ from ee.kafka_client.topics import KAFKA_GROUPS
 from posthog.models.group import Group
 from posthog.utils import is_clickhouse_enabled
 
-if is_clickhouse_enabled():
+if is_clickhouse_enabled() and settings.TEST:
 
     @receiver(post_save, sender=Group)
     def group_created(sender, instance: Group, created, **kwargs):
