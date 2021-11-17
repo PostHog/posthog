@@ -259,15 +259,12 @@ def get_single_or_multi_property_string_expr(
     clickhouse parameterizes into a query template from a flat list using % string formatting
     values are escaped and inserted in the query here instead of adding new items to the flat list of values
     """
-    if isinstance(breakdown, str):
-        expression, _ = get_property_string_expr(table, breakdown, escape_param(breakdown), prop_var)
-    else:
-        expressions = []
-        for b in breakdown:
-            expr, _ = get_property_string_expr(table, b, escape_param(b), prop_var)
-            expressions.append(expr)
+    expressions = []
+    for b in box_value(breakdown):
+        expr, _ = get_property_string_expr(table, b, escape_param(b), prop_var)
+        expressions.append(expr)
 
-        expression = f"array({','.join(expressions)})"
+    expression = f"array({','.join(expressions)})"
 
     return f"{expression} AS {identifier}"
 
