@@ -66,7 +66,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
                 {
                     "Name": get_person_name(person),
                     "Distinct ID": person.distinct_ids[0] if person.distinct_ids else "",
-                    "Internal ID": person.uuid,
+                    "Internal ID": str(person.uuid),
                     "Email": person.properties.get("email"),
                     "Properties": person.properties,
                 }
