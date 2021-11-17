@@ -1,6 +1,7 @@
 import urllib.parse
 from typing import List, Tuple, cast
 
+from ee.clickhouse.queries.actor_base_query import format_select_fields
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from posthog.models.cohort import Cohort
@@ -47,8 +48,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
-                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
+            SELECT aggregation_target, steps {self._get_aggregate_person_fields()} {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
+                SELECT *, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
                         {steps_per_person_query}
                 )
             ) GROUP BY aggregation_target, steps {breakdown_clause}
@@ -190,8 +191,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         if level_index >= max_steps:
             return f"""
             SELECT
-            aggregation_target,
-            timestamp,
+            *,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
             FROM ({self._get_inner_event_query()})
@@ -199,16 +199,17 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         else:
             return f"""
             SELECT
-            aggregation_target,
-            timestamp,
+            *,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
             FROM (
                 SELECT
-                aggregation_target,
-                timestamp,
+                *,
                 {self.get_comparison_cols(level_index, max_steps)}
                 {self._get_breakdown_prop()}
                 FROM ({self.build_step_subquery(level_index + 1, max_steps)})
             )
             """
+
+    def _get_aggregate_person_fields(self):
+        return format_select_fields(self._extra_aggregated_person_fields)

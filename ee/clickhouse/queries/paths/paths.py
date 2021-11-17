@@ -148,9 +148,8 @@ class ClickhousePaths:
             include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
             no_person_limit=True,
         )
-        funnel_persons_query = funnel_persons_generator.get_query()
+        funnel_persons_query, funnel_persons_param = funnel_persons_generator.get_actor_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
-        funnel_persons_param = funnel_persons_generator.params
         new_funnel_params = {"funnel_" + str(key): val for key, val in funnel_persons_param.items()}
         self.params.update(new_funnel_params)
         return f"""

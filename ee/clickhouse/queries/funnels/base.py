@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
@@ -14,6 +15,7 @@ from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
+from posthog.models.property import GroupTypeIndex
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
@@ -24,6 +26,12 @@ class ClickhouseFunnelBase(ABC, Funnel):
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
     _no_person_limit: Optional[bool]  # used when paths are querying for filter people
+
+    _should_join_persons = False
+    _extra_person_fields: List[ColumnName] = []
+    _extra_aggregated_person_fields: Dict[str, str] = {}
+    _extra_group_fields: Dict[GroupTypeIndex, ColumnName] = {}
+    _with_persons = False
 
     def __init__(
         self,
@@ -294,10 +302,12 @@ class ClickhouseFunnelBase(ABC, Funnel):
         self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False
     ) -> str:
         entities_to_use = entities or self._filter.entities
-
-        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
-            entities_to_use, entity_name, skip_entity_filter=skip_entity_filter
-        )
+        event_query, params = FunnelEventQuery(
+            filter=self._filter,
+            team_id=self._team.pk,
+            should_join_persons=self._should_join_persons,
+            extra_person_fields=self._extra_person_fields,
+        ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
 

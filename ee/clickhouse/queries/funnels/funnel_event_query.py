@@ -2,6 +2,7 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.groups_join_query import GROUP_ALIASES
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 

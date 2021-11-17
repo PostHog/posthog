@@ -68,3 +68,7 @@ class ActorBaseQuery:
             name=alias or id,
             distinct_ids=distinct_ids,
         )
+
+
+def format_select_fields(fields: Dict[str, str]) -> str:
+    return " ".join(f", {selector} AS {column_name}" for column_name, selector in fields.items())

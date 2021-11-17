@@ -3,12 +3,8 @@ from typing import Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
-from rest_framework.utils.serializer_helpers import ReturnDict
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.group import ClickhouseGroupSerializer
-from ee.clickhouse.models.person import ClickhousePersonSerializer
-from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, format_select_fields
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.sql.person import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
@@ -94,7 +90,7 @@ class TrendsPersonQuery(ActorBaseQuery):
             "distinct_ids": f"arrayReduce('groupUniqArray', groupArray(distinct_id))",
         }
 
-        formatted_select_fields = self._format_select_fields(fields=select_fields)
+        formatted_select_fields = format_select_fields(fields=select_fields)
 
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(
@@ -119,7 +115,7 @@ class TrendsPersonQuery(ActorBaseQuery):
             "properties": f"any(group_properties_{group_type_index})",
         }
 
-        formatted_select_fields = self._format_select_fields(fields=select_fields)
+        formatted_select_fields = format_select_fields(fields=select_fields)
 
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(
@@ -130,6 +126,3 @@ class TrendsPersonQuery(ActorBaseQuery):
             ),
             {**params, "offset": self.filter.offset, "limit": 200},
         )
-
-    def _format_select_fields(self, fields: Dict[str, str]) -> str:
-        return " ".join(f", {selector} AS {column_name}" for column_name, selector in fields.items())
