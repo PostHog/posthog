@@ -1,5 +1,5 @@
 import './Popup.scss'
-import React, { ReactElement, useContext, useEffect, useMemo, useState } from 'react'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
@@ -9,7 +9,7 @@ import clsx from 'clsx'
 export interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
-    onClickInside?: (event: Event) => void
+    onClickInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. */
     children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
     /** Content of the overlay. */

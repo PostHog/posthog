@@ -4,17 +4,13 @@ import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { TZLabel } from '../TimezoneAware'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import { ColumnType } from 'antd/lib/table'
 
-export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): {
-    title: React.ReactElement
-    align: 'right'
-    render: (_: any, item: T) => JSX.Element | undefined | ''
-    sorter: (a: any, b: any) => number
-} {
+export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): ColumnType<T> {
     return {
         title: normalizeColumnTitle('Created'),
         align: 'right',
-        render: function RenderCreatedAt(_: any, item: T): JSX.Element | undefined | '' {
+        render: function RenderCreatedAt(_, item): JSX.Element | undefined | '' {
             return (
                 item.created_at && (
                     <div style={{ whiteSpace: 'nowrap' }}>
@@ -23,19 +19,11 @@ export function createdAtColumn<T extends Record<string, any> = Record<string, a
                 )
             )
         },
-        sorter: (a: T, b: T) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
+        sorter: (a, b) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
     }
 }
 
-export function createdByColumn<T extends Record<string, any> = Record<string, any>>(
-    items: T[]
-): {
-    title: React.ReactElement
-    render: (_: any, item: T) => JSX.Element | undefined | ''
-    filters: { text: string; value: string | null }[]
-    onFilter: (value: any, item: T) => boolean
-    sorter: (a: any, b: any) => number
-} {
+export function createdByColumn<T extends Record<string, any> = Record<string, any>>(items: T[]): ColumnType<T> {
     const { user } = useValues(userLogic)
     return {
         title: normalizeColumnTitle('Created by'),
@@ -70,9 +58,8 @@ export function createdByColumn<T extends Record<string, any> = Record<string, a
             }
             return (a.text + '').localeCompare(b.text + '')
         }),
-        onFilter: (value: string, item: Record<string, any>) =>
-            (value === null && item.created_by === null) || item.created_by?.uuid === value,
-        sorter: (a: Record<string, any>, b: Record<string, any>) =>
+        onFilter: (value, item) => (value === null && item.created_by === null) || item.created_by?.uuid === value,
+        sorter: (a, b) =>
             (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
                 b.created_by?.first_name || b.created_by?.email || ''
             ),

@@ -52,7 +52,9 @@ export function FeatureFlags(): JSX.Element {
                 )
             },
         },
+        // @ts-expect-error - these functions return an AntD column, but its compatible here too
         createdByColumn(featureFlags),
+        // @ts-expect-error
         createdAtColumn(),
         {
             title: 'Release conditions',
