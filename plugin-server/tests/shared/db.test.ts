@@ -28,6 +28,7 @@ describe('DB', () => {
     const TEAM_ID = 2
     const ACTION_ID = 69
     const ACTION_STEP_ID = 913
+    const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
     test('fetchAllActionsGroupedByTeam', async () => {
         const action = await db.fetchAllActionsGroupedByTeam()
@@ -78,8 +79,6 @@ describe('DB', () => {
         let person: Person
         const uuid = new UUIDT().toString()
         const distinctId = 'distinct_id1'
-
-        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
         beforeEach(async () => {
             team = await getFirstTeam(hub)
@@ -178,6 +177,78 @@ describe('DB', () => {
             expect(await db.insertGroupType(2, 'foo', 0)).toEqual([1, false])
 
             expect(await db.fetchGroupTypes(2)).toEqual({ group_name: 0, foo: 1 })
+        })
+    })
+
+    describe('fetchGroup() and upsertGroup()', () => {
+        it('returns undefined if no group type exists', async () => {
+            expect(await db.fetchGroup(2, 0, 'group_key')).toEqual(undefined)
+        })
+
+        it('allows inserts and fetches', async () => {
+            const version = await db.upsertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'val' },
+                TIMESTAMP,
+                { prop: TIMESTAMP },
+                { prop: '$set' },
+                1
+            )
+
+            expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
+                id: expect.any(Number),
+                team_id: 2,
+                group_type_index: 0,
+                group_key: 'group_key',
+                group_properties: { prop: 'val' },
+                created_at: TIMESTAMP,
+                properties_last_updated_at: { prop: TIMESTAMP.toISO() },
+                properties_last_operation: { prop: '$set' },
+                version: 1,
+            })
+            expect(version).toEqual(1)
+        })
+
+        it('handles updates', async () => {
+            await db.upsertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'val' },
+                TIMESTAMP,
+                { prop: TIMESTAMP },
+                { prop: '$set' },
+                1
+            )
+
+            const originalGroup = await db.fetchGroup(2, 0, 'group_key')
+
+            const timestamp2 = DateTime.fromISO('2000-10-14T12:42:06.502Z').toUTC()
+            const newVersion = await db.upsertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'newVal', prop2: 2 },
+                timestamp2,
+                { prop: timestamp2, prop2: timestamp2 },
+                { prop: '$set', prop2: '$set' },
+                2
+            )
+
+            expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
+                id: originalGroup!.id,
+                team_id: 2,
+                group_type_index: 0,
+                group_key: 'group_key',
+                group_properties: { prop: 'newVal', prop2: 2 },
+                created_at: TIMESTAMP,
+                properties_last_updated_at: { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
+                properties_last_operation: { prop: '$set', prop2: '$set' },
+                version: 2,
+            })
+            expect(newVersion).toEqual(2)
         })
     })
 })

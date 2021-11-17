@@ -25,6 +25,7 @@ import {
     ElementGroup,
     Event,
     EventDefinitionType,
+    Group,
     GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
@@ -36,8 +37,11 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PostgresSessionRecordingEvent,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
     PropertyDefinitionType,
     RawAction,
+    RawGroup,
     RawOrganization,
     RawPerson,
     SessionRecordingEvent,
@@ -1268,9 +1272,69 @@ export class DB {
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        client?: PoolClient
-    ) {
+        client?: PoolClient,
+        options: { forUpdate?: boolean } = {}
+    ): Promise<Group | undefined> {
+        let queryString = `SELECT * FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
 
+        if (options.forUpdate) {
+            queryString = queryString.concat(` FOR UPDATE`)
+        }
+
+        const selectResult: QueryResult = await this.postgresQuery(
+            queryString,
+            [teamId, groupTypeIndex, groupKey],
+            'fetchGroup',
+            client
+        )
+
+        if (selectResult.rows.length > 0) {
+            const rawGroup: RawGroup = selectResult.rows[0]
+            return {
+                ...rawGroup,
+                created_at: DateTime.fromISO(rawGroup.created_at).toUTC(),
+                version: Number(rawGroup.version || 0),
+            }
+        }
+    }
+
+    public async upsertGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        groupProperties: Properties,
+        createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        version: number,
+        client?: PoolClient
+    ): Promise<number> {
+        const result = await this.postgresQuery(
+            `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (team_id, group_key, group_type_index) DO UPDATE SET
+                group_properties = EXCLUDED.group_properties,
+                properties_last_updated_at = EXCLUDED.properties_last_updated_at,
+                properties_last_operation = EXCLUDED.properties_last_operation,
+                version = posthog_group.version + 1
+            RETURNING version
+            `,
+            [
+                teamId,
+                groupKey,
+                groupTypeIndex,
+                JSON.stringify(groupProperties),
+                createdAt.toISO(),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+                version,
+            ],
+            'upsertGroup',
+            client
+        )
+
+        return Number(result.rows[0].version)
     }
 
     public async upsertGroupClickhouse(

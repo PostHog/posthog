@@ -512,11 +512,11 @@ export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
 interface BaseGroup {
     id: number
     team_id: number
-    group_key: string
     group_type_index: GroupTypeIndex
+    group_key: string
     group_properties: Properties
-    properties_last_updated_at: Record<string, any>
-    properties_last_operation: Record<string, any>
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation
 }
 
 /** Raw Group row from database. */
