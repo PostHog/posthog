@@ -484,7 +484,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, Event.o
 
         matched_person = (
             Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
-            .filter(properties_to_Q(filter.properties, team_id=self.team.pk, is_person_query=True))
+            .filter(properties_to_Q(filter.properties, team_id=self.team.pk, is_direct_query=True))
             .exists()
         )
         self.assertTrue(matched_person)

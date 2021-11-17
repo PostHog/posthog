@@ -177,7 +177,7 @@ class FeatureFlagMatcher:
 
             if len(condition.get("properties", {})) > 0:
                 expr: Any = properties_to_Q(
-                    Filter(data=condition).properties, team_id=self.feature_flag.team_id, is_person_query=True
+                    Filter(data=condition).properties, team_id=self.feature_flag.team_id, is_direct_query=True
                 )
             else:
                 expr = RawSQL("true", [])
