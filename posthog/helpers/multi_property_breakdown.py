@@ -15,6 +15,7 @@ def protect_old_clients_from_multi_property_default(
     :param result: the query result which may contain an unwanted array breakdown
     :return:
     """
+
     is_single_property_breakdown = (
         "insight" in data
         and data["insight"] == "FUNNELS"
