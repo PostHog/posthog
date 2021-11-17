@@ -469,8 +469,8 @@ export interface DeadLetterQueueEvent {
     _offset: number
 }
 
-export type PropertiesLastUpdatedAt = Record<string, any>
-export type PropertiesLastOperation = Record<string, any>
+export type PropertiesLastUpdatedAt = Record<string, string>
+export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
 
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
