@@ -93,7 +93,7 @@ class ActorBaseQuery:
         return [
             SerializedPerson(
                 type="person",
-                id=person.uuid,
+                id=str(person.uuid),
                 created_at=person.created_at,
                 properties=person.properties,
                 is_identified=person.is_identified,
