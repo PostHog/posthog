@@ -3,7 +3,7 @@ import dataclasses
 import gzip
 import json
 from collections import defaultdict
-from typing import DefaultDict, Dict, Generator, List
+from typing import DefaultDict, Dict, Generator, List, Optional
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -118,7 +118,7 @@ def decompress(base64data: str) -> str:
     return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
 
 
-def paginate_snapshot_list(list_to_paginate: List, limit: int, offset: int) -> PaginatedSnapshotList:
+def paginate_snapshot_list(list_to_paginate: List, limit: Optional[int], offset: int) -> PaginatedSnapshotList:
     if not limit:
         has_next = False
         paginated_list = list_to_paginate[offset:]
@@ -135,7 +135,7 @@ def paginate_chunk_decompression(
     team_id: int,
     session_recording_id: str,
     all_recording_snapshots: List[SnapshotData],
-    limit: int = None,
+    limit: Optional[int] = None,
     offset: int = 0,
 ) -> PaginatedSnapshotList:
     if len(all_recording_snapshots) == 0:

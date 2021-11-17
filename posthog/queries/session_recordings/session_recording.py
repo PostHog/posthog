@@ -12,7 +12,7 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.utils import format_query_params_absolute_url
 
 
-class RecordingMetadata(TypedDict):
+class RecordingMetadata(TypedDict, total=False):
     start_time: Optional[datetime]
     end_time: Optional[datetime]
     duration: Optional[timedelta]
@@ -136,13 +136,13 @@ class SessionRecording:
         # Takes a list of snapshots and returns a list of active segments with start and end times
         snapshot_data_list = [event.snapshot_data for event in list(snapshots)]
         decompressed_data = paginate_chunk_decompression(self._team.pk, self._session_recording_id, snapshot_data_list)
-        active_recording_segments = []
+        active_recording_segments: List[Dict[str, datetime]] = []
 
-        current_active_segment = None
+        current_active_segment: Optional[Dict[str, datetime]] = None
 
         for data in decompressed_data.paginated_list:
             if self._is_active_event(data):
-                current_timestamp = datetime.fromtimestamp(data.get("timestamp") / 1000, timezone.utc)
+                current_timestamp = datetime.fromtimestamp(data.get("timestamp", 0) / 1000, timezone.utc)
 
                 # If the time since the last active event is less than the threshold, continue the existing segment
                 if current_active_segment and (current_timestamp - current_active_segment["end_time"]) <= timedelta(
