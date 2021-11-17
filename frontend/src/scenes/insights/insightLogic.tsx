@@ -588,6 +588,12 @@ export const insightLogic = kea<insightLogicType>({
             })
             toast(`You're now working on a copy of ${values.insight.name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
+            if (values.syncWithUrl) {
+                router.actions.replace('/insights', router.values.searchParams, {
+                    ...router.values.hashParams,
+                    fromItem: insight.id,
+                })
+            }
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
@@ -619,11 +625,6 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     actionToUrl: ({ values }) => ({
-        setInsight: ({ insight }) => {
-            if (router.values.hashParams.fromItem !== insight.id) {
-                return ['/insights', values.filters, { ...router.values.hashParams, fromItem: insight.id }]
-            }
-        },
         setFilters: () => {
             if (values.syncWithUrl) {
                 return ['/insights', values.filters, router.values.hashParams, { replace: true }]

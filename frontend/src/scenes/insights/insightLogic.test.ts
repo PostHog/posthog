@@ -62,7 +62,7 @@ describe('insightLogic', () => {
                     { id: 43, result: ['result 43'], filters: API_FILTERS },
                 ],
             }
-        } else if (method === 'create') {
+        } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
             return { id: 12, name: data?.name }
         } else if (
             [
@@ -567,12 +567,16 @@ describe('insightLogic', () => {
         await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
     })
 
-    test('Save as new insight xyz', async () => {
+    test('Save as new insight', async () => {
+        const url = combineUrl('/insights', { insight: InsightType.FUNNELS }).url
+        router.actions.push(url)
+
         featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: InsightType.FUNNELS },
             savedFilters: { insight: InsightType.FUNNELS },
+            syncWithUrl: true,
         })
         logic.mount()
 
@@ -585,7 +589,12 @@ describe('insightLogic', () => {
                 // savedFilters: partial({ insight: InsightType.FUNNELS }),
                 insight: partial({ id: 12, name: 'New Insight (copy)' }),
                 filtersChanged: true,
+                syncWithUrl: true,
             })
-        await expectLogic().toDispatchActions(router, ['locationChanged']).toMatchValues(router, {})
+        await expectLogic()
+            .toDispatchActions(router, ['locationChanged'])
+            .toMatchValues(router, {
+                hashParams: { edit: true, fromItem: 12 },
+            })
     })
 })
