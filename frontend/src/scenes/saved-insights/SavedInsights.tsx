@@ -113,7 +113,7 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
-const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
+export const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
     <div style={{ fontSize: 10, paddingLeft: 8, whiteSpace: 'nowrap' }}>
         {direction === 'down' ? <ArrowDownOutlined /> : direction === 'up' ? <ArrowUpOutlined /> : null}
         <MenuOutlined />

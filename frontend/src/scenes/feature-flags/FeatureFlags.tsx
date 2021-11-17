@@ -9,18 +9,17 @@ import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonTable, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
 import { LemonButton } from '../../lib/components/LemonButton'
 import { IconEllipsis } from '../../lib/components/icons'
 import { LemonSpacer } from '../../lib/components/LemonRow'
 import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
+import { LemonTable, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -29,10 +28,8 @@ export const scene: SceneExport = {
 
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
     const { featureFlags, featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
-    const { push } = useActions(router)
     // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
     const { tableScrollX } = useIsTableScrolling('lg')
 
@@ -73,6 +70,7 @@ export function FeatureFlags(): JSX.Element {
         },
         {
             title: 'Status',
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
             width: 90,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 const switchId = `feature-flag-${featureFlag.id}-switch`

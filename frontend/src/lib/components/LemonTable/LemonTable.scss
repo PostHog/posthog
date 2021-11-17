@@ -71,6 +71,7 @@
         height: 0.25rem;
     }
 }
+
 .LemonTable__pagination {
     display: flex;
     align-items: center;
@@ -81,6 +82,16 @@
     > span {
         margin-right: 0.5rem;
     }
+}
+
+.LemonTable__header--actionable {
+    cursor: pointer;
+}
+
+.LemonTable__header-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .LemonTable__cell--sticky {

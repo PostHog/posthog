@@ -1,5 +1,6 @@
 import clsx from 'clsx'
-import React, { HTMLProps, useState } from 'react'
+import React, { HTMLProps, useMemo, useReducer, useState } from 'react'
+import { columnSort } from '../../../scenes/saved-insights/SavedInsights'
 import { IconChevronLeft, IconChevronRight } from '../icons'
 import { LemonButton } from '../LemonButton'
 import './LemonTable.scss'
@@ -32,6 +33,9 @@ export interface LemonTableProps<T extends Record<string, any>> {
     'data-attr'?: string
 }
 
+/** 0 means unsorted, 1 means ascending, -1 means descending. */
+type SortOrder = 0 | 1 | -1
+
 function isHorizontallyScrollable(element: HTMLElement): boolean {
     return element.scrollWidth > element.clientWidth
 }
@@ -46,14 +50,57 @@ export function LemonTable<T extends Record<string, any>>({
     ...divProps
 }: LemonTableProps<T>): JSX.Element {
     const [currentPage, setCurrentPage] = useState(1)
+    const [sortOrdersState, sortOrdersDispatch] = useReducer(
+        (state: Record<number, SortOrder>, action: { columnIndex: number }) => {
+            let nextValue: SortOrder
+            switch (state[action.columnIndex]) {
+                case 1:
+                    nextValue = -1
+                    break
+                case -1:
+                    nextValue = 0
+                    break
+                default:
+                    nextValue = 1
+                    break
+            }
+            return {
+                ...state,
+                [action.columnIndex]: nextValue,
+            }
+        },
+        {}
+    )
 
     const pageCount = pagination ? Math.ceil(dataSource.length / pagination.pageSize) : 1
     const showPagination = pageCount > 1 || pagination?.hideOnSinglePage === true
-    const currentStartIndex = pagination ? (Math.min(currentPage, pageCount) - 1) * pagination.pageSize : 0
-    const currentFrame = pagination
-        ? dataSource.slice(currentStartIndex, currentStartIndex + pagination.pageSize)
-        : dataSource
-    const currentEndIndex = currentStartIndex + currentFrame.length
+
+    const { currentFrame, currentStartIndex, currentEndIndex } = useMemo(() => {
+        const sortedDataSource = dataSource.slice().sort((a, b) => {
+            let result = 0
+            for (let i = 0; i < columns.length; i++) {
+                const sorter = columns[i].sorter
+                const sortOrder = sortOrdersState[i]
+                if (sorter && sortOrder) {
+                    result = sorter(a, b) * sortOrder
+                    if (result !== 0) {
+                        break
+                    }
+                }
+            }
+            return result
+        })
+        const calculatedStartIndex = pagination ? (Math.min(currentPage, pageCount) - 1) * pagination.pageSize : 0
+        const calculatedFrame = pagination
+            ? sortedDataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
+            : sortedDataSource
+        const calculatedEndIndex = calculatedStartIndex + calculatedFrame.length
+        return {
+            currentFrame: calculatedFrame,
+            currentStartIndex: calculatedStartIndex,
+            currentEndIndex: calculatedEndIndex,
+        }
+    }, [currentPage, pageCount, pagination, dataSource, sortOrdersState])
 
     return (
         <div
@@ -63,13 +110,28 @@ export function LemonTable<T extends Record<string, any>>({
             <table>
                 <thead>
                     <tr>
-                        {columns.map((headerCol, headerColIndex) => (
+                        {columns.map((column, columnIndex) => (
                             <th
-                                key={headerColIndex}
-                                className={clsx(headerCol.sticky && 'LemonTable__cell--sticky', headerCol.className)}
-                                style={{ textAlign: headerCol.align }}
+                                key={columnIndex}
+                                className={clsx(
+                                    column.sorter && 'LemonTable__header--actionable',
+                                    column.sticky && 'LemonTable__cell--sticky',
+                                    column.className
+                                )}
+                                style={{ textAlign: column.align }}
+                                onClick={column.sorter ? () => sortOrdersDispatch({ columnIndex }) : undefined}
                             >
-                                {headerCol.title}
+                                <div className="LemonTable__header-content">
+                                    {column.title}
+                                    {column.sorter &&
+                                        columnSort(
+                                            sortOrdersState[columnIndex] === -1
+                                                ? 'down'
+                                                : sortOrdersState[columnIndex] === 1
+                                                ? 'up'
+                                                : 'none'
+                                        )}
+                                </div>
                             </th>
                         ))}
                     </tr>
@@ -78,16 +140,16 @@ export function LemonTable<T extends Record<string, any>>({
                     {dataSource.length ? (
                         currentFrame.map((data, rowIndex) => (
                             <tr key={`LemonTable-row-${rowKey ? data[rowKey] : rowIndex}`} {...onRow?.(data)}>
-                                {columns.map((rowCol, rowColIndex) => (
+                                {columns.map((column, columnIndex) => (
                                     <td
-                                        key={rowColIndex}
-                                        className={clsx(rowCol.sticky && 'LemonTable__cell--sticky', rowCol.className)}
-                                        style={{ textAlign: rowCol.align }}
+                                        key={columnIndex}
+                                        className={clsx(column.sticky && 'LemonTable__cell--sticky', column.className)}
+                                        style={{ textAlign: column.align }}
                                     >
-                                        {rowCol.render
-                                            ? rowCol.render(rowCol.dataIndex ? data[rowCol.dataIndex] : undefined, data)
-                                            : rowCol.dataIndex
-                                            ? data[rowCol.dataIndex]
+                                        {column.render
+                                            ? column.render(column.dataIndex ? data[column.dataIndex] : undefined, data)
+                                            : column.dataIndex
+                                            ? data[column.dataIndex]
                                             : undefined}
                                     </td>
                                 ))}
