@@ -63,7 +63,7 @@ describe('insightLogic', () => {
                 ],
             }
         } else if (method === 'create') {
-            return { id: 12, name: data.name }
+            return { id: 12, name: data?.name }
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
