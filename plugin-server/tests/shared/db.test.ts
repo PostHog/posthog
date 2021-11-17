@@ -1,11 +1,9 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, PersonPropertyUpdateOperation, PropertyOperator, Team } from '../../src/types'
+import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
-import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -122,9 +120,9 @@ describe('DB', () => {
             expect(fetched_person.is_identified).toEqual(false)
             expect(fetched_person.properties).toEqual({ a: 123, b: false, c: 'bbb' })
             expect(fetched_person.properties_last_operation).toEqual({
-                a: PersonPropertyUpdateOperation.Set,
-                b: PersonPropertyUpdateOperation.Set,
-                c: PersonPropertyUpdateOperation.SetOnce,
+                a: PropertyUpdateOperation.Set,
+                b: PropertyUpdateOperation.Set,
+                c: PropertyUpdateOperation.SetOnce,
             })
             expect(fetched_person.properties_last_updated_at).toEqual({
                 a: TIMESTAMP.toISO(),
@@ -142,7 +140,7 @@ describe('DB', () => {
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person.is_identified).toEqual(false)
             expect(fetched_person.properties).toEqual({ a: 1 })
-            expect(fetched_person.properties_last_operation).toEqual({ a: PersonPropertyUpdateOperation.Set })
+            expect(fetched_person.properties_last_operation).toEqual({ a: PropertyUpdateOperation.Set })
             expect(fetched_person.properties_last_updated_at).toEqual({ a: TIMESTAMP.toISO() })
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)

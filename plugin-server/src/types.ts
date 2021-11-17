@@ -754,7 +754,7 @@ export enum CeleryTriggeredJobOperation {
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
-export enum PersonPropertyUpdateOperation {
+export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
 }

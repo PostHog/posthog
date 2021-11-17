@@ -5,10 +5,9 @@ import { QueryResult } from 'pg'
 import {
     Group,
     GroupTypeIndex,
-    Person,
-    PersonPropertyUpdateOperation,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
+    PropertyUpdateOperation,
     TeamId,
 } from '../../types'
 import { DB } from '../../utils/db/db'
@@ -156,15 +155,16 @@ export function calculateUpdate(
         properties_last_operation: { ...propertiesLastOperation },
     }
 
+    // :TODO: Rename PersonPropertyUpdateOperation
     Object.entries(propertiesOnce).forEach(([key, value]) => {
         if (
             !(key in result.properties) ||
-            (getPropertiesLastOperationOrSet(propertiesLastOperation, key) === PersonPropertyUpdateOperation.SetOnce &&
+            (getPropertiesLastOperationOrSet(propertiesLastOperation, key) === PropertyUpdateOperation.SetOnce &&
                 getPropertyLastUpdatedAtDateTimeOrEpoch(propertiesLastUpdatedAt, key) > timestamp)
         ) {
             result.updated = true
             result.properties[key] = value
-            result.properties_last_operation[key] = PersonPropertyUpdateOperation.SetOnce
+            result.properties_last_operation[key] = PropertyUpdateOperation.SetOnce
             result.properties_last_updated_at[key] = timestamp.toISO()
         }
     })
@@ -172,12 +172,12 @@ export function calculateUpdate(
     Object.entries(properties).forEach(([key, value]) => {
         if (
             !(key in result.properties) ||
-            getPropertiesLastOperationOrSet(propertiesLastOperation, key) === PersonPropertyUpdateOperation.SetOnce ||
+            getPropertiesLastOperationOrSet(propertiesLastOperation, key) === PropertyUpdateOperation.SetOnce ||
             getPropertyLastUpdatedAtDateTimeOrEpoch(propertiesLastUpdatedAt, key) < timestamp
         ) {
             result.updated = true
             result.properties[key] = value
-            result.properties_last_operation[key] = PersonPropertyUpdateOperation.Set
+            result.properties_last_operation[key] = PropertyUpdateOperation.Set
             result.properties_last_updated_at[key] = timestamp.toISO()
         }
     })
@@ -198,9 +198,9 @@ function getPropertyLastUpdatedAtDateTimeOrEpoch(
 function getPropertiesLastOperationOrSet(
     propertiesLastOperation: PropertiesLastOperation,
     key: string
-): PersonPropertyUpdateOperation {
+): PropertyUpdateOperation {
     if (!(key in propertiesLastOperation)) {
-        return PersonPropertyUpdateOperation.Set
+        return PropertyUpdateOperation.Set
     }
     return propertiesLastOperation[key]
 }

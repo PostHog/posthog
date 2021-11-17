@@ -31,7 +31,6 @@ import {
     Hook,
     Person,
     PersonDistinctId,
-    PersonPropertyUpdateOperation,
     PluginConfig,
     PluginLogEntry,
     PluginLogEntrySource,
@@ -40,6 +39,7 @@ import {
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
+    PropertyUpdateOperation,
     RawAction,
     RawGroup,
     RawOrganization,
@@ -481,11 +481,11 @@ export class DB {
         const props_last_operation: Record<string, any> = {}
         const props_last_updated_at: Record<string, any> = {}
         Object.keys(propertiesOnce).forEach((key) => {
-            props_last_operation[key] = PersonPropertyUpdateOperation.SetOnce
+            props_last_operation[key] = PropertyUpdateOperation.SetOnce
             props_last_updated_at[key] = createdAt
         })
         Object.keys(properties).forEach((key) => {
-            props_last_operation[key] = PersonPropertyUpdateOperation.Set
+            props_last_operation[key] = PropertyUpdateOperation.Set
             props_last_updated_at[key] = createdAt
         })
 
