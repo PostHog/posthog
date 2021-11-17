@@ -1,5 +1,6 @@
 import datetime
 import json
+from json import JSONDecodeError
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
 
 from posthog.models.property import Property
@@ -176,12 +177,16 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
         """
         The breakdown value for which to get persons for.
         """
-        raw_data = self._data.get(FUNNEL_STEP_BREAKDOWN)
-        if isinstance(raw_data, str):
-            # need to account for this being an array sent as a string
-            funnel_step_breakdown = json.loads(raw_data)
-        else:
-            funnel_step_breakdown = raw_data
+        funnel_step_breakdown = self._data.get(FUNNEL_STEP_BREAKDOWN)
+        # need to account for this being an array sent as a string
+        if isinstance(funnel_step_breakdown, str):
+            try:
+                parsed = json.loads(funnel_step_breakdown)
+                if isinstance(parsed, List):
+                    funnel_step_breakdown = parsed
+            except JSONDecodeError:
+                # swallow the exception and use the original value
+                pass
 
         return funnel_step_breakdown
 
