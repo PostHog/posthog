@@ -90,7 +90,8 @@ export const teamLogic = kea<teamLogicType>({
         isCurrentTeamUnavailable: [
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
             // If project has been loaded and is still null, it means the user just doesn't have access.
-            (currentTeam, currentTeamLoading): boolean => !currentTeam && !currentTeamLoading,
+            (currentTeam, currentTeamLoading): boolean =>
+                !currentTeam?.effective_membership_level && !currentTeamLoading,
         ],
         demoOnlyProject: [
             (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],

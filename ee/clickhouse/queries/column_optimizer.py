@@ -9,6 +9,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import GroupTypeIndex, PropertyIdentifier, PropertyType, TableWithProperties
 
 
@@ -19,7 +20,7 @@ class ColumnOptimizer:
     This speeds up queries since clickhouse ends up selecting less data.
     """
 
-    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter], team_id: int):
+    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter], team_id: int):
         self.filter = filter
         self.team_id = team_id
 
@@ -77,22 +78,22 @@ class ColumnOptimizer:
         "Returns collection of properties + types that this query would use"
         counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.properties)
 
-        # Some breakdown types read properties
-        #
-        # See ee/clickhouse/queries/trends/breakdown.py#get_query or
-        # ee/clickhouse/queries/breakdown_props.py#get_breakdown_prop_values
-        if self.filter.breakdown_type in ["event", "person"]:
-            boxed_breakdown = box_value(self.filter.breakdown)
-            # TODO do we really benefit from materializing individual columns
-            # ToDO when queried together
-            # TODO without altering the query to handle an array of them?
-            for b in boxed_breakdown:
-                if isinstance(b, str):
-                    counter[(b, self.filter.breakdown_type, self.filter.breakdown_group_type_index)] += 1
-        elif self.filter.breakdown_type == "group":
-            # :TRICKY: We only support string breakdown for group properties
-            assert isinstance(self.filter.breakdown, str)
-            counter[(self.filter.breakdown, self.filter.breakdown_type, self.filter.breakdown_group_type_index)] += 1
+        if not isinstance(self.filter, StickinessFilter):
+            # Some breakdown types read properties
+            #
+            # See ee/clickhouse/queries/trends/breakdown.py#get_query or
+            # ee/clickhouse/queries/breakdown_props.py#get_breakdown_prop_values
+            if self.filter.breakdown_type in ["event", "person"]:
+                boxed_breakdown = box_value(self.filter.breakdown)
+                for b in boxed_breakdown:
+                    if isinstance(b, str):
+                        counter[(b, self.filter.breakdown_type, self.filter.breakdown_group_type_index)] += 1
+            elif self.filter.breakdown_type == "group":
+                # :TRICKY: We only support string breakdown for group properties
+                assert isinstance(self.filter.breakdown, str)
+                counter[
+                    (self.filter.breakdown, self.filter.breakdown_type, self.filter.breakdown_group_type_index)
+                ] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
@@ -116,7 +117,11 @@ class ColumnOptimizer:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 counter += get_action_tables_and_properties(entity.get_action())
 
-        if self.filter.correlation_type == FunnelCorrelationType.PROPERTIES and self.filter.correlation_property_names:
+        if (
+            not isinstance(self.filter, StickinessFilter)
+            and self.filter.correlation_type == FunnelCorrelationType.PROPERTIES
+            and self.filter.correlation_property_names
+        ):
 
             if self.filter.aggregation_group_type_index is not None:
                 for prop_value in self.filter.correlation_property_names:
