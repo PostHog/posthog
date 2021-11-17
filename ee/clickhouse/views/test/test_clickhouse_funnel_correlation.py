@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 from unittest.mock import ANY
 from uuid import uuid4
 
@@ -633,6 +633,7 @@ def create_team(organization):
 
 class EventPattern(TypedDict):
     id: str
+    type: Union[Literal['events'], Literal["actions"]]
 
 
 @dataclasses.dataclass
