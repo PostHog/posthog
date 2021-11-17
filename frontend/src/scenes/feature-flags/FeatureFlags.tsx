@@ -190,7 +190,7 @@ export function FeatureFlags(): JSX.Element {
                     style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}
                 loading={featureFlagsLoading}
-                pagination={{ pageSize: 10 }}
+                pagination={{ pageSize: 50 }}
                 data-attr="feature-flag-table"
             />
         </div>
