@@ -42,15 +42,13 @@ class TrendsPersonQuery(ActorBaseQuery):
     entity: Entity
 
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter):
-        new_filter = filter
-
         if not entity:
             raise ValueError("Entity is required")
 
         if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
-            new_filter = _handle_date_interval(filter)
+            filter = _handle_date_interval(filter)
 
-        super().__init__(team, new_filter, entity)
+        super().__init__(team, filter, entity)
 
     def people_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
