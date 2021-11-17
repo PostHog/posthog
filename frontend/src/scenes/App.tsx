@@ -2,7 +2,6 @@ import React from 'react'
 import { kea, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
-
 import { preflightLogic } from './PreflightCheck/logic'
 import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
@@ -67,15 +66,15 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { sceneConfig } = useValues(sceneLogic({ scenes: appScenes }))
     const { featureFlags } = useValues(featureFlagLogic)
+    useMountedLogic(sceneLogic({ scenes: appScenes }))
 
     if (showApp) {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
                 {featureFlags[FEATURE_FLAGS.TURBO_MODE] ? <LoadedSceneLogics /> : null}
-                {(!sceneConfig?.projectBased || currentTeamId) && <AppScene />}
+                <AppScene />
             </>
         )
     }
