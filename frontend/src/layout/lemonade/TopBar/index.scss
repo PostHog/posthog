@@ -28,7 +28,7 @@
         margin-right: 1rem;
     }
     &--right > * {
-        margin-left: 1.25rem;
+        margin-left: 1rem;
     }
 }
 
@@ -140,6 +140,8 @@
 .SitePopover__crumb {
     display: flex;
     align-items: center;
+    font-size: 1.5rem;
+    color: var(--primary-alt);
     height: 2.5rem;
     cursor: pointer;
 }

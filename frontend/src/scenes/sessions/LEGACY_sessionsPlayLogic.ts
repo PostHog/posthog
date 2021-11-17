@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { errorToast, eventToName, toParams } from 'lib/utils'
+import { errorToast, autoCaptureEventToDescription, toParams } from 'lib/utils'
 import {
     LEGACY_SessionPlayerData,
     SessionPlayerData,
@@ -279,7 +279,7 @@ export const LEGACY_sessionsPlayLogic = kea<LEGACY_sessionsPlayLogicType>({
                 }))
                 const highlightedEvents = events.map((event) => ({
                     playerTime: +dayjs(event.timestamp) - startTime,
-                    text: eventToName(event),
+                    text: autoCaptureEventToDescription(event),
                     color: 'orange',
                 }))
                 return [...pageChangeEvents, ...highlightedEvents].sort((a, b) => a.playerTime - b.playerTime)

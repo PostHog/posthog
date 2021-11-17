@@ -760,9 +760,9 @@ export function IconRecording(): JSX.Element {
 }
 
 /** Material Design Arrow Drop Down icon. */
-export function IconArrowDropDown({ style }: { style?: CSSProperties }): JSX.Element {
+export function IconArrowDropDown(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path d="m7 10 5 5 5-5z" fill="currentColor" />
         </svg>
     )
@@ -786,6 +786,18 @@ export function IconQuestionAnswer(): JSX.Element {
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path
                 d="m15 4v7h-9.83l-1.17 1.17v-8.17zm1-2h-13c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1zm5 4h-2v9h-13v2c0 .55.45 1 1 1h11l4 4v-15c0-.55-.45-1-1-1z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Help Outline icon. */
+export function IconHelpOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11 18h2v-2h-2zm1-16c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10-4.48-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
                 fill="currentColor"
             />
         </svg>
@@ -998,5 +1010,73 @@ export function InsightsLifecycleIcon({
                 fill={color}
             />
         </InsightIcon>
+    )
+}
+
+export function PageviewIcon(): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M2 0H16C17.1 0 18 0.9 18 2V16C18 17.1 17.1 18 16 18H2C0.9 18 0 17.1 0 16V2C0 0.9 0.9 0 2 0ZM2 2V16H16V2H2ZM13.34 9C12.48 7.46 10.84 6.5 9 6.5C7.16 6.5 5.52 7.46 4.66 9C5.52 10.54 7.16 11.5 9 11.5C10.84 11.5 12.48 10.54 13.34 9ZM3 9C3.94 6.66 6.27 5 9 5C11.73 5 14.06 6.66 15 9C14.06 11.34 11.73 13 9 13C6.27 13 3.94 11.34 3 9ZM7.5 9C7.5 9.83 8.17 10.5 9 10.5C9.83 10.5 10.5 9.83 10.5 9C10.5 8.17 9.83 7.5 9 7.5C8.17 7.5 7.5 8.17 7.5 9Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function AutocaptureIcon(): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M14.5 6L13.56 3.94L11.5 3L13.56 2.06L14.5 0L15.44 2.06L17.5 3L15.44 3.94L14.5 6Z"
+                fill="currentColor"
+            />
+            <path
+                d="M3 9.5L3.94 11.56L6 12.5L3.94 13.44L3 15.5L2.06 13.44L0 12.5L2.06 11.56L3 9.5Z"
+                fill="currentColor"
+            />
+            <path d="M3 6L2.06 3.94L0 3L2.06 2.06L3 0L3.94 2.06L6 3L3.94 3.94L3 6Z" fill="currentColor" />
+            <path
+                d="M13.23 11.26L17 10L7 7L10 17L11.26 13.23L15.53 17.5L17.51 15.52L13.23 11.26Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function PageleaveIcon(): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M7.09 12.59L8.5 14L13.5 9L8.5 4L7.09 5.41L9.67 8H0V10H9.67L7.09 12.59ZM16 0H2C0.89 0 0 0.9 0 2V6H2V2H16V16H2V12H0V16C0 17.1 0.89 18 2 18H16C17.1 18 18 17.1 18 16V2C18 0.9 17.1 0 16 0Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function ActionIcon(): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM10.6851 10.3414L10.1453 11.9998H8.49756L11.0082 4.72705H12.9897L15.4968 11.9998H13.8491L13.3093 10.3414H10.6851ZM11.9706 6.38898L11.0757 9.14111H12.9223L12.0274 6.38898H11.9706Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function EventIcon(): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 20 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M7.4 10.6L2.8 6L7.4 1.4L6 0L0 6L6 12L7.4 10.6ZM12.6 10.6L17.2 6L12.6 1.4L14 0L20 6L14 12L12.6 10.6Z"
+                fill="currentColor"
+            />
+        </svg>
     )
 }

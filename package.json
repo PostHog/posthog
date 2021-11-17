@@ -93,7 +93,7 @@
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^0.1.0",
         "md5": "^2.3.0",
-        "posthog-js": "1.16.3",
+        "posthog-js": "1.16.4",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "0.8.0",
@@ -116,7 +116,6 @@
         "resize-observer-polyfill": "^1.5.1",
         "rrweb": "^1.0.6",
         "sass": "^1.26.2",
-        "screenfull": "^5.1.0",
         "use-debounce": "^6.0.1",
         "zxcvbn": "^4.4.2"
     },

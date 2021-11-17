@@ -14,6 +14,11 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
 
     let stopped = false
     let weHaveTheLock = false
+
+    // Import this just to trigger build on ts-node-dev
+    // This is a total hack and needs to be fixed - seems to be bug with ts-node-dev
+    const _ = require('../../worker/worker')
+
     let pluginSchedulePromise = loadPluginSchedule(piscina)
     server.pluginSchedule = await pluginSchedulePromise
 

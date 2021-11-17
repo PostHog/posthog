@@ -94,6 +94,8 @@ jobs:
               run: |
                   yarn install --frozen-lockfile
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+                  cd plugin-server
+                  yarn install --frozen-lockfile
             - name: Yarn build
               env:
                   GENERATE_SOURCEMAP: 'false'
@@ -111,6 +113,7 @@ jobs:
                   E2E_TESTING: 1
                   EMAIL_HOST: 'email.test.posthog.net' # used to test password resets
                   SITE_URL: 'test.posthog.net' # used to test password resets
+                  NO_RESTART_LOOP: 1
               run: |
                   python manage.py collectstatic --noinput &
                   ./bin/docker-migrate & wait
