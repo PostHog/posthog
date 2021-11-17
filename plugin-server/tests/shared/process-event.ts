@@ -4,7 +4,16 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
-import { Database, Event, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import {
+    Database,
+    Event,
+    Hub,
+    LogLevel,
+    Person,
+    PluginsServerConfig,
+    PropertyUpdateOperation,
+    Team,
+} from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
@@ -2216,7 +2225,7 @@ export const createProcessEventTests = (
                 group_properties: { foo: 'bar' },
                 created_at: now,
                 properties_last_updated_at: { foo: now.toISO() },
-                properties_last_operation: { foo: 'set' },
+                properties_last_operation: { foo: PropertyUpdateOperation.Set },
                 version: 1,
             })
         })
@@ -2231,8 +2240,8 @@ export const createProcessEventTests = (
                 'org::5',
                 { a: 1, b: 2 },
                 now,
-                { a: now, b: now },
-                { a: 'set', b: 'set' },
+                { a: now.toISO(), b: now.toISO() },
+                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set },
                 1
             )
 
@@ -2280,7 +2289,11 @@ export const createProcessEventTests = (
                 group_properties: { a: 3, b: 2, foo: 'bar' },
                 created_at: now,
                 properties_last_updated_at: { a: next.toISO(), b: now.toISO(), foo: next.toISO() },
-                properties_last_operation: { a: 'set', b: 'set', foo: 'set' },
+                properties_last_operation: {
+                    a: PropertyUpdateOperation.Set,
+                    b: PropertyUpdateOperation.Set,
+                    foo: PropertyUpdateOperation.Set,
+                },
                 version: 2,
             })
         })
