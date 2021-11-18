@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .property-names-select-container {
     // Make sure we can absolutely position the popover
     position: relative;
@@ -11,19 +13,19 @@
         display: flex;
         align-items: stretch;
         align-items: center;
-        padding: 8px;
+        padding: 4px 8px;
 
         /* background/clear */
 
         background: #ffffff;
         /* main/primary */
 
-        border: 1px solid var(--primary);
+        border: 1px solid $border;
         border-radius: 4px;
 
         .checkbox-icon {
             font-size: 18px;
-            color: var(--primary);
+            color: $primary;
         }
 
         .selection-status-text {
@@ -33,6 +35,17 @@
 
         &:hover {
             cursor: pointer;
+            .dropdown-icon {
+                border-radius: $radius;
+                background-color: $primary_hover;
+            }
+        }
+
+        .dropdown-icon {
+            font-size: 1.5em;
+            line-height: 0;
+            margin-left: 4px;
+            color: $primary_alt;
         }
     }
 
@@ -54,9 +67,9 @@
         background: #ffffff;
         /* main/primary */
 
-        border: 1px solid var(--primary);
+        border: 1px solid $primary;
         box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.25);
-        border-radius: 4px;
+        border-radius: $radius;
 
         .search-box {
             padding: 8px;
@@ -66,12 +79,12 @@
             background: #ffffff;
             /* border/default */
 
-            border: 1px solid #d9d9d9;
+            border: 1px solid $border;
             box-sizing: border-box;
-            border-radius: 4px;
+            border-radius: $radius;
 
             &:focus-within {
-                border-color: var(--primary);
+                border-color: $primary;
             }
         }
 
@@ -89,10 +102,10 @@
                 width: 100%;
 
                 background: #ffffff;
-                border-radius: 4px;
+                border-radius: $radius;
 
                 &.checked {
-                    background: #eef2ff;
+                    background: $primary_hover;
                 }
             }
 
@@ -101,7 +114,7 @@
                 text-align: center;
                 font-size: 14px;
                 line-height: 24px;
-                color: #2d2d2d;
+                color: $text_default;
                 margin: 1em 4px;
             }
         }

@@ -175,6 +175,11 @@ body strong {
     color: $primary;
 }
 
+mark {
+    background-color: $mark_color !important;
+    border-radius: $radius;
+}
+
 // Supplement text, such as email under user name
 .supplement {
     text-overflow: ellipsis;
@@ -294,6 +299,11 @@ code.code {
 .space-between-items {
     display: flex;
     justify-content: space-between;
+}
+
+.flex-center {
+    display: flex;
+    align-items: center;
 }
 
 .main-app-content {
