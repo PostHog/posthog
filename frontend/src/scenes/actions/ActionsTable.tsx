@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
-import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined, CheckOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, ExportOutlined, CheckOutlined } from '@ant-design/icons'
 import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
@@ -14,14 +14,14 @@ import { ActionType, InsightType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
-import { PageHeader } from 'lib/components/PageHeader'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { ColumnType } from 'antd/lib/table'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { EventsTab, EventsTabs } from 'scenes/events'
+import { EventsTab } from 'scenes/events'
 import api from '../../lib/api'
 import { urls } from '../urls'
+import { EventPageHeader } from 'scenes/events/EventPageHeader'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -185,23 +185,7 @@ export function ActionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table" style={{ paddingTop: 16 }}>
-            <PageHeader
-                title="Actions"
-                caption={
-                    <>
-                        Actions can retroactively group one or more raw events to help provide consistent analytics.{' '}
-                        <a
-                            href="https://posthog.com/docs/features/actions?utm_medium=in-product&utm_campaign=actions-table"
-                            target="_blank"
-                        >
-                            <QuestionCircleOutlined />
-                        </a>
-                    </>
-                }
-                style={{ marginTop: 0 }}
-                tabbedPage
-            />
-            <EventsTabs tab={EventsTab.Actions} />
+            <EventPageHeader activeTab={EventsTab.Actions} />
             <div>
                 <div />
                 <div className="tutorial-container">

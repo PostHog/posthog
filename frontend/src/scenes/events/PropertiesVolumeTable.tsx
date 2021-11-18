@@ -3,13 +3,13 @@ import { useValues } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PageHeader } from 'lib/components/PageHeader'
 import { UsageDisabledWarning } from './UsageDisabledWarning'
 import { VolumeTable } from './VolumeTable'
 import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
+import { EventsTab } from 'scenes/events/EventsTabs'
+import { EventPageHeader } from './EventPageHeader'
 
 export const scene: SceneExport = {
     component: PropertiesVolumeTable,
@@ -22,14 +22,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
 
     return (
         <div data-attr="manage-events-table" style={{ paddingTop: 16 }}>
-            <PageHeader
-                title="Properties Stats"
-                caption="See all property keys that have ever been sent to this team, including the volume and how often
-                queries where made using this property key."
-                style={{ marginTop: 0 }}
-                tabbedPage
-            />
-            <EventsTabs tab={EventsTab.EventPropertyStats} />
+            <EventPageHeader activeTab={EventsTab.EventPropertyStats} />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (

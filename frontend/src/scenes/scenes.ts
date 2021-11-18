@@ -51,15 +51,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Actions]: {
         projectBased: true,
-        name: 'Actions',
+        name: 'Events & actions',
     },
     [Scene.EventStats]: {
         projectBased: true,
-        name: 'Event stats',
+        name: 'Events & actions',
     },
     [Scene.EventPropertyStats]: {
         projectBased: true,
-        name: 'Property stats',
+        name: 'Events & actions',
     },
     [Scene.Sessions]: {
         projectBased: true,
