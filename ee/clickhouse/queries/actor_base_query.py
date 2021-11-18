@@ -1,3 +1,4 @@
+import uuid
 from typing import (
     Any,
     Dict,
@@ -16,12 +17,11 @@ from posthog.models import Entity, Filter, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.person import Person
-from posthog.models.utils import UUIDT
 
 
 class SerializedPerson(TypedDict):
     type: Literal["person"]
-    id: UUIDT
+    id: uuid.UUID
     created_at: Optional[str]
     properties: Dict[str, Any]
     is_identified: Optional[bool]

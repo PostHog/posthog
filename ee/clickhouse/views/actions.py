@@ -98,7 +98,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
 
 def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Filter):
-    query, params = TrendsPersonQuery(cohort.team, entity, filter).get_actor_query()
+    query, params = TrendsPersonQuery(cohort.team, entity, filter).actor_query()
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
