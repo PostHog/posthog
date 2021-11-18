@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { urls } from 'scenes/urls'
 
 jest.mock('lib/api')
 
@@ -310,7 +311,7 @@ describe('insightLogic', () => {
         })
 
         it('sets filters from the URL', async () => {
-            const url = combineUrl('/insights', { insight: InsightType.TRENDS, interval: 'minute' }).url
+            const url = urls.newInsight({ insight: InsightType.TRENDS, interval: 'minute' })
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
@@ -328,7 +329,7 @@ describe('insightLogic', () => {
                 })
 
             // calls when the values changed
-            const url2 = combineUrl('/insights', { insight: InsightType.TRENDS, interval: 'week' }).url
+            const url2 = urls.newInsight({ insight: InsightType.TRENDS, interval: 'week' })
             router.actions.push(url2)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url2), 'setFilters'])
@@ -338,7 +339,7 @@ describe('insightLogic', () => {
         })
 
         it('takes the dashboardItemId from the URL', async () => {
-            const url = combineUrl('/insights', { insight: InsightType.TRENDS }, { fromItem: 42 }).url
+            const url = urls.insightView(42, { insight: InsightType.TRENDS })
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'loadInsight', 'loadInsightSuccess'])

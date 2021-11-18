@@ -33,18 +33,16 @@ describe('insightRouterLogic', () => {
         await expectLogic(router)
             .delay(1)
             .toMatchValues({
-                location: partial({ pathname: '/insights' }),
+                location: partial({ pathname: '/insights/42/edit' }),
                 searchParams: partial({ insight: 'TRENDS' }),
-                hashParams: partial({ edit: true, fromItem: 42 }),
             })
 
         router.actions.push('/insights/new?insight=FUNNELS')
         await expectLogic(router)
             .delay(1)
             .toMatchValues({
-                location: partial({ pathname: '/insights' }),
+                location: partial({ pathname: '/insights/42/edit' }),
                 searchParams: partial({ insight: 'FUNNELS' }),
-                hashParams: partial({ edit: true, fromItem: 42 }),
             })
     })
 })
