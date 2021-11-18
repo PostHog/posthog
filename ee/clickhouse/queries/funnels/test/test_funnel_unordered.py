@@ -4,7 +4,6 @@ from uuid import uuid4
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
@@ -13,12 +12,11 @@ from ee.clickhouse.queries.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -696,64 +694,3 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(
             self._get_actor_ids_at_step(filter, 5), [person4.uuid],
         )
-
-    @snapshot_clickhouse_queries
-    def test_unordered_funnel_with_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
-
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0},
-                {"id": "paid", "type": "events", "order": 1},
-            ],
-            "insight": INSIGHT_FUNNELS,
-            "aggregation_group_type_index": 0,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-        }
-
-        filter = Filter(data=filters, team=self.team)
-        funnel = ClickhouseFunnelUnordered(filter, self.team)
-
-        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="user signed up",
-            distinct_id="user_1",
-            timestamp="2020-01-03T14:00:00Z",
-            properties={"$group_0": "org:5"},
-        )
-
-        # different person, same group, so should count as step two in funnel
-        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="paid",
-            distinct_id="user_2",
-            timestamp="2020-01-02T14:00:00Z",
-            properties={"$group_0": "org:5"},
-        )
-
-        # same person, different group, so should count as different step 1 in funnel
-        _create_event(
-            team=self.team,
-            event="user signed up",
-            distinct_id="user_1",
-            timestamp="2020-01-10T14:00:00Z",
-            properties={"$group_0": "org:6"},
-        )
-
-        result = funnel.run()
-
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 2)
-
-        self.assertEqual(result[1]["name"], "paid")
-        self.assertEqual(result[1]["count"], 1)
