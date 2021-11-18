@@ -12,9 +12,6 @@ class ClickhouseFunnelPersons(ClickhouseFunnel, ActorBaseQuery):
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
 
-    def get_query(self, extra_fields: Optional[List[str]] = None):
-        return self.actor_query(extra_fields)
-
     def actor_query(self, extra_fields: Optional[List[str]] = None):
         extra_fields_string = ", ".join([self._get_timestamp_outer_select()] + (extra_fields or []))
         return (
@@ -27,10 +24,3 @@ class ClickhouseFunnelPersons(ClickhouseFunnel, ActorBaseQuery):
             ),
             self.params,
         )
-
-    def _format_results(self, results):
-        people = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
-
-        from posthog.api.person import PersonSerializer
-
-        return PersonSerializer(people, many=True).data, len(results) > cast(int, self._filter.limit) - 1
