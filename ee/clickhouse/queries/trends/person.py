@@ -78,7 +78,7 @@ class TrendsPersonQuery(ActorBaseQuery):
 
         events_query, params = TrendsEventQuery(
             filter=self.filter,
-            team_id=self.team.pk,
+            team_id=self._team.pk,
             entity=self.entity,
             should_join_distinct_ids=False if self.is_aggregating_by_groups else True,
             should_join_persons=False if self.is_aggregating_by_groups else True,
