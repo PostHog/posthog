@@ -37,13 +37,28 @@ GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
 """
 
-KAFKA_COLUMNS = """
-, _timestamp DateTime
-, _offset UInt64
-"""
 
 COLLAPSING_MERGE_TREE = "collapsing_merge_tree"
 REPLACING_MERGE_TREE = "replacing_merge_tree"
+
+
+def get_kafka_columns(topic=False, key=False, timestamp=False, offset=False, partition=False):
+    columns = []
+    if topic:
+        columns.append(", _topic VARCHAR")
+    if key:
+        columns.append(", _key VARCHAR")
+    if timestamp:
+        columns.append(", _timestamp DateTime")
+    if offset:
+        columns.append(", _offset UInt64")
+    if partition:
+        columns.append(", _partition UInt32")
+
+    return "\n".join(columns)
+
+
+KAFKA_COLUMNS = get_kafka_columns(offset=True, timestamp=True)
 
 
 def table_engine(table: str, ver: Optional[str] = None, engine_type: Optional[str] = None) -> str:
