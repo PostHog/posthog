@@ -364,7 +364,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
             extra_join=extra_join,
             steps_condition=steps_conditions,
             select_prop=select_prop,
-            extra_conditions="",  # TODO this is always the empty string, so it can be removed?
         )
 
     def _get_steps_conditions(self, length: int) -> str:
