@@ -9,7 +9,7 @@ operations = [
     migrations.RunSQL(
         "ALTER TABLE person ADD COLUMN IF NOT EXISTS version UInt64, ADD COLUMN IF NOT EXISTS _partition UInt32"
     ),
-    migrations.RunSQL(PERSONS_TABLE_SQL.replace(PERSONS_TABLE, TEMPORARY_TABLE_NAME, 1)),
+    migrations.RunSQL(f"CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} AS {PERSONS_TABLE}"),
     migrations.RunSQL(f"DROP TABLE person_mv ON CLUSTER {CLICKHOUSE_CLUSTER}"),
     migrations.RunSQL(f"DROP TABLE kafka_person ON CLUSTER {CLICKHOUSE_CLUSTER}"),
     # Check partition names with: `SELECT partition FROM system.parts WHERE table = 'person' and active = 1 GROUP BY partition;`
