@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, cast
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -30,6 +30,10 @@ from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
 from posthog.models.filters.path_filter import PathFilter
 from posthog.utils import format_query_params_absolute_url
+
+
+def should_paginate(results, filter: Filter) -> bool:
+    return len(results) > cast(int, filter.limit) - 1
 
 
 class ClickhousePersonViewSet(PersonViewSet):
@@ -78,9 +82,10 @@ class ClickhousePersonViewSet(PersonViewSet):
             else:
                 funnel_class = ClickhouseFunnelPersons
 
-        people, should_paginate = funnel_class(filter, self.team).run()
+        people, _ = funnel_class(filter, self.team).run()
+        _should_paginate = should_paginate(people, filter)
         limit = filter.limit if filter.limit else 100
-        next_url = format_query_params_absolute_url(request, filter.offset + limit) if should_paginate else None
+        next_url = format_query_params_absolute_url(request, filter.offset + limit) if _should_paginate else None
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
@@ -117,8 +122,8 @@ class ClickhousePersonViewSet(PersonViewSet):
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         base_uri = request.build_absolute_uri("/")
-        people, should_paginate = FunnelCorrelationPersons(filter=filter, team=self.team, base_uri=base_uri).run()
-
+        people, _ = FunnelCorrelationPersons(filter=filter, team=self.team, base_uri=base_uri).run()
+        _should_paginate = should_paginate(people, filter)
         limit = filter.correlation_person_limit if filter.correlation_person_limit else 100
         next_url = (
             format_query_params_absolute_url(
@@ -127,7 +132,7 @@ class ClickhousePersonViewSet(PersonViewSet):
                 offset_alias=FUNNEL_CORRELATION_PERSON_OFFSET,
                 limit_alias=FUNNEL_CORRELATION_PERSON_LIMIT,
             )
-            if should_paginate
+            if _should_paginate
             else None
         )
         initial_url = format_query_params_absolute_url(request, 0)
@@ -175,9 +180,10 @@ class ClickhousePersonViewSet(PersonViewSet):
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        people, should_paginate = ClickhousePathsPersons(filter, self.team, funnel_filter=funnel_filter).run()
+        people, _ = ClickhousePathsPersons(filter, self.team, funnel_filter=funnel_filter).run()
+        _should_paginate = should_paginate(people, filter)
         limit = filter.limit or 100
-        next_url = format_query_params_absolute_url(request, filter.offset + limit) if should_paginate else None
+        next_url = format_query_params_absolute_url(request, filter.offset + limit) if _should_paginate else None
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result

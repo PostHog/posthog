@@ -8,22 +8,16 @@ from posthog.models import Person
 
 class ClickhouseFunnelPersons(ClickhouseFunnel, ActorBaseQuery):
     def get_query(self, extra_fields: Optional[List[str]] = None):
-        extra_fields_string = ", ".join([self._get_timestamp_outer_select()] + (extra_fields or []))
-        return FUNNEL_PERSONS_BY_STEP_SQL.format(
-            offset=self._filter.offset,
-            steps_per_person_query=self.get_step_counts_query(),
-            persons_steps=self._get_funnel_person_step_condition(),
-            extra_fields=extra_fields_string,
-            limit="" if self._no_person_limit else "LIMIT %(limit)s",
-        )
+        return self.actor_query(extra_fields)
 
-    def actor_query(self):
+    def actor_query(self, extra_fields: Optional[List[str]] = None):
+        extra_fields_string = ", ".join([self._get_timestamp_outer_select()] + (extra_fields or []))
         return (
             FUNNEL_PERSONS_BY_STEP_SQL.format(
                 offset=self._filter.offset,
                 steps_per_person_query=self.get_step_counts_query(),
                 persons_steps=self._get_funnel_person_step_condition(),
-                extra_fields="",
+                extra_fields=extra_fields_string,
                 limit="" if self._no_person_limit else "LIMIT %(limit)s",
             ),
             self.params,
