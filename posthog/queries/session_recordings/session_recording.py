@@ -6,7 +6,12 @@ from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework.request import Request
 
-from posthog.helpers.session_recording import SnapshotData, paginate_chunk_decompression
+from posthog.helpers.session_recording import (
+    SnapshotData,
+    decompress_chunked_snapshot_data,
+    is_active_event,
+    paginate_chunk_decompression,
+)
 from posthog.models import SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.utils import format_query_params_absolute_url
@@ -112,52 +117,34 @@ class SessionRecording:
 
         return recording_metadata
 
-    def _is_active_event(self, event: SnapshotData) -> bool:
-        # Determines which rr-web events are "active" - meaning user generated
-        # Event type 3 means incremental_update (not a full snapshot, metadata etc)
-        # And the following are the defined source types:
-        # Mutation = 0
-        # MouseMove = 1
-        # MouseInteraction = 2
-        # Scroll = 3
-        # ViewportResize = 4
-        # Input = 5
-        # TouchMove = 6
-        # MediaInteraction = 7
-        # StyleSheetRule = 8
-        # CanvasMutation = 9
-        # Font = 10
-        # Log = 11
-        # Drag = 12
-        # StyleDeclaration = 13
-        return event.get("type") == 3 and event.get("data", {}).get("source") in [1, 2, 3, 4, 5, 6, 7, 12]
-
     def _get_active_segments(self, snapshots):
         # Takes a list of snapshots and returns a list of active segments with start and end times
         snapshot_data_list = [event.snapshot_data for event in list(snapshots)]
-        decompressed_data = paginate_chunk_decompression(self._team.pk, self._session_recording_id, snapshot_data_list)
+
+        active_event_timestamps = []
+        for data in decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, snapshot_data_list):
+            if is_active_event(data):
+                active_event_timestamps.append(datetime.fromtimestamp(data.get("timestamp", 0) / 1000, timezone.utc))
+
         active_recording_segments: List[Dict[str, datetime]] = []
 
         current_active_segment: Optional[Dict[str, datetime]] = None
 
-        for data in decompressed_data.paginated_list:
-            if self._is_active_event(data):
-                current_timestamp = datetime.fromtimestamp(data.get("timestamp", 0) / 1000, timezone.utc)
+        for current_timestamp in active_event_timestamps:
+            # If the time since the last active event is less than the threshold, continue the existing segment
+            if current_active_segment and (current_timestamp - current_active_segment["end_time"]) <= timedelta(
+                seconds=ACTIVITY_THRESHOLD_SECONDS
+            ):
+                current_active_segment["end_time"] = current_timestamp
 
-                # If the time since the last active event is less than the threshold, continue the existing segment
-                if current_active_segment and (current_timestamp - current_active_segment["end_time"]) <= timedelta(
-                    seconds=ACTIVITY_THRESHOLD_SECONDS
-                ):
-                    current_active_segment["end_time"] = current_timestamp
-
-                # Otherwise, start a new segment
-                else:
-                    if current_active_segment:
-                        active_recording_segments.append(current_active_segment)
-                    current_active_segment = {
-                        "start_time": current_timestamp,
-                        "end_time": current_timestamp,
-                    }
+            # Otherwise, start a new segment
+            else:
+                if current_active_segment:
+                    active_recording_segments.append(current_active_segment)
+                current_active_segment = {
+                    "start_time": current_timestamp,
+                    "end_time": current_timestamp,
+                }
 
         # Add the last segment if it hasn't already been added
         if current_active_segment and (

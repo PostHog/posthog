@@ -100,7 +100,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_id = kwargs["pk"]
         filter = SessionRecordingsFilter(request=request)
 
-        include_active_segments = True if request.GET.get("include_active_segments") else False
+        include_active_segments = (
+            True if request.query_params.get("include_active_segments", "false").lower() == "true" else False
+        )
 
         session_recording_meta_data = self._get_session_recording_meta_data(
             request, filter, session_recording_id, include_active_segments
