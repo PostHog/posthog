@@ -47,8 +47,8 @@ class FeatureFlag(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
 
-    def matches(self, distinct_id: str) -> Optional[FeatureFlagMatch]:
-        return FeatureFlagMatcher(self, distinct_id).get_match()
+    def matches(self, *args, **kwargs) -> Optional[FeatureFlagMatch]:
+        return FeatureFlagMatcher(self, *args, **kwargs).get_match()
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
@@ -259,7 +259,10 @@ class FeatureFlagMatcher:
 
 
 # Return a Dict with all active flags and their values
-def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bool, str, None]]:
+def get_active_feature_flags(
+    team: Team, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
+) -> Dict[str, Union[bool, str, None]]:
+    cache = FlagsMatcherCache(team.pk)
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage",
@@ -267,7 +270,7 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bo
 
     for feature_flag in feature_flags:
         try:
-            match = feature_flag.matches(distinct_id)
+            match = feature_flag.matches(distinct_id, groups, cache)
             if match:
                 flags_enabled[feature_flag.key] = match.variant or True
         except Exception as err:

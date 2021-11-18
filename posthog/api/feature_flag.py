@@ -41,10 +41,12 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
-        no_properties_used = all(
-            len(condition.get("properties", [])) == 0 for condition in feature_flag.conditions
+        no_properties_used = all(len(condition.get("properties", [])) == 0 for condition in feature_flag.conditions)
+        return (
+            len(feature_flag.conditions) == 1
+            and no_properties_used
+            and feature_flag.aggregation_group_type_index is None
         )
-        return len(feature_flag.conditions) == 1 and no_properties_used and feature_flag.aggregation_group_type_index is None
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
@@ -126,6 +128,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("-created_at")
 
+    # :TODO: Add groups support to this endpoint
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
