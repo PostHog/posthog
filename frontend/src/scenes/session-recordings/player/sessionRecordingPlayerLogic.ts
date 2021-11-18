@@ -175,8 +175,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             actions.setReplayer(replayer)
         },
-        setReplayer: () => {
-            actions.setPlay()
+        setReplayer: ({ replayer }) => {
+            if (!replayer) {
+                actions.setPlay()
+            }
         },
         loadRecordingMetaSuccess: async ({ sessionPlayerData }, breakpoint) => {
             // Set meta timestamps when first chunk loads. The first time is a guesstimate that's later corrected by
