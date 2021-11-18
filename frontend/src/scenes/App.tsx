@@ -143,10 +143,10 @@ function AppScene(): JSX.Element | null {
     const layoutContent = activeScene ? (
         <Layout.Content className="main-app-content" data-attr="layout-content">
             {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
-            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !featureFlags[FEATURE_FLAGS.LEMONADE] ? (
+            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !(true || featureFlags[FEATURE_FLAGS.LEMONADE]) ? (
                 <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
             ) : null}
-            {featureFlags[FEATURE_FLAGS.LEMONADE] && <Breadcrumbs />}
+            {(true || featureFlags[FEATURE_FLAGS.LEMONADE]) && <Breadcrumbs />}
             <BillingAlerts />
             <BackTo />
             <SceneComponent user={user} {...params} />
@@ -155,7 +155,7 @@ function AppScene(): JSX.Element | null {
 
     return (
         <>
-            {featureFlags[FEATURE_FLAGS.LEMONADE] ? (
+            {true || featureFlags[FEATURE_FLAGS.LEMONADE] ? (
                 <Layout style={{ minHeight: '100vh' }}>
                     {!sceneConfig?.hideTopNav && <TopNavigation />}
                     <SideBar>{layoutContent}</SideBar>

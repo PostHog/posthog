@@ -86,7 +86,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response([])
 
         if request.GET.get("value"):
-            where = ' AND "posthog_element"."{}" LIKE %s'.format(key)
+            where = f' AND "posthog_element"."{key}" LIKE %s'
             params.append("%{}%".format(request.GET["value"]))
 
         # This samples a bunch of elements with that property, and then orders them by most popular in that sample

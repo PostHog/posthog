@@ -295,9 +295,9 @@ class DateMixin(BaseParamMixin):
             return Q()
         if not date_from:
             date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{"{}__gte".format(field): date_from})
+        filter = Q(**{f"{field}__gte": date_from})
         if self.date_to:
-            filter &= Q(**{"{}__lte".format(field): self.date_to})
+            filter &= Q(**{f"{field}__lte": self.date_to})
         return filter
 
     @include_dict

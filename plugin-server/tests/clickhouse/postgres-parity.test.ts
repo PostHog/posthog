@@ -6,8 +6,8 @@ import {
     Database,
     Hub,
     LogLevel,
-    PersonPropertyUpdateOperation,
     PluginsServerConfig,
+    PropertyUpdateOperation,
     Team,
     TimestampFormat,
 } from '../../src/types'
@@ -105,8 +105,8 @@ describe('postgres parity', () => {
                     userPropOnce: expect.any(String),
                 },
                 properties_last_operation: {
-                    userProp: PersonPropertyUpdateOperation.Set,
-                    userPropOnce: PersonPropertyUpdateOperation.SetOnce,
+                    userProp: PropertyUpdateOperation.Set,
+                    userPropOnce: PropertyUpdateOperation.SetOnce,
                 },
                 team_id: 2,
                 is_user_id: null,
