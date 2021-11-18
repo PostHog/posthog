@@ -84,15 +84,18 @@ export function PlayerEvents(): JSX.Element {
         function _rowRenderer({ index, style, key, parent }: ListRowProps): JSX.Element {
             const event = listEvents[index]
             const hasDescription = getKeyMapping(event.event, 'event')
+            const isCurrent = isEventCurrent(index)
 
             return (
                 <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
                     <Row
-                        className={clsx('event-list-item', { 'current-event': isEventCurrent(index) })}
+                        className={clsx('event-list-item', { 'current-event': isCurrent })}
                         align="top"
                         style={style}
                         onClick={() => {
-                            handleEventClick(event.timestamp)
+                            if (!isCurrent) {
+                                handleEventClick(event.timestamp)
+                            }
                         }}
                     >
                         <Col className="event-item-icon">
