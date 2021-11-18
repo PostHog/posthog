@@ -187,7 +187,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(100, len(results))
 
         filter_offset = Filter(data={**data, "offset": 100,})
-        _, results = ClickhouseFunnelPersons(filter_offset, self.team).run()
+        _, results = ClickhouseFunnelPersons(filter_offset, self.team).get_actors()
         self.assertEqual(10, len(results))
 
     def test_steps_with_custom_steps_parameter_are_equivalent_to_funnel_step(self):
