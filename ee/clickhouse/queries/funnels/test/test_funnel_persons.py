@@ -317,12 +317,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person2.uuid])
 
-        results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
-        )._exec_query()
-
-        self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])
-
     def test_first_step_breakdowns_with_multi_property_breakdown(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
@@ -352,11 +346,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
         )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person2.uuid])
-
-        results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
-        )._exec_query()
-        self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])
 
     @test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
