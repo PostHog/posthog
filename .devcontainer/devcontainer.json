@@ -9,10 +9,32 @@
     "workspaceFolder": "/workspace",
 
     // Set *default* container specific settings.json values on container create.
-    "settings": {},
+    "settings": {
+        /*
+          Python settings
+        */
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+
+        // Configure linting
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false, // We use flake8, disable pylint
+        "python.linting.flake8Enabled": true,
+        "python.linting.flake8Path": "/usr/local/py-utils/bin/flake8",
+        "python.linting.mypyPath": "/usr/local/py-utils/bin/mypy",
+
+        // Configure formatting
+        "python.formatting.blackPath": "/usr/local/py-utils/bin/black",
+        "python.formatting.provider": "black",
+
+        // Configure testing
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestPath": "/usr/local/py-utils/bin/pytest"
+    },
 
     // Add the IDs of extensions you want installed when the container is created.
-    "extensions": [],
+    "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
+
+    "postStartCommand": ".devcontainer/container_start.sh",
 
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
     "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009]

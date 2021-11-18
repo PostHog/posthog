@@ -17,16 +17,12 @@ services:
     # have docker-in-docker enabled) to view these, of via the vscode docker
     # extention.
     app:
+        image: mcr.microsoft.com/vscode/devcontainers/python:3.9-bullseye
         build:
             context: ../
             dockerfile: .devcontainer/Dockerfile
-            args:
-                # Explicitly say how we want the [base
-                # image](https://github.com/microsoft/vscode-dev-containers/blob/main/containers/python-3/.devcontainer/base.Dockerfile)
-                # to build.
-                INSTALL_ZSH: 'true'
-                UPGRADE_PACKAGES: 'true'
-                NODE_VERSION: 14
+            cache_from:
+                - ghcr.io/posthog/posthog-codespaces:latest
 
         command: sleep infinity
         volumes:
@@ -42,6 +38,7 @@ services:
     # The applications service dependencies
     db:
         image: postgres:12-alpine
+        network_mode: host
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
@@ -52,11 +49,13 @@ services:
     # Used for/by 1. celery broker 2. django.core.cache
     redis:
         image: 'redis:alpine'
+        network_mode: host
 
     clickhouse:
         # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
         # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
         image: yandex/clickhouse-server:21.6.5
+        network_mode: host
         volumes:
             - ./idl:/idl
             - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -67,9 +66,11 @@ services:
     # Needed for 1. clickhouse distributed queries 2. kafka replication
     zookeeper:
         image: wurstmeister/zookeeper
+        network_mode: host
 
     kafka:
         image: wurstmeister/kafka
+        network_mode: host
         depends_on:
             - zookeeper
         environment:
