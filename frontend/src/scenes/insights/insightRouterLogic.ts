@@ -65,7 +65,7 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
                 actions.loadInsight(id)
             }
         },
-        '/insights/new': (_, searchParams) => {
+        [urls.newInsight()]: (_, searchParams) => {
             actions.createInsight({ filters: cleanFilters(searchParams) })
         },
     }),
