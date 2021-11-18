@@ -12,7 +12,6 @@ import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrga
 import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInviteModal'
 import { Link } from '../../../lib/components/Link'
 import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
-import { RedesignOptIn } from '../RedesignOptIn'
 import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 
 export function TopBar(): JSX.Element {
