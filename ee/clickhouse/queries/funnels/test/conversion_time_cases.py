@@ -17,11 +17,11 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             _, serialized_result = funnel_query_builder.get_actors()
 
             if is_aggregating_by_groups:
-                results = cast(List[SerializedGroup], serialized_result)
-                return [val["group_key"] for val in results]
+                serialized_groups = cast(List[SerializedGroup], serialized_result)
+                return [val["group_key"] for val in serialized_groups]
             else:
-                results = cast(List[SerializedPerson], serialized_result)
-                return [val["id"] for val in results]
+                serialized_people = cast(List[SerializedPerson], serialized_result)
+                return [val["id"] for val in serialized_people]
 
         def test_funnel_with_multiple_incomplete_tries(self):
             filters = {

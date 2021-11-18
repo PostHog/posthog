@@ -1,9 +1,11 @@
+from typing import List, cast
 from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
+from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -161,10 +163,18 @@ class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_convers
 
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
-    def _get_actor_ids_at_step(self, filter, funnel_step):
-        person_filter = filter.with_data({"funnel_step": funnel_step})
-        result = ClickhouseFunnelUnorderedPersons(person_filter, self.team)._exec_query()
-        return [row[0] for row in result]
+    def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
+        person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+        funnel_query_builder = ClickhouseFunnelUnorderedPersons(person_filter, self.team)
+        is_aggregating_by_groups = funnel_query_builder.is_aggregating_by_groups
+        _, serialized_result = funnel_query_builder.get_actors()
+
+        if is_aggregating_by_groups:
+            serialized_groups = cast(List[SerializedGroup], serialized_result)
+            return [val["group_key"] for val in serialized_groups]
+        else:
+            serialized_people = cast(List[SerializedPerson], serialized_result)
+            return [val["id"] for val in serialized_people]
 
     def test_basic_unordered_funnel(self):
         filter = Filter(

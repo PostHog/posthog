@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Callable, Dict, List, Optional, Tuple, Union, cast
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -32,7 +32,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.utils import format_query_params_absolute_url
 
 
-def should_paginate(results, filter: Filter) -> bool:
+def should_paginate(results, filter: Union[Filter, PathFilter]) -> bool:
     return len(results) > cast(int, filter.limit) - 1
 
 
