@@ -1,12 +1,9 @@
 import { Button } from 'antd'
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
 import React, { useEffect, useState } from 'react'
 import { Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-
-dayjs.extend(relativeTime)
+import { dayjs } from 'lib/dayjs'
 
 export function ComputationTimeWithRefresh(): JSX.Element {
     const { lastRefresh } = useValues(insightLogic)

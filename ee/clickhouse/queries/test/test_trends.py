@@ -52,8 +52,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
     maxDiff = None
 
     def _get_trend_people(self, filter, entity):
-        result = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_people()
-        return result
+        _, serialized_actors = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_actors()
+        return serialized_actors
 
     def _create_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -995,70 +995,5 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
         )
 
-        response = ClickhouseTrends().run(filter, self.team)
-        self.assertEqual(response[0]["count"], 1)
-
-    @snapshot_clickhouse_queries
-    def test_aggregating_by_group(self):
-        self._create_groups()
-
-        _create_event(
-            event="$pageview",
-            distinct_id="person1",
-            team=self.team,
-            properties={"$group_0": "org:5"},
-            timestamp="2020-01-02T12:00:00Z",
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id="person1",
-            team=self.team,
-            properties={"$group_0": "org:6"},
-            timestamp="2020-01-02T12:00:00Z",
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id="person1",
-            team=self.team,
-            properties={"$group_0": "org:6", "$group_1": "company:10"},
-            timestamp="2020-01-02T12:00:00Z",
-        )
-
-        filter = Filter(
-            {
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
-                "events": [
-                    {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "math": "unique_group",
-                        "math_group_type_index": 0,
-                    }
-                ],
-            },
-            team=self.team,
-        )
-
-        response = ClickhouseTrends().run(filter, self.team)
-        self.assertEqual(response[0]["count"], 2)
-
-        filter = Filter(
-            {
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
-                "events": [
-                    {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "math": "unique_group",
-                        "math_group_type_index": 1,
-                    }
-                ],
-            },
-            team=self.team,
-        )
         response = ClickhouseTrends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)

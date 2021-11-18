@@ -15,11 +15,8 @@ import {
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import dayjs from 'dayjs'
-import utc from 'dayjs/plugin/utc'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-
-dayjs.extend(utc)
+import { dayjs } from 'lib/dayjs'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 

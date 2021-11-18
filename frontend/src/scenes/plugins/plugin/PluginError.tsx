@@ -1,9 +1,9 @@
 import { Button, Popover, Tag } from 'antd'
-import dayjs from 'dayjs'
 import React from 'react'
 import { ClearOutlined } from '@ant-design/icons'
 import { PluginErrorType } from '~/types'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { dayjs } from 'lib/dayjs'
 
 export function PluginError({ error, reset }: { error: PluginErrorType; reset?: () => void }): JSX.Element | null {
     if (!error) {

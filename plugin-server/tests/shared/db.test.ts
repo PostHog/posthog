@@ -1,11 +1,9 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, PersonPropertyUpdateOperation, PropertyOperator, Team } from '../../src/types'
+import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
-import { UUIDT } from '../../src/utils/utils'
-import { ActionManager } from '../../src/worker/ingestion/action-manager'
+import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -28,6 +26,7 @@ describe('DB', () => {
     const TEAM_ID = 2
     const ACTION_ID = 69
     const ACTION_STEP_ID = 913
+    const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
     test('fetchAllActionsGroupedByTeam', async () => {
         const action = await db.fetchAllActionsGroupedByTeam()
@@ -79,8 +78,6 @@ describe('DB', () => {
         const uuid = new UUIDT().toString()
         const distinctId = 'distinct_id1'
 
-        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
-
         beforeEach(async () => {
             team = await getFirstTeam(hub)
         })
@@ -123,9 +120,9 @@ describe('DB', () => {
             expect(fetched_person.is_identified).toEqual(false)
             expect(fetched_person.properties).toEqual({ a: 123, b: false, c: 'bbb' })
             expect(fetched_person.properties_last_operation).toEqual({
-                a: PersonPropertyUpdateOperation.Set,
-                b: PersonPropertyUpdateOperation.Set,
-                c: PersonPropertyUpdateOperation.SetOnce,
+                a: PropertyUpdateOperation.Set,
+                b: PropertyUpdateOperation.Set,
+                c: PropertyUpdateOperation.SetOnce,
             })
             expect(fetched_person.properties_last_updated_at).toEqual({
                 a: TIMESTAMP.toISO(),
@@ -143,7 +140,7 @@ describe('DB', () => {
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person.is_identified).toEqual(false)
             expect(fetched_person.properties).toEqual({ a: 1 })
-            expect(fetched_person.properties_last_operation).toEqual({ a: PersonPropertyUpdateOperation.Set })
+            expect(fetched_person.properties_last_operation).toEqual({ a: PropertyUpdateOperation.Set })
             expect(fetched_person.properties_last_updated_at).toEqual({ a: TIMESTAMP.toISO() })
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
@@ -178,6 +175,115 @@ describe('DB', () => {
             expect(await db.insertGroupType(2, 'foo', 0)).toEqual([1, false])
 
             expect(await db.fetchGroupTypes(2)).toEqual({ group_name: 0, foo: 1 })
+        })
+    })
+
+    describe('fetchGroup(), insertGroup() and updateGroup()', () => {
+        it('returns undefined if no group type exists', async () => {
+            await db.insertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'val' },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+
+            expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
+            expect(await db.fetchGroup(2, 1, 'group_key')).toEqual(undefined)
+            expect(await db.fetchGroup(2, 1, 'group_key2')).toEqual(undefined)
+        })
+
+        it('allows inserts and fetches', async () => {
+            await db.insertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'val' },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+
+            expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
+                id: expect.any(Number),
+                team_id: 2,
+                group_type_index: 0,
+                group_key: 'group_key',
+                group_properties: { prop: 'val' },
+                created_at: TIMESTAMP,
+                properties_last_updated_at: { prop: TIMESTAMP.toISO() },
+                properties_last_operation: { prop: PropertyUpdateOperation.Set },
+                version: 1,
+            })
+        })
+
+        it('insertGroup raises RaceConditionErrors if inserting in parallel', async () => {
+            await db.insertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'val' },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+
+            await expect(
+                db.insertGroup(
+                    2,
+                    0,
+                    'group_key',
+                    { prop: 'newval' },
+                    TIMESTAMP,
+                    { prop: TIMESTAMP.toISO() },
+                    { prop: PropertyUpdateOperation.Set },
+                    1
+                )
+            ).rejects.toEqual(new RaceConditionError('Parallel posthog_group inserts, retry'))
+        })
+
+        it('handles updates', async () => {
+            await db.insertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'val' },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+
+            const originalGroup = await db.fetchGroup(2, 0, 'group_key')
+
+            const timestamp2 = DateTime.fromISO('2000-10-14T12:42:06.502Z').toUTC()
+            await db.updateGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'newVal', prop2: 2 },
+                timestamp2,
+                { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
+                { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
+                2
+            )
+
+            expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
+                id: originalGroup!.id,
+                team_id: 2,
+                group_type_index: 0,
+                group_key: 'group_key',
+                group_properties: { prop: 'newVal', prop2: 2 },
+                created_at: TIMESTAMP,
+                properties_last_updated_at: { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
+                properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
+                version: 2,
+            })
         })
     })
 })

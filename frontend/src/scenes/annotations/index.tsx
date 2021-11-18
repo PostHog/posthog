@@ -2,7 +2,6 @@ import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, Row, Spin, Menu, Dropdown } from 'antd'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import dayjs from 'dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
@@ -12,12 +11,13 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { createdByColumn } from 'lib/components/Table/Table'
 import { AnnotationType, AnnotationScope } from '~/types'
-
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { dayjs } from 'lib/dayjs'
+
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 const { TextArea } = Input

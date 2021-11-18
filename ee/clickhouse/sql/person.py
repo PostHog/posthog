@@ -234,8 +234,8 @@ AND team_id = %(team_id)s
 """
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
-INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT person_id as id FROM ({query})
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
+    SELECT actor_id FROM ({query})
 )
 """
 
@@ -299,21 +299,11 @@ GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC
 """
 
-GET_PERSONS_FROM_EVENT_QUERY = """
-SELECT
-    person_id,
-    created_at,
-    team_id,
-    person_props,
-    is_identified,
-    arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+GET_ACTORS_FROM_EVENT_QUERY = """
+SELECT 
+    {id_field} AS actor_id
 FROM ({events_query})
-GROUP BY
-    person_id,
-    created_at,
-    team_id,
-    person_props,
-    is_identified
+GROUP BY actor_id
 LIMIT %(limit)s
 OFFSET %(offset)s
 """

@@ -1,10 +1,10 @@
 import React from 'react'
 import { Row, Col } from 'antd'
 import { CohortType } from '~/types'
-import dayjs from 'dayjs'
 import { TeamMemberID } from 'lib/components/TeamMemberID'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { dayjs } from 'lib/dayjs'
 
 export function CohortDetailsRow({ cohort }: { cohort: CohortType }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
