@@ -1,8 +1,8 @@
-import React from 'react'
-import { Button, Table } from 'antd'
+import React, { useState } from 'react'
+import { Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined } from '@ant-design/icons'
+import { RiseOutlined, FallOutlined, EllipsisOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
@@ -14,6 +14,8 @@ import { IconSelectProperties } from 'lib/components/icons'
 import './FunnelCorrelationTable.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
+import { Popup } from 'lib/components/Popup/Popup'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -232,13 +234,34 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
     const { isPropertyExcludedFromProject } = useValues(logic)
     const propertyName = (record.event.event || '').split('::')[0]
 
+    const [popoverOpen, setPopoverOpen] = useState(false)
+
     return (
-        <Button
-            disabled={isPropertyExcludedFromProject(propertyName)}
-            onClick={() => excludePropertyFromProject(propertyName)}
-            type="link"
-        >
-            Exclude from project
-        </Button>
+        <Row style={{ justifyContent: 'flex-end' }}>
+            <Popup
+                visible={popoverOpen}
+                actionable
+                onClickOutside={() => setPopoverOpen(false)}
+                overlay={
+                    <>
+                        <LemonButton
+                            disabled={isPropertyExcludedFromProject(propertyName)}
+                            onClick={() => excludePropertyFromProject(propertyName)}
+                            fullWidth
+                            title="Remove this property from any correlation analysis report in this project."
+                        >
+                            Exclude event from project
+                        </LemonButton>
+                    </>
+                }
+            >
+                <LemonButton type="stealth" style={{ paddingLeft: 0 }} onClick={() => setPopoverOpen(!popoverOpen)}>
+                    <EllipsisOutlined
+                        style={{ color: 'var(--primary)', fontSize: 24 }}
+                        className="insight-dropdown-actions"
+                    />
+                </LemonButton>
+            </Popup>
+        </Row>
     )
 }
