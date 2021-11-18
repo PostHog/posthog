@@ -9,7 +9,8 @@ import { organizationLogic } from '../../scenes/organizationLogic'
 import { preflightLogic } from '../../scenes/PreflightCheck/logic'
 import { teamLogic } from '../../scenes/teamLogic'
 import { userLogic } from '../../scenes/userLogic'
-import { lemonadeLogicType } from './lemonadeLogicType'
+import { VersionType } from '../../types'
+import { navigationLogicType } from './navigationLogicType'
 
 type WarningType =
     | 'welcome'
@@ -19,8 +20,8 @@ type WarningType =
     | 'real_project_with_no_events'
     | null
 
-export const lemonadeLogic = kea<lemonadeLogicType<WarningType>>({
-    path: ['layout', 'lemonade', 'lemonadeLogic'],
+export const navigationLogic = kea<navigationLogicType<WarningType>>({
+    path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
         values: [featureFlagLogic, ['featureFlags']],
     },

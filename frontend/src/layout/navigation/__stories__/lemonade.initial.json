@@ -536,7 +536,7 @@
     },
     "layout": {
         "lemonade": {
-            "lemonadeLogic": {
+            "navigationLogic": {
                 "isAnnouncementHidden": false,
                 "announcementMessage": "Random announcement – [visit our blog](https://posthog.com/blog) 🎉"
             }

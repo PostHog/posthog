@@ -7,7 +7,7 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import './DemoWarnings.scss'
-import { lemonadeLogic } from '../lemonadeLogic'
+import { navigationLogic } from '../navigationLogic'
 
 interface WarningInterface {
     message: JSX.Element | string
@@ -26,7 +26,7 @@ interface WarningsInterface {
 
 export function DemoWarnings(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { demoWarning } = useValues(lemonadeLogic)
+    const { demoWarning } = useValues(navigationLogic)
     const { reportDemoWarningDismissed } = useActions(eventUsageLogic)
 
     const WARNINGS: WarningsInterface = {

@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList } from 'react'
 import { GlobalHotKeys, HotKeys } from '~/types'
-import { lemonadeLogic } from '../../layout/lemonade/lemonadeLogic'
+import { navigationLogic } from '../../layout/navigation/navigationLogic'
 
 export interface HotkeyInterface {
     action: () => void
@@ -53,7 +53,7 @@ const isToolbarInput = (event: Event, ignorableElements: string[]): boolean => {
  */
 function _useKeyboardHotkeys(hotkeys: AllHotkeysInterface, deps?: DependencyList, enableOnGlobal?: boolean): void {
     const IGNORE_INPUTS = ['input', 'textarea'] // Inputs in which hotkey events will be ignored
-    const { hotkeyNavigationEngaged } = useValues(lemonadeLogic)
+    const { hotkeyNavigationEngaged } = useValues(navigationLogic)
 
     useEventListener(
         'keydown',

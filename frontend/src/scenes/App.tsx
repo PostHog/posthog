@@ -15,11 +15,11 @@ import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
-import { SideBar } from '../layout/lemonade/SideBar/SideBar'
+import { SideBar } from '../layout/navigation/SideBar/SideBar'
 import { appScenes } from 'scenes/appScenes'
-import { Breadcrumbs } from '../layout/lemonade/Breadcrumbs/Breadcrumbs'
-import { TopBar } from '../layout/lemonade/TopBar'
-import { DemoWarnings } from '../layout/lemonade/DemoWarnings/DemoWarnings'
+import { Breadcrumbs } from '../layout/navigation/Breadcrumbs/Breadcrumbs'
+import { TopBar } from '../layout/navigation/TopBar'
+import { DemoWarnings } from '../layout/navigation/DemoWarnings/DemoWarnings'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
