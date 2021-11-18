@@ -279,8 +279,10 @@ def get_active_feature_flags(
 
 
 # Return feature flags with per-user overrides
-def get_overridden_feature_flags(team: Team, distinct_id: str,) -> Dict[str, Union[bool, str, None]]:
-    feature_flags = get_active_feature_flags(team, distinct_id)
+def get_overridden_feature_flags(
+    team: Team, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
+) -> Dict[str, Union[bool, str, None]]:
+    feature_flags = get_active_feature_flags(team, distinct_id, groups)
 
     # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
     person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team=team).values_list("person_id")[:1]
