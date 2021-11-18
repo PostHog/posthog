@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -7,7 +6,6 @@ from django.core.cache import cache
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.person import Person
@@ -198,25 +196,53 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "funnel_step_breakdown": "Chrome",
         }
 
-        journeys_for(
-            {
-                "person1": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
-                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 15), "properties": {"$browser": "Chrome"}},
-                ],
-                "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}},
-                    {
-                        "event": "play movie",
-                        "timestamp": datetime(2020, 1, 2, 16),
-                        "properties": {"$browser": "Safari"},
-                    },
-                ],
-                "person3": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}}
-                ],
-            },
-            self.team,
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="buy",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T15:00:00Z",
+        )
+
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
+
+        person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
         )
 
         response = self.client.get("/api/person/funnel/", data=request_data)
