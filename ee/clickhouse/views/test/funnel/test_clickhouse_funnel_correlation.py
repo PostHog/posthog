@@ -1,21 +1,24 @@
-import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict
 from unittest.mock import ANY
 from uuid import uuid4
 
 import pytest
 from django.core.cache import cache
-from django.test import Client
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized, FunnelCorrelation
 from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
+from ee.clickhouse.views.test.funnel.util import (
+    EventPattern,
+    FunnelCorrelationRequest,
+    get_funnel_correlation,
+    get_funnel_correlation_ok,
+    get_people_for_correlation_ok,
+)
 from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
-from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.test.base import BaseTest
 
@@ -629,60 +632,6 @@ def clear_django_cache():
 
 def create_team(organization):
     return Team.objects.create(name="Test Team", organization=organization)
-
-
-class EventPattern(TypedDict):
-    id: str
-
-
-@dataclasses.dataclass
-class FunnelCorrelationRequest:
-    # Needs to be json encoded list of `EventPattern`s
-    events: str
-    date_to: str
-    funnel_step: Optional[int] = None
-    date_from: Optional[str] = None
-    funnel_correlation_type: Optional[FunnelCorrelationType] = None
-    # Needs to be json encoded list of `str`s
-    funnel_correlation_names: Optional[str] = None
-    funnel_correlation_event_names: Optional[str] = None
-
-
-def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):
-    return client.get(
-        f"/api/projects/{team_id}/insights/funnel/correlation",
-        data={key: value for key, value in dataclasses.asdict(request).items() if value is not None},
-    )
-
-
-def get_funnel_correlation_ok(client: Client, team_id: int, request: FunnelCorrelationRequest) -> Dict[str, Any]:
-    response = get_funnel_correlation(client=client, team_id=team_id, request=request)
-
-    assert response.status_code == 200, response.content
-    return response.json()
-
-
-def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSerialized) -> Dict[str, Any]:
-    """
-    Helper for getting people for a correlation. Note we keep checking to just
-    inclusion of name, to make the stable to changes in other people props.
-    """
-    success_people_url = correlation["success_people_url"]
-    failure_people_url = correlation["failure_people_url"]
-
-    if not success_people_url or not failure_people_url:
-        return {}
-
-    success_people_response = client.get(success_people_url)
-    assert success_people_response.status_code == 200, success_people_response.content
-
-    failure_people_response = client.get(failure_people_url)
-    assert failure_people_response.status_code == 200, failure_people_response.content
-
-    return {
-        "success": [person["name"] for person in success_people_response.json()["results"][0]["people"]],
-        "failure": [person["name"] for person in failure_people_response.json()["results"][0]["people"]],
-    }
 
 
 def create_person(**kwargs):
