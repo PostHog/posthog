@@ -114,9 +114,3 @@ class TrendsEventQuery(ClickhouseEventQuery):
         )
 
         return entity_format_params["entity_query"], entity_params
-
-    def _get_additional_join_group_types(self) -> Set[GroupTypeIndex]:
-        if self._is_actor_query and self._entity.math == "unique_group":
-            return {self._entity.math_group_type_index}
-        else:
-            return set()

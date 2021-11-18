@@ -1,3 +1,4 @@
+import uuid
 from typing import (
     Any,
     Dict,
@@ -16,12 +17,11 @@ from posthog.models import Entity, Filter, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.person import Person
-from posthog.models.utils import UUIDT
 
 
 class SerializedPerson(TypedDict):
     type: Literal["person"]
-    id: UUIDT
+    id: uuid.UUID
     created_at: Optional[str]
     properties: Dict[str, Any]
     is_identified: Optional[bool]
@@ -48,12 +48,8 @@ class ActorBaseQuery:
         self.entity = entity
         self.filter = filter
 
-    def groups_query(self) -> Tuple[str, Dict]:
-        """ Implemented by subclasses. Must return list of group uuids """
-        raise NotImplementedError()
-
-    def people_query(self) -> Tuple[str, Dict]:
-        """ Implemented by subclasses. Must return list of person uuids """
+    def actor_query(self) -> Tuple[str, Dict]:
+        """ Implemented by subclasses. Must return list of uuids. Can be group uuids (group_key) or person uuids """
         raise NotImplementedError()
 
     @cached_property
@@ -63,17 +59,9 @@ class ActorBaseQuery:
         else:
             return False
 
-    def get_actor_query(self) -> Tuple[str, Dict]:
-        if self.is_aggregating_by_groups:
-            query, params = self.groups_query()
-            return query, params
-        else:
-            query, params = self.people_query()
-            return query, params
-
     def get_actors(self) -> Tuple[QuerySet[Actor], List[SerializedActor]]:
         """ Get actors in data model and dict formats. Builds query and executes """
-        query, params = self.get_actor_query()
+        query, params = self.actor_query()
         raw_result = sync_execute(query, params)
         actors: QuerySet[Actor]
         serialized_actors: List[SerializedActor] = []
