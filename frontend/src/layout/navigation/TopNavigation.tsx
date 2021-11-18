@@ -347,7 +347,6 @@ function TopNavigationOriginal(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
-                <RedesignOptIn />
                 <HelpButton />
                 {user && (
                     <>
@@ -377,5 +376,5 @@ function TopNavigationOriginal(): JSX.Element {
 export function TopNavigation(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    return featureFlags[FEATURE_FLAGS.LEMONADE] ? <TopBar /> : <TopNavigationOriginal />
+    return true || featureFlags[FEATURE_FLAGS.LEMONADE] ? <TopBar /> : <TopNavigationOriginal />
 }
