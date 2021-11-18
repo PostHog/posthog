@@ -75,12 +75,6 @@ class FunnelEventQuery(ClickhouseEventQuery):
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
 
-    def _get_additional_join_group_types(self) -> Set[GroupTypeIndex]:
-        if self._is_actor_query and self._filter.aggregation_group_type_index:
-            return {self._filter.aggregation_group_type_index}
-        else:
-            return set()
-
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
         events = set()
         entities_to_use = entities or self._filter.entities
