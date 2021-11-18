@@ -1,6 +1,5 @@
 from typing import Any, List, Optional
 
-from django.apps import apps
 from django.db import models, transaction
 from django.utils import timezone
 
