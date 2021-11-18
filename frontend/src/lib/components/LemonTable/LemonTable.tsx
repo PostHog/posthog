@@ -6,16 +6,25 @@ import { IconChevronLeft, IconChevronRight } from '../icons'
 import { LemonButton } from '../LemonButton'
 import './LemonTable.scss'
 
+/** 1 means ascending, -1 means descending. */
+export type SortOrder = 1 | -1
+/** Sorting state. */
+export interface Sorting {
+    columnIndex: number
+    order: SortOrder
+}
+
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T> {
     title?: string | React.ReactNode
     key?: keyof T
     dataIndex?: D
     render?: (dataValue: T[D] | undefined, record: T) => React.ReactNode
     sorter?: (a: T, b: T) => number
-    span?: number
     className?: string
     /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */
     align?: 'left' | 'right' | 'center'
+    /** TODO: Set colspan */
+    span?: number
     /** TODO: Whether the column should be sticky when scrolling */
     sticky?: boolean
     /** TODO: Set width */
@@ -31,11 +40,10 @@ export interface LemonTableProps<T extends Record<string, any>> {
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     loading?: boolean
     pagination?: { pageSize: number; hideOnSinglePage?: boolean }
+    /** Sorting order to start with. */
+    defaultSorting?: Sorting
     'data-attr'?: string
 }
-
-/** 1 means ascending, -1 means descending. */
-type SortOrder = 1 | -1
 
 export function LemonTable<T extends Record<string, any>>({
     columns,
@@ -44,21 +52,23 @@ export function LemonTable<T extends Record<string, any>>({
     onRow,
     loading,
     pagination,
+    defaultSorting,
     ...divProps
 }: LemonTableProps<T>): JSX.Element {
     const [isScrollable, setIsScrollable] = useState([false, false]) // Left and right
     const [currentPage, setCurrentPage] = useState(1)
-    const [sortingState, sortingDispatch] = useReducer<
-        Reducer<{ columnIndex: number; order: SortOrder } | null, { columnIndex: number }>
-    >((state, action) => {
-        if (!state || state.columnIndex !== action.columnIndex) {
-            return { columnIndex: action.columnIndex, order: 1 }
-        } else if (state.order === 1) {
-            return { columnIndex: action.columnIndex, order: -1 }
-        } else {
-            return null
-        }
-    }, null)
+    const [sortingState, sortingDispatch] = useReducer<Reducer<Sorting | null, Pick<Sorting, 'columnIndex'>>>(
+        (state, action) => {
+            if (!state || state.columnIndex !== action.columnIndex) {
+                return { columnIndex: action.columnIndex, order: 1 }
+            } else if (state.order === 1) {
+                return { columnIndex: action.columnIndex, order: -1 }
+            } else {
+                return null
+            }
+        },
+        defaultSorting || null
+    )
 
     const contentRef = useRef<HTMLDivElement>(null)
 
@@ -159,22 +169,25 @@ export function LemonTable<T extends Record<string, any>>({
                                     data-row-key={rowKey ? data[rowKey] : rowIndex}
                                     {...onRow?.(data)}
                                 >
-                                    {columns.map((column, columnIndex) => (
-                                        <td
-                                            key={columnIndex}
-                                            className={column.className}
-                                            style={{ textAlign: column.align }}
-                                        >
-                                            {column.render
-                                                ? column.render(
-                                                      column.dataIndex ? data[column.dataIndex] : undefined,
-                                                      data
-                                                  )
-                                                : column.dataIndex
-                                                ? data[column.dataIndex]
-                                                : undefined}
-                                        </td>
-                                    ))}
+                                    {columns.map((column, columnIndex) => {
+                                        const value = column.dataIndex ? data[column.dataIndex] : undefined
+                                        const contents = column.render ? column.render(value, data) : value
+                                        return (
+                                            <td
+                                                key={
+                                                    column.key
+                                                        ? data[column.key]
+                                                        : column.dataIndex
+                                                        ? data[column.dataIndex]
+                                                        : columnIndex
+                                                }
+                                                className={column.className}
+                                                style={{ textAlign: column.align }}
+                                            >
+                                                {contents}
+                                            </td>
+                                        )
+                                    })}
                                 </tr>
                             ))
                         ) : (
