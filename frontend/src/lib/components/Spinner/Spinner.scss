@@ -12,10 +12,7 @@
     border-right: 4px solid $primary;
     border-bottom: 4px solid $primary;
     border-left: 4px solid $primary;
-    -webkit-transform: translateZ(0);
-    -ms-transform: translateZ(0);
     transform: translateZ(0);
-    -webkit-animation: loadSpinner 1.25s infinite linear;
     animation: loadSpinner 1.25s infinite linear;
     display: inline-block;
 
@@ -43,23 +40,11 @@
     }
 }
 
-@-webkit-keyframes loadSpinner {
-    0% {
-        -webkit-transform: rotate(0deg);
-        transform: rotate(0deg);
-    }
-    100% {
-        -webkit-transform: rotate(360deg);
-        transform: rotate(360deg);
-    }
-}
 @keyframes loadSpinner {
     0% {
-        -webkit-transform: rotate(0deg);
         transform: rotate(0deg);
     }
     100% {
-        -webkit-transform: rotate(360deg);
         transform: rotate(360deg);
     }
 }
