@@ -30,7 +30,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     },
     actions: {
         initReplayer: (frame: HTMLDivElement) => ({ frame }),
-        setReplayer: (replayer: Replayer) => ({ replayer }),
+        setReplayer: (replayer: Replayer | null) => ({ replayer }),
         setPlay: true,
         setPause: true,
         setBuffer: true,
@@ -335,4 +335,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     windowValues: {
         isSmallScreen: (window) => window.innerWidth < getBreakpoint('md'),
     },
+    events: ({ values, actions }) => ({
+        beforeUnmount: () => {
+            values.replayer?.pause()
+            actions.setReplayer(null)
+        },
+    }),
 })
