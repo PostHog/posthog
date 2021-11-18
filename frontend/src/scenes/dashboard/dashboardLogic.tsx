@@ -2,11 +2,11 @@ import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardItemType, DashboardLayoutSize, DashboardMode, DashboardType, FilterType, InsightType } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
@@ -14,6 +14,7 @@ import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
+import { urls } from 'scenes/urls'
 
 export interface DashboardLogicProps {
     id?: number
@@ -611,9 +612,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         addGraph: () => {
             if (values.dashboard) {
                 router.actions.push(
-                    `/insights?insight=TRENDS#backTo=${encodeURIComponent(
-                        values.dashboard.name
-                    )}&backToURL=/dashboard/${values.dashboard.id}`
+                    combineUrl(urls.newInsight({ insight: InsightType.TRENDS }), '', {
+                        backTo: values.dashboard.name,
+                        backToURL: urls.dashboard(values.dashboard.id),
+                    }).url
                 )
             }
         },

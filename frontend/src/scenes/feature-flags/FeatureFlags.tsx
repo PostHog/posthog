@@ -130,7 +130,11 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Link
-                        to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}`}
+                        to={urls.newInsight({
+                            events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
+                            breakdown_type: 'event',
+                            breakdown: `$feature/${featureFlag.key}`,
+                        })}
                         data-attr="usage"
                         onClick={(e) => e.stopPropagation()}
                     >
