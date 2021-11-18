@@ -16,7 +16,7 @@ class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends, ActorBaseQuery):
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
 
-    def actor_query(self) -> str:
+    def actor_query(self):
         drop_off = self._filter.drop_off
         if drop_off is None:
             raise ValidationError(f"Filter parameter {DROP_OFF} must be provided and a bool for funnel trends persons!")
