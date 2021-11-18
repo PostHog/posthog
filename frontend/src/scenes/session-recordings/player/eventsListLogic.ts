@@ -16,7 +16,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
     connect: {
         logics: [eventUsageLogic],
-        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess']],
+        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess'], sessionRecordingPlayerLogic, ['seek']],
         values: [
             sessionRecordingLogic,
             ['eventsToShow', 'sessionEventsDataLoading', 'firstChunkLoaded'],
