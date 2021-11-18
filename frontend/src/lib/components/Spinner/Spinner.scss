@@ -17,6 +17,7 @@
     transform: translateZ(0);
     -webkit-animation: loadSpinner 1.25s infinite linear;
     animation: loadSpinner 1.25s infinite linear;
+    display: inline-block;
 
     &.sm {
         width: 16px;
