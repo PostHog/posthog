@@ -25,18 +25,23 @@ import {
     ElementGroup,
     Event,
     EventDefinitionType,
+    Group,
+    GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
     Person,
     PersonDistinctId,
-    PersonPropertyUpdateOperation,
     PluginConfig,
     PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
     PostgresSessionRecordingEvent,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
     PropertyDefinitionType,
+    PropertyUpdateOperation,
     RawAction,
+    RawGroup,
     RawOrganization,
     RawPerson,
     SessionRecordingEvent,
@@ -429,7 +434,7 @@ export class DB {
         teamId: number,
         distinctId: string,
         client?: PoolClient,
-        forUpdate?: boolean
+        options: { forUpdate?: boolean } = {}
     ): Promise<Person | undefined> {
         let queryString = `SELECT
                 posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
@@ -442,7 +447,7 @@ export class DB {
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
                 AND posthog_persondistinctid.distinct_id = $2`
-        if (forUpdate) {
+        if (options.forUpdate) {
             // Locks the teamId and distinctId tied to this personId + this person's info
             queryString = queryString.concat(` FOR UPDATE`)
         }
@@ -476,11 +481,11 @@ export class DB {
         const props_last_operation: Record<string, any> = {}
         const props_last_updated_at: Record<string, any> = {}
         Object.keys(propertiesOnce).forEach((key) => {
-            props_last_operation[key] = PersonPropertyUpdateOperation.SetOnce
+            props_last_operation[key] = PropertyUpdateOperation.SetOnce
             props_last_updated_at[key] = createdAt
         })
         Object.keys(properties).forEach((key) => {
-            props_last_operation[key] = PersonPropertyUpdateOperation.Set
+            props_last_operation[key] = PropertyUpdateOperation.Set
             props_last_updated_at[key] = createdAt
         })
 
@@ -1229,7 +1234,11 @@ export class DB {
         return result
     }
 
-    public async insertGroupType(teamId: TeamId, groupType: string, index: number): Promise<[number | null, boolean]> {
+    public async insertGroupType(
+        teamId: TeamId,
+        groupType: string,
+        index: number
+    ): Promise<[GroupTypeIndex | null, boolean]> {
         if (index >= this.MAX_GROUP_TYPES_PER_TEAM) {
             return [null, false]
         }
@@ -1259,11 +1268,111 @@ export class DB {
         return [group_type_index, is_insert === 1]
     }
 
-    public async upsertGroup(
+    public async fetchGroup(
         teamId: TeamId,
-        groupTypeIndex: number,
+        groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        properties: Properties
+        client?: PoolClient,
+        options: { forUpdate?: boolean } = {}
+    ): Promise<Group | undefined> {
+        let queryString = `SELECT * FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
+
+        if (options.forUpdate) {
+            queryString = queryString.concat(` FOR UPDATE`)
+        }
+
+        const selectResult: QueryResult = await this.postgresQuery(
+            queryString,
+            [teamId, groupTypeIndex, groupKey],
+            'fetchGroup',
+            client
+        )
+
+        if (selectResult.rows.length > 0) {
+            const rawGroup: RawGroup = selectResult.rows[0]
+            return {
+                ...rawGroup,
+                created_at: DateTime.fromISO(rawGroup.created_at).toUTC(),
+                version: Number(rawGroup.version || 0),
+            }
+        }
+    }
+
+    public async insertGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        groupProperties: Properties,
+        createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        version: number,
+        client?: PoolClient
+    ): Promise<void> {
+        const result = await this.postgresQuery(
+            `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (team_id, group_key, group_type_index) DO NOTHING
+            RETURNING version
+            `,
+            [
+                teamId,
+                groupKey,
+                groupTypeIndex,
+                JSON.stringify(groupProperties),
+                createdAt.toISO(),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+                version,
+            ],
+            'upsertGroup',
+            client
+        )
+
+        if (result.rows.length === 0) {
+            throw new RaceConditionError('Parallel posthog_group inserts, retry')
+        }
+    }
+
+    public async updateGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        groupProperties: Properties,
+        createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        version: number,
+        client?: PoolClient
+    ): Promise<void> {
+        await this.postgresQuery(
+            `
+            UPDATE posthog_group
+            SET group_properties = $4, properties_last_updated_at = $5, properties_last_operation = $6, version = $7
+            WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
+            `,
+            [
+                teamId,
+                groupKey,
+                groupTypeIndex,
+                JSON.stringify(groupProperties),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+                version,
+            ],
+            'upsertGroup',
+            client
+        )
+    }
+
+    public async upsertGroupClickhouse(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        properties: Properties,
+        createdAt: DateTime,
+        version: number
     ): Promise<void> {
         if (this.kafkaProducer) {
             await this.kafkaProducer.queueMessage({
@@ -1276,10 +1385,8 @@ export class DB {
                                 group_key: groupKey,
                                 team_id: teamId,
                                 group_properties: JSON.stringify(properties),
-                                created_at: castTimestampOrNow(
-                                    DateTime.utc(),
-                                    TimestampFormat.ClickHouseSecondPrecision
-                                ),
+                                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                                version,
                             })
                         ),
                     },
@@ -1289,7 +1396,7 @@ export class DB {
     }
 
     // Used in tests
-    public async fetchGroups(): Promise<ClickhouseGroup[]> {
+    public async fetchClickhouseGroups(): Promise<ClickhouseGroup[]> {
         const query = `
         SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups FINAL
         `

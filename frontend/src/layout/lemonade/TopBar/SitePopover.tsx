@@ -182,21 +182,20 @@ function Version(): JSX.Element {
                     </div>
                     {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
-                <Link
-                    href={`https://posthog.com/blog/the-posthog-array-${preflight?.posthog_version?.replace(
-                        /\./g,
-                        '-'
-                    )}`}
-                    target="_blank"
-                    rel="noopener"
-                    onClick={() => {
-                        closeSitePopover()
-                    }}
-                    className="SitePopover__side-link"
-                    data-attr="update-indicator-badge"
-                >
-                    Release notes
-                </Link>
+                {latestVersion && (
+                    <Link
+                        href={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
+                        target="_blank"
+                        rel="noopener"
+                        onClick={() => {
+                            closeSitePopover()
+                        }}
+                        className="SitePopover__side-link"
+                        data-attr="update-indicator-badge"
+                    >
+                        Release notes
+                    </Link>
+                )}
             </>
         </LemonRow>
     )

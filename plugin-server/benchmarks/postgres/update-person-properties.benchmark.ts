@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
-import { Hub, PersonPropertyUpdateOperation, Team } from '../../src/types'
+import { Hub, PropertyUpdateOperation, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
@@ -22,10 +22,10 @@ const PAST_TIMESTAMP = '2000-10-14T11:42:06.502Z'
 
 function generateProperties(
     target: number
-): [Record<string, string>, Record<string, string>, Record<string, PersonPropertyUpdateOperation>] {
+): [Record<string, string>, Record<string, string>, Record<string, PropertyUpdateOperation>] {
     const startingProperties: Record<string, any> = {}
     const propertyUpdates: Record<string, any> = {}
-    const propertyToOperationMap: Record<string, PersonPropertyUpdateOperation> = {}
+    const propertyToOperationMap: Record<string, PropertyUpdateOperation> = {}
     const propertiesLastUpdatedAt: Record<string, string> = {}
     const propertiesLastOperation: Record<string, string> = {}
 
@@ -34,9 +34,9 @@ function generateProperties(
         startingProperties[propName] = 'this is my initial value'
         propertyUpdates[propName] = 'this is my updated value'
         if (i % 2 === 0) {
-            propertyToOperationMap[propName] = PersonPropertyUpdateOperation.Set
+            propertyToOperationMap[propName] = PropertyUpdateOperation.Set
         } else {
-            propertyToOperationMap[propName] = PersonPropertyUpdateOperation.SetOnce
+            propertyToOperationMap[propName] = PropertyUpdateOperation.SetOnce
         }
 
         if (i % 3 === 0) {
@@ -60,7 +60,7 @@ async function runUpdateCycle(
     teamId: number,
     startingProperties: Record<string, any>,
     propertyUpdates: Record<string, any>,
-    propertyToOperationMap: Record<string, PersonPropertyUpdateOperation>,
+    propertyToOperationMap: Record<string, PropertyUpdateOperation>,
     isControl = false
 ): Promise<number> {
     const uuid = new UUIDT().toString()

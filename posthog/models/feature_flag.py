@@ -185,7 +185,7 @@ class FeatureFlagMatcher:
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, distinct_id) < 0.2
     def get_hash(self, salt="") -> float:
-        hash_key = "%s.%s%s" % (self.feature_flag.key, self.distinct_id, salt)
+        hash_key = f"{self.feature_flag.key}.{self.distinct_id}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
