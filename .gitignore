@@ -4,7 +4,6 @@ env
 *.pyc
 __pycache__/
 staticfiles
-.env
 settings.yml
 .DS_Store
 debug.log
