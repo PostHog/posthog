@@ -86,4 +86,18 @@
             border-bottom: 1px solid $border;
         }
     }
+
+    .nested-properties-loading {
+        text-align: center;
+        padding: $default_spacing * 2 0;
+
+        h3 {
+            font-size: 1rem;
+            font-weight: bold;
+            margin-bottom: 0;
+            p {
+                color: $text_muted_alt;
+            }
+        }
+    }
 }

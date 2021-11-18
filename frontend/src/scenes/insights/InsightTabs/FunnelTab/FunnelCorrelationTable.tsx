@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Row, Table } from 'antd'
+import { Row, Spin, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -124,12 +124,21 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     }
 
     const renderNestedTable = (eventName: string): JSX.Element => {
+        if (eventWithPropertyCorrelationsLoading) {
+            return (
+                <div className="nested-properties-loading">
+                    <Spin />
+                    <h3>Loading correlation results</h3>
+                    <p>This process can take up to 20 seconds. </p>
+                </div>
+            )
+        }
+
         return (
             <div>
                 <h4 style={{ paddingLeft: 16 }}>Correlated properties</h4>
                 <Table
                     dataSource={eventWithPropertyCorrelationsValues[eventName]}
-                    loading={eventWithPropertyCorrelationsLoading}
                     rowKey={(record: FunnelCorrelation) => record.event.event}
                     className="nested-properties-table"
                     scroll={{ x: 'max-content' }}
