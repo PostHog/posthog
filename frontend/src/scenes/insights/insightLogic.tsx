@@ -622,7 +622,7 @@ export const insightLogic = kea<insightLogicType>({
                     router.actions.replace(urls.savedInsights())
                     return
                 }
-                const insightId = params.id ? parseInt(params.id) : null
+                const insightId = params.id ? parseInt(params.id) : hashParams.fromItem // `fromItem` for legacy support
                 if (!insightId) {
                     // only allow editing insights with IDs for now
                     router.actions.replace(urls.newInsight(searchParams))
