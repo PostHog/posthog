@@ -186,8 +186,8 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP },
-                { prop: '$set' },
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
                 1
             )
 
@@ -203,8 +203,8 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP },
-                { prop: '$set' },
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
                 1
             )
 
@@ -216,7 +216,7 @@ describe('DB', () => {
                 group_properties: { prop: 'val' },
                 created_at: TIMESTAMP,
                 properties_last_updated_at: { prop: TIMESTAMP.toISO() },
-                properties_last_operation: { prop: '$set' },
+                properties_last_operation: { prop: PropertyUpdateOperation.Set },
                 version: 1,
             })
             expect(version).toEqual(1)
@@ -229,8 +229,8 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP },
-                { prop: '$set' },
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
                 1
             )
 
@@ -243,8 +243,8 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'newVal', prop2: 2 },
                 timestamp2,
-                { prop: timestamp2, prop2: timestamp2 },
-                { prop: '$set', prop2: '$set' },
+                { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
+                { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 2
             )
 
@@ -256,7 +256,7 @@ describe('DB', () => {
                 group_properties: { prop: 'newVal', prop2: 2 },
                 created_at: TIMESTAMP,
                 properties_last_updated_at: { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
-                properties_last_operation: { prop: '$set', prop2: '$set' },
+                properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
             })
             expect(newVersion).toEqual(2)

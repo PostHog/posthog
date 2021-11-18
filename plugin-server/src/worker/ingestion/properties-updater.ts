@@ -155,7 +155,6 @@ export function calculateUpdate(
         properties_last_operation: { ...propertiesLastOperation },
     }
 
-    // :TODO: Rename PersonPropertyUpdateOperation
     Object.entries(propertiesOnce).forEach(([key, value]) => {
         if (
             !(key in result.properties) ||
