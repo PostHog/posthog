@@ -7,7 +7,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
 
-from posthog.api.routing import ProjectScopedModelSerializer, StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership

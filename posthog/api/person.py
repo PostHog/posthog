@@ -11,7 +11,7 @@ from rest_framework.settings import api_settings
 from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.api.routing import ProjectScopedHyperlinkedModelSerializer, StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_next_url, get_target_entity
 from posthog.constants import TRENDS_TABLE
 from posthog.models import Cohort, Event, Filter, Person, User
