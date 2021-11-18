@@ -603,7 +603,7 @@ export const insightLogic = kea<insightLogicType>({
                 name: generateRandomAnimal(),
                 description: '',
                 tags: [],
-                filters: filters,
+                filters: cleanFilters(filters),
                 result: null,
             }
             const createdInsight = await api.create(
