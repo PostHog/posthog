@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { EventType, RecordingEventsFilters } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
-import { clamp, colonDelimitedDuration, findLastIndex, floorOrCeilMsToClosestSecond } from 'lib/utils'
+import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
 import { CellMeasurerCache } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/commonjs/List'
@@ -111,13 +111,12 @@ export const eventsListLogic = kea<eventsListLogicType>({
                     return { start: 0, end: 0 }
                 }
                 const startIndex = events.findIndex(
-                    (e) => (e.zeroOffsetTime ?? 0) > floorOrCeilMsToClosestSecond(time.current, false)
+                    (e) => (e.zeroOffsetTime ?? 0) > ceilMsToClosestSecond(time.current)
                 )
-                const end = floorOrCeilMsToClosestSecond(time.current, false)
-                const start = floorOrCeilMsToClosestSecond(
+                const end = ceilMsToClosestSecond(time.current)
+                const start = floorMsToClosestSecond(
                     events[clamp(startIndex === -1 ? events.length - 1 : startIndex - 1, 0, events.length - 1)]
-                        .zeroOffsetTime ?? 0,
-                    true
+                        .zeroOffsetTime ?? 0
                 )
 
                 return { start, end }

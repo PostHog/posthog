@@ -1157,8 +1157,12 @@ export function isMultiSeriesFormula(formula?: string): boolean {
     return count > 1
 }
 
-export function floorOrCeilMsToClosestSecond(ms: number, isFloor: boolean): number {
-    return (isFloor ? Math.floor : Math.ceil)(ms / 1000) * 1000
+export function floorMsToClosestSecond(ms: number): number {
+    return Math.floor(ms / 1000) * 1000
+}
+
+export function ceilMsToClosestSecond(ms: number): number {
+    return Math.ceil(ms / 1000) * 1000
 }
 
 // https://stackoverflow.com/questions/40929260/find-last-index-of-element-inside-array-by-certain-condition

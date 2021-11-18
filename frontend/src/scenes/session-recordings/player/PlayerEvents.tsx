@@ -75,7 +75,6 @@ export function PlayerEvents(): JSX.Element {
         function _rowRenderer({ index, style, key, parent }: ListRowProps): JSX.Element {
             const event = listEvents[index]
             const hasDescription = getKeyMapping(event.event, 'event')
-            const renderAllRows = listEvents.length <= OVERSCANNED_ROW_COUNT
 
             return (
                 <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
@@ -89,7 +88,7 @@ export function PlayerEvents(): JSX.Element {
                         </Col>
                         <Col
                             className={clsx('event-item-content', {
-                                rendering: !renderAllRows && !isRowIndexRendered(index),
+                                rendering: !isRowIndexRendered(index),
                             })}
                         >
                             <Row className="event-item-content-top-row">
