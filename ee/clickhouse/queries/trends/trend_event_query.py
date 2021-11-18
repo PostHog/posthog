@@ -8,7 +8,6 @@ from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trun
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
-from posthog.models.property import GroupTypeIndex
 
 
 class TrendsEventQuery(ClickhouseEventQuery):

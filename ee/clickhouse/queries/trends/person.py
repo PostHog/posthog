@@ -3,11 +3,7 @@ from typing import Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
-from rest_framework.utils.serializer_helpers import ReturnDict
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.group import ClickhouseGroupSerializer
-from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.sql.person import GET_ACTORS_FROM_EVENT_QUERY
