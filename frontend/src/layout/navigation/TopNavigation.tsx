@@ -44,7 +44,6 @@ import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 import { TopBar } from '../lemonade/TopBar'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../lib/components/CommandPalette'
-import { RedesignOptIn } from '../lemonade/RedesignOptIn'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
