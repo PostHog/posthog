@@ -3,7 +3,7 @@ import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
-import { IllustrationDanger, IconTrendUp } from 'lib/components/icons'
+import { IllustrationDanger, IconTrendUp, IconExternalLinkBold } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
@@ -44,10 +44,10 @@ export function LineGraphEmptyState({ color, isDashboard }: { color: string; isD
     )
 }
 
-export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
+export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     return (
-        <div className="insight-empty-state timeout-message">
+        <div className="insight-empty-state timeout">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">{isLoading ? <LoadingOutlined spin /> : <IllustrationDanger />}</div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
@@ -114,9 +114,9 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
     )
 }
 
-export function ErrorMessage(): JSX.Element {
+export function InsightErrorState(): JSX.Element {
     return (
-        <div className="insight-empty-state error-message">
+        <div className="insight-empty-state error">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">
                     <IllustrationDanger />
@@ -176,7 +176,7 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div className="insight-empty-state funnels-empty-state info-message">
+        <div className="insight-empty-state funnels-empty-state">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">
                     <PlusCircleOutlined />
@@ -203,8 +203,10 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
                         rel="noopener"
+                        className="flex-center"
                     >
-                        Learn more about funnels in our support documentation.
+                        Learn more about funnels in our support documentation
+                        <IconExternalLinkBold style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
             </div>
@@ -214,7 +216,7 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
 
 export function FunnelEmptyState(): JSX.Element {
     return (
-        <div className="insight-empty-state funnels-empty-state info-message">
+        <div className="insight-empty-state funnels-empty-state">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
@@ -230,7 +232,7 @@ export function FunnelEmptyState(): JSX.Element {
 
 export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
     return (
-        <div className="insight-empty-state funnels-empty-state info-message">
+        <div className="insight-empty-state funnels-empty-state">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">
                     <IllustrationDanger />
@@ -244,11 +246,12 @@ export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
                 <div className="funnels-empty-state__help">
                     <a
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
                         rel="noopener"
                     >
-                        Learn more about funnels in our support documentation.
+                        Learn more about funnels in our support documentation
+                        <IconExternalLinkBold style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
             </div>

@@ -18,11 +18,11 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsLogic } from 'lib/components/Annotations'
 import { router } from 'kea-router'
 import {
-    ErrorMessage,
     FunnelEmptyState,
     FunnelInvalidExclusionFiltersEmptyState,
     FunnelInvalidFiltersEmptyState,
-    TimeOut,
+    InsightErrorState,
+    InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -84,10 +84,10 @@ export function InsightContainer(): JSX.Element {
 
         // Insight agnostic empty states
         if (showErrorMessage) {
-            return <ErrorMessage />
+            return <InsightErrorState />
         }
         if (showTimeoutMessage) {
-            return <TimeOut isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={isLoading} />
         }
 
         return null

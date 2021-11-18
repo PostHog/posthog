@@ -172,7 +172,7 @@ $funnel_canvas_background: #fafafa;
     padding-top: $default_spacing * 2;
     padding-bottom: $default_spacing * 2;
 
-    &.error-message {
+    &.error {
         .illustration-main {
             color: $danger;
         }
@@ -182,7 +182,7 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
-    &.timeout-message {
+    &.timeout {
         .illustration-main {
             color: $warning;
         }
@@ -192,16 +192,8 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
-    &.info-message {
-        .illustration-main {
-            color: $border;
-        }
-    }
-
-    &.action-message {
-        .illustration-main {
-            color: $primary;
-        }
+    .illustration-main {
+        color: $border;
     }
 
     .insight-empty-state__wrapper {

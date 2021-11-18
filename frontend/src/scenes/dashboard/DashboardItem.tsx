@@ -31,11 +31,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
-    ErrorMessage,
     FunnelEmptyState,
     FunnelInvalidExclusionFiltersEmptyState,
     FunnelInvalidFiltersEmptyState,
-    TimeOut,
+    InsightErrorState,
+    InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -275,10 +275,10 @@ export function DashboardItem({
 
         // Insight agnostic empty states
         if (showErrorMessage) {
-            return <ErrorMessage />
+            return <InsightErrorState />
         }
         if (showTimeoutMessage) {
-            return <TimeOut isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={isLoading} />
         }
 
         return null
