@@ -1156,3 +1156,22 @@ export function isMultiSeriesFormula(formula?: string): boolean {
     const count = (formula.match(/[a-zA-Z]/g) || []).length
     return count > 1
 }
+
+export function floorMsToClosestSecond(ms: number): number {
+    return Math.floor(ms / 1000) * 1000
+}
+
+export function ceilMsToClosestSecond(ms: number): number {
+    return Math.ceil(ms / 1000) * 1000
+}
+
+// https://stackoverflow.com/questions/40929260/find-last-index-of-element-inside-array-by-certain-condition
+export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: number, obj: T[]) => boolean): number {
+    let l = array.length
+    while (l--) {
+        if (predicate(array[l], l, array)) {
+            return l
+        }
+    }
+    return -1
+}

@@ -85,6 +85,14 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 },
             },
         ],
+        sessionEventsDataLoading: [
+            false,
+            {
+                loadEventsSuccess: (_, { sessionEventsData }) => {
+                    return !!sessionEventsData?.next
+                },
+            },
+        ],
         source: [
             RecordingWatchedSource.Unknown as RecordingWatchedSource,
             {
@@ -229,6 +237,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             (filters, events) => {
                 return filters?.query
                     ? new Fuse<SeekbarEventType>(makeEventsQueryable(events), {
+                          threshold: 0.3,
                           keys: ['queryValue'],
                           findAllMatches: true,
                           ignoreLocation: true,
