@@ -12,7 +12,14 @@ describe('retentionTableLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if ([`api/projects/${MOCK_TEAM_ID}/insights/`, `api/projects/${MOCK_TEAM_ID}/actions/`].includes(pathname)) {
+        if (
+            [
+                `api/projects/${MOCK_TEAM_ID}/insights/`,
+                `api/projects/${MOCK_TEAM_ID}/actions/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/123`,
+                `api/projects/${MOCK_TEAM_ID}/insights`,
+            ].includes(pathname)
+        ) {
             return { results: [] }
         } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/retention/`) {
             return { result: ['result from api'] }
