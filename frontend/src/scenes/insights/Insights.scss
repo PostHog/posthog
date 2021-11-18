@@ -199,9 +199,9 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
-    &.timeout {
+    &.warning {
         .illustration-main {
-            color: rgba($warning, 0.5);
+            color: #fec34d; // $warning with increased lightness
         }
 
         h2 {

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
-import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { IllustrationDanger, IconTrendUp, IconExternalLinkBold } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -47,7 +47,7 @@ export function LineGraphEmptyState({ color, isDashboard }: { color: string; isD
 export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     return (
-        <div className="insight-empty-state timeout">
+        <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main">{isLoading ? <LoadingOutlined spin /> : <IllustrationDanger />}</div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
@@ -218,15 +218,13 @@ export function FunnelSingleStepState(): JSX.Element {
 
 export function FunnelEmptyState(): JSX.Element {
     return (
-        <div className="insight-empty-state funnels-empty-state">
+        <div className="insight-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
-                <h2 className="funnels-empty-state__title">There are no matching events for this query.</h2>
-                <p className="funnels-empty-state__description">
-                    Try changing dates or pick another action, event, or breakdown.
-                </p>
+                <h2>There are no matching events for this query</h2>
+                <p className="text-center">Try changing the date range or pick another action, event, or breakdown.</p>
             </div>
         </div>
     )
@@ -234,18 +232,17 @@ export function FunnelEmptyState(): JSX.Element {
 
 export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
     return (
-        <div className="insight-empty-state funnels-empty-state">
+        <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <IllustrationDanger />
+                    <WarningOutlined />
                 </div>
-                <h2 className="funnels-empty-state__title">
-                    Exclusion filters cannot exclude events or actions in the funnel steps.
-                </h2>
-                <p className="funnels-empty-state__description">
-                    Try changing your funnel step filters, or removing the overlapping exclusion event.
+                <h2>Invalid exclusion filters</h2>
+                <p>
+                    You're excluding events or actions that are part of the funnel steps. Try changing your funnel step
+                    filters, or removing the overlapping exclusion event.
                 </p>
-                <div className="funnels-empty-state__help">
+                <div className="mt text-center">
                     <a
                         data-attr="insight-funnels-emptystate-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
