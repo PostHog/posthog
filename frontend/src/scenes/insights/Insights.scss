@@ -217,6 +217,25 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
+    &.is-dashboard:not(.white) {
+        background-color: var(--item-darker);
+        color: rgba(#ffffff, 0.7);
+        h2 {
+            color: rgba(#ffffff, 0.9);
+        }
+        .ant-empty-img-simple-ellipse {
+            fill: var(--item-darkest);
+        }
+
+        .ant-empty-img-simple-g {
+            stroke: var(--item-lighter);
+
+            .ant-empty-img-simple-path {
+                fill: var(--item-lighter);
+            }
+        }
+    }
+
     h2 {
         font-weight: bold;
         font-size: 1.5rem;

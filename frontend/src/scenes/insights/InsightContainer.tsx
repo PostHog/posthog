@@ -165,9 +165,7 @@ export function InsightContainer(): JSX.Element {
                     />
                 }
                 data-attr="insights-graph"
-                className={clsx('insights-graph-container', {
-                    funnels: activeView === InsightType.FUNNELS,
-                })}
+                className="insights-graph-container"
             >
                 <div>
                     <Row

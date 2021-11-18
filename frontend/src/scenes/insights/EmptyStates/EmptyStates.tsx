@@ -9,12 +9,13 @@ import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import clsx from 'clsx'
 
 export const UNNAMED_INSIGHT_NAME = 'Unnamed insight'
 
 export function InsightEmptyState({ color, isDashboard }: { color?: string; isDashboard?: boolean }): JSX.Element {
     return (
-        <div className="insight-empty-state">
+        <div className={clsx('insight-empty-state', { 'is-dashboard': isDashboard }, color)}>
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
