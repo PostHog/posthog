@@ -1,9 +1,9 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
@@ -14,7 +14,6 @@ from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.property import GroupTypeIndex
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -100,11 +99,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if any(
             self._should_property_join_persons(prop) for entity in self._filter.entities for prop in entity.properties
         ):
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
-            return
-
-        if self._filter.breakdown_type == "person":
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return

@@ -234,8 +234,8 @@ AND team_id = %(team_id)s
 """
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
-INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT id FROM ({query})
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
+    SELECT actor_id FROM ({query})
 )
 """
 
@@ -301,9 +301,9 @@ ORDER BY count DESC, key ASC
 
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT 
-    {id_field} AS id
+    {id_field} AS actor_id
 FROM ({events_query})
-GROUP BY id
+GROUP BY actor_id
 LIMIT %(limit)s
 OFFSET %(offset)s
 """

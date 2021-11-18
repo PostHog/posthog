@@ -12,6 +12,7 @@ import {
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { generateKafkaPersonUpdateMessage } from '../../utils/db/utils'
+import { RaceConditionError } from '../../utils/utils'
 
 interface PropertiesUpdate {
     updated: boolean
@@ -92,51 +93,62 @@ export async function upsertGroup(
     properties: Properties,
     timestamp: DateTime
 ): Promise<void> {
-    const [propertiesUpdate, createdAt, version] = await db.postgresTransaction(async (client) => {
-        const group: Group | undefined = await db.fetchGroup(teamId, groupTypeIndex, groupKey, client, {
-            forUpdate: true,
+    try {
+        const [propertiesUpdate, createdAt, version] = await db.postgresTransaction(async (client) => {
+            const group: Group | undefined = await db.fetchGroup(teamId, groupTypeIndex, groupKey, client, {
+                forUpdate: true,
+            })
+            const createdAt = group?.created_at || timestamp
+            const version = (group?.version || 0) + 1
+
+            const propertiesUpdate = calculateUpdate(
+                group?.group_properties || {},
+                properties,
+                {},
+                group?.properties_last_updated_at || {},
+                group?.properties_last_operation || {},
+                timestamp
+            )
+
+            if (!group) {
+                propertiesUpdate.updated = true
+            }
+
+            if (propertiesUpdate.updated) {
+                // :TRICKY: insertGroup will raise a RaceConditionError if group was inserted in-between fetch and this
+                const upsertMethod = group ? 'updateGroup' : 'insertGroup'
+                await db[upsertMethod](
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    propertiesUpdate.properties,
+                    createdAt,
+                    propertiesUpdate.properties_last_updated_at,
+                    propertiesUpdate.properties_last_operation,
+                    version,
+                    client
+                )
+            }
+
+            return [propertiesUpdate, createdAt, version]
         })
-        const createdAt = group?.created_at || timestamp
-        let version = (group?.version || 0) + 1
-
-        const propertiesUpdate = calculateUpdate(
-            group?.group_properties || {},
-            properties,
-            {},
-            group?.properties_last_updated_at || {},
-            group?.properties_last_operation || {},
-            timestamp
-        )
-
-        if (!group) {
-            propertiesUpdate.updated = true
-        }
 
         if (propertiesUpdate.updated) {
-            version = await db.upsertGroup(
+            await db.upsertGroupClickhouse(
                 teamId,
                 groupTypeIndex,
                 groupKey,
                 propertiesUpdate.properties,
                 createdAt,
-                propertiesUpdate.properties_last_updated_at,
-                propertiesUpdate.properties_last_operation,
-                version,
-                client
+                version
             )
         }
-        return [propertiesUpdate, createdAt, version]
-    })
-
-    if (propertiesUpdate.updated) {
-        await db.upsertGroupClickhouse(
-            teamId,
-            groupTypeIndex,
-            groupKey,
-            propertiesUpdate.properties,
-            createdAt,
-            version
-        )
+    } catch (error) {
+        if (error instanceof RaceConditionError) {
+            // Try again - lock the row and insert!
+            return upsertGroup(db, teamId, groupTypeIndex, groupKey, properties, timestamp)
+        }
+        throw error
     }
 }
 
@@ -155,7 +167,6 @@ export function calculateUpdate(
         properties_last_operation: { ...propertiesLastOperation },
     }
 
-    // :TODO: Rename PersonPropertyUpdateOperation
     Object.entries(propertiesOnce).forEach(([key, value]) => {
         if (
             !(key in result.properties) ||

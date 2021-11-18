@@ -8,7 +8,6 @@ import {
     SessionRecordingUsageType,
     SessionType,
 } from '~/types'
-import dayjs from 'dayjs'
 import { LEGACY_sessionsPlayLogicType } from './LEGACY_sessionsPlayLogicType'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -16,6 +15,8 @@ import { toast } from 'react-toastify'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
+import { dayjs } from 'lib/dayjs'
+
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 const convertToNewSessionPlayerDataType = (legacyData: LEGACY_SessionPlayerData): SessionPlayerData => {

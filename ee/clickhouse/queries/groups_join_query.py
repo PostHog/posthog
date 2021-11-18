@@ -1,10 +1,9 @@
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.property import GroupTypeIndex
 
 
 class GroupsJoinQuery:

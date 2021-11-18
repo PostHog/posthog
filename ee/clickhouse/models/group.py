@@ -2,28 +2,12 @@ import datetime
 import json
 from typing import Dict, Optional
 
-from django.conf import settings
-from django.db.models.signals import post_save
-from django.dispatch.dispatcher import receiver
 from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.sql.groups import INSERT_GROUP_SQL
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_GROUPS
-from posthog.models.group import Group
-from posthog.utils import is_clickhouse_enabled
-
-if is_clickhouse_enabled() and settings.TEST:
-
-    @receiver(post_save, sender=Group)
-    def group_created(sender, instance: Group, created, **kwargs):
-        create_group(
-            team_id=instance.team.pk,
-            group_type_index=instance.group_type_index,
-            group_key=instance.group_key,
-            properties=instance.group_properties,
-        )
 
 
 def create_group(

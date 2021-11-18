@@ -3,11 +3,7 @@ from typing import Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
-from rest_framework.utils.serializer_helpers import ReturnDict
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.group import ClickhouseGroupSerializer
-from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.sql.person import GET_ACTORS_FROM_EVENT_QUERY
@@ -80,8 +76,8 @@ class TrendsPersonQuery(ActorBaseQuery):
             filter=self.filter,
             team_id=self._team.pk,
             entity=self.entity,
-            should_join_distinct_ids=False if self.is_aggregating_by_groups else True,
-            should_join_persons=False if self.is_aggregating_by_groups else True,
+            should_join_distinct_ids=not self.is_aggregating_by_groups,
+            should_join_persons=not self.is_aggregating_by_groups,
             extra_fields=[] if self.is_aggregating_by_groups else ["distinct_id", "team_id"],
         ).get_query()
 

@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { organizationLogic } from './organizationLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -229,13 +230,15 @@ export const sceneLogic = kea<sceneLogicType>({
 
                 // Redirect to org/project creation if there's no org/project respectively, unless using invite
                 if (scene !== Scene.InviteSignup) {
-                    if (!user.organization) {
+                    if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (location.pathname !== urls.organizationCreateFirst()) {
+                            console.log('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
                             return
                         }
                     } else if (teamLogic.values.isCurrentTeamUnavailable) {
                         if (location.pathname !== urls.projectCreateFirst()) {
+                            console.log('Organization not available, redirecting to project creation')
                             router.actions.replace(urls.projectCreateFirst())
                             return
                         }
@@ -245,7 +248,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/personalization')
                     ) {
-                        // If ingestion tutorial not completed, redirect to it
+                        console.log('Ingestion tutorial not completed, redirecting to it')
                         router.actions.replace(urls.ingestion())
                         return
                     }

@@ -1,9 +1,9 @@
 import React from 'react'
-import dayjs from 'dayjs'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
 import { AnnotationType, AnnotationScope } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 interface AnnotationsProps {
     dates: string[]
