@@ -1,0 +1,59 @@
+@import '~/vars';
+
+.loader-spinner,
+.loader-spinner:after {
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+}
+
+.loader-spinner {
+    border-top: 4px solid $primary_hover;
+    border-right: 4px solid $primary;
+    border-bottom: 4px solid $primary;
+    border-left: 4px solid $primary;
+    -webkit-transform: translateZ(0);
+    -ms-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-animation: loadSpinner 1.25s infinite linear;
+    animation: loadSpinner 1.25s infinite linear;
+
+    &.sm {
+        width: 16px;
+        height: 16px;
+        border-top-width: 2px;
+        border-bottom-width: 2px;
+        border-right-width: 2px;
+        border-left-width: 2px;
+    }
+
+    &.lg {
+        width: 64px;
+        height: 64px;
+        border-top-width: 8px;
+        border-bottom-width: 8px;
+        border-right-width: 8px;
+        border-left-width: 8px;
+    }
+}
+
+@-webkit-keyframes loadSpinner {
+    0% {
+        -webkit-transform: rotate(0deg);
+        transform: rotate(0deg);
+    }
+    100% {
+        -webkit-transform: rotate(360deg);
+        transform: rotate(360deg);
+    }
+}
+@keyframes loadSpinner {
+    0% {
+        -webkit-transform: rotate(0deg);
+        transform: rotate(0deg);
+    }
+    100% {
+        -webkit-transform: rotate(360deg);
+        transform: rotate(360deg);
+    }
+}
