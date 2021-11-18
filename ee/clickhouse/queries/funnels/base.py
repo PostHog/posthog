@@ -440,7 +440,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.funnel_step_breakdown is not None:
             prop_vals = self._parse_breakdown_prop_value()
             self.params.update({"breakdown_prop_value": prop_vals})
-            conditions.append("prop IN %(breakdown_prop_value)s")
+            conditions.append("hasAny(arrayFlatten(prop), arrayFlatten(%(breakdown_prop_value)s))")
 
         return " AND ".join(conditions)
 
