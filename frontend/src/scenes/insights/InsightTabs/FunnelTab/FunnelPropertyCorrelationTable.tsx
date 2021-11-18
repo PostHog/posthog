@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, EllipsisOutlined } from '@ant-design/icons'
+import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
@@ -16,6 +16,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { Popup } from 'lib/components/Popup/Popup'
 import { LemonButton } from 'lib/components/LemonButton'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -202,17 +203,37 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         width="60%"
                     />
                     <Column
-                        title="Completed"
+                        title={
+                            <div className="flex-center">
+                                Completed
+                                <Tooltip title="Users who have this property and completed the entire funnel.">
+                                    <InfoCircleOutlined className="column-info" />
+                                </Tooltip>
+                            </div>
+                        }
                         key="success_count"
                         render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
                         width={90}
                         align="center"
                     />
                     <Column
-                        title="Dropped off"
+                        title={
+                            <div className="flex-center">
+                                Dropped off
+                                <Tooltip
+                                    title={
+                                        <>
+                                            Users who have this property and did <b>not complete</b> the entire funnel.
+                                        </>
+                                    }
+                                >
+                                    <InfoCircleOutlined className="column-info" />
+                                </Tooltip>
+                            </div>
+                        }
                         key="failure_count"
                         render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                        width={100}
+                        width={120}
                         align="center"
                     />
                     <Column

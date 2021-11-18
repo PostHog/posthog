@@ -300,6 +300,11 @@ code.code {
     justify-content: space-between;
 }
 
+.flex-center {
+    display: flex;
+    align-items: center;
+}
+
 .main-app-content {
     min-width: 0;
     padding: 0 2rem 2rem;

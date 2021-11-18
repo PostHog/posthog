@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, EllipsisOutlined } from '@ant-design/icons'
+import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
@@ -284,17 +284,37 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         ellipsis
                     />
                     <Column
-                        title="Completed"
+                        title={
+                            <div className="flex-center">
+                                Completed
+                                <Tooltip title="Users who performed the event and completed the entire funnel.">
+                                    <InfoCircleOutlined className="column-info" />
+                                </Tooltip>
+                            </div>
+                        }
                         key="success_count"
                         render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
                         width={90}
                         align="center"
                     />
                     <Column
-                        title="Dropped off"
+                        title={
+                            <div className="flex-center">
+                                Dropped off
+                                <Tooltip
+                                    title={
+                                        <>
+                                            Users who performed the event and did <b>not complete</b> the entire funnel.
+                                        </>
+                                    }
+                                >
+                                    <InfoCircleOutlined className="column-info" />
+                                </Tooltip>
+                            </div>
+                        }
                         key="failure_count"
                         render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                        width={100}
+                        width={120}
                         align="center"
                     />
                     <Column

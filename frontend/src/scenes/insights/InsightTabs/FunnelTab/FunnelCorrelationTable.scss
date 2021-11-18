@@ -72,6 +72,12 @@
         }
     }
 
+    .column-info {
+        color: $text_muted_alt;
+        cursor: pointer;
+        padding-left: 4px;
+    }
+
     .nested-properties-table {
         margin: $default_spacing;
         border: 1px solid $border;
