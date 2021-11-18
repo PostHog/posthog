@@ -16,10 +16,10 @@ export const eventsListLogic = kea<eventsListLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
     connect: {
         logics: [eventUsageLogic],
-        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess'], sessionRecordingPlayerLogic, ['seek']],
+        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess']],
         values: [
             sessionRecordingLogic,
-            ['eventsToShow', 'sessionEventsDataLoading'],
+            ['eventsToShow', 'sessionEventsDataLoading', 'firstChunkLoaded'],
             sessionRecordingPlayerLogic,
             ['zeroOffsetTime'],
         ],
@@ -201,6 +201,10 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 // Where are we relative to the current event
                 return visibleRange.startIndex > currentEventsRange.stopIndex
             },
+        ],
+        isEventListLoading: [
+            (selectors) => [selectors.sessionEventsDataLoading, selectors.firstChunkLoaded],
+            (eventsLoading, firstChunkLoaded) => !firstChunkLoaded || eventsLoading,
         ],
     }),
     events: ({ cache, actions }) => ({

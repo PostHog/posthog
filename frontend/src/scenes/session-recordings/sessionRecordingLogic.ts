@@ -217,10 +217,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         },
     }),
     selectors: {
-        loading: [
-            (selectors) => [selectors.sessionEventsDataLoading, selectors.sessionPlayerDataLoading],
-            (eventsLoading, playerLoading) => eventsLoading || playerLoading,
-        ],
         sessionEvents: [
             (selectors) => [selectors.sessionEventsData, selectors.sessionPlayerData],
             (eventsData, playerData) => {
