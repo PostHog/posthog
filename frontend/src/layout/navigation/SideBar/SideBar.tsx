@@ -1,7 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
+import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconArrowDropDown,
@@ -17,15 +19,10 @@ import {
     IconRecording,
     IconSettings,
     IconTools,
-} from '../../../lib/components/icons'
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonButtonWithSideAction,
-    SideAction,
-} from '../../../lib/components/LemonButton'
-import { LemonSpacer } from '../../../lib/components/LemonRow'
-import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
+} from 'lib/components/icons'
+import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
+import { LemonSpacer } from 'lib/components/LemonRow'
+import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '../../../models/dashboardsModel'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { canViewPlugins } from '../../../scenes/plugins/access'
@@ -145,15 +142,25 @@ function Pages(): JSX.Element {
                             <div className="SideBar__pinned-dashboards">
                                 <h5>Pinned dashboards</h5>
                                 <LemonSpacer />
-                                {pinnedDashboards.map((dashboard) => (
-                                    <PageButton
-                                        key={dashboard.id}
-                                        title={dashboard.name}
-                                        identifier={dashboard.id}
-                                        onClick={() => setArePinnedDashboardsShown(false)}
-                                        to={urls.dashboard(dashboard.id)}
-                                    />
-                                ))}
+                                {pinnedDashboards.length > 0 ? (
+                                    pinnedDashboards.map((dashboard) => (
+                                        <PageButton
+                                            key={dashboard.id}
+                                            title={dashboard.name}
+                                            identifier={dashboard.id}
+                                            onClick={() => setArePinnedDashboardsShown(false)}
+                                            to={urls.dashboard(dashboard.id)}
+                                        />
+                                    ))
+                                ) : (
+                                    <div className="text-muted text-center" style={{ maxWidth: 220 }}>
+                                        <PushpinOutlined style={{ marginRight: 4 }} /> Pinned dashboards will show here.{' '}
+                                        <Link onClick={() => setArePinnedDashboardsShown(false)} to={urls.dashboards()}>
+                                            Go to dashboards
+                                        </Link>
+                                        .
+                                    </div>
+                                )}
                             </div>
                         ),
                     },

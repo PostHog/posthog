@@ -66,7 +66,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             entity_data={
                 "id": "$pageview",
                 "type": "events",
-                "order": None,
+                "order": 0,
                 "name": "$pageview",
                 "custom_name": None,
                 "math": None,
@@ -168,7 +168,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             entity_data={
                 "id": "$pageview",
                 "type": "events",
-                "order": None,
+                "order": 0,
                 "name": "$pageview",
                 "custom_name": None,
                 "math": None,

@@ -1,5 +1,6 @@
+import json
 from enum import Enum, auto
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework import request, status
 from sentry_sdk import capture_exception
@@ -19,14 +20,35 @@ class PaginationMode(Enum):
 
 
 def get_target_entity(request: request.Request) -> Entity:
-    entity_id = request.GET.get(ENTITY_ID)
+    entity_id: Optional[Union[int, str]] = request.GET.get(ENTITY_ID)
+    events = request.GET.get("events", "[]")
+    actions = request.GET.get("actions", "[]")
     entity_type = request.GET.get(ENTITY_TYPE)
     entity_math = request.GET.get(ENTITY_MATH, None)
 
-    if entity_id and entity_type:
+    if not entity_id:
+        raise ValueError("An entity id must be provided to determine an entity")
+
+    possible_entity = retrieve_entity_from(entity_id, json.loads(events), json.loads(actions))
+    if possible_entity:
+        return Entity(data=possible_entity)
+    elif entity_type:
         return Entity({"id": entity_id, "type": entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
+
+
+def retrieve_entity_from(entity_id: Union[str, int], events: List[Dict], actions: List[Dict]) -> Optional[Dict]:
+    """
+    Retrieves the entity from the events and actions.
+    """
+    for event in events:
+        if event.get("id") == entity_id:
+            return event
+    for action in actions:
+        if action.get("id") == entity_id:
+            return action
+    return None
 
 
 def format_paginated_url(request: request.Request, offset: int, page_size: int, mode=PaginationMode.next):
