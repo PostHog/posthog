@@ -21,13 +21,6 @@ interface PropertiesUpdate {
     properties_last_operation: PropertiesLastOperation
 }
 
-interface PropertiesUpdate {
-    updated: boolean
-    properties: Properties
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation
-}
-
 export async function updatePersonProperties(
     db: DB,
     teamId: TeamId,
