@@ -207,6 +207,11 @@ def test_paginate_decompression():
     assert paginated_events.has_next == False
     assert len(paginated_events.paginated_list) == 4
 
+    # No limit or offset provided
+    paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data)
+    assert paginated_events.has_next == False
+    assert len(paginated_events.paginated_list) == 4
+
 
 def test_paginate_decompression_leaves_events_untouched(snapshot_events):
     snapshot_data = [event["properties"]["$snapshot_data"] for event in snapshot_events]
