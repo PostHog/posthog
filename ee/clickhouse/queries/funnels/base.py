@@ -106,6 +106,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if self._filter.funnel_step_breakdown.startswith("["):  # naive list as string detection
                 data.update({"funnel_step_breakdown": json.loads(self._filter.funnel_step_breakdown)})
 
+        if self._filter.breakdown:
+            values = self._get_breakdown_conditions()
+            if values:
+                self.params.update({"breakdown_values": values})
+
         for exclusion in self._filter.exclusions:
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
                 raise ValidationError("Exclusion event needs to define funnel steps")
@@ -556,10 +561,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            values = self._get_breakdown_conditions()
-            if values:
-                self.params.update({"breakdown_values": values})
-
             if group_remaining and self._filter.breakdown_type in ["person", "event"]:
                 return ", if(has(%(breakdown_values)s, prop), prop, ['Other']) as prop"
             elif group_remaining and self._filter.breakdown_type == "group":

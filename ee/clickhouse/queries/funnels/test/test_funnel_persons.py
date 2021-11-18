@@ -320,6 +320,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         results = ClickhouseFunnelPersons(
             filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
         )._exec_query()
+
         self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])
 
     def test_first_step_breakdowns_with_multi_property_breakdown(self):
