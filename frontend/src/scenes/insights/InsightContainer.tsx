@@ -18,9 +18,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsLogic } from 'lib/components/Annotations'
 import { router } from 'kea-router'
 import {
-    FunnelEmptyState,
-    FunnelInvalidExclusionFiltersEmptyState,
+    FunnelInvalidExclusionState,
     FunnelSingleStepState,
+    InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
@@ -75,10 +75,10 @@ export function InsightContainer(): JSX.Element {
                 return <FunnelSingleStepState />
             }
             if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionFiltersEmptyState />
+                return <FunnelInvalidExclusionState />
             }
             if (!isValidFunnel && !(insightLoading || isLoading)) {
-                return <FunnelEmptyState />
+                return <InsightEmptyState />
             }
         }
 

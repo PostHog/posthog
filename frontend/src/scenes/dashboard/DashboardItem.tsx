@@ -31,8 +31,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
-    FunnelEmptyState,
-    FunnelInvalidExclusionFiltersEmptyState,
+    InsightEmptyState,
+    FunnelInvalidExclusionState,
     FunnelSingleStepState,
     InsightErrorState,
     InsightTimeoutState,
@@ -266,10 +266,10 @@ export function DashboardItem({
                 return <FunnelSingleStepState />
             }
             if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionFiltersEmptyState />
+                return <FunnelInvalidExclusionState />
             }
             if (!isValidFunnel && !(insightLoading || isLoading)) {
-                return <FunnelEmptyState />
+                return <InsightEmptyState />
             }
         }
 

@@ -55,15 +55,3 @@
         }
     }
 }
-
-.insights-graph-container.funnels {
-    .ant-card-body {
-        padding: 0;
-    }
-
-    .graph-container {
-        // hacky because container not respecting position: relative;
-        width: calc(100% - 48px);
-        height: calc(100% - 48px);
-    }
-}

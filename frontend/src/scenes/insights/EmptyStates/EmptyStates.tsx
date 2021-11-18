@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import imgEmptyLineGraph from 'public/empty-line-graph.svg'
-import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
-import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { LoadingOutlined, PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { IllustrationDanger, IconTrendUp, IconExternalLinkBold } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -14,33 +12,17 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const UNNAMED_INSIGHT_NAME = 'Unnamed insight'
 
-export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
+export function InsightEmptyState({ color, isDashboard }: { color?: string; isDashboard?: boolean }): JSX.Element {
     return (
-        <>
-            {isDashboard ? (
-                <div className="text-center" style={{ height: '100%' }}>
-                    <img
-                        src={color === 'white' ? imgEmptyLineGraphDark : imgEmptyLineGraph}
-                        alt=""
-                        style={{ maxHeight: '100%', maxWidth: '80%', opacity: 0.5 }}
-                    />
-                    <div style={{ textAlign: 'center', fontWeight: 'bold', marginTop: 16 }}>
-                        Seems like there's no data to show this graph yet{' '}
-                        <a
-                            target="_blank"
-                            href="https://posthog.com/docs/features/trends?utm_campaign=dashboard-empty-state&utm_medium=in-product"
-                            style={{ color: color === 'white' ? 'rgba(0, 0, 0, 0.85)' : 'white' }}
-                        >
-                            <QuestionCircleOutlined />
-                        </a>
-                    </div>
+        <div className="insight-empty-state">
+            <div className="empty-state-inner">
+                <div className="illustration-main">
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
-            ) : (
-                <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
-                    We couldn't find any matching events. Try changing dates or pick another action or event.
-                </p>
-            )}
-        </>
+                <h2>There are no matching events for this query</h2>
+                <p className="text-center">Try changing the date range or pick another action, event, or breakdown.</p>
+            </div>
+        </div>
     )
 }
 
@@ -216,21 +198,7 @@ export function FunnelSingleStepState(): JSX.Element {
     )
 }
 
-export function FunnelEmptyState(): JSX.Element {
-    return (
-        <div className="insight-empty-state">
-            <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
-                </div>
-                <h2>There are no matching events for this query</h2>
-                <p className="text-center">Try changing the date range or pick another action, event, or breakdown.</p>
-            </div>
-        </div>
-    )
-}
-
-export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
+export function FunnelInvalidExclusionState(): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
