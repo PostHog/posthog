@@ -23,6 +23,7 @@ OperatorType = Literal[
     "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
 ]
 
+GroupTypeName = str
 GroupTypeIndex = int
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 

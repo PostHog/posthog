@@ -11,6 +11,9 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.group import Group
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
@@ -113,12 +116,38 @@ class FeatureFlagOverride(models.Model):
         }
 
 
+class FlagsMatcherCache:
+    def __init__(self, team_id: int):
+        self.team_id = team_id
+
+    @cached_property
+    def group_types_to_indexes(self) -> Dict[GroupTypeName, GroupTypeIndex]:
+        group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
+        return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
+
+    @cached_property
+    def group_type_index_to_name(self) -> Dict[GroupTypeIndex, GroupTypeName]:
+        return {value: key for key, value in self.group_types_to_indexes.items()}
+
+
 class FeatureFlagMatcher:
-    def __init__(self, feature_flag: FeatureFlag, distinct_id: str):
+    def __init__(
+        self,
+        feature_flag: FeatureFlag,
+        distinct_id: str,
+        groups: Dict[GroupTypeName, str] = {},
+        cache: Optional[FlagsMatcherCache] = None,
+    ):
         self.feature_flag = feature_flag
         self.distinct_id = distinct_id
+        self.groups = groups
+        self.cache = cache or FlagsMatcherCache(self.feature_flag.team_id)
 
     def get_match(self) -> Optional[FeatureFlagMatch]:
+        # If aggregating flag by groups and relevant group type is not passed - flag is off!
+        if self.hashed_identifier is None:
+            return None
+
         is_match = any(
             self.is_condition_match(condition, index) for index, condition in enumerate(self.feature_flag.conditions)
         )
@@ -136,7 +165,7 @@ class FeatureFlagMatcher:
     def is_condition_match(self, condition: Dict, condition_index: int):
         rollout_percentage = condition.get("rollout_percentage")
         if len(condition.get("properties", [])) > 0:
-            if not self._match_distinct_id(condition_index):
+            if not self._condition_matches(condition_index):
                 return False
             elif not rollout_percentage:
                 return True
@@ -146,7 +175,7 @@ class FeatureFlagMatcher:
 
         return True
 
-    def _match_distinct_id(self, condition_index: int) -> bool:
+    def _condition_matches(self, condition_index: int) -> bool:
         return len(self.query_conditions) > 0 and self.query_conditions[0][condition_index]
 
     # Define contiguous sub-domains within [0, 1].
@@ -165,11 +194,18 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> List[List[bool]]:
-        query: QuerySet = Person.objects.filter(
-            team_id=self.feature_flag.team_id,
-            persondistinctid__distinct_id=self.distinct_id,
-            persondistinctid__team_id=self.feature_flag.team_id,
-        )
+        if self.feature_flag.aggregation_group_type_index is None:
+            query: QuerySet = Person.objects.filter(
+                team_id=self.feature_flag.team_id,
+                persondistinctid__distinct_id=self.distinct_id,
+                persondistinctid__team_id=self.feature_flag.team_id,
+            )
+        else:
+            query = Group.objects.filter(
+                team_id=self.feature_flag.team_id,
+                group_type_index=self.feature_flag.aggregation_group_type_index,
+                group_key=self.hashed_identifier,
+            )
 
         fields = []
         for index, condition in enumerate(self.feature_flag.conditions):
@@ -187,12 +223,29 @@ class FeatureFlagMatcher:
 
         return list(query.values_list(*fields))
 
-    # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
-    # Given the same distinct_id and key, it'll always return the same float. These floats are
+    @property
+    def hashed_identifier(self) -> Optional[str]:
+        """
+        If aggregating by prople, returns distinct_id.
+
+        Otherwise, returns the relevant group_key.
+
+        If relevant group is not passed to the flag, None is returned and handled in get_match.
+        """
+        if self.feature_flag.aggregation_group_type_index is None:
+            return self.distinct_id
+        else:
+            # :TRICKY: If aggregating by groups
+            group_type_name = self.cache.group_type_index_to_name.get(self.feature_flag.aggregation_group_type_index)
+            group_key = self.groups.get(group_type_name)  # type: ignore
+            return group_key
+
+    # This function takes a identifier and a feature flag key and returns a float between 0 and 1.
+    # Given the same identifier and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
-    # we can do _hash(key, distinct_id) < 0.2
+    # we can do _hash(key, identifier) < 0.2
     def get_hash(self, salt="") -> float:
-        hash_key = f"{self.feature_flag.key}.{self.distinct_id}{salt}"
+        hash_key = f"{self.feature_flag.key}.{self.hashed_identifier}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
