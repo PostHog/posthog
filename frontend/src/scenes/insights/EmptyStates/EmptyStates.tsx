@@ -48,7 +48,7 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
     const { preflight } = useValues(preflightLogic)
     return (
         <div className="insight-empty-state timeout">
-            <div className="insight-empty-state__wrapper">
+            <div className="empty-state-inner">
                 <div className="illustration-main">{isLoading ? <LoadingOutlined spin /> : <IllustrationDanger />}</div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
                 {isLoading ? (
@@ -117,7 +117,7 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
 export function InsightErrorState(): JSX.Element {
     return (
         <div className="insight-empty-state error">
-            <div className="insight-empty-state__wrapper">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IllustrationDanger />
                 </div>
@@ -169,7 +169,7 @@ export function InsightErrorState(): JSX.Element {
     )
 }
 
-export function FunnelInvalidFiltersEmptyState(): JSX.Element {
+export function FunnelSingleStepState(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
@@ -177,7 +177,7 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
 
     return (
         <div className="insight-empty-state funnels-empty-state">
-            <div className="insight-empty-state__wrapper">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
                     <PlusCircleOutlined />
                 </div>
@@ -185,21 +185,23 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
                 <p className="funnels-empty-state__description">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {clickhouseFeaturesEnabled
-                        ? ' Once you have two steps defined, additional steps will automatically recalculate and update the funnel.'
+                        ? ' Once you have two steps defined, additional changes will recalculate automatically.'
                         : ''}
                 </p>
-                <Button
-                    size="large"
-                    onClick={() => addFilter()}
-                    data-attr="add-action-event-button-empty-state"
-                    icon={<PlusCircleOutlined />}
-                    className="add-action-event-button"
-                >
-                    Add funnel step
-                </Button>
-                <div className="funnels-empty-state__help">
+                <div className="mt text-center">
+                    <Button
+                        size="large"
+                        onClick={() => addFilter()}
+                        data-attr="add-action-event-button-empty-state"
+                        icon={<PlusCircleOutlined />}
+                        className="add-action-event-button"
+                    >
+                        Add funnel step
+                    </Button>
+                </div>
+                <div className="mt text-center">
                     <a
-                        data-attr="insight-funnels-emptystate-help"
+                        data-attr="funnels-single-step-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
                         rel="noopener"
@@ -217,7 +219,7 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
 export function FunnelEmptyState(): JSX.Element {
     return (
         <div className="insight-empty-state funnels-empty-state">
-            <div className="insight-empty-state__wrapper">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
@@ -233,7 +235,7 @@ export function FunnelEmptyState(): JSX.Element {
 export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
     return (
         <div className="insight-empty-state funnels-empty-state">
-            <div className="insight-empty-state__wrapper">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IllustrationDanger />
                 </div>
@@ -288,7 +290,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
 
     return (
         <div className="saved-insight-empty-state">
-            <div className="insight-empty-state__wrapper">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IconTrendUp />
                 </div>

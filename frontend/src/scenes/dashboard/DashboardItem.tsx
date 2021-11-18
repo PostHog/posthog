@@ -33,7 +33,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import {
     FunnelEmptyState,
     FunnelInvalidExclusionFiltersEmptyState,
-    FunnelInvalidFiltersEmptyState,
+    FunnelSingleStepState,
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
@@ -263,7 +263,7 @@ export function DashboardItem({
         // Insight specific empty states - note order is important here
         if (item.filters.insight === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelInvalidFiltersEmptyState />
+                return <FunnelSingleStepState />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionFiltersEmptyState />

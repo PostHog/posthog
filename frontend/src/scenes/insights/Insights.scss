@@ -79,8 +79,10 @@ $funnel_canvas_background: #fafafa;
     }
 
     .insights-graph-container {
+        margin-bottom: $default_spacing;
+
         .ant-card-head {
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid $border;
             min-height: unset;
             background-color: $bg_mid;
             padding-right: $default_spacing / 4;
@@ -100,6 +102,10 @@ $funnel_canvas_background: #fafafa;
             @media screen and (max-width: $md) {
                 overflow-x: auto;
             }
+        }
+
+        .ant-card-body {
+            padding: 0;
         }
     }
 
@@ -162,6 +168,14 @@ $funnel_canvas_background: #fafafa;
             margin-top: 0 !important;
         }
     }
+
+    .insights-graph-header {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding: 8px 24px;
+        border-bottom: 1px solid $border;
+        min-height: 48px;
+    }
 }
 
 .insight-empty-state {
@@ -171,10 +185,13 @@ $funnel_canvas_background: #fafafa;
     align-items: center;
     padding-top: $default_spacing * 2;
     padding-bottom: $default_spacing * 2;
+    background-color: $bg_mid;
+    color: $text_muted;
+    font-size: 1.1em;
 
     &.error {
         .illustration-main {
-            color: $danger;
+            color: #fb8c6a; // $danger with increased lightness
         }
 
         h2 {
@@ -184,7 +201,7 @@ $funnel_canvas_background: #fafafa;
 
     &.timeout {
         .illustration-main {
-            color: $warning;
+            color: rgba($warning, 0.5);
         }
 
         h2 {
@@ -192,11 +209,22 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
-    .illustration-main {
-        color: $border;
+    h2 {
+        font-weight: bold;
+        font-size: 1.5rem;
+        line-height: 1.6rem;
+        color: $primary_alt;
     }
 
-    .insight-empty-state__wrapper {
+    .illustration-main {
+        color: rgba($primary_alt, 0.3);
+    }
+
+    button.ant-btn-lg {
+        height: 42px;
+    }
+
+    .empty-state-inner {
         max-width: 600px;
 
         .illustration-main {

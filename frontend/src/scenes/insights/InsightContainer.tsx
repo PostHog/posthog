@@ -20,7 +20,7 @@ import { router } from 'kea-router'
 import {
     FunnelEmptyState,
     FunnelInvalidExclusionFiltersEmptyState,
-    FunnelInvalidFiltersEmptyState,
+    FunnelSingleStepState,
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
@@ -72,7 +72,7 @@ export function InsightContainer(): JSX.Element {
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelInvalidFiltersEmptyState />
+                return <FunnelSingleStepState />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionFiltersEmptyState />
@@ -176,10 +176,6 @@ export function InsightContainer(): JSX.Element {
                         })}
                         align="middle"
                         justify="space-between"
-                        style={{
-                            marginTop: -8,
-                            marginBottom: 16,
-                        }}
                     >
                         <Col>
                             <FunnelCanvasLabel />
