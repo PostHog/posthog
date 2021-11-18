@@ -203,7 +203,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         aggregate_having_clause = ""
         where_conditions = "AND event IN %(event_names)s"
         # Always include $pageview events so the start_url and end_url can be extracted
-        event_names_to_filter: Set[Union[int, str]] = set(["$pageview"])
+        event_names_to_filter: List[Union[int, str]] = ["$pageview"]
 
         params: Dict = {}
 
@@ -211,9 +211,11 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
                 for action_step in action.steps.all():
-                    event_names_to_filter.add(action_step.event)
+                    if action_step.event not in event_names_to_filter:
+                        event_names_to_filter.append(action_step.event)
             else:
-                event_names_to_filter.add(entity.id)
+                if entity.id not in event_names_to_filter:
+                    event_names_to_filter.append(entity.id)
 
             condition_sql, filter_params = self.format_event_filter(entity, prepend=f"event_matcher_{index}")
             aggregate_select_clause += f", sum(if({condition_sql}, 1, 0)) as count_event_match_{index}"

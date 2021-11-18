@@ -337,7 +337,7 @@
                  FROM JSONExtractRaw(properties, '$session_id')) as session_id
      FROM events
      WHERE team_id = 2
-       AND event IN ['$autocapture', '$pageview']
+       AND event IN ['$pageview', '$autocapture']
        AND timestamp >= '2021-01-13 12:00:00'
        AND timestamp <= '2021-01-22 08:00:00' ) AS events
   RIGHT OUTER JOIN
