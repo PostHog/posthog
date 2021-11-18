@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
-import { UUIDT } from '../../src/utils/utils'
+import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -178,9 +178,9 @@ describe('DB', () => {
         })
     })
 
-    describe('fetchGroup() and upsertGroup()', () => {
+    describe('fetchGroup(), insertGroup() and updateGroup()', () => {
         it('returns undefined if no group type exists', async () => {
-            await db.upsertGroup(
+            await db.insertGroup(
                 2,
                 0,
                 'group_key',
@@ -197,7 +197,7 @@ describe('DB', () => {
         })
 
         it('allows inserts and fetches', async () => {
-            const version = await db.upsertGroup(
+            await db.insertGroup(
                 2,
                 0,
                 'group_key',
@@ -219,11 +219,36 @@ describe('DB', () => {
                 properties_last_operation: { prop: PropertyUpdateOperation.Set },
                 version: 1,
             })
-            expect(version).toEqual(1)
+        })
+
+        it('insertGroup raises RaceConditionErrors if inserting in parallel', async () => {
+            await db.insertGroup(
+                2,
+                0,
+                'group_key',
+                { prop: 'val' },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+
+            await expect(
+                db.insertGroup(
+                    2,
+                    0,
+                    'group_key',
+                    { prop: 'newval' },
+                    TIMESTAMP,
+                    { prop: TIMESTAMP.toISO() },
+                    { prop: PropertyUpdateOperation.Set },
+                    1
+                )
+            ).rejects.toEqual(new RaceConditionError('Parallel posthog_group inserts, retry'))
         })
 
         it('handles updates', async () => {
-            await db.upsertGroup(
+            await db.insertGroup(
                 2,
                 0,
                 'group_key',
@@ -237,7 +262,7 @@ describe('DB', () => {
             const originalGroup = await db.fetchGroup(2, 0, 'group_key')
 
             const timestamp2 = DateTime.fromISO('2000-10-14T12:42:06.502Z').toUTC()
-            const newVersion = await db.upsertGroup(
+            await db.updateGroup(
                 2,
                 0,
                 'group_key',
@@ -259,7 +284,6 @@ describe('DB', () => {
                 properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
             })
-            expect(newVersion).toEqual(2)
         })
     })
 })

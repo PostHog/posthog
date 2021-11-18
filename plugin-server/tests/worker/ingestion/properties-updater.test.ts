@@ -225,17 +225,17 @@ describe('upsertGroup()', () => {
         expect(group.properties_last_updated_at).toEqual({ foo: FUTURE_TIMESTAMP.toISO() })
     })
 
-    it.skip('handles race conditions as inserts happen in parallel', async () => {
+    it('handles race conditions as inserts happen in parallel', async () => {
         // :TRICKY: This test is closely coupled with the method under test and we
         //  control the timing of functions called precisely to emulate a race condition
 
         const firstFetchIsDonePromise = createPromise()
         const firstInsertShouldStartPromise = createPromise()
 
-        jest.spyOn(db, 'upsertGroup').mockImplementationOnce(async (...args) => {
+        jest.spyOn(db, 'insertGroup').mockImplementationOnce(async (...args) => {
             firstFetchIsDonePromise.resolve()
             await firstInsertShouldStartPromise.promise
-            return await db.upsertGroup(...args)
+            return await db.insertGroup(...args)
         })
 
         // First, we start first update, and wait until first fetch is done (and returns that group does not exist)

@@ -2234,7 +2234,7 @@ export const createProcessEventTests = (
             const next: DateTime = now.plus({ minutes: 1 })
 
             await createPerson(hub, team, ['distinct_id1'])
-            await hub.db.upsertGroup(
+            await hub.db.insertGroup(
                 team.id,
                 0,
                 'org::5',
