@@ -9,7 +9,7 @@
 #
 # NOTE: I haven't tried to unify with `dev.Dockerfile` at this point. I want to
 # understand what leaning into codespaces looks like first.
-FROM mcr.microsoft.com/vscode/devcontainers/python:3-bullseye
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.9-bullseye
 
 # We might want to, e.g. install pip and node packages, but for now I'm just
 # expecting to have to install these manually, for evaluation purposes.
