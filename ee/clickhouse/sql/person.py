@@ -301,9 +301,9 @@ ORDER BY count DESC, key ASC
 
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT 
-    {id_field} AS id
+    {id_field} AS actor_id
 FROM ({events_query})
-GROUP BY id
+GROUP BY actor_id
 LIMIT %(limit)s
 OFFSET %(offset)s
 """

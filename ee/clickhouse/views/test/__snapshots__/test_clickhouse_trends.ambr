@@ -14,7 +14,7 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -45,7 +45,7 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-15 23:59:59' )
-  GROUP BY id
+  GROUP BY actor_id
   LIMIT 200
   OFFSET 0
   '
@@ -96,7 +96,7 @@
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -127,7 +127,7 @@
        AND event = '$pageview'
        AND timestamp >= '2012-01-14 00:00:00'
        AND timestamp <= '2012-01-14 23:59:59' )
-  GROUP BY id
+  GROUP BY actor_id
   LIMIT 200
   OFFSET 0
   '
@@ -163,7 +163,7 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -194,7 +194,7 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59' )
-  GROUP BY id
+  GROUP BY actor_id
   LIMIT 200
   OFFSET 0
   '
@@ -249,7 +249,7 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -280,7 +280,7 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59' )
-  GROUP BY id
+  GROUP BY actor_id
   LIMIT 200
   OFFSET 0
   '
@@ -354,7 +354,7 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             e.properties as properties,
@@ -389,7 +389,7 @@
        AND has(['val'], trim(BOTH '"'
                              FROM JSONExtractRaw(properties, 'key')))
        AND team_id = 2 )
-  GROUP BY id
+  GROUP BY actor_id
   LIMIT 200
   OFFSET 0
   '
@@ -487,7 +487,7 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS id
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             e.properties as properties,
@@ -522,7 +522,7 @@
        AND has(['val'], trim(BOTH '"'
                              FROM JSONExtractRaw(properties, 'key')))
        AND team_id = 2 )
-  GROUP BY id
+  GROUP BY actor_id
   LIMIT 200
   OFFSET 0
   '
@@ -561,7 +561,7 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT $group_0 AS id
+  SELECT $group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             e.$group_0 as $group_0
@@ -572,7 +572,7 @@
        AND timestamp <= '2020-01-02 23:59:59'
        AND NOT has([''], $group_0)
        AND team_id = 2 )
-  GROUP BY id
+  GROUP BY actor_id
   LIMIT 200
   OFFSET 0
   '

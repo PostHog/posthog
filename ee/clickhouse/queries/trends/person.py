@@ -76,8 +76,8 @@ class TrendsPersonQuery(ActorBaseQuery):
             filter=self.filter,
             team_id=self.team.pk,
             entity=self.entity,
-            should_join_distinct_ids=self.is_aggregating_by_groups,
-            should_join_persons=self.is_aggregating_by_groups,
+            should_join_distinct_ids=not self.is_aggregating_by_groups,
+            should_join_persons=not self.is_aggregating_by_groups,
             extra_fields=[] if self.is_aggregating_by_groups else ["distinct_id", "team_id"],
         ).get_query()
 
