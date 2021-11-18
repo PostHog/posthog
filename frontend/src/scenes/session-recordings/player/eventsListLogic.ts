@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { EventType, RecordingEventsFilters } from '~/types'
+import { RecordingEventsFilters, RecordingEventType } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
@@ -16,7 +16,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
     connect: {
         logics: [eventUsageLogic],
-        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess']],
+        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess'], sessionRecordingPlayerLogic, ['seek']],
         values: [
             sessionRecordingLogic,
             ['eventsToShow', 'sessionEventsDataLoading'],
@@ -32,6 +32,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
         enablePositionFinder: true,
         disablePositionFinder: true,
         scrollTo: (rowIndex?: number) => ({ rowIndex }),
+        handleEventClick: (time: number) => ({ time }),
     },
     reducers: {
         localFilters: [
@@ -92,11 +93,14 @@ export const eventsListLogic = kea<eventsListLogicType>({
             await breakpoint(DEFAULT_SCROLLING_RESET_TIME_INTERVAL)
             actions.enablePositionFinder()
         },
+        handleEventClick: ({ time }) => {
+            actions.seek(time)
+        },
     }),
     selectors: ({ cache }) => ({
         listEvents: [
             (selectors) => [selectors.eventsToShow],
-            (events: EventType[]) => {
+            (events: RecordingEventType[]): RecordingEventType[] => {
                 return events.map((e) => ({
                     ...e,
                     colonTimestamp: colonDelimitedDuration(Math.floor((e.zeroOffsetTime ?? 0) / 1000)),
