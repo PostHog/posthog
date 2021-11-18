@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { HTMLProps, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import React, { HTMLProps, Reducer, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { columnSort } from '../../../scenes/saved-insights/SavedInsights'
 import { useResizeObserver } from '../../hooks/useResizeObserver'
 import { IconChevronLeft, IconChevronRight } from '../icons'
@@ -34,8 +34,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     'data-attr'?: string
 }
 
-/** 0 means unsorted, 1 means ascending, -1 means descending. */
-type SortOrder = 0 | 1 | -1
+/** 1 means ascending, -1 means descending. */
+type SortOrder = 1 | -1
 
 export function LemonTable<T extends Record<string, any>>({
     columns,
@@ -48,27 +48,17 @@ export function LemonTable<T extends Record<string, any>>({
 }: LemonTableProps<T>): JSX.Element {
     const [isScrollable, setIsScrollable] = useState([false, false]) // Left and right
     const [currentPage, setCurrentPage] = useState(1)
-    const [sortOrdersState, sortOrdersDispatch] = useReducer(
-        (state: Record<number, SortOrder>, action: { columnIndex: number }) => {
-            let nextValue: SortOrder
-            switch (state[action.columnIndex]) {
-                case 1:
-                    nextValue = -1
-                    break
-                case -1:
-                    nextValue = 0
-                    break
-                default:
-                    nextValue = 1
-                    break
-            }
-            return {
-                ...state,
-                [action.columnIndex]: nextValue,
-            }
-        },
-        {}
-    )
+    const [sortingState, sortingDispatch] = useReducer<
+        Reducer<{ columnIndex: number; order: SortOrder } | null, { columnIndex: number }>
+    >((state, action) => {
+        if (!state || state.columnIndex !== action.columnIndex) {
+            return { columnIndex: action.columnIndex, order: 1 }
+        } else if (state.order === 1) {
+            return { columnIndex: action.columnIndex, order: -1 }
+        } else {
+            return null
+        }
+    }, null)
 
     const contentRef = useRef<HTMLDivElement>(null)
 
@@ -102,31 +92,24 @@ export function LemonTable<T extends Record<string, any>>({
     }, [updateIsScrollable])
 
     const { currentFrame, currentStartIndex, currentEndIndex } = useMemo(() => {
-        const sortedDataSource = dataSource.slice().sort((a, b) => {
-            let result = 0
-            for (let i = 0; i < columns.length; i++) {
-                const sorter = columns[i].sorter
-                const sortOrder = sortOrdersState[i]
-                if (sorter && sortOrder) {
-                    result = sorter(a, b) * sortOrder
-                    if (result !== 0) {
-                        break
-                    }
-                }
+        let processedDataSource = dataSource
+        if (sortingState) {
+            const sorter = columns[sortingState.columnIndex].sorter
+            if (sorter) {
+                processedDataSource = processedDataSource.slice().sort((a, b) => sortingState.order * sorter(a, b))
             }
-            return result
-        })
+        }
         const calculatedStartIndex = pagination ? (Math.min(currentPage, pageCount) - 1) * pagination.pageSize : 0
         const calculatedFrame = pagination
-            ? sortedDataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
-            : sortedDataSource
+            ? processedDataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
+            : processedDataSource
         const calculatedEndIndex = calculatedStartIndex + calculatedFrame.length
         return {
             currentFrame: calculatedFrame,
             currentStartIndex: calculatedStartIndex,
             currentEndIndex: calculatedEndIndex,
         }
-    }, [currentPage, pageCount, pagination, dataSource, sortOrdersState])
+    }, [currentPage, pageCount, pagination, dataSource, sortingState])
 
     return (
         <div
@@ -151,16 +134,16 @@ export function LemonTable<T extends Record<string, any>>({
                                         column.className
                                     )}
                                     style={{ textAlign: column.align }}
-                                    onClick={column.sorter ? () => sortOrdersDispatch({ columnIndex }) : undefined}
+                                    onClick={column.sorter ? () => sortingDispatch({ columnIndex }) : undefined}
                                 >
                                     <div className="LemonTable__header-content">
                                         {column.title}
                                         {column.sorter &&
                                             columnSort(
-                                                sortOrdersState[columnIndex] === -1
-                                                    ? 'down'
-                                                    : sortOrdersState[columnIndex] === 1
-                                                    ? 'up'
+                                                sortingState && sortingState.columnIndex === columnIndex
+                                                    ? sortingState.order === 1
+                                                        ? 'up'
+                                                        : 'down'
                                                     : 'none'
                                             )}
                                     </div>
