@@ -177,6 +177,31 @@ def factory_session_recordings_list_test(
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
+        @test_with_materialized_columns(["$current_url", "$session_id"], verify_no_jsonextract=False)
+        @freeze_time("2021-01-21T20:00:00.000Z")
+        def test_event_filter_with_matching_on_session_id(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+            self.create_snapshot("user", "1", self.base_time, window_id="1")
+            self.create_event("user", self.base_time, properties={"$session_id": "1"})
+            self.create_event("user", self.base_time, event_name="$autocapture", properties={"$session_id": "2"})
+            self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30), window_id="1")
+            filter = SessionRecordingsFilter(
+                team=self.team,
+                data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+            )
+            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "1")
+
+            filter = SessionRecordingsFilter(
+                team=self.team,
+                data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
+            )
+            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 0)
+
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_multiple_event_filters(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})

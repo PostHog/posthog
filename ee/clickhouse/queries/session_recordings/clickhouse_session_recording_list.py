@@ -50,6 +50,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     RIGHT OUTER JOIN (
         SELECT
             session_id,
+            any(window_id) as window_id,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
@@ -71,12 +72,24 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     ON pdi.distinct_id = session_recordings.distinct_id
     {person_query}
     WHERE
-        (
-            empty(events.event) OR
+        (   
+            -- If there is a window_id on the recording, then it is newer data and we can match
+            -- the recording and events on session_id
             (
-                events.timestamp >= session_recordings.start_time
-                AND events.timestamp <= session_recordings.end_time
-            )
+                notEmpty(session_recordings.window_id) AND
+                events.session_id == session_recordings.session_id
+            ) OR
+            -- If there is no window_id on the recording, then it is older data and we should match
+            -- events and recordings on timestamps
+            (
+                empty(session_recordings.window_id) AND
+                (
+                    events.timestamp >= session_recordings.start_time
+                    AND events.timestamp <= session_recordings.end_time
+                )
+            ) OR
+            -- If there are no event matches, we don't want to filter out the recording itself
+            empty(events.event)
         )
         {prop_filter_clause}
         {person_id_clause}
@@ -104,7 +117,11 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
 
     def _get_properties_select_clause(self) -> str:
         current_url_clause, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-        clause = f", {current_url_clause} as current_url "
+        session_id_clause, _ = get_property_string_expr("events", "$session_id", "'$session_id'", "properties")
+        clause = f""",
+            {current_url_clause} as current_url, 
+            {session_id_clause} as session_id
+        """
         clause += (
             f", events.elements_chain as elements_chain"
             if self._column_optimizer.should_query_elements_chain_column

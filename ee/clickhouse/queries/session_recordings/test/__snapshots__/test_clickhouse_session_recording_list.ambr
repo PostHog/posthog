@@ -178,7 +178,9 @@
             team_id,
             timestamp ,
             trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$current_url')) as current_url
+                 FROM JSONExtractRaw(properties, '$current_url')) as current_url,
+            trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -186,6 +188,7 @@
        AND timestamp <= '2021-08-22 08:00:00' ) AS events
   RIGHT OUTER JOIN
     (SELECT session_id,
+            any(window_id) as window_id,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
@@ -220,9 +223,12 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-  WHERE (empty(events.event)
-         OR (events.timestamp >= session_recordings.start_time
-             AND events.timestamp <= session_recordings.end_time))
+  WHERE ((notEmpty(session_recordings.window_id)
+          AND events.session_id == session_recordings.session_id)
+         OR (empty(session_recordings.window_id)
+             AND (events.timestamp >= session_recordings.start_time
+                  AND events.timestamp <= session_recordings.end_time))
+         OR empty(events.event))
     AND person_id IN
       (SELECT person_id
        FROM cohortpeople
@@ -255,7 +261,9 @@
             team_id,
             timestamp ,
             trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$current_url')) as current_url
+                 FROM JSONExtractRaw(properties, '$current_url')) as current_url,
+            trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -263,6 +271,7 @@
        AND timestamp <= '2021-01-22 08:00:00' ) AS events
   RIGHT OUTER JOIN
     (SELECT session_id,
+            any(window_id) as window_id,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
@@ -299,9 +308,12 @@
      HAVING max(is_deleted) = 0
      AND has(['bla'], trim(BOTH '"'
                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')))) person ON person.id = pdi.person_id
-  WHERE (empty(events.event)
-         OR (events.timestamp >= session_recordings.start_time
-             AND events.timestamp <= session_recordings.end_time))
+  WHERE ((notEmpty(session_recordings.window_id)
+          AND events.session_id == session_recordings.session_id)
+         OR (empty(session_recordings.window_id)
+             AND (events.timestamp >= session_recordings.start_time
+                  AND events.timestamp <= session_recordings.end_time))
+         OR empty(events.event))
   GROUP BY session_recordings.session_id
   HAVING 1 = 1
   ORDER BY start_time DESC
