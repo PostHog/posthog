@@ -12,7 +12,14 @@ describe('pathsLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (`api/projects/${MOCK_TEAM_ID}/insights/paths/` === pathname) {
+        if (
+            [
+                `api/projects/${MOCK_TEAM_ID}/insights/path`,
+                `api/projects/${MOCK_TEAM_ID}/insights/paths/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/123`,
+                `api/projects/${MOCK_TEAM_ID}/insights`,
+            ].includes(pathname)
+        ) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
