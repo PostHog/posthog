@@ -15,6 +15,19 @@
 
     .event-list {
         flex: 1;
+        margin-top: $recording_spacing;
+
+        .event-list-empty-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+
+            .ant-empty {
+                margin-bottom: 5rem;
+            }
+        }
 
         .current-events-highlight-box {
             position: absolute;

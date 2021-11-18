@@ -1,6 +1,6 @@
 import './PlayerEvents.scss'
 import React, { useCallback, useEffect, useRef } from 'react'
-import { Col, Input, Row, Skeleton } from 'antd'
+import { Col, Empty, Input, Row, Skeleton } from 'antd'
 import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
@@ -49,9 +49,17 @@ const renderIcon = (event: EventType): JSX.Element => {
     // return <ActionIcon />
 }
 
+function noRowsRenderer(): JSX.Element {
+    return (
+        <div className="event-list-empty-container">
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No events fired in this recording." />
+        </div>
+    )
+}
+
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<List>(null)
-    const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
+    const { loading } = useValues(sessionRecordingLogic)
     const {
         localFilters,
         listEvents,
@@ -124,19 +132,21 @@ export function PlayerEvents(): JSX.Element {
     const cellRangeRenderer = useCallback(
         function _cellRangeRenderer(props: GridCellRangeProps): React.ReactNode[] {
             const children = defaultCellRangeRenderer(props)
-            children.push(
-                <div
-                    key="highlight-box"
-                    className="current-events-highlight-box"
-                    style={{
-                        height: currentEventsBoxSizeAndPosition.height,
-                        transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
-                    }}
-                />
-            )
+            if (listEvents.length > 0) {
+                children.push(
+                    <div
+                        key="highlight-box"
+                        className="current-events-highlight-box"
+                        style={{
+                            height: currentEventsBoxSizeAndPosition.height,
+                            transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
+                        }}
+                    />
+                )
+            }
             return children
         },
-        [currentEventsBoxSizeAndPosition.top, currentEventsBoxSizeAndPosition.height]
+        [currentEventsBoxSizeAndPosition.top, currentEventsBoxSizeAndPosition.height, loading, listEvents.length]
     )
 
     return (
@@ -148,51 +158,57 @@ export function PlayerEvents(): JSX.Element {
                 onChange={(e) => setLocalFilters({ query: e.target.value })}
             />
             <Col className="event-list">
-                <div className={clsx('current-events-position-finder', { visible: showPositionFinder })}>
-                    <Row
-                        className="left"
-                        align="middle"
-                        wrap={false}
-                        onClick={() => {
-                            scrollTo()
-                        }}
-                    >
-                        {isDirectionUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                        Jump to current time
-                    </Row>
-                    <Row
-                        className="right"
-                        align="middle"
-                        justify="center"
-                        wrap={false}
-                        onClick={() => {
-                            disablePositionFinder()
-                        }}
-                    >
-                        <CloseOutlined />
-                    </Row>
-                </div>
-                <AutoSizer>
-                    {({ height, width }: { height: number; width: number }) => {
-                        return (
-                            <List
-                                ref={listRef}
-                                className="event-list-virtual"
-                                height={height}
-                                width={width}
-                                onRowsRendered={setRenderedRows}
-                                noRowsRenderer={sessionEventsDataLoading ? () => <Loading /> : undefined}
-                                cellRangeRenderer={cellRangeRenderer}
-                                deferredMeasurementCache={cellMeasurerCache}
-                                overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
-                                overscanIndicesGetter={overscanIndicesGetter}
-                                rowCount={listEvents.length}
-                                rowRenderer={rowRenderer}
-                                rowHeight={cellMeasurerCache.rowHeight}
-                            />
-                        )
-                    }}
-                </AutoSizer>
+                {loading ? (
+                    <Loading />
+                ) : (
+                    <>
+                        <div className={clsx('current-events-position-finder', { visible: showPositionFinder })}>
+                            <Row
+                                className="left"
+                                align="middle"
+                                wrap={false}
+                                onClick={() => {
+                                    scrollTo()
+                                }}
+                            >
+                                {isDirectionUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                                Jump to current time
+                            </Row>
+                            <Row
+                                className="right"
+                                align="middle"
+                                justify="center"
+                                wrap={false}
+                                onClick={() => {
+                                    disablePositionFinder()
+                                }}
+                            >
+                                <CloseOutlined />
+                            </Row>
+                        </div>
+                        <AutoSizer>
+                            {({ height, width }: { height: number; width: number }) => {
+                                return (
+                                    <List
+                                        ref={listRef}
+                                        className="event-list-virtual"
+                                        height={height}
+                                        width={width}
+                                        onRowsRendered={setRenderedRows}
+                                        noRowsRenderer={noRowsRenderer}
+                                        cellRangeRenderer={cellRangeRenderer}
+                                        deferredMeasurementCache={cellMeasurerCache}
+                                        overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
+                                        overscanIndicesGetter={overscanIndicesGetter}
+                                        rowCount={listEvents.length}
+                                        rowRenderer={rowRenderer}
+                                        rowHeight={cellMeasurerCache.rowHeight}
+                                    />
+                                )
+                            }}
+                        </AutoSizer>
+                    </>
+                )}
             </Col>
         </Col>
     )
