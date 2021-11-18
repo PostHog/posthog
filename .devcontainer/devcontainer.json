@@ -34,6 +34,11 @@
     // Add the IDs of extensions you want installed when the container is created.
     "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
 
+    /*
+      Life cycle commands
+    */
+    // Use initialize stage to e.g. setup env vars we need before codespaces
+    // builds the docker image
     "postStartCommand": ".devcontainer/container_start.sh",
 
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
