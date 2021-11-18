@@ -23,7 +23,6 @@ import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
 import { navigationLogic } from '../../navigation/navigationLogic'
 import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
-import dayjs from 'dayjs'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import {
@@ -31,6 +30,7 @@ import {
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/lemonade/OrganizationSwitcher'
+import { dayjs } from 'lib/dayjs'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -182,21 +182,20 @@ function Version(): JSX.Element {
                     </div>
                     {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
-                <Link
-                    href={`https://posthog.com/blog/the-posthog-array-${preflight?.posthog_version?.replace(
-                        /\./g,
-                        '-'
-                    )}`}
-                    target="_blank"
-                    rel="noopener"
-                    onClick={() => {
-                        closeSitePopover()
-                    }}
-                    className="SitePopover__side-link"
-                    data-attr="update-indicator-badge"
-                >
-                    Release notes
-                </Link>
+                {latestVersion && (
+                    <Link
+                        href={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
+                        target="_blank"
+                        rel="noopener"
+                        onClick={() => {
+                            closeSitePopover()
+                        }}
+                        className="SitePopover__side-link"
+                        data-attr="update-indicator-badge"
+                    >
+                        Release notes
+                    </Link>
+                )}
             </>
         </LemonRow>
     )

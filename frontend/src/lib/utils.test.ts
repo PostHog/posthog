@@ -1,4 +1,3 @@
-import dayjs from 'dayjs'
 import {
     areObjectValuesEmpty,
     average,
@@ -21,6 +20,7 @@ import {
     eventToDescription,
 } from './utils'
 import { ActionFilter, PropertyOperator } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
     it('handles unusual input', () => {

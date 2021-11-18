@@ -17,7 +17,6 @@ import {
     CopyOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
-import dayjs from 'dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -29,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { Description } from 'lib/components/Description/Description'
 import { userLogic } from 'scenes/userLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { dayjs } from 'lib/dayjs'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)

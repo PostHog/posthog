@@ -5,7 +5,6 @@ import { Button, Popover, Row, Input, Checkbox } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { DeleteOutlined, PlusOutlined, ProjectOutlined, DeploymentUnitOutlined, CloseOutlined } from '@ant-design/icons'
 import { annotationsLogic } from './annotationsLogic'
-import dayjs from 'dayjs'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -14,6 +13,7 @@ import { AnnotationScope, AnnotationType } from '~/types'
 import { styles } from '../../../vars'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { organizationLogic } from '../../../scenes/organizationLogic'
+import { dayjs } from 'lib/dayjs'
 
 const { TextArea } = Input
 

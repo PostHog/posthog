@@ -49,12 +49,12 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     )
 }
 
-function CurrentProjectButton(): JSX.Element {
+function CurrentProjectButton(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { push } = useActions(router)
     const { hideProjectSwitcher } = useActions(lemonadeLogic)
 
-    return (
+    return currentTeam ? (
         <LemonRow
             status="highlighted"
             sideIcon={
@@ -69,9 +69,9 @@ function CurrentProjectButton(): JSX.Element {
             }
             fullWidth
         >
-            <strong style={{ paddingRight: 8 }}>{currentTeam?.name}</strong>
+            <strong style={{ paddingRight: 8 }}>{currentTeam.name}</strong>
         </LemonRow>
-    )
+    ) : null
 }
 
 function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {

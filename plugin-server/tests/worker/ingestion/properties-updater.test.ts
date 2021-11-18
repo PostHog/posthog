@@ -9,6 +9,7 @@ import {
     updatePersonProperties as originalUpdatePersonProperties,
     upsertGroup,
 } from '../../../src/worker/ingestion/properties-updater'
+import { createPromise } from '../../helpers/promises'
 import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -139,10 +140,10 @@ describe('upsertGroup()', () => {
 
         const group = await fetchGroup()
 
+        expect(group.version).toEqual(1)
         expect(group.group_properties).toEqual({})
         expect(group.properties_last_operation).toEqual({})
         expect(group.properties_last_updated_at).toEqual({})
-        expect(group.version).toEqual(1)
     })
 
     it('handles initial properties', async () => {
@@ -150,10 +151,10 @@ describe('upsertGroup()', () => {
 
         const group = await fetchGroup()
 
+        expect(group.version).toEqual(1)
         expect(group.group_properties).toEqual({ foo: 'bar' })
         expect(group.properties_last_operation).toEqual({ foo: 'set' })
         expect(group.properties_last_updated_at).toEqual({ foo: PAST_TIMESTAMP.toISO() })
-        expect(group.version).toEqual(1)
     })
 
     it('handles updating properties as new ones come in', async () => {
@@ -162,6 +163,7 @@ describe('upsertGroup()', () => {
 
         const group = await fetchGroup()
 
+        expect(group.version).toEqual(2)
         expect(group.group_properties).toEqual({ foo: 'zeta', a: 1, b: 2 })
         expect(group.properties_last_operation).toEqual({ foo: 'set', a: 'set', b: 'set' })
         expect(group.properties_last_updated_at).toEqual({
@@ -169,7 +171,6 @@ describe('upsertGroup()', () => {
             a: PAST_TIMESTAMP.toISO(),
             b: FUTURE_TIMESTAMP.toISO(),
         })
-        expect(group.version).toEqual(2)
     })
 
     it('handles updating when processing old events', async () => {
@@ -178,6 +179,7 @@ describe('upsertGroup()', () => {
 
         const group = await fetchGroup()
 
+        expect(group.version).toEqual(2)
         expect(group.group_properties).toEqual({ foo: 'bar', a: 1, b: 2 })
         expect(group.properties_last_operation).toEqual({ foo: 'set', a: 'set', b: 'set' })
         expect(group.properties_last_updated_at).toEqual({
@@ -185,7 +187,6 @@ describe('upsertGroup()', () => {
             a: FUTURE_TIMESTAMP.toISO(),
             b: PAST_TIMESTAMP.toISO(),
         })
-        expect(group.version).toEqual(2)
     })
 
     it('updates timestamp even if properties do not change', async () => {
@@ -194,10 +195,10 @@ describe('upsertGroup()', () => {
 
         const group = await fetchGroup()
 
+        expect(group.version).toEqual(2)
         expect(group.group_properties).toEqual({ foo: 'bar' })
         expect(group.properties_last_operation).toEqual({ foo: 'set' })
         expect(group.properties_last_updated_at).toEqual({ foo: FUTURE_TIMESTAMP.toISO() })
-        expect(group.version).toEqual(2)
     })
 
     it('does nothing if handling equal timestamps', async () => {
@@ -206,10 +207,10 @@ describe('upsertGroup()', () => {
 
         const group = await fetchGroup()
 
+        expect(group.version).toEqual(1)
         expect(group.group_properties).toEqual({ foo: '1' })
         expect(group.properties_last_operation).toEqual({ foo: 'set' })
         expect(group.properties_last_updated_at).toEqual({ foo: PAST_TIMESTAMP.toISO() })
-        expect(group.version).toEqual(1)
     })
 
     it('does nothing if nothing gets updated due to timestamps', async () => {
@@ -218,9 +219,41 @@ describe('upsertGroup()', () => {
 
         const group = await fetchGroup()
 
+        expect(group.version).toEqual(1)
         expect(group.group_properties).toEqual({ foo: 'new' })
         expect(group.properties_last_operation).toEqual({ foo: 'set' })
         expect(group.properties_last_updated_at).toEqual({ foo: FUTURE_TIMESTAMP.toISO() })
-        expect(group.version).toEqual(1)
+    })
+
+    it('handles race conditions as inserts happen in parallel', async () => {
+        // :TRICKY: This test is closely coupled with the method under test and we
+        //  control the timing of functions called precisely to emulate a race condition
+
+        const firstFetchIsDonePromise = createPromise()
+        const firstInsertShouldStartPromise = createPromise()
+
+        jest.spyOn(db, 'insertGroup').mockImplementationOnce(async (...args) => {
+            firstFetchIsDonePromise.resolve()
+            await firstInsertShouldStartPromise.promise
+            return await db.insertGroup(...args)
+        })
+
+        // First, we start first update, and wait until first fetch is done (and returns that group does not exist)
+        const firstUpsertPromise = upsert({ a: 1, b: 2 }, PAST_TIMESTAMP)
+        await firstFetchIsDonePromise.promise
+
+        // Second, we do a another (complete) upsert in-between which creates a row in groups table
+        await upsert({ a: 3 }, FUTURE_TIMESTAMP)
+
+        // Third, we continue with the original upsert, and wait for the end
+        firstInsertShouldStartPromise.resolve()
+        await firstUpsertPromise
+
+        // Verify the results
+        const group = await fetchGroup()
+        expect(group.version).toEqual(2)
+        expect(group.group_properties).toEqual({ a: 3, b: 2 })
+        expect(group.properties_last_operation).toEqual({ a: 'set', b: 'set' })
+        expect(group.properties_last_updated_at).toEqual({ a: FUTURE_TIMESTAMP.toISO(), b: PAST_TIMESTAMP.toISO() })
     })
 })

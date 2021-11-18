@@ -103,11 +103,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             self._should_join_persons = True
             return
 
-        if self._filter.breakdown_type == "person":
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
-            return
-
     def _should_property_join_persons(self, prop: Property) -> bool:
         return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
