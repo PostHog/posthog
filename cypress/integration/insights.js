@@ -28,12 +28,6 @@ describe('Insights', () => {
 
         // Save
         cy.get('[data-attr="insight-save-button"]').click()
-        cy.get('[data-attr="insight-edit-button"]').click()
-
-        // Save and continue editing
-        cy.get('[data-attr="insight-save-dropdown"]').click()
-        cy.get('[data-attr="insight-save-and-continue"]').click()
-        cy.get('[data-attr="add-action-event-button"]').should('exist')
 
         // Add another graph series, and save as new insight
         cy.get('[data-attr="add-action-event-button"]').click()
