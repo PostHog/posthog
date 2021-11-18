@@ -34,7 +34,7 @@ export interface Breadcrumb {
 }
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
-    path: ['layout', 'lemonade', 'Breadcrumbs', 'breadcrumbsLogic'],
+    path: ['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic'],
     props: {} as {
         hashParams: Record<string, any>
     },
