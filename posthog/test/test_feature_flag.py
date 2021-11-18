@@ -1,7 +1,12 @@
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
-from posthog.models.feature_flag import FeatureFlagMatch, FeatureFlagMatcher
+from posthog.models.feature_flag import (
+    FeatureFlagMatch,
+    FeatureFlagMatcher,
+    FeatureFlagOverride,
+    get_overridden_feature_flags,
+)
 from posthog.models.group import Group
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestFeatureFlagMatcher(BaseTest):
@@ -198,4 +203,118 @@ class TestFeatureFlagMatcher(BaseTest):
     def create_feature_flag(self, **kwargs):
         return FeatureFlag.objects.create(
             team=self.team, name="Beta feature", key="beta-feature", created_by=self.user, **kwargs
+        )
+
+
+# Integration + performance tests for get_overridden_feature_flags
+class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
+    feature_flag: FeatureFlag
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        person = Person.objects.create(
+            team=cls.team,
+            distinct_ids=["distinct_id", "another_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
+        )
+        GroupTypeMapping.objects.create(team=cls.team, group_type="organization", group_type_index=0)
+        Group.objects.create(
+            team=cls.team, group_type_index=0, group_key="PostHog", group_properties={"name": "foo.inc"}, version=1
+        )
+
+        FeatureFlag.objects.create(
+            team=cls.team,
+            name="feature-all",
+            key="feature-all",
+            created_by=cls.user,
+            filters={"groups": [{"rollout_percentage": 100}],},
+        )
+
+        FeatureFlag.objects.create(
+            team=cls.team,
+            name="feature-posthog",
+            key="feature-posthog",
+            created_by=cls.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "posthog.com", "operator": "icontains"}
+                        ],
+                    }
+                ],
+            },
+        )
+
+        tim_feature = FeatureFlag.objects.create(
+            team=cls.team,
+            name="feature-tim",
+            key="feature-tim",
+            created_by=cls.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "tim@posthog.com", "operator": "exact"}
+                        ],
+                    }
+                ],
+            },
+        )
+
+        FeatureFlag.objects.create(
+            team=cls.team,
+            name="feature-groups-all",
+            key="feature-groups-all",
+            created_by=cls.user,
+            filters={"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 100}],},
+        )
+
+        FeatureFlag.objects.create(
+            team=cls.team,
+            name="feature-groups",
+            key="feature-groups",
+            created_by=cls.user,
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {"properties": [{"key": "name", "value": "foo.inc", "type": "group", "group_type_index": 0}],}
+                ],
+            },
+        )
+
+        disabled_feature = FeatureFlag.objects.create(
+            team=cls.team,
+            name="feature-disabled",
+            key="feature-disabled",
+            created_by=cls.user,
+            filters={"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 0}],},
+        )
+
+        cls.user.distinct_id = "distinct_id"
+        cls.user.save()
+
+        FeatureFlagOverride.objects.create(
+            team=cls.team, user=cls.user, feature_flag=disabled_feature, override_value=True
+        )
+        FeatureFlagOverride.objects.create(team=cls.team, user=cls.user, feature_flag=tim_feature, override_value=False)
+
+    @snapshot_postgres_queries
+    def test_person_flags_with_overrides(self):
+        flags = get_overridden_feature_flags(self.team, "distinct_id")
+        self.assertEqual(flags, {"feature-all": True, "feature-posthog": True, "feature-disabled": True})
+
+    @snapshot_postgres_queries
+    def test_group_flags_with_overrides(self):
+        flags = get_overridden_feature_flags(self.team, "distinct_id", {"organization": "PostHog"})
+        self.assertEqual(
+            flags,
+            {
+                "feature-all": True,
+                "feature-posthog": True,
+                "feature-disabled": True,
+                "feature-groups": True,
+                "feature-groups-all": True,
+            },
         )
