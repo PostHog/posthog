@@ -1,11 +1,17 @@
 from typing import List, Optional, cast
 
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.models import Person
+from posthog.models.filters.mixins.utils import cached_property
 
 
-class ClickhouseFunnelUnorderedPersons(ClickhouseFunnelUnordered):
+class ClickhouseFunnelUnorderedPersons(ClickhouseFunnelUnordered, ActorBaseQuery):
+    @cached_property
+    def is_aggregating_by_groups(self) -> bool:
+        return self._filter.aggregation_group_type_index is not None
+
     def get_query(self, extra_fields: Optional[List[str]] = None):
         return self.actor_query(extra_fields)
 

@@ -1,5 +1,7 @@
 from datetime import datetime
+from typing import List, cast
 
+from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
@@ -8,10 +10,18 @@ from posthog.test.base import APIBaseTest
 
 def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _create_person):
     class TestFunnelConversionTime(APIBaseTest):
-        def _get_people_at_step(self, filter, funnel_step):
-            person_filter = filter.with_data({"funnel_step": funnel_step})
-            result = FunnelPerson(person_filter, self.team)._exec_query()
-            return [row[0] for row in result]
+        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
+            person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+            funnel_query_builder = FunnelPerson(person_filter, self.team)
+            is_aggregating_by_groups = funnel_query_builder.is_aggregating_by_groups
+            _, serialized_result = funnel_query_builder.get_actors()
+
+            if is_aggregating_by_groups:
+                results = cast(List[SerializedGroup], serialized_result)
+                return [val["group_key"] for val in results]
+            else:
+                results = cast(List[SerializedPerson], serialized_result)
+                return [val["id"] for val in results]
 
         def test_funnel_with_multiple_incomplete_tries(self):
             filters = {
@@ -60,7 +70,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
             # check ordering of people in every step
             self.assertCountEqual(
-                self._get_people_at_step(filter, 1), [people["person1"].uuid,],
+                self._get_actor_ids_at_step(filter, 1), [people["person1"].uuid,],
             )
 
         def test_funnel_step_conversion_times(self):
@@ -144,7 +154,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertEqual(result[1]["average_conversion_time"], 600)
 
             self.assertCountEqual(
-                self._get_people_at_step(filter, 1),
+                self._get_actor_ids_at_step(filter, 1),
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
@@ -153,7 +163,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             self.assertCountEqual(
-                self._get_people_at_step(filter, 2),
+                self._get_actor_ids_at_step(filter, 2),
                 [people["stopped_after_signup1"].uuid, people["stopped_after_signup3"].uuid],
             )
 
@@ -169,7 +179,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertEqual(result4[1]["average_conversion_time"], 300)
 
             self.assertCountEqual(
-                self._get_people_at_step(filter, 1),
+                self._get_actor_ids_at_step(filter, 1),
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
@@ -178,7 +188,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             self.assertCountEqual(
-                self._get_people_at_step(filter, 2), [people["stopped_after_signup1"].uuid],
+                self._get_actor_ids_at_step(filter, 2), [people["stopped_after_signup1"].uuid],
             )
 
     return TestFunnelConversionTime

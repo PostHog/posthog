@@ -70,26 +70,26 @@ class ClickhousePersonViewSet(PersonViewSet):
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
-        funnel_class: Callable
+        funnel_actor_class: Callable
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            funnel_class = ClickhouseFunnelTrendsPersons
+            funnel_actor_class = ClickhouseFunnelTrendsPersons
         else:
             if filter.funnel_order_type == "unordered":
-                funnel_class = ClickhouseFunnelUnorderedPersons
+                funnel_actor_class = ClickhouseFunnelUnorderedPersons
             elif filter.funnel_order_type == "strict":
-                funnel_class = ClickhouseFunnelStrictPersons
+                funnel_actor_class = ClickhouseFunnelStrictPersons
             else:
-                funnel_class = ClickhouseFunnelPersons
+                funnel_actor_class = ClickhouseFunnelPersons
 
-        people, _ = funnel_class(filter, self.team).run()
-        _should_paginate = should_paginate(people, filter)
+        _, actors = funnel_actor_class(filter, self.team).get_actors()
+        _should_paginate = should_paginate(actors, filter)
         limit = filter.limit if filter.limit else 100
         next_url = format_query_params_absolute_url(request, filter.offset + limit) if _should_paginate else None
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (people, next_url, initial_url)}
+        return {"result": (actors, next_url, initial_url)}
 
     @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
     def funnel_correlation(self, request: Request, **kwargs) -> Response:

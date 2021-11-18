@@ -71,8 +71,8 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
-        self.assertEqual(35, len(results))
+        _, serialized_results = ClickhouseFunnelUnorderedPersons(filter, self.team).get_actors()
+        self.assertEqual(35, len(serialized_results))
 
     def test_last_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -90,8 +90,8 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
-        self.assertEqual(5, len(results))
+        _, serialized_results = ClickhouseFunnelUnorderedPersons(filter, self.team).get_actors()
+        self.assertEqual(5, len(serialized_results))
 
     def test_second_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -109,8 +109,8 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
-        self.assertEqual(20, len(results))
+        _, serialized_results = ClickhouseFunnelUnorderedPersons(filter, self.team).get_actors()
+        self.assertEqual(20, len(serialized_results))
 
     def test_last_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -128,5 +128,5 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
-        self.assertEqual(10, len(results))
+        _, serialized_results = ClickhouseFunnelUnorderedPersons(filter, self.team).get_actors()
+        self.assertEqual(10, len(serialized_results))

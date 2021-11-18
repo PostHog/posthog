@@ -47,6 +47,10 @@ class TrendsPersonQuery(ActorBaseQuery):
 
         super().__init__(team, filter, entity)
 
+    @cached_property
+    def is_aggregating_by_groups(self) -> bool:
+        return self.entity is not None and self.entity.math == "unique_group"
+
     def actor_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self._team.pk)

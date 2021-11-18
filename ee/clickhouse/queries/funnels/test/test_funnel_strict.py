@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta
+from typing import List, cast
 from uuid import uuid4
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -131,8 +133,8 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Chrome"), [])
 
         assert_funnel_results_equal(
             result[1],
@@ -165,8 +167,8 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Safari"), [person2.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [person2.uuid])
 
 
 class TestFunnelStrictStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_person)):  # type: ignore
@@ -179,10 +181,18 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
     maxDiff = None
 
-    def _get_people_at_step(self, filter, funnel_step, breakdown_value=None):
+    def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        result = ClickhouseFunnelStrictPersons(person_filter, self.team)._exec_query()
-        return [row[0] for row in result]
+        funnel_query_builder = ClickhouseFunnelStrictPersons(person_filter, self.team)
+        is_aggregating_by_groups = funnel_query_builder.is_aggregating_by_groups
+        _, serialized_result = funnel_query_builder.get_actors()
+
+        if is_aggregating_by_groups:
+            results = cast(List[SerializedGroup], serialized_result)
+            return [val["group_key"] for val in results]
+        else:
+            results = cast(List[SerializedPerson], serialized_result)
+            return [val["id"] for val in results]
 
     def test_basic_strict_funnel(self):
         filter = Filter(
@@ -257,7 +267,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["count"], 7)
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 1),
+            self._get_actor_ids_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -270,11 +280,11 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2), [person3_stopped_after_insight_view.uuid, person7.uuid,],
+            self._get_actor_ids_at_step(filter, 2), [person3_stopped_after_insight_view.uuid, person7.uuid,],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3), [person7.uuid],
+            self._get_actor_ids_at_step(filter, 3), [person7.uuid],
         )
 
     def test_advanced_strict_funnel(self):
@@ -375,7 +385,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["count"], 8)
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 1),
+            self._get_actor_ids_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -389,7 +399,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2),
+            self._get_actor_ids_at_step(filter, 2),
             [
                 person3_stopped_after_insight_view.uuid,
                 person4.uuid,
@@ -401,12 +411,12 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3),
+            self._get_actor_ids_at_step(filter, 3),
             [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid,],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 4), [person8.uuid,],
+            self._get_actor_ids_at_step(filter, 4), [person8.uuid,],
         )
 
     def test_basic_strict_funnel_conversion_times(self):
@@ -476,7 +486,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         # 2 hours for Person 3
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 1),
+            self._get_actor_ids_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -485,10 +495,10 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2),
+            self._get_actor_ids_at_step(filter, 2),
             [person2_stopped_after_one_pageview.uuid, person3_stopped_after_insight_view.uuid],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3), [person3_stopped_after_insight_view.uuid],
+            self._get_actor_ids_at_step(filter, 3), [person3_stopped_after_insight_view.uuid],
         )

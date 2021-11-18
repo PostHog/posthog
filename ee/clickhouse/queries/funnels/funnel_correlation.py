@@ -738,10 +738,7 @@ class FunnelCorrelation:
 
     def get_funnel_persons_cte(self) -> Tuple[str, Dict[str, Any]]:
 
-        return (
-            self._funnel_persons_generator.get_query(extra_fields=["steps", "final_timestamp", "first_timestamp"]),
-            self._funnel_persons_generator.params,
-        )
+        return self._funnel_persons_generator.actor_query(extra_fields=["steps", "final_timestamp", "first_timestamp"])
 
     @staticmethod
     def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:

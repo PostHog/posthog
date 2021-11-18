@@ -51,10 +51,8 @@ class ActorBaseQuery:
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
-        if self.entity and self.entity.math == "unique_group":
-            return True
-        else:
-            return False
+        """Override in child class with insight specific logic to determine group aggregation"""
+        return False
 
     def get_actors(
         self,
