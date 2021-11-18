@@ -172,7 +172,7 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
     @cached_property
-    def funnel_step_breakdown(self) -> Optional[Union[List[str], str, int]]:
+    def funnel_step_breakdown(self) -> Optional[Union[str, int]]:
         """
         The breakdown value for which to get persons for.
         """
