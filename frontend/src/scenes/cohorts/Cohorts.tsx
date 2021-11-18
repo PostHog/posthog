@@ -21,8 +21,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-dayjs.extend(relativeTime)
-
 const NEW_COHORT: CohortType = {
     id: 'new',
     groups: [
