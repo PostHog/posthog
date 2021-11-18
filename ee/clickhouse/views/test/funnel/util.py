@@ -35,6 +35,7 @@ class FunnelRequest:
     aggregation_group_type_index: Optional[int] = None
     date_to: Optional[str] = None
     properties: Optional[str] = None
+    funnel_order_type: Optional[str] = None
 
 
 def get_funnel(client: Client, team_id: int, request: FunnelRequest):
