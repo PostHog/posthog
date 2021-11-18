@@ -563,7 +563,7 @@ export const insightLogic = kea<insightLogicType>({
             toast(
                 <div data-attr="success-toast">
                     Insight saved!&nbsp;
-                    <Link to={'/saved_insights'}>Click here to see your list of saved insights</Link>
+                    <Link to={urls.savedInsights()}>Click here to see your list of saved insights</Link>
                 </div>
             )
             savedInsightsLogic.findMounted()?.actions.loadInsights()
@@ -611,7 +611,9 @@ export const insightLogic = kea<insightLogicType>({
                 newInsight
             )
             breakpoint()
-            router.actions.replace(urls.insightEdit(createdInsight.id, cleanFilters(createdInsight.filters)))
+            router.actions.replace(
+                urls.insightEdit(createdInsight.id, cleanFilters(createdInsight.filters || filters || {}))
+            )
         },
     }),
     actionToUrl: ({ values }) => {
@@ -638,15 +640,6 @@ export const insightLogic = kea<insightLogicType>({
                 if (searchParams.insight === 'HISTORY') {
                     // Legacy redirect because the insight history scene was toggled via the insight type.
                     router.actions.replace(urls.savedInsights())
-                    return
-                }
-                if (hashParams.fromItem) {
-                    // `fromItem` for legacy url redirect support
-                    router.actions.replace(
-                        hashParams.edit
-                            ? urls.insightEdit(hashParams.fromItem, searchParams)
-                            : urls.insightView(hashParams.fromItem, searchParams)
-                    )
                     return
                 }
                 if (params.id === 'new') {

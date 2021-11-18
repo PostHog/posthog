@@ -227,7 +227,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
-                return ['/saved_insights', objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
+                return [urls.savedInsights(), objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
             }
         }
         return {
@@ -236,7 +236,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         }
     },
     urlToAction: ({ actions, values }) => ({
-        '/saved_insights': (_, searchParams) => {
+        [urls.savedInsights()]: (_, searchParams, hashParams) => {
+            if (hashParams.fromItem) {
+                // `fromItem` for legacy /insights url redirect support
+                router.actions.replace(
+                    hashParams.edit
+                        ? urls.insightEdit(hashParams.fromItem, searchParams)
+                        : urls.insightView(hashParams.fromItem, searchParams)
+                )
+                return
+            }
+
             const currentFilters = cleanFilters(values.filters)
             const nextFilters = cleanFilters(searchParams)
             if (values.rawFilters === null || !objectsEqual(currentFilters, nextFilters)) {

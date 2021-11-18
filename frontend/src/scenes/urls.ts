@@ -15,11 +15,11 @@ export const urls = {
     events: () => '/events',
     newInsight: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
-    savedInsights: () => '/saved_insights',
     insightEdit: (id: string | number, filters?: Partial<FilterType>) =>
         `/insights/${id}/edit${filters ? combineUrl('', filters).search : ''}`,
     insightView: (id: string | number, filters?: Partial<FilterType>) =>
         `/insights/${id}${filters ? combineUrl('', filters).search : ''}`,
+    savedInsights: () => '/insights',
     sessions: () => '/sessions',
     sessionRecordings: () => '/recordings',
     person: (id: string) => `/person/${id}`,
