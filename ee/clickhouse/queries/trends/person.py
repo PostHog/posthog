@@ -15,6 +15,7 @@ from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
 from posthog.models.team import Team
 
@@ -50,7 +51,7 @@ class TrendsPersonQuery(ActorBaseQuery):
 
         super().__init__(team, filter, entity)
 
-    def people_query(self) -> Tuple[str, Dict]:
+    def actor_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self.team.pk)
             self.filter = self.filter.with_data(
@@ -79,31 +80,20 @@ class TrendsPersonQuery(ActorBaseQuery):
             filter=self.filter,
             team_id=self.team.pk,
             entity=self.entity,
-            should_join_distinct_ids=True,
-            should_join_persons=True,
-            extra_fields=["distinct_id", "team_id"],
+            should_join_distinct_ids=False if self.is_aggregating_by_groups else True,
+            should_join_persons=False if self.is_aggregating_by_groups else True,
+            extra_fields=[] if self.is_aggregating_by_groups else ["distinct_id", "team_id"],
         ).get_query()
 
         return (
-            GET_ACTORS_FROM_EVENT_QUERY.format(id_field="person_id", events_query=events_query),
+            GET_ACTORS_FROM_EVENT_QUERY.format(id_field=self._aggregation_actor_field, events_query=events_query),
             {**params, "offset": self.filter.offset, "limit": 200},
         )
 
-    def groups_query(self) -> Tuple[str, Dict]:
-        group_type_index = self.entity.math_group_type_index
-        events_query, params = TrendsEventQuery(
-            filter=self.filter,
-            team_id=self.team.pk,
-            entity=self.entity,
-            should_join_distinct_ids=False,
-            should_join_persons=False,
-            is_actor_query=True,
-        ).get_query()
-
-        return (
-            GET_ACTORS_FROM_EVENT_QUERY.format(id_field=f"$group_{group_type_index}", events_query=events_query,),
-            {**params, "offset": self.filter.offset, "limit": 200},
-        )
-
-    def _format_select_fields(self, fields: Dict[str, str]) -> str:
-        return " ".join(f", {selector} AS {column_name}" for column_name, selector in fields.items())
+    @cached_property
+    def _aggregation_actor_field(self) -> str:
+        if self.is_aggregating_by_groups:
+            group_type_index = self.entity.math_group_type_index
+            return f"$group_{group_type_index}"
+        else:
+            return "person_id"

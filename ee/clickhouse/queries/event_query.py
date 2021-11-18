@@ -31,7 +31,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     _should_round_interval = False
     _extra_fields: List[ColumnName]
     _extra_person_fields: List[ColumnName]
-    _is_actor_query: bool
 
     def __init__(
         self,
@@ -43,7 +42,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         # Extra events/person table columns to fetch since parent query needs them
         extra_fields: List[ColumnName] = [],
         extra_person_fields: List[ColumnName] = [],
-        is_actor_query: bool = False,
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -60,7 +58,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._should_join_persons = should_join_persons
         self._extra_fields = extra_fields
         self._extra_person_fields = extra_person_fields
-        self._is_actor_query = is_actor_query
 
         if not self._should_join_distinct_ids:
             self._determine_should_join_distinct_ids()
@@ -143,13 +140,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return "", {}
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
-        additional_group_types = self._get_additional_join_group_types()
-        return GroupsJoinQuery(
-            self._filter, self._team_id, self._column_optimizer, additional_group_types=additional_group_types
-        ).get_join_query()
-
-    def _get_additional_join_group_types(self) -> Set[GroupTypeIndex]:
-        return set()
+        return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 
