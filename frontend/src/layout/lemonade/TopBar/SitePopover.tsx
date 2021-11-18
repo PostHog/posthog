@@ -21,7 +21,6 @@ import { lemonadeLogic } from '../lemonadeLogic'
 import { LicenseType, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
-import { navigationLogic } from '../../navigation/navigationLogic'
 import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
@@ -139,7 +138,7 @@ function License(): JSX.Element {
 
 function SystemStatus(): JSX.Element {
     const { closeSitePopover } = useActions(lemonadeLogic)
-    const { systemStatus } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { systemStatus } = useValues(lemonadeLogic)
 
     return (
         <LemonRow
@@ -166,7 +165,7 @@ function SystemStatus(): JSX.Element {
 
 function Version(): JSX.Element {
     const { closeSitePopover } = useActions(lemonadeLogic)
-    const { updateAvailable, latestVersion } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { updateAvailable, latestVersion } = useValues(lemonadeLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -215,9 +214,8 @@ export function SitePopover(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { isSitePopoverOpen } = useValues(lemonadeLogic)
+    const { isSitePopoverOpen, systemStatus } = useValues(lemonadeLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
-    const { systemStatus } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
     useMountedLogic(licenseLogic)
 
     return (

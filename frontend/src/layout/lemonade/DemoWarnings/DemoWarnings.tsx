@@ -5,8 +5,9 @@ import { StarOutlined, SettingOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
-import { navigationLogic } from './navigationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import './DemoWarnings.scss'
+import { lemonadeLogic } from '../lemonadeLogic'
 
 interface WarningInterface {
     message: JSX.Element | string
@@ -25,7 +26,7 @@ interface WarningsInterface {
 
 export function DemoWarnings(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { demoWarning } = useValues(navigationLogic)
+    const { demoWarning } = useValues(lemonadeLogic)
     const { reportDemoWarningDismissed } = useActions(eventUsageLogic)
 
     const WARNINGS: WarningsInterface = {
