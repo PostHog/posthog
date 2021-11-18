@@ -132,10 +132,17 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                 />
                             </>
                         )}
-                        <p className="title">CORRELATION</p>
+                        <p className="title" style={{ marginLeft: 8 }}>
+                            CORRELATION
+                        </p>
                         <div
                             className="tab-btn ant-btn"
-                            style={{ marginRight: '2px', paddingTop: '1px', paddingBottom: '1px' }}
+                            style={{
+                                paddingTop: '1px',
+                                paddingBottom: '1px',
+                                borderTopRightRadius: 0,
+                                borderBottomRightRadius: 0,
+                            }}
                             onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
                         >
                             <Checkbox
@@ -149,7 +156,13 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         </div>
                         <div
                             className="tab-btn ant-btn"
-                            style={{ marginRight: '8px', paddingTop: '1px', paddingBottom: '1px' }}
+                            style={{
+                                marginRight: '8px',
+                                paddingTop: '1px',
+                                paddingBottom: '1px',
+                                borderTopLeftRadius: 0,
+                                borderBottomLeftRadius: 0,
+                            }}
                             onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
                         >
                             <Checkbox
@@ -180,7 +193,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     }}
                 >
                     <Column
-                        title="Correlated Person Properties"
+                        title="Person property"
                         key="propertName"
                         render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                         align="left"
