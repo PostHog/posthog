@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -97,9 +98,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
         # without it affecting the multiple areas of the code outside of funnels that use breakdown
         # really it should be boxed at ingestion and be a list everywhere
 
-        if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event"]:
+        if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event", None]:
             boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
             data.update({"breakdown": boxed_breakdown})
+
+        if isinstance(self._filter.funnel_step_breakdown, str):
+            if self._filter.funnel_step_breakdown.startswith("["):  # naive list as string detection
+                data.update({"funnel_step_breakdown": json.loads(self._filter.funnel_step_breakdown)})
 
         for exclusion in self._filter.exclusions:
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
@@ -348,10 +353,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
-            else:
-                values = self._get_breakdown_conditions()
-                if values:
-                    self.params.update({"breakdown_values": values})
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -437,31 +438,19 @@ class ClickhouseFunnelBase(ABC, Funnel):
             raise ValueError("Missing both funnel_step and funnel_custom_steps")
 
         if self._filter.funnel_step_breakdown is not None:
-            funnel_step_breakdown = self._filter.funnel_step_breakdown
-
-            if self._filter.breakdown_type == "group":
-                # then the breakdown is a string
-                assert isinstance(funnel_step_breakdown, str)
-                self.params.update({"breakdown_prop_value": [val.strip() for val in funnel_step_breakdown.split(",")]})
-                conditions.append("prop IN %(breakdown_prop_value)s")
-            elif self._filter.breakdown_type == "cohort":
-                # then the breakdown is a list of ints
-                self.params.update({"breakdown_prop_value": [cast(int, n) for n in box_value(funnel_step_breakdown)]})
-                conditions.append("prop IN %(breakdown_prop_value)s")
-            else:
-                if isinstance(funnel_step_breakdown, List):
-                    self.params.update({"breakdown_prop_value": (funnel_step_breakdown)})
-                    conditions.append("prop = %(breakdown_prop_value)s")
-                else:
-                    assert isinstance(funnel_step_breakdown, str)
-                    self.params.update(
-                        {"breakdown_prop_value": [val.strip() for val in funnel_step_breakdown.split(",")]}
-                    )
-                    # prop is always an array now,
-                    # so check for any intersection between that array and breakdown prop values
-                    conditions.append("hasAny(prop, %(breakdown_prop_value)s)")
+            prop_vals = self._parse_breakdown_prop_value()
+            self.params.update({"breakdown_prop_value": prop_vals})
+            conditions.append("prop IN %(breakdown_prop_value)s")
 
         return " AND ".join(conditions)
+
+    def _parse_breakdown_prop_value(self):
+        prop_vals: List[Union[str, int]] = (
+            [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
+            if isinstance(self._filter.funnel_step_breakdown, str)
+            else [cast(int, self._filter.funnel_step_breakdown)]
+        )
+        return prop_vals
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
@@ -567,6 +556,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
+            values = self._get_breakdown_conditions()
+            if values:
+                self.params.update({"breakdown_values": values})
+
             if group_remaining and self._filter.breakdown_type in ["person", "event"]:
                 return ", if(has(%(breakdown_values)s, prop), prop, ['Other']) as prop"
             elif group_remaining and self._filter.breakdown_type == "group":
