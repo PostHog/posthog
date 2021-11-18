@@ -106,11 +106,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if self._filter.funnel_step_breakdown.startswith("["):  # naive list as string detection
                 data.update({"funnel_step_breakdown": json.loads(self._filter.funnel_step_breakdown)})
 
-        if self._filter.breakdown:
-            values = self._get_breakdown_conditions()
-            if values:
-                self.params.update({"breakdown_values": values})
-
         for exclusion in self._filter.exclusions:
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
                 raise ValidationError("Exclusion event needs to define funnel steps")
@@ -358,6 +353,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
+            else:
+                values = self._get_breakdown_conditions()
+                if values:
+                    self.params.update({"breakdown_values": values})
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -547,7 +546,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         so using just the first entity to get breakdown values is ok.
         if this is a multi property breakdown then the breakdown values are misleading
         e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
-        so the generated list here must be [[Chrome, 95], [Safari, 15]]
+        so the generated list here must be [[Chrome, 95], [Safari, 15]]G
         """
         if self._filter.breakdown:
             limit = self._filter.breakdown_limit_or_default
