@@ -4,9 +4,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightRouterLogicType } from './insightRouterLogicType'
-import { generateRandomAnimal } from '../../lib/utils/randomAnimal'
 import { urls } from 'scenes/urls'
 
 export const insightRouterLogic = kea<insightRouterLogicType>({
@@ -14,7 +12,6 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
     actions: {
         loadInsight: (id: string) => ({ id }),
         setError: true,
-        createInsight: (insight: Partial<DashboardItemType>) => ({ insight }),
     },
     reducers: {
         error: [
@@ -42,31 +39,12 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
                 actions.setError()
             }
         },
-        createInsight: async ({ insight }, breakpoint) => {
-            const newInsight = {
-                name: generateRandomAnimal(),
-                description: '',
-                tags: [],
-                filters: {},
-                result: null,
-                ...insight,
-            }
-            const createdInsight = await api.create(
-                `api/projects/${teamLogic.values.currentTeamId}/insights`,
-                newInsight
-            )
-            breakpoint()
-            router.actions.replace(urls.insightEdit(createdInsight.id, createdInsight.filters))
-        },
     }),
     urlToAction: ({ actions }) => ({
         '/i/:id': ({ id }) => {
             if (id) {
                 actions.loadInsight(id)
             }
-        },
-        [urls.newInsight()]: (_, searchParams) => {
-            actions.createInsight({ filters: cleanFilters(searchParams) })
         },
     }),
 })

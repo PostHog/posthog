@@ -32,6 +32,7 @@ import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
+import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -58,7 +59,7 @@ export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (
             queryId: string,
@@ -105,6 +106,7 @@ export const insightLogic = kea<insightLogicType>({
         ) => ({ insight, callback }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<DashboardItemType>) => ({ metadata }),
+        createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -376,6 +378,7 @@ export const insightLogic = kea<insightLogicType>({
             ItemMode.View as ItemMode,
             {
                 setInsightMode: (_, { mode }) => mode,
+                setFilters: (state, { insightMode }) => (typeof insightMode !== 'undefined' ? insightMode : state),
             },
         ],
         tagLoading: [
@@ -595,6 +598,21 @@ export const insightLogic = kea<insightLogicType>({
                 }
             }
         },
+        createAndRedirectToNewInsight: async ({ filters }, breakpoint) => {
+            const newInsight = {
+                name: generateRandomAnimal(),
+                description: '',
+                tags: [],
+                filters: filters,
+                result: null,
+            }
+            const createdInsight = await api.create(
+                `api/projects/${teamLogic.values.currentTeamId}/insights`,
+                newInsight
+            )
+            breakpoint()
+            router.actions.replace(urls.insightEdit(createdInsight.id, createdInsight.filters))
+        },
     }),
     actionToUrl: ({ values }) => {
         const actionToUrl = (): [string, undefined, undefined, { replace: boolean }] | void => {
@@ -622,46 +640,55 @@ export const insightLogic = kea<insightLogicType>({
                     router.actions.replace(urls.savedInsights())
                     return
                 }
-                const insightId = params.id ? parseInt(params.id) : hashParams.fromItem // `fromItem` for legacy support
+                if (hashParams.fromItem) {
+                    // `fromItem` for legacy url redirect support
+                    router.actions.replace(
+                        hashParams.edit
+                            ? urls.insightEdit(hashParams.fromItem, searchParams)
+                            : urls.insightView(hashParams.fromItem, searchParams)
+                    )
+                    return
+                }
+                if (params.id === 'new') {
+                    actions.createAndRedirectToNewInsight(searchParams)
+                    return
+                }
+                const insightId = params.id ? parseInt(params.id) : null
                 if (!insightId) {
                     // only allow editing insights with IDs for now
                     router.actions.replace(urls.newInsight(searchParams))
                     return
                 }
-                let loadedFromAnotherLogic = false
-                if (insightId) {
-                    const insightIdChanged = !values.insight.id || values.insight.id !== insightId
 
-                    if (
-                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
-                        (!values.insight.result || insightIdChanged)
-                    ) {
-                        const insight = findInsightFromMountedLogic(insightId, hashParams.fromDashboard)
-                        if (insight) {
-                            actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                            if (insight?.result) {
-                                loadedFromAnotherLogic = true
-                            }
+                let loadedFromAnotherLogic = false
+                const insightIdChanged = !values.insight.id || values.insight.id !== insightId
+
+                if (
+                    featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
+                    (!values.insight.result || insightIdChanged)
+                ) {
+                    const insight = findInsightFromMountedLogic(insightId, hashParams.fromDashboard)
+                    if (insight) {
+                        actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
+                        if (insight?.result) {
+                            loadedFromAnotherLogic = true
                         }
                     }
+                }
 
-                    if (!loadedFromAnotherLogic && insightIdChanged) {
-                        // Do not load the result if missing, as setFilters below will do so anyway.
-                        actions.loadInsight(insightId, { doNotLoadResults: true })
-                    }
-
-                    const insightModeFromUrl = params['mode'] === 'edit' ? ItemMode.Edit : ItemMode.View
-                    if (insightModeFromUrl !== values.insightMode) {
-                        actions.setInsightMode(insightModeFromUrl, null)
-                    }
-                } else if (values.insightMode !== ItemMode.Edit) {
-                    // Always stay in edit mode if there's no insight ID in the URL
-                    actions.setInsightMode(ItemMode.Edit, null)
+                if (!loadedFromAnotherLogic && insightIdChanged) {
+                    // Do not load the result if missing, as setFilters below will do so anyway.
+                    actions.loadInsight(insightId, { doNotLoadResults: true })
                 }
 
                 const cleanSearchParams = cleanFilters(searchParams, values.filters)
-                if (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) {
-                    actions.setFilters(cleanSearchParams)
+                const insightModeFromUrl = params['mode'] === 'edit' ? ItemMode.Edit : ItemMode.View
+
+                if (
+                    (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) ||
+                    insightModeFromUrl !== values.insightMode
+                ) {
+                    actions.setFilters(cleanSearchParams, insightModeFromUrl)
                 }
             }
         },
