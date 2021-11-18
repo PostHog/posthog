@@ -324,7 +324,14 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
 
 
 def _create_group(**kwargs) -> Group:
-    return Group.objects.create(**kwargs, version=0)
+    group = Group.objects.create(**kwargs, version=0)
+    create_group(
+        team_id=group.team.pk,
+        group_type_index=group.group_type_index,
+        group_key=group.group_key,
+        properties=group.group_properties,
+    )
+    return group
 
 
 class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
