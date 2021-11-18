@@ -33,8 +33,8 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.utils import format_query_params_absolute_url
 
 
-def should_paginate(results, filter: Union[Filter, PathFilter]) -> bool:
-    return len(results) > cast(int, filter.limit) - 1
+def should_paginate(results, limit: Union[str, int]) -> bool:
+    return len(results) > cast(int, limit) - 1
 
 
 class ClickhousePersonViewSet(PersonViewSet):
@@ -86,7 +86,7 @@ class ClickhousePersonViewSet(PersonViewSet):
                 funnel_actor_class = ClickhouseFunnelPersons
 
         _, actors = funnel_actor_class(filter, self.team).get_actors()
-        _should_paginate = should_paginate(actors, filter)
+        _should_paginate = should_paginate(actors, filter.limit)
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         initial_url = format_query_params_absolute_url(request, 0)
 
@@ -123,16 +123,16 @@ class ClickhousePersonViewSet(PersonViewSet):
             return {"result": ([], None, None)}
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        if not filter.limit:
+        if not filter.correlation_person_limit:
             filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
         base_uri = request.build_absolute_uri("/")
         people, _ = FunnelCorrelationPersons(filter=filter, team=self.team, base_uri=base_uri).run()
-        _should_paginate = should_paginate(people, filter)
+        _should_paginate = should_paginate(people, filter.correlation_person_limit)
 
         next_url = (
             format_query_params_absolute_url(
                 request,
-                filter.correlation_person_offset + filter.limit,
+                filter.correlation_person_offset + filter.correlation_person_limit,
                 offset_alias=FUNNEL_CORRELATION_PERSON_OFFSET,
                 limit_alias=FUNNEL_CORRELATION_PERSON_LIMIT,
             )
@@ -187,7 +187,7 @@ class ClickhousePersonViewSet(PersonViewSet):
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
         people, _ = ClickhousePathsPersons(filter, self.team, funnel_filter=funnel_filter).run()
-        _should_paginate = should_paginate(people, filter)
+        _should_paginate = should_paginate(people, filter.limit)
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         initial_url = format_query_params_absolute_url(request, 0)
