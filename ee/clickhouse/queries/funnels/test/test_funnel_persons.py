@@ -1,6 +1,8 @@
+from typing import List, cast
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.queries.actor_base_query import SerializedPerson
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -293,23 +295,29 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results = ClickhouseFunnelPersons(filter, self.team).get_actors()
+        results = cast(List[SerializedPerson], results)
 
         self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results = ClickhouseFunnelPersons(
             filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
         ).get_actors()
+        results = cast(List[SerializedPerson], results)
 
         self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         _, results = ClickhouseFunnelPersons(
             filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
         ).get_actors()
+        results = cast(List[SerializedPerson], results)
+
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
         _, results = ClickhouseFunnelPersons(
             filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
         ).get_actors()
+        results = cast(List[SerializedPerson], results)
+
         self.assertCountEqual([val["id"] for val in results], [person2.uuid, person1.uuid])
 
     @test_with_materialized_columns(person_properties=["$country"])
@@ -330,9 +338,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         _, results = ClickhouseFunnelPersons(filter, self.team).get_actors()
+        results = cast(List[SerializedPerson], results)
         self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results = ClickhouseFunnelPersons(filter.with_data({"funnel_step_breakdown": "EE"}), self.team).get_actors()
+        results = cast(List[SerializedPerson], results)
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
         # Check custom_steps give same answers for breakdowns
@@ -342,6 +352,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results, custom_step_results)
 
         _, results = ClickhouseFunnelPersons(filter.with_data({"funnel_step_breakdown": "PL"}), self.team).get_actors()
+        results = cast(List[SerializedPerson], results)
         self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         # Check custom_steps give same answers for breakdowns
@@ -373,4 +384,5 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=filters)
         _, results = ClickhouseFunnelPersons(filter, self.team).get_actors()
+        results = cast(List[SerializedPerson], results)
         self.assertEqual(results[0]["id"], person.uuid)

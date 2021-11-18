@@ -36,10 +36,6 @@ class SerializedGroup(TypedDict):
     properties: Dict[str, Any]
 
 
-SerializedActor = Union[SerializedPerson, SerializedGroup]
-Actor = Union[Person, Group]
-
-
 class ActorBaseQuery:
     aggregating_by_groups = False
     entity: Optional[Entity] = None
@@ -60,29 +56,31 @@ class ActorBaseQuery:
         else:
             return False
 
-    def get_actors(self) -> Tuple[QuerySet[Actor], List[SerializedActor]]:
+    def get_actors(
+        self,
+    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
         """ Get actors in data model and dict formats. Builds query and executes """
         query, params = self.actor_query()
         raw_result = sync_execute(query, params)
-        actors: QuerySet[Actor]
-        serialized_actors: List[SerializedActor] = []
+        actors: Union[QuerySet[Person], QuerySet[Group]]
+        serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
         if self.is_aggregating_by_groups:
             actors, serialized_actors = self._get_groups(raw_result)
         else:
             actors, serialized_actors = self._get_people(raw_result)
         return actors, serialized_actors
 
-    def _get_groups(self, results) -> Tuple[QuerySet[Actor], List[SerializedActor]]:
+    def _get_groups(self, results) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
         """ Get groups from raw SQL results in data model and dict formats """
         groups: QuerySet[Group] = Group.objects.filter(team_id=self._team.pk, group_key__in=[val[0] for val in results])
         return groups, self._serialize_groups(groups)
 
-    def _get_people(self, results) -> Tuple[QuerySet[Actor], List[SerializedActor]]:
+    def _get_people(self, results) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
         """ Get people from raw SQL results in data model and dict formats """
         persons: QuerySet[Person] = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
         return persons, self._serialize_people(persons)
 
-    def _serialize_people(self, data: QuerySet[Person]) -> List[SerializedActor]:
+    def _serialize_people(self, data: QuerySet[Person]) -> List[SerializedPerson]:
         from posthog.api.person import get_person_name
 
         return [
@@ -98,7 +96,7 @@ class ActorBaseQuery:
             for person in data
         ]
 
-    def _serialize_groups(self, data: QuerySet[Group]) -> List[SerializedActor]:
+    def _serialize_groups(self, data: QuerySet[Group]) -> List[SerializedGroup]:
         return [
             SerializedGroup(
                 type="group", group_key=group.group_key, created_at=group.created_at, properties=group.group_properties
