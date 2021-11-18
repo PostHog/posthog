@@ -94,7 +94,9 @@ export const eventsListLogic = kea<eventsListLogicType>({
             actions.enablePositionFinder()
         },
         handleEventClick: ({ time }) => {
-            actions.seek(time)
+            if (!!time && !isNaN(time)) {
+                actions.seek(time)
+            }
         },
     }),
     selectors: ({ cache }) => ({
