@@ -36,6 +36,11 @@
         border-right-width: 8px;
         border-left-width: 8px;
     }
+
+    &.inverse {
+        border-color: #fff;
+        border-top-color: rgba(255, 255, 255, 0.4);
+    }
 }
 
 @-webkit-keyframes loadSpinner {

@@ -4,9 +4,10 @@ import './Spinner.scss'
 
 interface SpinnerProps {
     size?: 'sm' | 'md' | 'lg'
+    type?: 'primary' | 'inverse'
     style?: React.CSSProperties
 }
 
-export function Spinner({ size = 'md', style }: SpinnerProps): JSX.Element {
-    return <div className={clsx('loader-spinner', size)} style={style} />
+export function Spinner({ size = 'md', type = 'primary', style }: SpinnerProps): JSX.Element {
+    return <div className={clsx('loader-spinner', size, type)} style={style} />
 }
