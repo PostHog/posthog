@@ -13,7 +13,6 @@ import {
 } from 'react-virtualized/dist/commonjs/Grid'
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
 import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recordings/player/eventsListLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
 import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
@@ -59,7 +58,6 @@ function noRowsRenderer(): JSX.Element {
 
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<List>(null)
-    const { loading } = useValues(sessionRecordingLogic)
     const {
         localFilters,
         listEvents,
@@ -70,6 +68,7 @@ export function PlayerEvents(): JSX.Element {
         isEventCurrent,
         isDirectionUp,
         renderedRows,
+        isEventListLoading,
     } = useValues(eventsListLogic)
     const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder } = useActions(eventsListLogic)
 
@@ -146,7 +145,12 @@ export function PlayerEvents(): JSX.Element {
             }
             return children
         },
-        [currentEventsBoxSizeAndPosition.top, currentEventsBoxSizeAndPosition.height, loading, listEvents.length]
+        [
+            currentEventsBoxSizeAndPosition.top,
+            currentEventsBoxSizeAndPosition.height,
+            isEventListLoading,
+            listEvents.length,
+        ]
     )
 
     return (
@@ -158,7 +162,7 @@ export function PlayerEvents(): JSX.Element {
                 onChange={(e) => setLocalFilters({ query: e.target.value })}
             />
             <Col className="event-list">
-                {loading ? (
+                {isEventListLoading ? (
                     <Loading />
                 ) : (
                     <>
