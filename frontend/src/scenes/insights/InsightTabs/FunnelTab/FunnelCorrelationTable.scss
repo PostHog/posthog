@@ -5,6 +5,12 @@
     border: 1px solid $border;
     border-radius: $radius;
 
+    .ant-table {
+        thead th {
+            border-bottom: 1px solid $border;
+        }
+    }
+
     .funnel-correlation-header {
         background: #f2f2f2;
         display: flex;
@@ -63,6 +69,15 @@
 
                 color: rgba(0, 0, 0, 0.5);
             }
+        }
+    }
+
+    .nested-properties-table {
+        margin: $default_spacing;
+        border: 1px solid $border;
+        border-radius: $radius;
+        thead th {
+            border-bottom: 1px solid $border;
         }
     }
 }
