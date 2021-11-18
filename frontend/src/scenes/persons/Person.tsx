@@ -10,13 +10,10 @@ import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NewPropertyComponent } from './NewPropertyComponent'
-
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -24,8 +21,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-
-dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
 

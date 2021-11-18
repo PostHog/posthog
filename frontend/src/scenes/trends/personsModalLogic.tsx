@@ -1,6 +1,5 @@
 import React from 'react'
 import { Link } from 'lib/components/Link'
-import dayjs from 'dayjs'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
@@ -24,6 +23,7 @@ import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 import { toast } from 'react-toastify'
 import { cohortsModel } from '~/models/cohortsModel'
+import { dayjs } from 'lib/dayjs'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out

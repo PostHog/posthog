@@ -2,9 +2,24 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { Person, PersonPropertyUpdateOperation, TeamId } from '../../types'
+import {
+    Group,
+    GroupTypeIndex,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    PropertyUpdateOperation,
+    TeamId,
+} from '../../types'
 import { DB } from '../../utils/db/db'
 import { generateKafkaPersonUpdateMessage } from '../../utils/db/utils'
+import { RaceConditionError } from '../../utils/utils'
+
+interface PropertiesUpdate {
+    updated: boolean
+    properties: Properties
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation
+}
 
 export async function updatePersonProperties(
     db: DB,
@@ -18,42 +33,49 @@ export async function updatePersonProperties(
         return
     }
 
-    let person: Person | undefined
-    await db.postgresTransaction(async (client) => {
-        person = await db.fetchPerson(teamId, distinctId, client, true)
+    const [propertiesUpdate, person] = await db.postgresTransaction(async (client) => {
+        const person = await db.fetchPerson(teamId, distinctId, client, { forUpdate: true })
         if (!person) {
             throw new Error(
                 `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update props`
             )
         }
 
-        const shouldUpdate = calculateUpdatedProperties(person, properties, propertiesOnce, timestamp)
-        if (!shouldUpdate) {
-            return
-        }
-
-        const updateResult: QueryResult = await client.query(
-            `UPDATE posthog_person SET
-                properties = $1,
-                properties_last_updated_at = $2,
-                properties_last_operation = $3,
-                version = COALESCE(version, 0)::numeric + 1
-            WHERE id = $4
-            RETURNING version`,
-            [
-                JSON.stringify(person.properties),
-                JSON.stringify(person.properties_last_updated_at),
-                JSON.stringify(person.properties_last_operation || {}),
-                person.id,
-            ]
+        const propertiesUpdate: PropertiesUpdate = calculateUpdate(
+            person.properties,
+            properties,
+            propertiesOnce,
+            person.properties_last_updated_at,
+            person.properties_last_operation || {},
+            timestamp
         )
-        person.version = Number(updateResult.rows[0].version)
+        if (propertiesUpdate.updated) {
+            const updateResult: QueryResult = await db.postgresQuery(
+                `UPDATE posthog_person SET
+                    properties = $1,
+                    properties_last_updated_at = $2,
+                    properties_last_operation = $3,
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE id = $4
+                RETURNING version`,
+                [
+                    JSON.stringify(propertiesUpdate.properties),
+                    JSON.stringify(propertiesUpdate.properties_last_updated_at),
+                    JSON.stringify(propertiesUpdate.properties_last_operation),
+                    person.id,
+                ],
+                'updatePersonProperties',
+                client
+            )
+            person.version = Number(updateResult.rows[0].version)
+        }
+        return [propertiesUpdate, person]
     })
 
-    if (db.kafkaProducer && person) {
+    if (db.kafkaProducer && propertiesUpdate.updated) {
         const kafkaMessage = generateKafkaPersonUpdateMessage(
             timestamp,
-            person.properties,
+            propertiesUpdate.properties,
             person.team_id,
             person.is_identified,
             person.uuid,
@@ -63,60 +85,133 @@ export async function updatePersonProperties(
     }
 }
 
-export function calculateUpdatedProperties(
-    person: Person,
+export async function upsertGroup(
+    db: DB,
+    teamId: TeamId,
+    groupTypeIndex: GroupTypeIndex,
+    groupKey: string,
+    properties: Properties,
+    timestamp: DateTime
+): Promise<void> {
+    try {
+        const [propertiesUpdate, createdAt, version] = await db.postgresTransaction(async (client) => {
+            const group: Group | undefined = await db.fetchGroup(teamId, groupTypeIndex, groupKey, client, {
+                forUpdate: true,
+            })
+            const createdAt = group?.created_at || timestamp
+            const version = (group?.version || 0) + 1
+
+            const propertiesUpdate = calculateUpdate(
+                group?.group_properties || {},
+                properties,
+                {},
+                group?.properties_last_updated_at || {},
+                group?.properties_last_operation || {},
+                timestamp
+            )
+
+            if (!group) {
+                propertiesUpdate.updated = true
+            }
+
+            if (propertiesUpdate.updated) {
+                // :TRICKY: insertGroup will raise a RaceConditionError if group was inserted in-between fetch and this
+                const upsertMethod = group ? 'updateGroup' : 'insertGroup'
+                await db[upsertMethod](
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    propertiesUpdate.properties,
+                    createdAt,
+                    propertiesUpdate.properties_last_updated_at,
+                    propertiesUpdate.properties_last_operation,
+                    version,
+                    client
+                )
+            }
+
+            return [propertiesUpdate, createdAt, version]
+        })
+
+        if (propertiesUpdate.updated) {
+            await db.upsertGroupClickhouse(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                propertiesUpdate.properties,
+                createdAt,
+                version
+            )
+        }
+    } catch (error) {
+        if (error instanceof RaceConditionError) {
+            // Try again - lock the row and insert!
+            return upsertGroup(db, teamId, groupTypeIndex, groupKey, properties, timestamp)
+        }
+        throw error
+    }
+}
+
+export function calculateUpdate(
+    currentProperties: Properties,
     properties: Properties,
     propertiesOnce: Properties,
+    propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+    propertiesLastOperation: PropertiesLastOperation,
     timestamp: DateTime
-): boolean {
-    // :TRICKY: This mutates the person object & returns true/false if anything was updated
-    let updatedSomething = false
+): PropertiesUpdate {
+    const result: PropertiesUpdate = {
+        updated: false,
+        properties: { ...currentProperties },
+        properties_last_updated_at: { ...propertiesLastUpdatedAt },
+        properties_last_operation: { ...propertiesLastOperation },
+    }
+
     Object.entries(propertiesOnce).forEach(([key, value]) => {
         if (
-            !(key in person.properties) ||
-            (getPropertiesLastOperationOrSet(person, key) === PersonPropertyUpdateOperation.SetOnce &&
-                getPropertyLastUpdatedAtDateTimeOrEpoch(person, key) > timestamp)
+            !(key in result.properties) ||
+            (getPropertiesLastOperationOrSet(propertiesLastOperation, key) === PropertyUpdateOperation.SetOnce &&
+                getPropertyLastUpdatedAtDateTimeOrEpoch(propertiesLastUpdatedAt, key) > timestamp)
         ) {
-            updatedSomething = true
-            person.properties[key] = value
-            updatePropertiesLastOperation(person, key, PersonPropertyUpdateOperation.SetOnce)
-            person.properties_last_updated_at[key] = timestamp.toISO()
+            result.updated = true
+            result.properties[key] = value
+            result.properties_last_operation[key] = PropertyUpdateOperation.SetOnce
+            result.properties_last_updated_at[key] = timestamp.toISO()
         }
     })
     // note that if the key appears twice we override it with set value here
     Object.entries(properties).forEach(([key, value]) => {
         if (
-            !(key in person.properties) ||
-            getPropertiesLastOperationOrSet(person, key) === PersonPropertyUpdateOperation.SetOnce ||
-            getPropertyLastUpdatedAtDateTimeOrEpoch(person, key) < timestamp
+            !(key in result.properties) ||
+            getPropertiesLastOperationOrSet(propertiesLastOperation, key) === PropertyUpdateOperation.SetOnce ||
+            getPropertyLastUpdatedAtDateTimeOrEpoch(propertiesLastUpdatedAt, key) < timestamp
         ) {
-            updatedSomething = true
-            person.properties[key] = value
-            updatePropertiesLastOperation(person, key, PersonPropertyUpdateOperation.Set)
-            person.properties_last_updated_at[key] = timestamp.toISO()
+            result.updated = true
+            result.properties[key] = value
+            result.properties_last_operation[key] = PropertyUpdateOperation.Set
+            result.properties_last_updated_at[key] = timestamp.toISO()
         }
     })
-    return updatedSomething
+    return result
 }
 
-function getPropertyLastUpdatedAtDateTimeOrEpoch(person: Person, key: string): DateTime {
-    const lookup = person.properties_last_updated_at[key]
+function getPropertyLastUpdatedAtDateTimeOrEpoch(
+    propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+    key: string
+): DateTime {
+    const lookup = propertiesLastUpdatedAt[key]
     if (lookup) {
         return DateTime.fromISO(lookup)
     }
     return DateTime.fromMillis(0)
 }
 
-function getPropertiesLastOperationOrSet(person: Person, key: string): PersonPropertyUpdateOperation {
-    if (!person.properties_last_operation || !(key in person.properties_last_operation)) {
-        return PersonPropertyUpdateOperation.Set
+function getPropertiesLastOperationOrSet(
+    propertiesLastOperation: PropertiesLastOperation,
+    key: string
+): PropertyUpdateOperation {
+    if (!(key in propertiesLastOperation)) {
+        return PropertyUpdateOperation.Set
     }
-    return person.properties_last_operation[key]
-}
-
-function updatePropertiesLastOperation(person: Person, key: string, value: PersonPropertyUpdateOperation) {
-    if (!person.properties_last_operation) {
-        person.properties_last_operation = {}
-    }
-    person.properties_last_operation[key] = value
+    return propertiesLastOperation[key]
 }

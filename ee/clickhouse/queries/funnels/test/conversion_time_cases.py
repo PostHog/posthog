@@ -1,3 +1,6 @@
+from datetime import datetime
+
+from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.test.base import APIBaseTest
@@ -26,28 +29,23 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
 
-            # event
-            person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team, event="user signed up", distinct_id="person1", timestamp="2021-05-01 01:00:00"
+            people = journeys_for(
+                {
+                    "person1": [
+                        # person1 completed funnel on 2021-05-01
+                        {"event": "user signed up", "timestamp": datetime(2021, 5, 1, 1)},
+                        {"event": "$pageview", "timestamp": datetime(2021, 5, 1, 2)},
+                        {"event": "something else", "timestamp": datetime(2021, 5, 1, 3)},
+                        # person1 completed part of funnel on 2021-05-03 and took 2 hours to convert
+                        {"event": "user signed up", "timestamp": datetime(2021, 5, 3, 4)},
+                        {"event": "$pageview", "timestamp": datetime(2021, 5, 3, 5)},
+                        # person1 completed part of funnel on 2021-05-04 and took 3 hours to convert
+                        {"event": "user signed up", "timestamp": datetime(2021, 5, 4, 7)},
+                        {"event": "$pageview", "timestamp": datetime(2021, 5, 4, 10)},
+                    ],
+                },
+                self.team,
             )
-            _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2021-05-01 02:00:00")
-            _create_event(
-                team=self.team, event="something else", distinct_id="person1", timestamp="2021-05-01 03:00:00"
-            )
-            # person1 completed funnel on 2021-05-01
-
-            _create_event(
-                team=self.team, event="user signed up", distinct_id="person1", timestamp="2021-05-03 04:00:00"
-            )
-            _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2021-05-03 06:00:00")
-            # person1 completed part of funnel on 2021-05-03 and took 2 hours to convert
-
-            _create_event(
-                team=self.team, event="user signed up", distinct_id="person1", timestamp="2021-05-04 07:00:00"
-            )
-            _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2021-05-04 10:00:00")
-            # person1 completed part of funnel on 2021-05-04 and took 3 hours to convert
 
             result = funnel.run()
 
@@ -62,7 +60,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
             # check ordering of people in every step
             self.assertCountEqual(
-                self._get_people_at_step(filter, 1), [person1.uuid,],
+                self._get_people_at_step(filter, 1), [people["person1"].uuid,],
             )
 
         def test_funnel_step_conversion_times(self):
@@ -77,67 +75,24 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
 
-            # event
-            person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person1",
-                properties={"key": "val"},
-                timestamp="2020-01-01T12:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person1",
-                properties={"key": "val"},
-                timestamp="2020-01-01T13:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person1",
-                properties={"key": "val"},
-                timestamp="2020-01-01T15:00:00Z",
-            )
-
-            person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person2",
-                properties={"key": "val"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person2",
-                properties={"key": "val"},
-                timestamp="2020-01-02T16:00:00Z",
-            )
-
-            person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="person3",
-                properties={"key": "val"},
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="play movie",
-                distinct_id="person3",
-                properties={"key": "val"},
-                timestamp="2020-01-02T16:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="buy",
-                distinct_id="person3",
-                properties={"key": "val"},
-                timestamp="2020-01-02T17:00:00Z",
+            journeys_for(
+                {
+                    "person1": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                        {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
+                    ],
+                    "person2": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
+                    ],
+                    "person3": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14)},
+                        {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
+                        {"event": "buy", "timestamp": datetime(2020, 1, 2, 17)},
+                    ],
+                },
+                self.team,
             )
 
             result = funnel.run()
@@ -167,38 +122,19 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             funnel = Funnel(filter, self.team)
 
             # event
-            person1_stopped_after_two_signups = _create_person(
-                distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
-            )
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id="stopped_after_signup1",
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team, event="pageview", distinct_id="stopped_after_signup1", timestamp="2020-01-02T14:05:00Z"
-            )
-
-            person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id="stopped_after_signup2",
-                timestamp="2020-01-02T14:03:00Z",
-            )
-
-            person3_stopped_after_two_signups = _create_person(
-                distinct_ids=["stopped_after_signup3"], team_id=self.team.pk
-            )
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id="stopped_after_signup3",
-                timestamp="2020-01-02T12:00:00Z",
-            )
-            _create_event(
-                team=self.team, event="pageview", distinct_id="stopped_after_signup3", timestamp="2020-01-02T12:15:00Z"
+            people = journeys_for(
+                {
+                    "stopped_after_signup1": [
+                        {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14)},
+                        {"event": "pageview", "timestamp": datetime(2020, 1, 2, 14, 5)},
+                    ],
+                    "stopped_after_signup2": [{"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14, 3)},],
+                    "stopped_after_signup3": [
+                        {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 12)},
+                        {"event": "pageview", "timestamp": datetime(2020, 1, 2, 12, 15)},
+                    ],
+                },
+                self.team,
             )
 
             result = funnel.run()
@@ -210,15 +146,15 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertCountEqual(
                 self._get_people_at_step(filter, 1),
                 [
-                    person1_stopped_after_two_signups.uuid,
-                    person2_stopped_after_signup.uuid,
-                    person3_stopped_after_two_signups.uuid,
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                    people["stopped_after_signup3"].uuid,
                 ],
             )
 
             self.assertCountEqual(
                 self._get_people_at_step(filter, 2),
-                [person1_stopped_after_two_signups.uuid, person3_stopped_after_two_signups.uuid],
+                [people["stopped_after_signup1"].uuid, people["stopped_after_signup3"].uuid],
             )
 
             filter = filter.with_data({"funnel_window_interval": 5, "funnel_window_interval_unit": "minute"})
@@ -235,14 +171,14 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertCountEqual(
                 self._get_people_at_step(filter, 1),
                 [
-                    person1_stopped_after_two_signups.uuid,
-                    person2_stopped_after_signup.uuid,
-                    person3_stopped_after_two_signups.uuid,
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                    people["stopped_after_signup3"].uuid,
                 ],
             )
 
             self.assertCountEqual(
-                self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
+                self._get_people_at_step(filter, 2), [people["stopped_after_signup1"].uuid],
             )
 
     return TestFunnelConversionTime

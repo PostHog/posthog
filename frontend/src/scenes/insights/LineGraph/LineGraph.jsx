@@ -16,12 +16,7 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import dayjs from 'dayjs'
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
-
-dayjs.extend(isSameOrAfter)
-dayjs.extend(isSameOrBefore)
+import { dayjs } from 'lib/dayjs'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false

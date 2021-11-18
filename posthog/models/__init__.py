@@ -10,6 +10,7 @@ from .event import Event
 from .event_definition import EventDefinition
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
+from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .insight import Insight
 from .messaging import MessagingRecord
@@ -39,6 +40,7 @@ __all__ = [
     "EventDefinition",
     "FeatureFlag",
     "Filter",
+    "Group",
     "GroupTypeMapping",
     "RetentionFilter",
     "MessagingRecord",

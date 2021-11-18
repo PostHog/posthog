@@ -1,8 +1,6 @@
 import './Insights.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { Row, Col, Card, Button, Popconfirm } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { router } from 'kea-router'
@@ -25,8 +23,6 @@ import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
-
-dayjs.extend(relativeTime)
 
 export const scene: SceneExport = {
     component: Insights,
