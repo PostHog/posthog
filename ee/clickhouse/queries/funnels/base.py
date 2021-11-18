@@ -24,7 +24,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
     _no_person_limit: Optional[bool]  # used when paths are querying for filter people
-    _is_actor_query: bool = False
 
     def __init__(
         self,
@@ -296,9 +295,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
     ) -> str:
         entities_to_use = entities or self._filter.entities
 
-        event_query, params = FunnelEventQuery(
-            filter=self._filter, team_id=self._team.pk, is_actor_query=self._is_actor_query
-        ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
+        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
+            entities_to_use, entity_name, skip_entity_filter=skip_entity_filter
+        )
 
         self.params.update(params)
 

@@ -42,9 +42,10 @@ Actor = Union[Person, Group]
 
 class ActorBaseQuery:
     aggregating_by_groups = False
+    entity: Optional[Entity] = None
 
     def __init__(self, team: Team, filter: Filter, entity: Optional[Entity] = None):
-        self.team = team
+        self._team = team
         self.entity = entity
         self.filter = filter
 
@@ -73,12 +74,12 @@ class ActorBaseQuery:
 
     def _get_groups(self, results) -> Tuple[QuerySet[Actor], List[SerializedActor]]:
         """ Get groups from raw SQL results in data model and dict formats """
-        groups: QuerySet[Group] = Group.objects.filter(team_id=self.team.pk, group_key__in=[val[0] for val in results])
+        groups: QuerySet[Group] = Group.objects.filter(team_id=self._team.pk, group_key__in=[val[0] for val in results])
         return groups, self._serialize_groups(groups)
 
     def _get_people(self, results) -> Tuple[QuerySet[Actor], List[SerializedActor]]:
         """ Get people from raw SQL results in data model and dict formats """
-        persons: QuerySet[Person] = Person.objects.filter(team_id=self.team.pk, uuid__in=[val[0] for val in results])
+        persons: QuerySet[Person] = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
         return persons, self._serialize_people(persons)
 
     def _serialize_people(self, data: QuerySet[Person]) -> List[SerializedActor]:
