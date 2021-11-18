@@ -603,7 +603,7 @@ export const insightLogic = kea<insightLogicType>({
                 name: generateRandomAnimal(),
                 description: '',
                 tags: [],
-                filters: cleanFilters(filters),
+                filters: cleanFilters(filters || {}),
                 result: null,
             }
             const createdInsight = await api.create(
@@ -611,7 +611,7 @@ export const insightLogic = kea<insightLogicType>({
                 newInsight
             )
             breakpoint()
-            router.actions.replace(urls.insightEdit(createdInsight.id, createdInsight.filters))
+            router.actions.replace(urls.insightEdit(createdInsight.id, cleanFilters(createdInsight.filters)))
         },
     }),
     actionToUrl: ({ values }) => {
