@@ -60,7 +60,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
 
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_disintct_id_query()}
+            {self._get_distinct_id_query()}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s

@@ -1,4 +1,4 @@
-import { GroupTypeToColumnIndex, Team, TeamId } from '../../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -34,7 +34,7 @@ export class GroupTypeManager {
         }
     }
 
-    public async fetchGroupTypeIndex(teamId: TeamId, groupType: string): Promise<number | null> {
+    public async fetchGroupTypeIndex(teamId: TeamId, groupType: string): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(teamId)
 
         if (groupType in groupTypes) {
@@ -56,7 +56,7 @@ export class GroupTypeManager {
         }
     }
 
-    private async captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: number) {
+    private async captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: GroupTypeIndex) {
         const team: Team | null = await this.teamManager.fetchTeam(teamId)
 
         if (!team) {

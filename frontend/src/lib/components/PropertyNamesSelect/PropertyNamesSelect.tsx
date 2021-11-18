@@ -1,10 +1,10 @@
-import CaretDownFilled from '@ant-design/icons/lib/icons/CaretDownFilled'
-import SearchOutlined from '@ant-design/icons/lib/icons/SearchOutlined'
+import { SearchOutlined } from '@ant-design/icons'
 import { Checkbox, Input } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 import { propertySelectLogic } from './propertyNamesSelectLogic'
-import './styles.scss'
+import './PropertyNamesSelect.scss'
+import { IconArrowDropDown } from '../icons'
 
 // Incrementing counter to ensure uniqueness of logic for each component
 let propertyNameSelectCounter = 0
@@ -119,8 +119,9 @@ export const PropertyNamesSelectBox = ({
                         <div className="selection-status-text">
                             {selectedProperties.size} of {properties.length}
                         </div>
-
-                        <CaretDownFilled />
+                        <span className="dropdown-icon">
+                            <IconArrowDropDown />
+                        </span>
                     </>
                 ) : (
                     'Loading properties'

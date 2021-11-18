@@ -44,7 +44,6 @@ import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 import { TopBar } from '../lemonade/TopBar'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../lib/components/CommandPalette'
-import { RedesignOptIn } from '../lemonade/RedesignOptIn'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -347,7 +346,6 @@ function TopNavigationOriginal(): JSX.Element {
                         </div>
                     </Dropdown>
                 </div>
-                <RedesignOptIn />
                 <HelpButton />
                 {user && (
                     <>
@@ -377,5 +375,5 @@ function TopNavigationOriginal(): JSX.Element {
 export function TopNavigation(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    return featureFlags[FEATURE_FLAGS.LEMONADE] ? <TopBar /> : <TopNavigationOriginal />
+    return true || featureFlags[FEATURE_FLAGS.LEMONADE] ? <TopBar /> : <TopNavigationOriginal />
 }
