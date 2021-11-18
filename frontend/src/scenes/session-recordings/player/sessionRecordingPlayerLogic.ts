@@ -176,7 +176,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setReplayer(replayer)
         },
         setReplayer: ({ replayer }) => {
-            if (!replayer) {
+            if (replayer) {
                 actions.setPlay()
             }
         },
