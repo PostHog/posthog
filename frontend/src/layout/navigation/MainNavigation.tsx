@@ -224,7 +224,7 @@ function MenuItems(): JSX.Element {
                 title="New Insight"
                 icon={<IconExplore />}
                 identifier={Scene.Insights}
-                to={urls.newInsight(InsightType.TRENDS)}
+                to={urls.newInsight({ insight: InsightType.TRENDS })}
                 hotkey="x"
                 tooltip="Answers to all your analytics questions"
             />
@@ -398,7 +398,7 @@ export function MainNavigation(): JSX.Element {
                 <div className="navigation-inner" ref={navRef} onScroll={handleNavScroll}>
                     <div className="nav-logo">
                         {
-                            <Link to={urls.insights()}>
+                            <Link to={urls.savedInsights()}>
                                 <img src={smLogo} className="logo-sm" alt="" />
                                 <img src={lgLogo} className="logo-lg" alt="" />
                             </Link>

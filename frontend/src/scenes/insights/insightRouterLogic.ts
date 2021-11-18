@@ -7,6 +7,7 @@ import { combineUrl, router } from 'kea-router'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightRouterLogicType } from './insightRouterLogicType'
 import { generateRandomAnimal } from '../../lib/utils/randomAnimal'
+import { urls } from 'scenes/urls'
 
 export const insightRouterLogic = kea<insightRouterLogicType>({
     path: ['scenes', 'insights', 'insightRouterLogic'],
@@ -30,8 +31,7 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
                 const item = response.results[0] as DashboardItemType
                 eventUsageLogic.actions.reportInsightShortUrlVisited(true, item.filters.insight || null)
                 router.actions.replace(
-                    combineUrl('/insights', item.filters, {
-                        fromItem: item.id,
+                    combineUrl(urls.insightView(item.id, item.filters), undefined, {
                         fromItemName: item.name,
                         fromDashboard: item.dashboard,
                         id: item.short_id,
@@ -56,11 +56,7 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
                 newInsight
             )
             breakpoint()
-            router.actions.replace('/insights', createdInsight.filters, {
-                ...router.values.hashParams,
-                edit: true,
-                fromItem: createdInsight.id,
-            })
+            router.actions.replace(urls.insightEdit(createdInsight.id, createdInsight.filters))
         },
     }),
     urlToAction: ({ actions }) => ({

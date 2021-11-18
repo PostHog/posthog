@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { InsightType } from '~/types'
+import { FilterType } from '~/types'
+import { combineUrl } from 'kea-router'
 
 export const urls = {
     default: () => '/',
@@ -12,10 +13,13 @@ export const urls = {
     eventStats: () => '/events/stats',
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
-    insights: () => '/insights',
-    newInsight: (insight?: InsightType) => `/insights/new${insight ? `?insight=${encodeURIComponent(insight)}` : ``}`,
+    newInsight: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
     savedInsights: () => '/saved_insights',
+    insightEdit: (id: string | number, filters?: Partial<FilterType>) =>
+        `/insights/${id}/edit${filters ? combineUrl('', filters).search : ''}`,
+    insightView: (id: string | number, filters?: Partial<FilterType>) =>
+        `/insights/${id}${filters ? combineUrl('', filters).search : ''}`,
     sessions: () => '/sessions',
     sessionRecordings: () => '/recordings',
     person: (id: string) => `/person/${id}`,

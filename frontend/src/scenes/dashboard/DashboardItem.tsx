@@ -45,6 +45,7 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { DiveIcon } from 'lib/components/icons'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 interface Props {
     item: DashboardItemType
@@ -84,78 +85,90 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: ActionsLineGraph,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
     ActionsLineGraphCumulative: {
         className: 'graph',
         element: ActionsLineGraph,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
     ActionsBar: {
         className: 'bar',
         element: ActionsLineGraph,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
     ActionsBarValue: {
         className: 'bar',
         element: ActionsBarValueGraph,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
     ActionsTable: {
         className: 'table',
         element: ActionsTable,
         viewText: 'View table',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
     ActionsPie: {
         className: 'pie',
         element: ActionsPie,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
     FunnelViz: {
         className: 'funnel',
         element: Funnel,
         viewText: 'View funnel',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
-            return combineUrl(
-                `/insights`,
-                { insight: InsightType.FUNNELS, ...filters },
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url
-        },
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
     RetentionContainer: {
         className: 'retention',
         element: RetentionContainer,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
-            return combineUrl(
-                `/insights`,
-                { insight: InsightType.RETENTION, ...filters },
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url
-        },
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
     PathsViz: {
         className: 'paths-viz',
         element: Paths,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
-            return combineUrl(
-                `/insights`,
-                { insight: InsightType.PATHS, ...filters },
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url
-        },
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
+            combineUrl(urls.insightView(id, filters), undefined, {
+                fromItemName: name,
+                fromDashboard: dashboard,
+            }).url,
     },
 }
 

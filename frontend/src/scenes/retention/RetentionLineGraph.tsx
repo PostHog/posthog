@@ -7,7 +7,6 @@ import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
-import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 
@@ -23,14 +22,13 @@ export function RetentionLineGraph({
     color = 'white',
     inSharedMode = false,
 }: RetentionLineGraphProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const { filters, results: _results, people: _people, peopleLoading, loadingMore } = useValues(logic)
     const results = _results as RetentionTrendPayload[]
     const people = _people as RetentionTrendPeoplePayload
 
     const { loadPeople, loadMorePeople } = useActions(logic)
-    const [{ fromItem }] = useState(router.values.hashParams)
     const [modalVisible, setModalVisible] = useState(false)
     const [day, setDay] = useState(0)
     function closeModal(): void {
@@ -52,7 +50,7 @@ export function RetentionLineGraph({
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
                 dashboardItemId={
-                    dashboardItemId || fromItem /* used only for annotations, not to init any other logic */
+                    dashboardItemId || insight.id /* used only for annotations, not to init any other logic */
                 }
                 inSharedMode={inSharedMode}
                 percentage={true}

@@ -1,6 +1,6 @@
 import React from 'react'
 import { Menu, Dropdown } from 'antd'
-import { A, combineUrl, encodeParams } from 'kea-router'
+import { A } from 'kea-router'
 import { FunnelPathType, PathType, InsightType, AvailableFeature } from '~/types'
 import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
@@ -8,6 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
+import { urls } from 'scenes/urls'
 
 export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -39,21 +40,13 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         {adjustedIndex > 1 && (
                             <Menu.Item key="0">
                                 <A
-                                    href={
-                                        combineUrl(
-                                            '/insights',
-                                            encodeParams(
-                                                {
-                                                    funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
-                                                    insight: InsightType.PATHS,
-                                                    funnel_paths: FunnelPathType.before,
-                                                    date_from: filterProps.date_from,
-                                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
-                                                },
-                                                '?'
-                                            )
-                                        ).url
-                                    }
+                                    href={urls.newInsight({
+                                        funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
+                                        insight: InsightType.PATHS,
+                                        funnel_paths: FunnelPathType.before,
+                                        date_from: filterProps.date_from,
+                                        include_event_types: [PathType.PageView, PathType.CustomEvent],
+                                    })}
                                 >
                                     Show user paths leading to step
                                 </A>
@@ -62,21 +55,13 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         {adjustedIndex > 1 && (
                             <Menu.Item key="1">
                                 <A
-                                    href={
-                                        combineUrl(
-                                            '/insights',
-                                            encodeParams(
-                                                {
-                                                    funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
-                                                    insight: InsightType.PATHS,
-                                                    funnel_paths: FunnelPathType.between,
-                                                    date_from: filterProps.date_from,
-                                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
-                                                },
-                                                '?'
-                                            )
-                                        ).url
-                                    }
+                                    href={urls.newInsight({
+                                        funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
+                                        insight: InsightType.PATHS,
+                                        funnel_paths: FunnelPathType.between,
+                                        date_from: filterProps.date_from,
+                                        include_event_types: [PathType.PageView, PathType.CustomEvent],
+                                    })}
                                 >
                                     Show user paths between previous step and this step
                                 </A>
@@ -84,21 +69,13 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         )}
                         <Menu.Item key="2">
                             <A
-                                href={
-                                    combineUrl(
-                                        '/insights',
-                                        encodeParams(
-                                            {
-                                                funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
-                                                insight: InsightType.PATHS,
-                                                funnel_paths: FunnelPathType.after,
-                                                date_from: filterProps.date_from,
-                                                include_event_types: [PathType.PageView, PathType.CustomEvent],
-                                            },
-                                            '?'
-                                        )
-                                    ).url
-                                }
+                                href={urls.newInsight({
+                                    funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
+                                    insight: InsightType.PATHS,
+                                    funnel_paths: FunnelPathType.after,
+                                    date_from: filterProps.date_from,
+                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
+                                })}
                             >
                                 Show user paths after step
                             </A>
@@ -106,21 +83,13 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         {adjustedIndex > 1 && (
                             <Menu.Item key="3">
                                 <A
-                                    href={
-                                        combineUrl(
-                                            '/insights',
-                                            encodeParams(
-                                                {
-                                                    funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
-                                                    insight: InsightType.PATHS,
-                                                    funnel_paths: FunnelPathType.after,
-                                                    date_from: filterProps.date_from,
-                                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
-                                                },
-                                                '?'
-                                            )
-                                        ).url
-                                    }
+                                    href={urls.newInsight({
+                                        funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
+                                        insight: InsightType.PATHS,
+                                        funnel_paths: FunnelPathType.after,
+                                        date_from: filterProps.date_from,
+                                        include_event_types: [PathType.PageView, PathType.CustomEvent],
+                                    })}
                                 >
                                     Show user paths after dropoff
                                 </A>
@@ -129,21 +98,13 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         {adjustedIndex > 1 && (
                             <Menu.Item key="3">
                                 <A
-                                    href={
-                                        combineUrl(
-                                            '/insights',
-                                            encodeParams(
-                                                {
-                                                    funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
-                                                    insight: InsightType.PATHS,
-                                                    funnel_paths: FunnelPathType.before,
-                                                    date_from: filterProps.date_from,
-                                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
-                                                },
-                                                '?'
-                                            )
-                                        ).url
-                                    }
+                                    href={urls.newInsight({
+                                        funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
+                                        insight: InsightType.PATHS,
+                                        funnel_paths: FunnelPathType.before,
+                                        date_from: filterProps.date_from,
+                                        include_event_types: [PathType.PageView, PathType.CustomEvent],
+                                    })}
                                 >
                                     Show user paths before dropoff
                                 </A>

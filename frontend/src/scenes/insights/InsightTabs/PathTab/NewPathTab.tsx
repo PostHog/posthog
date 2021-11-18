@@ -17,7 +17,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PersonModal } from 'scenes/trends/PersonModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { combineUrl, encodeParams, router } from 'kea-router'
+import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -27,6 +27,7 @@ import { Link } from 'lib/components/Link'
 import { PathCleanFilterInput } from './PathCleanFilterInput'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { groupsModel } from '~/models/groupsModel'
+import { urls } from 'scenes/urls'
 
 export function NewPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -291,18 +292,8 @@ export function NewPathTab(): JSX.Element {
                                         disabled={overrideEndInput && !overrideStartInput}
                                         onClick={
                                             filter.funnel_filter && overrideStartInput
-                                                ? () => {
-                                                      router.actions.push(
-                                                          combineUrl(
-                                                              '/insights',
-                                                              encodeParams(
-                                                                  filter.funnel_filter as Record<string, any>,
-                                                                  '?'
-                                                              )
-                                                          ).url
-                                                      )
-                                                  }
-                                                : () => {}
+                                                ? () => router.actions.push(urls.newInsight(filter.funnel_filter))
+                                                : undefined
                                         }
                                     >
                                         <div className="label-container">
@@ -359,18 +350,9 @@ export function NewPathTab(): JSX.Element {
                                                 disabled={overrideStartInput && !overrideEndInput}
                                                 onClick={
                                                     filter.funnel_filter && overrideEndInput
-                                                        ? () => {
-                                                              router.actions.push(
-                                                                  combineUrl(
-                                                                      '/insights',
-                                                                      encodeParams(
-                                                                          filter.funnel_filter as Record<string, any>,
-                                                                          '?'
-                                                                      )
-                                                                  ).url
-                                                              )
-                                                          }
-                                                        : () => {}
+                                                        ? () =>
+                                                              router.actions.push(urls.newInsight(filter.funnel_filter))
+                                                        : undefined
                                                 }
                                             >
                                                 <div className="label-container">
