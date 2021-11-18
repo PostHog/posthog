@@ -53,7 +53,7 @@ class TrendsPersonQuery(ActorBaseQuery):
 
     def actor_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self.team.pk)
+            cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self._team.pk)
             self.filter = self.filter.with_data(
                 {"properties": self.filter.properties + [Property(key="id", value=cohort.pk, type="cohort")]}
             )
