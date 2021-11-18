@@ -1,6 +1,8 @@
+import { urls } from 'scenes/urls'
+
 describe('Trends', () => {
     beforeEach(() => {
-        cy.visit('/insights')
+        cy.visit(urls.newInsight())
     })
 
     it('Can load a graph from a URL directly', () => {

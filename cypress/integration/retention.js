@@ -1,6 +1,8 @@
+import { urls } from 'scenes/urls'
+
 describe('Retention', () => {
     beforeEach(() => {
-        cy.visit('/insights/new')
+        cy.visit(urls.newInsight())
         cy.get('[data-attr=insight-retention-tab]').click()
     })
 

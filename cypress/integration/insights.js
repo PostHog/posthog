@@ -1,7 +1,7 @@
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
     beforeEach(() => {
-        cy.visit('/insights')
+        cy.visit(urls.newInsight())
     })
 
     it('Opens insight with short URL', () => {
