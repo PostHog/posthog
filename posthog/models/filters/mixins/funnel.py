@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
 from posthog.models.property import Property
 
