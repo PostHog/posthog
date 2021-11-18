@@ -75,13 +75,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Persons]: {
         projectBased: true,
-        name: 'Persons',
+        name: 'Persons & groups',
     },
     [Scene.Action]: {
         projectBased: true,
     },
     [Scene.Groups]: {
         projectBased: true,
+        name: 'Persons & groups',
     },
     [Scene.FeatureFlags]: {
         projectBased: true,
