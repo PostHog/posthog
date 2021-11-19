@@ -1,8 +1,7 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
-import { Button, Spin } from 'antd'
-import dayjs from 'dayjs'
+import { Button } from 'antd'
 import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -11,6 +10,8 @@ import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
+import { dayjs } from 'lib/dayjs'
+import { Spinner } from './components/Spinner/Spinner'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -225,7 +226,7 @@ export function successToast(title?: string, message?: string): void {
 export function Loading(props: Record<string, any>): JSX.Element {
     return (
         <div className="loading-overlay" style={props.style}>
-            <Spin />
+            <Spinner size="lg" />
         </div>
     )
 }
@@ -240,7 +241,7 @@ export function TableRowLoading({
     return (
         <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
             <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
-                <Spin />
+                <Spinner />
             </td>
         </tr>
     )
@@ -249,7 +250,7 @@ export function TableRowLoading({
 export function SceneLoading(): JSX.Element {
     return (
         <div style={{ textAlign: 'center', marginTop: '20vh' }}>
-            <Spin />
+            <Spinner size="lg" />
         </div>
     )
 }
@@ -748,25 +749,23 @@ export function dateFilterToText(
     return name
 }
 
-export function copyToClipboard(value: string, description?: string): boolean {
+export function copyToClipboard(value: string, description: string = 'text'): boolean {
     if (!navigator.clipboard) {
-        toast.info('Oops! Clipboard capabilities are only available over HTTPS or localhost.')
+        toast.info('Oops! Clipboard capabilities are only available over HTTPS or on localhost.')
         return false
     }
-    const descriptionAdjusted = description
-        ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
-        : ''
+
     try {
         navigator.clipboard.writeText(value)
         toast(
             <div>
                 <h1 className="text-success">Copied to clipboard!</h1>
-                <p>{descriptionAdjusted} has been copied to your clipboard.</p>
+                <p>{capitalizeFirstLetter(description)} has been copied to your clipboard.</p>
             </div>
         )
         return true
     } catch (e) {
-        toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
+        toast.error(`Could not copy ${description} to clipboard: ${e}`)
         return false
     }
 }
@@ -1155,4 +1154,23 @@ export function isMultiSeriesFormula(formula?: string): boolean {
     }
     const count = (formula.match(/[a-zA-Z]/g) || []).length
     return count > 1
+}
+
+export function floorMsToClosestSecond(ms: number): number {
+    return Math.floor(ms / 1000) * 1000
+}
+
+export function ceilMsToClosestSecond(ms: number): number {
+    return Math.ceil(ms / 1000) * 1000
+}
+
+// https://stackoverflow.com/questions/40929260/find-last-index-of-element-inside-array-by-certain-condition
+export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: number, obj: T[]) => boolean): number {
+    let l = array.length
+    while (l--) {
+        if (predicate(array[l], l, array)) {
+            return l
+        }
+    }
+    return -1
 }

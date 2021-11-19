@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { Spin, Button, List } from 'antd'
+import { Button, List } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { appUrlsLogic } from './appUrlsLogic'
 import { UrlRow } from './UrlRow'
+import { Spinner } from '../Spinner/Spinner'
 
 export function EditAppUrls({
     actionId,
@@ -38,10 +39,10 @@ export function EditAppUrls({
                     />
                 ))}
                 {appUrls.length === 0 && (
-                    <List.Item>
+                    <List.Item className="flex-center">
                         No URLs added yet.
                         {!suggestions ||
-                            (suggestions.length > 0 && <> Suggestions: {suggestionsLoading && <Spin />}</>)}
+                            (suggestions.length > 0 && <> Suggestions: {suggestionsLoading && <Spinner />}</>)}
                     </List.Item>
                 )}
                 {suggestions &&

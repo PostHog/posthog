@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 from unittest.mock import ANY
 from uuid import uuid4
 
@@ -13,6 +13,7 @@ from freezegun import freeze_time
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized, FunnelCorrelation
 from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
+from posthog.api.test.test_team import create_team
 from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
 from posthog.models.person import Person, PersonDistinctId
@@ -627,12 +628,9 @@ def clear_django_cache():
     cache.clear()
 
 
-def create_team(organization):
-    return Team.objects.create(name="Test Team", organization=organization)
-
-
-class EventPattern(TypedDict):
+class EventPattern(TypedDict, total=False):
     id: str
+    type: Union[Literal["events"], Literal["actions"]]
 
 
 @dataclasses.dataclass

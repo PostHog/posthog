@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
-import dayjs from 'dayjs'
 import { Button } from 'antd'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
+import { dayjs } from 'lib/dayjs'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 

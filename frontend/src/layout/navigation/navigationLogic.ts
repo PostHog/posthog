@@ -1,16 +1,16 @@
+import dayjs from 'dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
-import { navigationLogicType } from './navigationLogicType'
-import { SystemStatus, VersionType } from '~/types'
-import { organizationLogic } from 'scenes/organizationLogic'
-import dayjs from 'dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import utc from 'dayjs/plugin/utc'
-dayjs.extend(utc)
+import { VersionType } from '~/types'
+import { navigationLogicType } from './navigationLogicType'
 
 type WarningType =
     | 'welcome'
@@ -22,40 +22,83 @@ type WarningType =
 
 export const navigationLogic = kea<navigationLogicType<WarningType>>({
     path: ['layout', 'navigation', 'navigationLogic'],
+    connect: {
+        values: [featureFlagLogic, ['featureFlags']],
+    },
     actions: {
-        setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
-        collapseMenu: () => {},
-        setSystemStatus: (status: SystemStatus) => ({ status }),
-        setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
-        setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
-        setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
+        toggleSideBar: true,
+        hideSideBar: true,
+        hideAnnouncement: true,
+        openSitePopover: true,
+        closeSitePopover: true,
+        toggleSitePopover: true,
+        showInviteModal: true,
+        hideInviteModal: true,
+        showCreateOrganizationModal: true,
+        hideCreateOrganizationModal: true,
+        showCreateProjectModal: true,
+        hideCreateProjectModal: true,
+        showToolbarModal: true,
+        hideToolbarModal: true,
+        toggleProjectSwitcher: true,
+        hideProjectSwitcher: true,
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
-        setProjectModalShown: (isShown: boolean) => ({ isShown }),
-        setOrganizationModalShown: (isShown: boolean) => ({ isShown }),
     },
     reducers: {
-        menuCollapsed: [
-            typeof window !== 'undefined' && window.innerWidth <= 991,
+        isSideBarShownRaw: [
+            window.innerWidth >= 992, // Sync width threshold with Sass variable $lg!
             {
-                setMenuCollapsed: (_, { collapsed }) => collapsed,
+                toggleSideBar: (state) => !state,
+                hideSideBar: () => false,
             },
         ],
-        toolbarModalOpen: [
-            false,
+        isAnnouncementShown: [
+            true,
             {
-                setToolbarModalOpen: (_, { isOpen }) => isOpen,
+                hideAnnouncement: () => false,
             },
         ],
-        inviteMembersModalOpen: [
+        isSitePopoverOpen: [
             false,
             {
-                setInviteMembersModalOpen: (_, { isOpen }) => isOpen,
+                openSitePopover: () => true,
+                closeSitePopover: () => false,
+                toggleSitePopover: (state) => !state,
             },
         ],
-        pinnedDashboardsVisible: [
+        isInviteModalShown: [
             false,
             {
-                setPinnedDashboardsVisible: (_, { visible }) => visible,
+                showInviteModal: () => true,
+                hideInviteModal: () => false,
+            },
+        ],
+        isCreateOrganizationModalShown: [
+            false,
+            {
+                showCreateOrganizationModal: () => true,
+                hideCreateOrganizationModal: () => false,
+            },
+        ],
+        isCreateProjectModalShown: [
+            false,
+            {
+                showCreateProjectModal: () => true,
+                hideCreateProjectModal: () => false,
+            },
+        ],
+        isToolbarModalShown: [
+            false,
+            {
+                showToolbarModal: () => true,
+                hideToolbarModal: () => false,
+            },
+        ],
+        isProjectSwitcherShown: [
+            false,
+            {
+                toggleProjectSwitcher: (state) => !state,
+                hideProjectSwitcher: () => false,
             },
         ],
         hotkeyNavigationEngaged: [
@@ -64,20 +107,22 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
             },
         ],
-        projectModalShown: [
-            false,
-            {
-                setProjectModalShown: (_, { isShown }) => isShown,
-            },
-        ],
-        organizationModalShown: [
-            false,
-            {
-                setOrganizationModalShown: (_, { isShown }) => isShown,
-            },
-        ],
     },
     selectors: {
+        isSideBarForciblyHidden: [() => [() => document.fullscreenElement], (fullscreenElement) => !!fullscreenElement],
+        isSideBarShown: [
+            (s) => [s.isSideBarShownRaw, s.isSideBarForciblyHidden],
+            (isSideBarShownRaw, isSideBarForciblyHidden) => isSideBarShownRaw && !isSideBarForciblyHidden,
+        ],
+        announcementMessage: [
+            (s) => [s.featureFlags],
+            (featureFlags): string | null => {
+                const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
+                return flagValue && typeof flagValue === 'string'
+                    ? featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
+                    : null
+            },
+        ],
         systemStatus: [
             () => [
                 systemStatusLogic.selectors.overview,
@@ -175,12 +220,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             },
         ],
     },
-    listeners: ({ values, actions }) => ({
-        collapseMenu: () => {
-            if (!values.menuCollapsed && window.innerWidth <= 991) {
-                actions.setMenuCollapsed(true)
-            }
-        },
+    listeners: ({ actions }) => ({
         setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
             if (hotkeyNavigationEngaged) {
                 eventUsageLogic.actions.reportHotkeyNavigation('global', 'g')

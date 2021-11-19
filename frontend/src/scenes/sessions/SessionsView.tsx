@@ -2,12 +2,11 @@
 import React, { useEffect, useRef } from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { decodeParams } from 'kea-router'
-import { Button, Spin, Space, Badge, Switch, Row } from 'antd'
+import { Button, Space, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDetailedTime, stripHTTP, pluralize, humanFriendlyDuration } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
-import dayjs from 'dayjs'
 import { SessionType } from '~/types'
 import {
     CaretLeftOutlined,
@@ -32,6 +31,8 @@ import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { urls } from 'scenes/urls'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { dayjs } from 'lib/dayjs'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -300,8 +301,13 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 }}
             >
                 {(pagination || isLoadingNext) && (
-                    <Button type="primary" onClick={fetchNextSessions} data-attr="load-more-sessions">
-                        {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
+                    <Button
+                        type="primary"
+                        onClick={fetchNextSessions}
+                        data-attr="load-more-sessions"
+                        disabled={isLoadingNext}
+                    >
+                        {isLoadingNext ? <Spinner /> : 'Load more sessions'}
                     </Button>
                 )}
             </div>

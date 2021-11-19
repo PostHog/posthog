@@ -545,6 +545,7 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     zeroOffsetTime?: number // Used in session recording events that have a start time offset
+    colonTimestamp?: string // Used in session recording events list
     person?: Partial<PersonType> | null
     event: string
 }
@@ -768,7 +769,7 @@ export enum ChartDisplayType {
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
-export type BreakdownType = 'cohort' | 'person' | 'event'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export enum InsightType {

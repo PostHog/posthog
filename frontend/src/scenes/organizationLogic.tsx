@@ -34,6 +34,11 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             (currentOrganization) =>
                 currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
         ],
+        isCurrentOrganizationUnavailable: [
+            (s) => [s.currentOrganization, s.currentOrganizationLoading],
+            (currentOrganization, currentOrganizationLoading): boolean =>
+                !currentOrganization?.membership_level && !currentOrganizationLoading,
+        ],
         isProjectCreationForbidden: [
             (s) => [s.currentOrganization],
             (currentOrganization) =>

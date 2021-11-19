@@ -1,15 +1,15 @@
 import React, { useState } from 'react'
-import dayjs from 'dayjs'
 import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
-import { LineGraphEmptyState } from '../insights/EmptyStates'
+import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { dayjs } from 'lib/dayjs'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -104,6 +104,6 @@ export function RetentionLineGraph({
             </Modal>
         </>
     ) : (
-        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
     )
 }

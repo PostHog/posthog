@@ -100,8 +100,10 @@ $funnel_canvas_background: #fafafa;
     }
 
     .insights-graph-container {
+        margin-bottom: $default_spacing;
+
         .ant-card-head {
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid $border;
             min-height: unset;
             background-color: $bg_mid;
             padding-right: $default_spacing / 4;
@@ -121,6 +123,17 @@ $funnel_canvas_background: #fafafa;
             @media screen and (max-width: $md) {
                 overflow-x: auto;
             }
+        }
+
+        .ant-card-body {
+            padding: 0;
+        }
+
+        .graph-container {
+            // hacky because container not respecting position: relative;
+            width: calc(100% - 48px);
+            height: calc(100% - 48px);
+            margin-top: $default_spacing * 2;
         }
     }
 
@@ -183,6 +196,14 @@ $funnel_canvas_background: #fafafa;
             margin-top: 0 !important;
         }
     }
+
+    .insights-graph-header {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding: 8px 24px;
+        border-bottom: 1px solid $border;
+        min-height: 48px;
+    }
 }
 
 .insight-empty-state {
@@ -192,10 +213,14 @@ $funnel_canvas_background: #fafafa;
     align-items: center;
     padding-top: $default_spacing * 2;
     padding-bottom: $default_spacing * 2;
+    background-color: $bg_mid;
+    color: $text_muted;
+    font-size: 1.1em;
+    flex-grow: 1;
 
-    &.error-message {
+    &.error {
         .illustration-main {
-            color: $danger;
+            color: #fb8c6a; // $danger with increased lightness
         }
 
         h2 {
@@ -203,9 +228,9 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
-    &.timeout-message {
+    &.warning {
         .illustration-main {
-            color: $warning;
+            color: #fec34d; // $warning with increased lightness
         }
 
         h2 {
@@ -213,19 +238,41 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
-    &.info-message {
-        .illustration-main {
-            color: $border;
+    &.is-dashboard:not(.white) {
+        background-color: var(--item-darker);
+        color: rgba(#ffffff, 0.7);
+        h2 {
+            color: rgba(#ffffff, 0.9);
+        }
+        .ant-empty-img-simple-ellipse {
+            fill: var(--item-darkest);
+        }
+
+        .ant-empty-img-simple-g {
+            stroke: var(--item-lighter);
+
+            .ant-empty-img-simple-path {
+                fill: var(--item-lighter);
+            }
         }
     }
 
-    &.action-message {
-        .illustration-main {
-            color: $primary;
-        }
+    h2 {
+        font-weight: bold;
+        font-size: 1.5rem;
+        line-height: 1.6rem;
+        color: $primary_alt;
     }
 
-    .insight-empty-state__wrapper {
+    .illustration-main {
+        color: rgba($primary_alt, 0.3);
+    }
+
+    button.ant-btn-lg {
+        height: 42px;
+    }
+
+    .empty-state-inner {
         max-width: 600px;
 
         .illustration-main {
@@ -259,6 +306,8 @@ $funnel_canvas_background: #fafafa;
 .trends-insights-container {
     position: relative;
     min-height: min(calc(90vh - 16rem), 36rem);
+    display: flex;
+    justify-content: center;
 }
 
 .funnel-insights-container {
