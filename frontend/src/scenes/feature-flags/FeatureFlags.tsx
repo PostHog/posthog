@@ -189,7 +189,7 @@ export function FeatureFlags(): JSX.Element {
                 rowKey="key"
                 loading={featureFlagsLoading}
                 defaultSorting={{ columnIndex: 2, order: 1 }}
-                pagination={{ pageSize: 10 }}
+                pagination={{ pageSize: 20 }}
                 data-attr="feature-flag-table"
             />
         </div>

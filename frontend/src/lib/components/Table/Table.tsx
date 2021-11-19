@@ -5,6 +5,8 @@ import { userLogic } from 'scenes/userLogic'
 import { TZLabel } from '../TimezoneAware'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { ColumnType } from 'antd/lib/table'
+import { Row } from 'antd'
+import { ProfilePicture } from '../ProfilePicture'
 
 export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): ColumnType<T> {
     return {
@@ -29,9 +31,12 @@ export function createdByColumn<T extends Record<string, any> = Record<string, a
         title: normalizeColumnTitle('Created by'),
         render: function Render(_: any, item: any) {
             return (
-                <div style={{ maxWidth: 250, width: 'auto' }}>
-                    {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
-                </div>
+                <Row align="middle" wrap={false}>
+                    <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
+                    <div style={{ maxWidth: 250, width: 'auto', verticalAlign: 'middle', marginLeft: 8 }}>
+                        {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
+                    </div>
+                </Row>
             )
         },
         filters: uniqueBy(

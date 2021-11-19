@@ -36,9 +36,13 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
 export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<T, keyof T>[]
 
 export interface LemonTableProps<T extends Record<string, any>> {
+    /** Element key that will also be used in pagination to improve search param uniqueness. */
+    key?: string
     columns: LemonTableColumns<T>
     dataSource: T[]
-    rowKey: string
+    /** Which column to use for the row key, as an alternative to the default row index mechanism. */
+    rowKey?: keyof T
+    /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     loading?: boolean
     pagination?: { pageSize: number; hideOnSinglePage?: boolean }
@@ -48,6 +52,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
 }
 
 export function LemonTable<T extends Record<string, any>>({
+    key,
     columns,
     dataSource,
     rowKey,
@@ -57,12 +62,15 @@ export function LemonTable<T extends Record<string, any>>({
     defaultSorting,
     ...divProps
 }: LemonTableProps<T>): JSX.Element {
-    const currentPageParam = `${rowKey}Page`
+    /** Search param that will be used for storing and syncing the current page */
+    const currentPageParam = key ? `${key}_page` : 'page'
 
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
 
-    const [isScrollable, setIsScrollable] = useState([false, false]) // Left and right
+    // A tuple signaling scrollability, on the left and on the right respectively
+    const [isScrollable, setIsScrollable] = useState([false, false])
+    // Sorting state machine
     const [sortingState, sortingDispatch] = useReducer<Reducer<Sorting | null, Pick<Sorting, 'columnIndex'>>>(
         (state, action) => {
             if (!state || state.columnIndex !== action.columnIndex) {
@@ -75,6 +83,7 @@ export function LemonTable<T extends Record<string, any>>({
         },
         defaultSorting || null
     )
+    // Push a new browing history item to keep track of the current page
     const setCurrentPage = useCallback(
         (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
         [location, searchParams, hashParams, push]
@@ -179,7 +188,7 @@ export function LemonTable<T extends Record<string, any>>({
                         {dataSource.length ? (
                             currentFrame.map((data, rowIndex) => (
                                 <tr
-                                    key={`LemonTable-row-${rowKey ? data[rowKey] : rowIndex}`}
+                                    key={`LemonTable-row-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
                                     data-row-key={rowKey ? data[rowKey] : rowIndex}
                                     {...onRow?.(data)}
                                 >
