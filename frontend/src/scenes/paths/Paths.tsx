@@ -24,15 +24,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
-
-function NoData(): JSX.Element {
-    return (
-        <div style={{ padding: '1rem' }}>
-            We don't have enough data to show anything here. You might need to send us some frontend (JS) events, as we
-            use the <pre style={{ display: 'inline' }}>$current_url</pre> property to calculate paths.
-        </div>
-    )
-}
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
@@ -295,7 +287,7 @@ export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): 
             id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
         >
             <div ref={canvas} className="paths" data-attr="paths-viz">
-                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <NoData />}
+                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
                 {!pathsError &&
                     pathItemCards &&
                     pathItemCards.map((pathItemCard: PathNodeData, idx) => {
