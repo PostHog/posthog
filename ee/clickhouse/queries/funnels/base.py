@@ -508,9 +508,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return get_single_or_multi_property_string_expr(self._filter.breakdown, "person", "prop")
+                return get_single_or_multi_property_string_expr(
+                    self._filter.breakdown, table="person", query_alias="prop"
+                )
             elif self._filter.breakdown_type == "event":
-                return get_single_or_multi_property_string_expr(self._filter.breakdown, "events", "prop")
+                return get_single_or_multi_property_string_expr(
+                    self._filter.breakdown, table="events", query_alias="prop"
+                )
             elif self._filter.breakdown_type == "cohort":
                 return "value AS prop"
             elif self._filter.breakdown_type == "group":
@@ -518,7 +522,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 assert isinstance(self._filter.breakdown, str)
                 properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
                 expression, _ = get_property_string_expr(
-                    "groups", self._filter.breakdown, "%(breakdown)s", properties_field
+                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
                 )
                 return f"{expression} AS prop"
 

@@ -107,14 +107,17 @@ def _to_value_expression(
     breakdown_group_type_index: Optional[int],
 ) -> str:
     if breakdown_type == "person":
-        return get_single_or_multi_property_string_expr(breakdown, "person", "value")
+        return get_single_or_multi_property_string_expr(breakdown, table="person", query_alias="value")
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
-            "groups", cast(str, breakdown), "%(key)s", f"group_properties_{breakdown_group_type_index}"
+            table="groups",
+            property_name=cast(str, breakdown),
+            var="%(key)s",
+            column=f"group_properties_{breakdown_group_type_index}",
         )
         return f"{value_expression} AS value"
     else:
-        return get_single_or_multi_property_string_expr(breakdown, "events", "value")
+        return get_single_or_multi_property_string_expr(breakdown, table="events", query_alias="value")
 
 
 def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict]:
