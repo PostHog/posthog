@@ -39,7 +39,6 @@ export const asLink = (person: Partial<PersonType> | null | undefined): string |
     person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : undefined
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
-    console.log('PERSON', props)
     return (
         <Link to={asLink(props.person)} data-attr="goto-person-email">
             <div
