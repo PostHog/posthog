@@ -11,7 +11,7 @@ xdescribe('<Insights /> trends', () => {
     const mount = () => helpers.mountPage(<Insights />)
 
     const mountAndCheckAPI = () => {
-        helpers.setLocation(urls.newInsight(given.params))
+        helpers.setLocation(urls.insightNew(given.params))
         mount()
 
         cy.wait('@api_insight').its('request.url').should('contain', toParams(given.params))
@@ -103,7 +103,7 @@ xdescribe('<Insights /> trends', () => {
     describe('filtered in url', () => {
         it('responds to multiple entities', () => {
             helpers.setLocation(
-                urls.newInsight({
+                urls.insightNew({
                     insight: 'TRENDS',
                     interval: 'day',
                     display: 'ActionsLineGraph',
@@ -153,7 +153,7 @@ xdescribe('<Insights /> trends', () => {
 
         it('responds to a single prop', () => {
             helpers.setLocation(
-                urls.newInsight({
+                urls.insightNew({
                     insight: 'TRENDS',
                     interval: 'day',
                     display: 'ActionsLineGraph',
@@ -196,7 +196,7 @@ xdescribe('<Insights /> trends', () => {
 
         it('responds to multiple props', () => {
             helpers.setLocation(
-                urls.newInsight({
+                urls.insightNew({
                     insight: 'TRENDS',
                     interval: 'day',
                     display: 'ActionsLineGraph',
@@ -252,7 +252,7 @@ xdescribe('<Insights /> trends', () => {
 
         it('responds to breakdown paramters', () => {
             helpers.setLocation(
-                urls.newInsight({
+                urls.insightNew({
                     insight: 'TRENDS',
                     interval: 'day',
                     display: 'ActionsLineGraph',

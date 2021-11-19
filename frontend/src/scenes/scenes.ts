@@ -189,7 +189,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
-    [urls.newInsight()]: Scene.Insights,
+    [urls.insightNew()]: Scene.Insights,
     [urls.insightEdit(':id')]: Scene.Insights,
     [urls.insightView(':id')]: Scene.Insights,
     [urls.savedInsights()]: Scene.SavedInsights,

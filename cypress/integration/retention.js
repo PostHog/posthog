@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 describe('Retention', () => {
     beforeEach(() => {
-        cy.visit(urls.newInsight())
+        cy.visit(urls.insightNew())
         cy.get('[data-attr=insight-retention-tab]').click()
     })
 

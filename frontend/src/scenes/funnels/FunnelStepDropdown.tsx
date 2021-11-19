@@ -40,7 +40,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         {adjustedIndex > 1 && (
                             <Menu.Item key="0">
                                 <A
-                                    href={urls.newInsight({
+                                    href={urls.insightNew({
                                         funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                         insight: InsightType.PATHS,
                                         funnel_paths: FunnelPathType.before,
@@ -55,7 +55,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         {adjustedIndex > 1 && (
                             <Menu.Item key="1">
                                 <A
-                                    href={urls.newInsight({
+                                    href={urls.insightNew({
                                         funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                         insight: InsightType.PATHS,
                                         funnel_paths: FunnelPathType.between,
@@ -69,7 +69,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         )}
                         <Menu.Item key="2">
                             <A
-                                href={urls.newInsight({
+                                href={urls.insightNew({
                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                     insight: InsightType.PATHS,
                                     funnel_paths: FunnelPathType.after,
@@ -83,7 +83,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         {adjustedIndex > 1 && (
                             <Menu.Item key="3">
                                 <A
-                                    href={urls.newInsight({
+                                    href={urls.insightNew({
                                         funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
                                         insight: InsightType.PATHS,
                                         funnel_paths: FunnelPathType.after,
@@ -98,7 +98,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                         {adjustedIndex > 1 && (
                             <Menu.Item key="3">
                                 <A
-                                    href={urls.newInsight({
+                                    href={urls.insightNew({
                                         funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
                                         insight: InsightType.PATHS,
                                         funnel_paths: FunnelPathType.before,

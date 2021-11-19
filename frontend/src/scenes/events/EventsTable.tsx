@@ -230,7 +230,7 @@ export function EventsTable({
                             ],
                         }
                     }
-                    const eventLink = urls.newInsight(params)
+                    const eventLink = urls.insightNew(params)
 
                     return (
                         <Link

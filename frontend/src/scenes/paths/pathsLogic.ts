@@ -114,7 +114,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
                 currentItemCard = currentItemCard.targetLinks[0].source
             }
             router.actions.push(
-                urls.newInsight({
+                urls.insightNew({
                     insight: InsightType.FUNNELS,
                     events,
                     date_from: values.filter.date_from,

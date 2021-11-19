@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
     beforeEach(() => {
-        cy.visit(urls.newInsight())
+        cy.visit(urls.insightNew())
     })
 
     it('Opens insight with short URL', () => {

@@ -130,7 +130,7 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Link
-                        to={urls.newInsight({
+                        to={urls.insightNew({
                             events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
                             breakdown_type: 'event',
                             breakdown: `$feature/${featureFlag.key}`,

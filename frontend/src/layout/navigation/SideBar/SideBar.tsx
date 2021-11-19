@@ -172,7 +172,7 @@ function Pages(): JSX.Element {
                 to={urls.savedInsights()}
                 sideAction={{
                     icon: <IconPlus />,
-                    to: urls.newInsight({ insight: InsightType.TRENDS }),
+                    to: urls.insightNew({ insight: InsightType.TRENDS }),
                     tooltip: 'New insight',
                     identifier: Scene.Insights,
                 }}

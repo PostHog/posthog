@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 describe('Trends sessions', () => {
     beforeEach(() => {
         // given
-        cy.visit(urls.newInsight())
+        cy.visit(urls.insightNew())
         cy.get('[id="rc-tabs-0-tab-SESSIONS"]').click()
     })
 

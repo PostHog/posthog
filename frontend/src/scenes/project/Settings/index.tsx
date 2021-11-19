@@ -201,7 +201,7 @@ export function ProjectSettings(): JSX.Element {
                     Path cleaning rules
                 </h2>
                 <p>
-                    Make your <Link to={urls.newInsight({ insight: InsightType.PATHS })}>Paths</Link> clearer by
+                    Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by
                     aliasing one or multiple URLs.{' '}
                     <i>
                         Example: <code>htttp://client1.mydomain.com/accounts</code> and{' '}

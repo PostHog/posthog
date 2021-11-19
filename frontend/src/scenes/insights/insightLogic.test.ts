@@ -320,7 +320,7 @@ describe('insightLogic', () => {
                     searchParams: partial({ insight: 'TRENDS' }),
                 })
 
-            router.actions.push(urls.newInsight({ insight: InsightType.FUNNELS }))
+            router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
             await expectLogic(router)
                 .delay(1)
                 .printActions({ compact: true })
@@ -386,7 +386,7 @@ describe('insightLogic', () => {
 
         it('sets the URL when changing filters', async () => {
             // make sure we're on the right page
-            router.actions.push(urls.newInsight())
+            router.actions.push(urls.insightNew())
             await expectLogic(router).toDispatchActions(['push', 'locationChanged', 'replace', 'locationChanged'])
 
             logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'minute' })

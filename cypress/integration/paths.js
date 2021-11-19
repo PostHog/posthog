@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 describe('Paths', () => {
     beforeEach(() => {
-        cy.visit(urls.newInsight())
+        cy.visit(urls.insightNew())
         cy.get('[data-attr=insight-path-tab]').click()
     })
 

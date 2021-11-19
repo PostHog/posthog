@@ -649,7 +649,7 @@ export const insightLogic = kea<insightLogicType>({
                 const insightId = params.id ? parseInt(params.id) : null
                 if (!insightId) {
                     // only allow editing insights with IDs for now
-                    router.actions.replace(urls.newInsight(searchParams))
+                    router.actions.replace(urls.insightNew(searchParams))
                     return
                 }
 

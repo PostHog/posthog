@@ -430,7 +430,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Trends',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight({ insight: InsightType.TRENDS }))
+                            push(urls.insightNew({ insight: InsightType.TRENDS }))
                         },
                     },
                     {
@@ -438,7 +438,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Sessions',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight({ insight: InsightType.SESSIONS }))
+                            push(urls.insightNew({ insight: InsightType.SESSIONS }))
                         },
                     },
                     {
@@ -446,7 +446,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Funnels',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight({ insight: InsightType.FUNNELS }))
+                            push(urls.insightNew({ insight: InsightType.FUNNELS }))
                         },
                     },
                     {
@@ -454,7 +454,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Retention',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight({ insight: InsightType.RETENTION }))
+                            push(urls.insightNew({ insight: InsightType.RETENTION }))
                         },
                     },
                     {
@@ -462,7 +462,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Paths',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.newInsight({ insight: InsightType.PATHS }))
+                            push(urls.insightNew({ insight: InsightType.PATHS }))
                         },
                     },
                     {

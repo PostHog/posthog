@@ -292,7 +292,7 @@ export function NewPathTab(): JSX.Element {
                                         disabled={overrideEndInput && !overrideStartInput}
                                         onClick={
                                             filter.funnel_filter && overrideStartInput
-                                                ? () => router.actions.push(urls.newInsight(filter.funnel_filter))
+                                                ? () => router.actions.push(urls.insightNew(filter.funnel_filter))
                                                 : undefined
                                         }
                                     >
@@ -351,7 +351,7 @@ export function NewPathTab(): JSX.Element {
                                                 onClick={
                                                     filter.funnel_filter && overrideEndInput
                                                         ? () =>
-                                                              router.actions.push(urls.newInsight(filter.funnel_filter))
+                                                              router.actions.push(urls.insightNew(filter.funnel_filter))
                                                         : undefined
                                                 }
                                             >

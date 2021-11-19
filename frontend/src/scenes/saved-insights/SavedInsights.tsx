@@ -144,7 +144,7 @@ function NewInsightButton(): JSX.Element {
                                         <listedInsightType.icon color="var(--muted-alt)" noBackground />
                                     )
                                 }
-                                to={urls.newInsight({ insight: listedInsightType.type })}
+                                to={urls.insightNew({ insight: listedInsightType.type })}
                                 data-attr="saved-insights-create-new-insight"
                                 data-attr-insight-type={listedInsightType.type}
                                 onClick={() => {
