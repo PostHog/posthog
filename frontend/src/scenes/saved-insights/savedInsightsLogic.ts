@@ -245,6 +245,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                         : urls.insightView(hashParams.fromItem, searchParams)
                 )
                 return
+            } else if (searchParams.insight) {
+                // old URL with `?insight=TRENDS` in query
+                router.actions.replace(urls.insightNew(searchParams))
+                return
             }
 
             const currentFilters = cleanFilters(values.filters)

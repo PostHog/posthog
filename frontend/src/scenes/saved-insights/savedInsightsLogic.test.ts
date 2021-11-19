@@ -141,8 +141,8 @@ describe('savedInsightsLogic', () => {
             })
     })
 
-    describe('redirects old /insights urls with a hashInput to the real URL', () => {
-        it('in view mode', async () => {
+    describe('redirects old /insights urls to the real URL', () => {
+        it('in view mode with a #fromItem=', async () => {
             router.actions.push(
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42 }).url
             )
@@ -152,13 +152,21 @@ describe('savedInsightsLogic', () => {
             })
         })
 
-        it('in edit mode', async () => {
+        it('in edit mode with a #fromItem=', async () => {
             router.actions.push(
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42, edit: true }).url
             )
             await expectLogic(router).toMatchValues({
                 location: partial({ pathname: urls.insightEdit(42) }),
                 searchParams: partial({ insight: InsightType.TRENDS }),
+            })
+        })
+
+        it('new mode with ?insight= and no hash params', async () => {
+            router.actions.push(combineUrl('/insights', cleanFilters({ insight: InsightType.FUNNELS })).url)
+            await expectLogic(router).toMatchValues({
+                location: partial({ pathname: urls.insightNew() }),
+                searchParams: partial({ insight: InsightType.FUNNELS }),
             })
         })
     })
