@@ -286,13 +286,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     }
 
     return (
-        <div
-            style={{
-                position: 'relative',
-                overflowX: 'scroll',
-            }}
-            id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
-        >
+        <div className="paths-container" id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}>
             <div ref={canvas} className="paths" data-attr="paths-viz">
                 {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <NoData />}
                 {!pathsError &&
