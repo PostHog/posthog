@@ -18,11 +18,11 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsLogic } from 'lib/components/Annotations'
 import { router } from 'kea-router'
 import {
-    ErrorMessage,
-    FunnelEmptyState,
-    FunnelInvalidExclusionFiltersEmptyState,
-    FunnelInvalidFiltersEmptyState,
-    TimeOut,
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightEmptyState,
+    InsightErrorState,
+    InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -72,22 +72,22 @@ export function InsightContainer(): JSX.Element {
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelInvalidFiltersEmptyState />
+                return <FunnelSingleStepState />
             }
             if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionFiltersEmptyState />
+                return <FunnelInvalidExclusionState />
             }
             if (!isValidFunnel && !(insightLoading || isLoading)) {
-                return <FunnelEmptyState />
+                return <InsightEmptyState />
             }
         }
 
         // Insight agnostic empty states
         if (showErrorMessage) {
-            return <ErrorMessage />
+            return <InsightErrorState />
         }
         if (showTimeoutMessage) {
-            return <TimeOut isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={isLoading} />
         }
 
         return null
@@ -165,9 +165,7 @@ export function InsightContainer(): JSX.Element {
                     />
                 }
                 data-attr="insights-graph"
-                className={clsx('insights-graph-container', {
-                    funnels: activeView === InsightType.FUNNELS,
-                })}
+                className="insights-graph-container"
             >
                 <div>
                     <Row
@@ -176,10 +174,6 @@ export function InsightContainer(): JSX.Element {
                         })}
                         align="middle"
                         justify="space-between"
-                        style={{
-                            marginTop: -8,
-                            marginBottom: 16,
-                        }}
                     >
                         <Col>
                             <FunnelCanvasLabel />

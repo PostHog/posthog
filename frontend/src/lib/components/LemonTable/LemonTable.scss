@@ -70,9 +70,13 @@
     }
 }
 
-.LemonTable__content {
+.LemonTable__scroll {
     width: 100%;
     overflow: auto hidden;
+}
+
+.LemonTable__content {
+    min-width: fit-content;
 }
 
 .LemonTable__overlay {
