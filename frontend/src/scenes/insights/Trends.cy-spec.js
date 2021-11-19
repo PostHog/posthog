@@ -1,5 +1,5 @@
 import React from 'react'
-import { Insight } from './Insights'
+import { Insight } from './Insight'
 import * as helpers from 'cypress/support/helpers'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
