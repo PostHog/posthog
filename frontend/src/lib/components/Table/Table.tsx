@@ -32,7 +32,9 @@ export function createdByColumn<T extends Record<string, any> = Record<string, a
         render: function Render(_: any, item: any) {
             return (
                 <Row align="middle" wrap={false}>
-                    <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
+                    {item.created_by && (
+                        <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
+                    )}
                     <div style={{ maxWidth: 250, width: 'auto', verticalAlign: 'middle', marginLeft: 8 }}>
                         {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
                     </div>
