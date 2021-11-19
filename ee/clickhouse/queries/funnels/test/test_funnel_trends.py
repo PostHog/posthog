@@ -9,7 +9,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
-from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsPersons
+from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
@@ -32,7 +32,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
     def _get_actor_ids_at_step(self, filter, entrance_period_start, drop_off, funnel_class=ClickhouseFunnel):
         person_filter = filter.with_data({"entrance_period_start": entrance_period_start, "drop_off": drop_off})
-        funnel_query_builder = ClickhouseFunnelTrendsPersons(person_filter, self.team, funnel_class)
+        funnel_query_builder = ClickhouseFunnelTrendsActors(person_filter, self.team, funnel_class)
         _, serialized_result = funnel_query_builder.get_actors()
 
         return serialized_result

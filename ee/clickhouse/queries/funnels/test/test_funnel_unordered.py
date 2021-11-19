@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
-from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
+from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
     assert_funnel_results_equal,
     funnel_breakdown_test_factory,
@@ -42,7 +42,7 @@ def _create_action(**kwargs):
     return action
 
 
-class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_action, _create_person)):  # type: ignore
+class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedActors, _create_event, _create_action, _create_person)):  # type: ignore
     maxDiff = None
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
@@ -155,7 +155,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [person1.uuid])
 
 
-class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_person)):  # type: ignore
+class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedActors, _create_event, _create_person)):  # type: ignore
     maxDiff = None
     pass
 
@@ -163,7 +163,7 @@ class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_convers
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        funnel_query_builder = ClickhouseFunnelUnorderedPersons(person_filter, self.team)
+        funnel_query_builder = ClickhouseFunnelUnorderedActors(person_filter, self.team)
         is_aggregating_by_groups = funnel_query_builder.is_aggregating_by_groups
         _, serialized_result = funnel_query_builder.get_actors()
 

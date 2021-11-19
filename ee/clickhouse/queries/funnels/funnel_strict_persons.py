@@ -7,7 +7,7 @@ from posthog.models import Person
 from posthog.models.filters.mixins.utils import cached_property
 
 
-class ClickhouseFunnelStrictPersons(ClickhouseFunnelStrict, ActorBaseQuery):
+class ClickhouseFunnelStrictActors(ClickhouseFunnelStrict, ActorBaseQuery):
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None

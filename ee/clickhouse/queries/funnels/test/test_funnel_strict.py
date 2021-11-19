@@ -6,7 +6,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
-from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
+from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
     assert_funnel_results_equal,
     funnel_breakdown_test_factory,
@@ -42,7 +42,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_action, _create_person)):  # type: ignore
+class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictActors, _create_event, _create_action, _create_person)):  # type: ignore
 
     maxDiff = None
 
@@ -171,7 +171,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [person2.uuid])
 
 
-class TestFunnelStrictStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_person)):  # type: ignore
+class TestFunnelStrictStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictActors, _create_event, _create_person)):  # type: ignore
 
     maxDiff = None
     pass
@@ -183,7 +183,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        funnel_query_builder = ClickhouseFunnelStrictPersons(person_filter, self.team)
+        funnel_query_builder = ClickhouseFunnelStrictActors(person_filter, self.team)
         is_aggregating_by_groups = funnel_query_builder.is_aggregating_by_groups
         _, serialized_result = funnel_query_builder.get_actors()
 

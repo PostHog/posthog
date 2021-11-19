@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
+from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
@@ -54,7 +54,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictPersons(filter, self.team).get_actors()
+        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(35, len(serialized_results))
 
     def test_second_step(self):
@@ -73,7 +73,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictPersons(filter, self.team).get_actors()
+        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(10, len(serialized_results))
 
     def test_second_step_dropoff(self):
@@ -92,7 +92,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictPersons(filter, self.team).get_actors()
+        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(25, len(serialized_results))
 
     def test_third_step(self):
@@ -111,5 +111,5 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictPersons(filter, self.team).get_actors()
+        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(0, len(serialized_results))

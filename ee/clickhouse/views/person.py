@@ -11,10 +11,10 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFunnelTrendsPersons
+from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
-from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
-from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
+from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
+from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.paths import ClickhousePathsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
@@ -76,14 +76,14 @@ class ClickhousePersonViewSet(PersonViewSet):
         funnel_actor_class: Callable
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            funnel_actor_class = ClickhouseFunnelTrendsPersons
+            funnel_actor_class = ClickhouseFunnelTrendsActors
         else:
             if filter.funnel_order_type == "unordered":
-                funnel_actor_class = ClickhouseFunnelUnorderedPersons
+                funnel_actor_class = ClickhouseFunnelUnorderedActors
             elif filter.funnel_order_type == "strict":
-                funnel_actor_class = ClickhouseFunnelStrictPersons
+                funnel_actor_class = ClickhouseFunnelStrictActors
             else:
-                funnel_actor_class = ClickhouseFunnelPersons
+                funnel_actor_class = ClickhouseFunnelActors
 
         _, actors = funnel_actor_class(filter, self.team).get_actors()
         _should_paginate = should_paginate(actors, filter.limit)
