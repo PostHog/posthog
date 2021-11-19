@@ -59,5 +59,11 @@ export const metaLogic = kea<metaLogicType>({
                 }
             },
         ],
+        isMetaLoading: [
+            (selectors) => [selectors.sessionPerson, selectors.resolution],
+            (sessionPerson, resolution) => {
+                return !resolution || !sessionPerson
+            },
+        ],
     },
 })
