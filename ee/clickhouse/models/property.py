@@ -282,6 +282,18 @@ def get_property_string_expr(
     column: str,
     allow_denormalized_props: bool = True,
 ) -> Tuple[str, bool]:
+    """
+
+    :param table:
+    :param property_name:
+    :param var:
+        the value to template in from the data structure for the query e.g. %(key)s or a flat value e.g. ["Safari"].
+        If a flat value it should be escaped before being passed to this function
+    :param column:
+        the table column where JSON is stored or the name of a materialized column
+    :param allow_denormalized_props:
+    :return:
+    """
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
     if allow_denormalized_props and property_name in materialized_columns:
