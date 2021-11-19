@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import imgEmptyLineGraph from 'public/empty-line-graph.svg'
-import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
-import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
-import { IllustrationDanger, IconTrendUp } from 'lib/components/icons'
+import { LoadingOutlined, PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { IllustrationDanger, IconTrendUp, IconExternalLinkBold } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
@@ -11,44 +9,29 @@ import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import clsx from 'clsx'
 
 export const UNNAMED_INSIGHT_NAME = 'Unnamed insight'
 
-export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
+export function InsightEmptyState({ color, isDashboard }: { color?: string; isDashboard?: boolean }): JSX.Element {
     return (
-        <>
-            {isDashboard ? (
-                <div className="text-center" style={{ height: '100%' }}>
-                    <img
-                        src={color === 'white' ? imgEmptyLineGraphDark : imgEmptyLineGraph}
-                        alt=""
-                        style={{ maxHeight: '100%', maxWidth: '80%', opacity: 0.5 }}
-                    />
-                    <div style={{ textAlign: 'center', fontWeight: 'bold', marginTop: 16 }}>
-                        Seems like there's no data to show this graph yet{' '}
-                        <a
-                            target="_blank"
-                            href="https://posthog.com/docs/features/trends?utm_campaign=dashboard-empty-state&utm_medium=in-product"
-                            style={{ color: color === 'white' ? 'rgba(0, 0, 0, 0.85)' : 'white' }}
-                        >
-                            <QuestionCircleOutlined />
-                        </a>
-                    </div>
+        <div className={clsx('insight-empty-state', { 'is-dashboard': isDashboard }, color)}>
+            <div className="empty-state-inner">
+                <div className="illustration-main">
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
-            ) : (
-                <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
-                    We couldn't find any matching events. Try changing dates or pick another action or event.
-                </p>
-            )}
-        </>
+                <h2>There are no matching events for this query</h2>
+                <p className="text-center">Try changing the date range or pick another action, event, or breakdown.</p>
+            </div>
+        </div>
     )
 }
 
-export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
+export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     return (
-        <div className="insight-empty-state timeout-message">
-            <div className="insight-empty-state__wrapper">
+        <div className="insight-empty-state warning">
+            <div className="empty-state-inner">
                 <div className="illustration-main">{isLoading ? <LoadingOutlined spin /> : <IllustrationDanger />}</div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
                 {isLoading ? (
@@ -114,10 +97,10 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
     )
 }
 
-export function ErrorMessage(): JSX.Element {
+export function InsightErrorState(): JSX.Element {
     return (
-        <div className="insight-empty-state error-message">
-            <div className="insight-empty-state__wrapper">
+        <div className="insight-empty-state error">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IllustrationDanger />
                 </div>
@@ -169,15 +152,15 @@ export function ErrorMessage(): JSX.Element {
     )
 }
 
-export function FunnelInvalidFiltersEmptyState(): JSX.Element {
+export function FunnelSingleStepState(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div className="insight-empty-state funnels-empty-state info-message">
-            <div className="insight-empty-state__wrapper">
+        <div className="insight-empty-state funnels-empty-state">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
                     <PlusCircleOutlined />
                 </div>
@@ -185,26 +168,31 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
                 <p className="funnels-empty-state__description">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {clickhouseFeaturesEnabled
-                        ? ' Once you have two steps defined, additional steps will automatically recalculate and update the funnel.'
+                        ? ' Once you have two steps defined, additional changes will recalculate automatically.'
                         : ''}
                 </p>
-                <Button
-                    size="large"
-                    onClick={() => addFilter()}
-                    data-attr="add-action-event-button-empty-state"
-                    icon={<PlusCircleOutlined />}
-                    className="add-action-event-button"
-                >
-                    Add funnel step
-                </Button>
-                <div className="funnels-empty-state__help">
+                <div className="mt text-center">
+                    <Button
+                        size="large"
+                        onClick={() => addFilter()}
+                        data-attr="add-action-event-button-empty-state"
+                        icon={<PlusCircleOutlined />}
+                        className="add-action-event-button"
+                    >
+                        Add funnel step
+                    </Button>
+                </div>
+                <div className="mt text-center">
                     <a
-                        data-attr="insight-funnels-emptystate-help"
+                        data-attr="funnels-single-step-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
                         rel="noopener"
+                        className="flex-center"
+                        style={{ justifyContent: 'center' }}
                     >
-                        Learn more about funnels in our support documentation.
+                        Learn more about funnels in our support documentation
+                        <IconExternalLinkBold style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
             </div>
@@ -212,43 +200,27 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
     )
 }
 
-export function FunnelEmptyState(): JSX.Element {
+export function FunnelInvalidExclusionState(): JSX.Element {
     return (
-        <div className="insight-empty-state funnels-empty-state info-message">
-            <div className="insight-empty-state__wrapper">
+        <div className="insight-empty-state warning">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                    <WarningOutlined />
                 </div>
-                <h2 className="funnels-empty-state__title">There are no matching events for this query.</h2>
-                <p className="funnels-empty-state__description">
-                    Try changing dates or pick another action, event, or breakdown.
+                <h2>Invalid exclusion filters</h2>
+                <p>
+                    You're excluding events or actions that are part of the funnel steps. Try changing your funnel step
+                    filters, or removing the overlapping exclusion event.
                 </p>
-            </div>
-        </div>
-    )
-}
-
-export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
-    return (
-        <div className="insight-empty-state funnels-empty-state info-message">
-            <div className="insight-empty-state__wrapper">
-                <div className="illustration-main">
-                    <IllustrationDanger />
-                </div>
-                <h2 className="funnels-empty-state__title">
-                    Exclusion filters cannot exclude events or actions in the funnel steps.
-                </h2>
-                <p className="funnels-empty-state__description">
-                    Try changing your funnel step filters, or removing the overlapping exclusion event.
-                </p>
-                <div className="funnels-empty-state__help">
+                <div className="mt text-center">
                     <a
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
                         rel="noopener"
                     >
-                        Learn more about funnels in our support documentation.
+                        Learn more about funnels in our support documentation
+                        <IconExternalLinkBold style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
             </div>
@@ -285,7 +257,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
 
     return (
         <div className="saved-insight-empty-state">
-            <div className="insight-empty-state__wrapper">
+            <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IconTrendUp />
                 </div>

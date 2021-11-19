@@ -202,7 +202,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         afterMount: () => {
             window.addEventListener('resize', () => actions.setCurrentTime(values.time.current))
         },
-        afterUnmount: () => {
+        beforeUnmount: () => {
             window.removeEventListener('resize', () => actions.setCurrentTime(values.time.current))
         },
     }),

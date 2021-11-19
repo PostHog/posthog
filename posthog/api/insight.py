@@ -161,6 +161,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ["short_id", "created_by"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0"),
         ):
@@ -371,7 +372,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request)
-        result = retention.Retention().run(filter, team)
+        base_uri = request.build_absolute_uri("/")
+        result = retention.Retention(base_uri=base_uri).run(filter, team)
         return {"result": result}
 
     # ******************************************

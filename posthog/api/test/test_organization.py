@@ -199,3 +199,12 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Assert nothing was reported
         mock_capture.assert_not_called()
+
+
+def create_organization(name: str) -> Organization:
+    """
+    Helper that just creates an organization. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world scenarios.
+    """
+    return Organization.objects.create(name=name)

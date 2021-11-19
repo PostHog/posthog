@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Input, Row, Spin, Table } from 'antd'
+import { Button, Card, Col, Drawer, Input, Row, Table } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import {
@@ -22,6 +22,7 @@ import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -186,7 +187,12 @@ export function Dashboards(): JSX.Element {
             </Drawer>
 
             {dashboardsLoading ? (
-                <Spin />
+                <div className="flex-center" style={{ flexDirection: 'column' }}>
+                    <Spinner />
+                    <div className="mt">
+                        <b>Loading dashboards</b>
+                    </div>
+                </div>
             ) : dashboards.length > 0 || searchTerm ? (
                 <Table
                     dataSource={dashboards}
