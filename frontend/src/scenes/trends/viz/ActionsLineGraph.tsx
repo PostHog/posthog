@@ -2,7 +2,7 @@ import React from 'react'
 import { LineGraph } from '../../insights/LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { LineGraphEmptyState } from '../../insights/EmptyStates'
+import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
 import { InsightType } from '~/types'
@@ -66,6 +66,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
     )
 }
