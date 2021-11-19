@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { DeleteWithUndo, toParams } from 'lib/utils'
-import { Table, Spin, Button, Input } from 'antd'
+import { Table, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
@@ -20,6 +20,7 @@ import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { ColumnType } from 'antd/lib/table'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 const NEW_COHORT: CohortType = {
     id: 'new',
@@ -114,8 +115,8 @@ export function Cohorts(): JSX.Element {
                     return <>N/A</>
                 }
                 return cohort.is_calculating ? (
-                    <span>
-                        Calculating <Spin />
+                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        Calculating <Spinner size="sm" />
                     </span>
                 ) : (
                     dayjs(cohort.last_calculation).fromNow()
