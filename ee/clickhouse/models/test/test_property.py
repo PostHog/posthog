@@ -465,7 +465,7 @@ TEST_BREAKDOWN_PROCESSING = [
 ]
 
 
-@pytest.mark.parametrize("breakdown,table,prop_var, identifier, expected", TEST_BREAKDOWN_PROCESSING)
+@pytest.mark.parametrize("breakdown, table, prop_var, identifier, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
     breakdown: Union[str, List[str]],
     table: TableWithProperties,
