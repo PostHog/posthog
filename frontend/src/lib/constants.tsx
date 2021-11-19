@@ -86,6 +86,7 @@ export const FEATURE_FLAGS = {
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     TURBO_MODE: 'turbo-mode', // owner: @mariusandra
     GROUP_ANALYTICS: 'group-analytics', // owner: @macobo
+    SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
