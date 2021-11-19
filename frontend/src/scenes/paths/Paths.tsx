@@ -32,8 +32,8 @@ const HIDE_PATH_CARD_HEIGHT = 30
 const isMonochrome = (color: string): boolean => color === 'white' || color === 'black'
 
 interface PathsProps {
-    dashboardItemId: number | null
-    color: string
+    dashboardItemId?: number | null
+    color?: string
 }
 
 export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
