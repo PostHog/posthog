@@ -70,7 +70,6 @@ export const FEATURE_FLAGS = {
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
     TRAILING_WAU_MAU: '3638-trailing-wau-mau', // owner: @EDsCODE
-    EVENT_COLUMN_CONFIG: '4141-event-columns', // owner: @pauldambra
     MULTIVARIATE_SUPPORT: '5440-multivariate-support', // owner: @mariusandra
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
