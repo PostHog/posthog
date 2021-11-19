@@ -1,5 +1,4 @@
-import copy
-from typing import Any, Dict, List, Type
+from typing import Any, Dict, Type
 
 from django.core.cache import cache
 from django.db.models import QuerySet

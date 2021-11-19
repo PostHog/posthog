@@ -1,4 +1,3 @@
-import json
 import urllib.parse
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -89,22 +88,22 @@ class ClickhouseFunnelBase(ABC, Funnel):
             data.update({"breakdown_type": "event"})
 
         # the API accepts either:
-        #   a string (single breakdown)
-        #   a list of numbers (one or more cohorts)
-        #   a list of strings (multiple breakdown)
+        #   a string (single breakdown) in parameter "breakdown"
+        #   a list of numbers (one or more cohorts) in parameter "breakdown"
+        #   a list of strings (multiple breakdown) in parameter "breakdowns"
         # if the breakdown is a string, box it as a list to reduce paths through the code
         #
-        # The code below allows you to ensure breakdown is always an array
+        # The code below ensures that breakdown is always an array
         # without it affecting the multiple areas of the code outside of funnels that use breakdown
-        # really it should be boxed at ingestion and be a list everywhere
+        #
+        # Once multi property breakdown is implemented in Trends this becomes unnecessary
+
+        if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in ["person", "event", None]:
+            data.update({"breakdown": [b.property for b in self._filter.breakdowns]})
 
         if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event", None]:
             boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
             data.update({"breakdown": boxed_breakdown})
-
-        if isinstance(self._filter.funnel_step_breakdown, str):
-            if self._filter.funnel_step_breakdown.startswith("["):  # naive list as string detection
-                data.update({"funnel_step_breakdown": json.loads(self._filter.funnel_step_breakdown)})
 
         for exclusion in self._filter.exclusions:
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
