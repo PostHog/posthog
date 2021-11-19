@@ -44,7 +44,7 @@ interface PathsProps {
     color: string
 }
 
-export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
+export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
     const canvas = useRef<HTMLDivElement>(null)
     const size = useWindowSize()
     const { insightProps } = useValues(insightLogic)
