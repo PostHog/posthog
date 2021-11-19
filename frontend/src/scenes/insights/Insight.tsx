@@ -1,4 +1,4 @@
-import './Insights.scss'
+import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Row, Col, Card, Button, Popconfirm } from 'antd'
@@ -24,12 +24,12 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 
 export const scene: SceneExport = {
-    component: Insights,
+    component: Insight,
     logic: insightLogic,
     paramsToProps: ({ params: { id } }) => ({ dashboardItemId: id ? parseInt(id) : null, syncWithUrl: true }),
 }
 
-export function Insights({ id }: { id?: string } = {}): JSX.Element {
+export function Insight({ id }: { id?: string } = {}): JSX.Element {
     useMountedLogic(insightCommandLogic)
 
     const logic = insightLogic({ dashboardItemId: id ? parseInt(id) : null, syncWithUrl: true })

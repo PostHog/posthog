@@ -153,7 +153,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                             here: true,
                         })
                         break
-                    case Scene.Insights:
+                    case Scene.Insight:
                         breadcrumbs.push({
                             name: 'Insights',
                             path: urls.savedInsights(),

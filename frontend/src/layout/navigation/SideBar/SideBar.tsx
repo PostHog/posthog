@@ -174,7 +174,7 @@ function Pages(): JSX.Element {
                     icon: <IconPlus />,
                     to: urls.insightNew({ insight: InsightType.TRENDS }),
                     tooltip: 'New insight',
-                    identifier: Scene.Insights,
+                    identifier: Scene.Insight,
                 }}
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />

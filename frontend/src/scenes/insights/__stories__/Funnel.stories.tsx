@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { Insights } from '../Insights'
+import { Insight } from '../Insight'
 
 import { rest } from 'msw'
 import { worker } from '../../../mocks/browser'
@@ -100,7 +100,7 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
 
     return (
         <Provider>
-            <Insights />
+            <Insight />
         </Provider>
     )
 }

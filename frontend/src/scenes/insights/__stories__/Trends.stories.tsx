@@ -3,7 +3,7 @@ import { Meta } from '@storybook/react'
 import { keaStory } from 'lib/storybook/kea-story'
 import { rest } from 'msw'
 import { worker } from '~/mocks/browser'
-import { Insights } from '../Insights'
+import { Insight } from '../Insight'
 
 import trendsJson from './trends.json'
 
@@ -60,5 +60,5 @@ export const TrendsSmoothing = (): JSX.Element => {
             )
         })
     )
-    return keaStory(Insights, trendsJson)()
+    return keaStory(Insight, trendsJson)()
 }
