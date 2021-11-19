@@ -1,18 +1,40 @@
-import { Button, Modal, Skeleton } from 'antd'
+import { Button, Modal } from 'antd'
 import React from 'react'
 import { CheckCircleFilled } from '@ant-design/icons'
 import './CorrelationMatrix.scss'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
+import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { Link } from 'lib/components/Link'
 
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { filters } = useValues(logic)
+    const { filters, correlationsLoading, correlationDetails, parseDisplayNameForCorrelation } = useValues(logic)
     const { setFilters } = useActions(logic)
 
-    const correlationsLoading = true
+    let displayName = <></>
+
+    if (correlationDetails) {
+        const { first_value, second_value } = parseDisplayNameForCorrelation(correlationDetails)
+        displayName = (
+            <>
+                <PropertyKeyInfo value={first_value} />
+                {second_value !== undefined && (
+                    <>
+                        {' :: '}
+                        <PropertyKeyInfo value={second_value} disablePopover />
+                    </>
+                )}
+            </>
+        )
+    }
+
+    console.log(correlationDetails)
 
     const dismiss = (): void => {
         setFilters({ funnel_correlation_details: undefined })
@@ -31,13 +53,16 @@ export function CorrelationMatrix(): JSX.Element {
             <div className="correlation-table-wrapper">
                 {correlationsLoading ? (
                     <div className="mt text-center">
-                        <Skeleton active />
+                        <Spinner size="lg" />
                     </div>
-                ) : (
+                ) : correlationDetails ? (
                     <>
                         <p className="text-muted-alt mb">
-                            The table below displays the correlation details for users with the property{' '}
-                            <b>Initial Device Type :: Desktop</b>.
+                            The table below displays the correlation details for users{' '}
+                            {filters.funnel_correlation_details?.type === 'property'
+                                ? 'who have property'
+                                : 'who performed event'}{' '}
+                            <b>{displayName}</b>.
                         </p>
                         <table>
                             <thead>
@@ -45,7 +70,11 @@ export function CorrelationMatrix(): JSX.Element {
                                     <td colSpan={3}>Results matrix</td>
                                 </tr>
                                 <tr>
-                                    <td>Has property</td>
+                                    <td>
+                                        {filters.funnel_correlation_details?.type === 'property'
+                                            ? 'Has property'
+                                            : 'Performed event'}
+                                    </td>
                                     <td>Success</td>
                                     <td>Dropped off</td>
                                 </tr>
@@ -54,30 +83,58 @@ export function CorrelationMatrix(): JSX.Element {
                                 <tr>
                                     <td className="horizontal-header">Yes</td>
                                     <td>
-                                        <div className="percentage">55.4%</div>2,373
+                                        <div className="percentage">
+                                            {percentage(
+                                                correlationDetails.success_count /
+                                                    (correlationDetails.success_count +
+                                                        correlationDetails.failure_count)
+                                            )}
+                                        </div>
+                                        <Link to={correlationDetails.success_people_url}>
+                                            {correlationDetails.success_count.toLocaleString()}{' '}
+                                            {pluralize(correlationDetails.success_count, 'user', undefined, false)}
+                                        </Link>
                                     </td>
                                     <td>
-                                        <div className="percentage">12.3%</div>1,209
+                                        <div className="percentage">
+                                            {percentage(
+                                                correlationDetails.failure_count /
+                                                    (correlationDetails.success_count +
+                                                        correlationDetails.failure_count)
+                                            )}
+                                        </div>
+                                        <Link to={correlationDetails.failure_people_url}>
+                                            {correlationDetails.failure_count.toLocaleString()}{' '}
+                                            {pluralize(correlationDetails.failure_count, 'user', undefined, false)}
+                                        </Link>
                                     </td>
                                 </tr>
                                 <tr>
                                     <td className="horizontal-header">No</td>
                                     <td>
-                                        <div className="percentage">55.4%</div>2,373
+                                        <div className="percentage">?%</div>???
                                     </td>
                                     <td>
-                                        <div className="percentage">12.3%</div>1,209
+                                        <div className="percentage">?%</div>???
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
                         <div className="mt text-center">
-                            Property <b>Initial Device Type :: Desktop</b> has a correlation score of{' '}
+                            {capitalizeFirstLetter(filters.funnel_correlation_details?.type || '')} <b>{displayName}</b>{' '}
+                            has a correlation score of{' '}
                             <b style={{ color: 'var(--success)' }}>
                                 <CheckCircleFilled /> 0.85
                             </b>
                         </div>
                     </>
+                ) : (
+                    <div>
+                        <ErrorMessage>
+                            We could not load the details for this correlation value. Please recreate your funnel and
+                            try again.
+                        </ErrorMessage>
+                    </div>
                 )}
             </div>
         </Modal>

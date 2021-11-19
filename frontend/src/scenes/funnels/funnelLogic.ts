@@ -933,6 +933,25 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
             },
         ],
+        correlationDetails: [
+            (s) => [s.filters, s.correlationValues, s.propertyCorrelationValues, s.correlationsLoading],
+            (filters, eventcorrelationValues, propertyCorrelationValues, loading): FunnelCorrelation | null => {
+                if (!filters.funnel_correlation_details || loading) {
+                    return null
+                }
+                const correlValues =
+                    filters.funnel_correlation_details.type === 'property'
+                        ? propertyCorrelationValues
+                        : eventcorrelationValues
+
+                for (const item of correlValues) {
+                    if (item.event.event === filters.funnel_correlation_details.key) {
+                        return item
+                    }
+                }
+                return null
+            },
+        ],
         parseDisplayNameForCorrelation: [
             () => [],
             (): ((record: FunnelCorrelation) => {
