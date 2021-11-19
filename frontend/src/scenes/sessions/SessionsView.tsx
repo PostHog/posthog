@@ -1,7 +1,6 @@
 // DEPRECATED in favor of SessionsRecordings.tsx
-import React, { useEffect, useRef } from 'react'
+import React, { useRef } from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
-import { decodeParams } from 'kea-router'
 import { Button, Space, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -160,13 +159,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             defaultWidth: 184,
         },
     ]
-
-    useEffect(() => {
-        // scroll to sessions table if filters are defined in url from the get go
-        if (decodeParams(window.location.hash)?.['#backTo'] === 'Insights' && sessionsTableRef.current) {
-            sessionsTableRef.current.scrollIntoView({ behavior: 'smooth' })
-        }
-    }, [])
 
     return (
         <div className="events" data-attr="events-table">

@@ -14,6 +14,7 @@ import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
+import { urls } from 'scenes/urls'
 
 export interface DashboardLogicProps {
     id?: number
@@ -610,11 +611,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         addGraph: () => {
             if (values.dashboard) {
-                router.actions.push(
-                    `/insights?insight=TRENDS#backTo=${encodeURIComponent(
-                        values.dashboard.name
-                    )}&backToURL=/dashboard/${values.dashboard.id}`
-                )
+                router.actions.push(urls.newInsight(InsightType.TRENDS))
             }
         },
         saveNewTag: ({ tag }) => {

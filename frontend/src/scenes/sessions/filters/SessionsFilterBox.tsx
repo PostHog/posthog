@@ -11,6 +11,7 @@ import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { urls } from 'scenes/urls'
 
 export function SessionsFilterBox({ selector }: { selector: FilterSelector }): JSX.Element | null {
     const { personProperties } = useValues(personPropertiesModel)
@@ -106,12 +107,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 return (
                     <>
                         <UsergroupAddOutlined /> Cohorts
-                        <Link
-                            to={`/cohorts/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
-                                window.location.pathname + window.location.search
-                            )}`}
-                            style={{ float: 'right' }}
-                        >
+                        <Link to={item.id ? urls.cohort(item.id) : urls.cohorts()} style={{ float: 'right' }}>
                             edit
                         </Link>
                         <br />
