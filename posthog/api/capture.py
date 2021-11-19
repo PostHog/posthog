@@ -2,6 +2,7 @@ import json
 import re
 from datetime import datetime
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 from dateutil import parser
 from django.conf import settings
@@ -204,6 +205,10 @@ def get_event(request):
         distinct_id = get_distinct_id(event)
         if not distinct_id:
             continue
+
+        payload_uuid = event.get("uuid", None)
+        if payload_uuid and UUIDT.is_valid_uuid(payload_uuid):
+            event_uuid = UUID(payload_uuid)
 
         event = parse_event(event, distinct_id, team)
         if not event:
