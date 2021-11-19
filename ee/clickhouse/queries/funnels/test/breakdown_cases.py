@@ -19,9 +19,9 @@ from posthog.test.base import APIBaseTest, test_with_materialized_columns
 class FunnelStepResult:
     name: str
     count: int
-    average_conversion_time: Optional[float]
-    median_conversion_time: Optional[float]
     breakdown: Union[List[str], str]
+    average_conversion_time: Optional[float] = None
+    median_conversion_time: Optional[float] = None
     type: Literal["events", "actions"] = "events"
     action_id: Optional[str] = None
 
@@ -119,9 +119,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Safari", "14"]),
-                    FunnelStepResult("play movie", 0, None, None, ["Safari", "14"]),
-                    FunnelStepResult("buy", 0, None, None, ["Safari", "14"]),
+                    FunnelStepResult(name="sign up", breakdown=["Safari", "14"], count=1),
+                    FunnelStepResult(name="play movie", breakdown=["Safari", "14"], count=0),
+                    FunnelStepResult(name="buy", breakdown=["Safari", "14"], count=0),
                 ],
             )
 
@@ -131,9 +131,15 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Safari", "15"]),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari", "15"]),
-                    FunnelStepResult("buy", 0, None, None, ["Safari", "15"]),
+                    FunnelStepResult(name="sign up", breakdown=["Safari", "15"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Safari", "15"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(name="buy", breakdown=["Safari", "15"], count=0),
                 ],
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, ["Safari", "15"]), [people["person2"].uuid])
@@ -142,9 +148,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[2],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Chrome", "95"]),
-                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome", "95"]),
-                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Chrome", "95"]),
+                    FunnelStepResult(name="sign up", breakdown=["Chrome", "95"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Chrome", "95"],
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Chrome", "95"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
                 ],
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, ["Chrome", "95"]), [people["person1"].uuid])
@@ -212,9 +230,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
-                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome"]),
-                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Chrome"]),
+                    FunnelStepResult(name="sign up", breakdown=["Chrome"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
                 ],
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
@@ -223,9 +253,15 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
-                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
+                    FunnelStepResult(name="sign up", breakdown=["Safari"], count=2),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Safari"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
                 ],
             )
 
@@ -296,9 +332,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
-                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome"]),
-                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Chrome"]),
+                    FunnelStepResult(name="sign up", breakdown=["Chrome"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
                 ],
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
@@ -307,9 +355,15 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
-                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
+                    FunnelStepResult(name="sign up", breakdown=["Safari"], count=2),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Safari"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
                 ],
             )
 
@@ -375,9 +429,15 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
-                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
+                    FunnelStepResult(name="sign up", breakdown=["Safari"], count=2),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Safari"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
                 ],
             )
 
@@ -389,9 +449,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 3, None, None, ["Other"]),
-                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Other"]),
-                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Other"]),
+                    FunnelStepResult(name="sign up", breakdown=["Other"], count=3),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Other"],
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Other"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
                 ],
             )
 
@@ -446,9 +518,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
-                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome"]),
-                    FunnelStepResult("buy", 1, 7200.0, 7200.0, ["Chrome"]),
+                    FunnelStepResult(name="sign up", breakdown=["Chrome"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
                 ],
             )
 
@@ -458,9 +542,15 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 2, None, None, ["Safari"]),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
-                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
+                    FunnelStepResult(name="sign up", breakdown=["Safari"], count=2),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Safari"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
                 ],
             )
 
@@ -506,9 +596,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
-                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, ["Chrome"]),
-                    FunnelStepResult("buy", 1, 7200, 7200, ["Chrome"]),
+                    FunnelStepResult(name="sign up", breakdown=["Chrome"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=7200,
+                        median_conversion_time=7200,
+                    ),
                 ],
             )
 
@@ -518,9 +620,15 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Safari"]),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, ["Safari"]),
-                    FunnelStepResult("buy", 0, None, None, ["Safari"]),
+                    FunnelStepResult(name="sign up", breakdown=["Safari"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Safari"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
                 ],
             )
 
@@ -716,22 +824,26 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = funnel.run()
             result = sorted(result, key=lambda res: res[0]["breakdown"])
 
-            assert_funnel_breakdown_result_is_correct(result[0], [FunnelStepResult("sign up", 1, None, None, ["0"]),])
+            assert_funnel_breakdown_result_is_correct(
+                result[0], [FunnelStepResult(name="sign up", breakdown=["0"], count=1),]
+            )
 
             self.assertCountEqual(self._get_people_at_step(filter, 1, "0"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[1], [FunnelStepResult("sign up", 1, None, None, ["Chrome"]),]
+                result[1], [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),]
             )
 
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
 
-            assert_funnel_breakdown_result_is_correct(result[2], [FunnelStepResult("sign up", 1, None, None, ["Mac"]),])
+            assert_funnel_breakdown_result_is_correct(
+                result[2], [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"]),]
+            )
 
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Mac"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[3], [FunnelStepResult("sign up", 1, None, None, ["Safari"]),]
+                result[3], [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),]
             )
 
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [people["person1"].uuid])
@@ -784,8 +896,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Chrome"]),
-                    FunnelStepResult("play movie", 0, None, None, ["Chrome"]),
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),
+                    FunnelStepResult(name="play movie", count=0, breakdown=["Chrome"]),
                 ],
             )
 
@@ -795,8 +907,14 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 1, None, None, ["Safari"]),
-                    FunnelStepResult("play movie", 1, 3600, 3600, ["Safari"]),
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),
+                    FunnelStepResult(
+                        name="play movie",
+                        count=1,
+                        average_conversion_time=3600,
+                        median_conversion_time=3600,
+                        breakdown=["Safari"],
+                    ),
                 ],
             )
 
@@ -922,8 +1040,14 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("user signed up", 1, None, None, ["https://posthog.com/docs/x"]),
-                    FunnelStepResult("paid", 1, 691200.0, 691200.0, ["https://posthog.com/docs/x"]),
+                    FunnelStepResult(name="user signed up", count=1, breakdown=["https://posthog.com/docs/x"]),
+                    FunnelStepResult(
+                        name="paid",
+                        count=1,
+                        average_conversion_time=691200.0,
+                        median_conversion_time=691200.0,
+                        breakdown=["https://posthog.com/docs/x"],
+                    ),
                 ],
             )
 
@@ -987,15 +1111,19 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 result[0],
                 [
                     FunnelStepResult(
-                        "user signed up",
-                        1,
-                        None,
-                        None,
-                        ["https://posthog.com/docs/x"],
-                        "actions",
-                        user_signed_up_action.id,
+                        name="user signed up",
+                        count=1,
+                        breakdown=["https://posthog.com/docs/x"],
+                        type="actions",
+                        action_id=user_signed_up_action.id,
                     ),
-                    FunnelStepResult("paid", 1, 691200.0, 691200.0, ["https://posthog.com/docs/x"]),
+                    FunnelStepResult(
+                        name="paid",
+                        count=1,
+                        average_conversion_time=691200.0,
+                        median_conversion_time=691200.0,
+                        breakdown=["https://posthog.com/docs/x"],
+                    ),
                 ],
             )
 
@@ -1074,9 +1202,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 1, None, None, "finance"),
-                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, "finance"),
-                    FunnelStepResult("buy", 1, 7200.0, 7200.0, "finance"),
+                    FunnelStepResult(name="sign up", breakdown="finance", count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown="finance",
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown="finance",
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
                 ],
             )
 
@@ -1087,9 +1227,15 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 2, None, None, "technology"),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, "technology"),
-                    FunnelStepResult("buy", 0, None, None, "technology"),
+                    FunnelStepResult(name="sign up", breakdown="technology", count=2),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown="technology",
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(name="buy", breakdown="technology", count=0),
                 ],
             )
 
@@ -1161,18 +1307,42 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
-                    FunnelStepResult("sign up", 1, None, None, "finance"),
-                    FunnelStepResult("play movie", 1, 3600.0, 3600.0, "finance"),
-                    FunnelStepResult("buy", 1, 7200.0, 7200.0, "finance"),
+                    FunnelStepResult(name="sign up", breakdown="finance", count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown="finance",
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown="finance",
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
                 ],
             )
 
             assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
-                    FunnelStepResult("sign up", 1, None, None, "technology"),
-                    FunnelStepResult("play movie", 1, 7200.0, 7200.0, "technology"),
-                    FunnelStepResult("buy", 1, 7200.0, 7200.0, "technology"),
+                    FunnelStepResult(name="sign up", breakdown="technology", count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown="technology",
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown="technology",
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
                 ],
             )
 
