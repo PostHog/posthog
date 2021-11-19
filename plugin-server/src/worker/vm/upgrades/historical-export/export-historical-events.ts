@@ -85,6 +85,7 @@ export function addHistoricalEventsExportCapability(
             // thus, kick off a new export chain with a new batchId
             if (exportShouldBeRunning && oldTimestampCursor === currentTimestampCursor) {
                 const batchId = await meta.utils.cursor.increment(BATCH_ID_CURSOR_KEY)
+                createLog(`Restarting export after noticing inactivity. Batch ID: ${batchId}`)
                 await meta.jobs
                     .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true, batchId })
                     .runNow()
