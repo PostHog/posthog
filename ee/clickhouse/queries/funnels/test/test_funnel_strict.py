@@ -1,8 +1,5 @@
-from datetime import datetime, timedelta
-from uuid import uuid4
+from datetime import datetime
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -13,10 +10,10 @@ from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conv
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models import Person
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
-from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
@@ -36,12 +33,7 @@ def _create_person(**kwargs):
     return Person(id=person.uuid, uuid=person.uuid)
 
 
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_action, _create_person)):  # type: ignore
+class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_action, _create_person)):  # type: ignore
 
     maxDiff = None
 
@@ -154,7 +146,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
         self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
 
-class TestFunnelStrictStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_person)):  # type: ignore
+class TestFunnelStrictStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons)):  # type: ignore
 
     maxDiff = None
     pass

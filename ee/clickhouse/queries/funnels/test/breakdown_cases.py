@@ -13,7 +13,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
-def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
+def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_action, _create_person):
     class TestFunnelBreakdown(APIBaseTest):
         def _get_people_at_step(self, filter, funnel_step, breakdown_value=None):
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})

@@ -6,7 +6,7 @@ from posthog.models.filters import Filter
 from posthog.test.base import APIBaseTest
 
 
-def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _create_person):
+def funnel_conversion_time_test_factory(Funnel, FunnelPerson):
     class TestFunnelConversionTime(APIBaseTest):
         def _get_people_at_step(self, filter, funnel_step):
             person_filter = filter.with_data({"funnel_step": funnel_step})
