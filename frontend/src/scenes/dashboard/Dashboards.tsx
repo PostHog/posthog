@@ -1,28 +1,25 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Input, Row, Table } from 'antd'
+import { Button, Card, Col, Drawer, Input, Row } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import {
-    AppstoreAddOutlined,
-    DeleteOutlined,
-    PlusOutlined,
-    PushpinFilled,
-    PushpinOutlined,
-    CopyOutlined,
-} from '@ant-design/icons'
+import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
-import { AvailableFeature, DashboardType } from '~/types'
+import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
-import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { LemonButton } from 'lib/components/LemonButton'
+import { More } from 'lib/components/LemonButton/More'
+import { dashboardLogic } from './dashboardLogic'
+import { LemonSpacer } from 'lib/components/LemonRow'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -34,16 +31,14 @@ export function Dashboards(): JSX.Element {
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
     const { setNewDashboardDrawer, setSearchTerm } = useActions(dashboardsLogic)
-    const { dashboards, newDashboardDrawer, dashboardTags, searchTerm } = useValues(dashboardsLogic)
-    const { user, hasAvailableFeature } = useValues(userLogic)
-    const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardType>[])
+    const { dashboards, newDashboardDrawer, searchTerm } = useValues(dashboardsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
-    const columns: ColumnType<DashboardType>[] = [
+    const columns: LemonTableColumns<DashboardType> = [
         {
-            title: '',
             width: 24,
             align: 'center',
-            render: function Render({ id, pinned }: DashboardType) {
+            render: function Render(_, { id, pinned }: DashboardType) {
                 return (
                     <span
                         onClick={() =>
@@ -57,99 +52,99 @@ export function Dashboards(): JSX.Element {
                     </span>
                 )
             },
-            sorter: {
-                multiple: 20,
-                compare: (a, b) => {
-                    const aAsInt = a.pinned ? 1 : 0
-                    const bAsInt = b.pinned ? 1 : 0
-                    return aAsInt + bAsInt !== 1 ? 0 : aAsInt < bAsInt ? -1 : 1
-                },
+            sorter: (a, b) => {
+                const aAsInt = a.pinned ? 1 : 0
+                const bAsInt = b.pinned ? 1 : 0
+                return aAsInt + bAsInt !== 1 ? 0 : aAsInt < bAsInt ? -1 : 1
             },
-            defaultSortOrder: 'descend',
         },
         {
             title: 'Dashboard',
             dataIndex: 'name',
             key: 'name',
-            render: function Render(name: string, { id }: { id: number }) {
+            render: function Render(name, { id, description }) {
                 return (
-                    <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
-                        {name || 'Untitled'}
-                    </Link>
+                    <>
+                        <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
+                            <h4 className="row-name">{name || 'Untitled'}</h4>
+                        </Link>
+                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
+                            <span className="row-description">{description}</span>
+                        )}
+                    </>
                 )
             },
-            sorter: {
-                multiple: 10,
-                compare: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
-            },
-            defaultSortOrder: 'ascend',
+            sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
         },
+        ...(hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags',
+                      key: 'tags',
+                      render: function Render(tags: DashboardType['tags']) {
+                          return tags.length ? (
+                              <ObjectTags tags={tags} staticOnly />
+                          ) : (
+                              <span style={{ color: 'var(--muted)' }}>-</span>
+                          )
+                      },
+                  } as LemonTableColumn<DashboardType, keyof DashboardType>,
+              ]
+            : []),
+        createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType>,
+        createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType>,
         {
-            title: 'Description',
-            dataIndex: 'description',
-            key: 'description',
-            render: function Render(description: string) {
-                return <>{description || <span style={{ color: 'var(--muted)' }}>-</span>}</>
-            },
-        },
-        {
-            title: 'Tags',
-            dataIndex: 'tags',
-            key: 'tags',
-            render: function Render(tags: string[]) {
-                return tags.length ? (
-                    <ObjectTags tags={tags} staticOnly />
-                ) : (
-                    <span style={{ color: 'var(--muted)' }}>-</span>
-                )
-            },
-            filters: dashboardTags.map((tag) => {
-                return { text: tag, value: tag }
-            }),
-            onFilter: (value, record) => typeof value === 'string' && record.tags.includes(value),
-        },
-        createdAtColumn() as ColumnType<DashboardType>,
-        createdByColumn(dashboards) as ColumnType<DashboardType>,
-        {
-            title: 'Actions',
-            align: 'center',
-            width: 120,
-            render: function RenderActions({ id, name }: DashboardType) {
+            render: function RenderActions(_, { id, name }: DashboardType) {
                 return (
-                    <span>
-                        <span
-                            title={'Delete'}
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => deleteDashboard({ id, redirect: false })}
-                            className="text-danger"
-                        >
-                            <DeleteOutlined />
-                        </span>
-                        <span
-                            title={'Duplicate'}
-                            style={{
-                                cursor: 'pointer',
-                                marginLeft: 8,
-                            }}
-                            onClick={() => duplicateDashboard({ id, name })}
-                        >
-                            <CopyOutlined />
-                        </span>
-                    </span>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    type="stealth"
+                                    to={urls.dashboard(id)}
+                                    onClick={() =>
+                                        dashboardLogic({ id }).actions.setDashboardMode(
+                                            null,
+                                            DashboardEventSource.DashboardsList
+                                        )
+                                    }
+                                    fullWidth
+                                >
+                                    View
+                                </LemonButton>
+                                <LemonButton
+                                    type="stealth"
+                                    to={urls.dashboard(id)}
+                                    onClick={() =>
+                                        dashboardLogic({ id }).actions.setDashboardMode(
+                                            DashboardMode.Edit,
+                                            DashboardEventSource.DashboardsList
+                                        )
+                                    }
+                                    fullWidth
+                                >
+                                    Edit
+                                </LemonButton>
+                                <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
+                                    Duplicate
+                                </LemonButton>
+                                <LemonSpacer />
+                                <LemonButton
+                                    type="stealth"
+                                    style={{ color: 'var(--danger)' }}
+                                    onClick={() => deleteDashboard({ id, redirect: false })}
+                                    fullWidth
+                                >
+                                    Delete dashboard
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )
             },
         },
     ]
-
-    useEffect(() => {
-        if (!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)) {
-            setDisplayedColumns(
-                columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
-            )
-        } else {
-            setDisplayedColumns(columns)
-        }
-    }, [user?.organization?.available_features, dashboardTags])
 
     return (
         <div>
@@ -194,18 +189,17 @@ export function Dashboards(): JSX.Element {
                     </div>
                 </div>
             ) : dashboards.length > 0 || searchTerm ? (
-                <Table
+                <LemonTable
                     dataSource={dashboards}
                     rowKey="id"
-                    size="small"
-                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    columns={displayedColumns}
+                    pagination={{ pageSize: 100 }}
+                    columns={columns}
+                    defaultSorting={{ columnIndex: 1, order: -1 }}
                 />
             ) : (
                 <div>
                     <br />
                     <p>Create your first dashboard:</p>
-
                     <Row gutter={[16, 16]}>
                         <Col xs={24} xl={6}>
                             <Card
