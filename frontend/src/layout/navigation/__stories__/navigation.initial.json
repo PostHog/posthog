@@ -535,10 +535,19 @@
         }
     },
     "layout": {
-        "lemonade": {
+        "navigation": {
             "navigationLogic": {
-                "isAnnouncementHidden": false,
-                "announcementMessage": "Random announcement – [visit our blog](https://posthog.com/blog) 🎉"
+                "latestVersion": "1.30.0",
+                "latestVersionLoading": false,
+                "isSideBarShownRaw": true,
+                "isAnnouncementShown": true,
+                "isSitePopoverOpen": false,
+                "isInviteModalShown": false,
+                "isCreateOrganizationModalShown": false,
+                "isCreateProjectModalShown": false,
+                "isToolbarModalShown": false,
+                "isProjectSwitcherShown": false,
+                "hotkeyNavigationEngaged": false
             }
         }
     }
