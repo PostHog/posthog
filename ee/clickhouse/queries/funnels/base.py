@@ -545,7 +545,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         so using just the first entity to get breakdown values is ok.
         if this is a multi property breakdown then the breakdown values are misleading
         e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
-        so the generated list here must be [[Chrome, 95], [Safari, 15]]G
+        so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
         if self._filter.breakdown:
             limit = self._filter.breakdown_limit_or_default
