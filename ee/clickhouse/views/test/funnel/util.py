@@ -68,13 +68,13 @@ def get_funnel_actors_ok(client: Client, url: str):
 
 def get_actor_ids(
     actors: Union[List[SerializedGroup], List[SerializedPerson]], is_aggregating_by_group=False
-) -> List[int]:
+) -> List[str]:
     if is_aggregating_by_group:
         serialized_groups = cast(List[SerializedGroup], actors)
         return [val["group_key"] for val in serialized_groups]
     else:
         serialized_people = cast(List[SerializedPerson], actors)
-        return [val["id"] for val in serialized_people]
+        return [str(val["id"]) for val in serialized_people]
 
 
 def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):

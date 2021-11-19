@@ -36,19 +36,6 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
 
-    def _get_actor_ids_from(self, filter, funnel_step, breakdown_value=None):
-        person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        funnel_query_builder = ClickhouseFunnel(person_filter, self.team)
-        is_aggregating_by_groups = funnel_query_builder.is_aggregating_by_groups
-        _, serialized_result = funnel_query_builder.get_actors()
-
-        if is_aggregating_by_groups:
-            serialized_groups = cast(List[SerializedGroup], serialized_result)
-            return [val["group_key"] for val in serialized_groups]
-        else:
-            serialized_people = cast(List[SerializedPerson], serialized_result)
-            return [val["id"] for val in serialized_people]
-
     def _create_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
