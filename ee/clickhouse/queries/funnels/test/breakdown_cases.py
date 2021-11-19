@@ -58,6 +58,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = FunnelPerson(person_filter, self.team)._exec_query()
             return [row[0] for row in result]
 
+        @test_with_materialized_columns(["$browser", "$browser_version"])
         def test_funnel_step_multi_property_breakdown_event(self):
 
             filters = {
