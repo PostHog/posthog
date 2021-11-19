@@ -14,11 +14,15 @@ FROM mcr.microsoft.com/vscode/devcontainers/python:3.9-bullseye
 # We might want to, e.g. install pip and node packages, but for now I'm just
 # expecting to have to install these manually, for evaluation purposes.
 
+ARG TARGETPLATFORM
+ENV ARM64_PLATFORM=linux/arm64
+
 # Add clickhouse deb repo. Note that as of writing this repo doesn't have arm64
 # debs so if you're e.g. on an M1 you'll have issues building this image
-RUN apt-get install apt-transport-https ca-certificates dirmngr
-RUN apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv E0C56BD4
-RUN echo "deb https://repo.clickhouse.com/deb/stable/ main/" | tee \
+RUN [ "${TARGETPLATFORM}" != "${ARM64_PLATFORM}" ] \
+    || apt-get install apt-transport-https ca-certificates dirmngr \
+    && apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv E0C56BD4 \
+    && echo "deb https://repo.clickhouse.com/deb/stable/ main/" | tee \
         /etc/apt/sources.list.d/clickhouse.list
 
 RUN apt-get update \
@@ -27,6 +31,34 @@ RUN apt-get update \
         docker.io \
         # Add in useful db debugging tools
         postgresql-client \
-        clickhouse-client \
+        $([ "${TARGETPLATFORM}" = "${ARM64_PLATFORM}" ] || echo "clickhouse-client") \
     && rm -rf /var/lib/apt/lists/*
 
+# Compile and install Python dependencies.
+#
+# Notes:
+#
+# - we explicitly COPY the files so that we don't need to rebuild
+#   the container every time a dependency changes
+#
+# - we need few additional OS packages for this. Let's install
+#   and then uninstall them when the compilation is completed.
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
+    pip install -r requirements.txt --compile --no-cache-dir
+
+# Compile and install Yarn dependencies.
+#
+# Notes:
+#
+# - we explicitly COPY the files so that we don't need to rebuild
+#   the container every time a dependency changes
+#
+# - we need few additional OS packages for this. Let's install
+#   and then uninstall them when the compilation is completed.
+COPY package.json yarn.lock ./
+COPY ./plugin-server/ ./plugin-server/
+RUN yarn config set network-timeout 300000 && \
+    yarn install --frozen-lockfile && \
+    yarn install --frozen-lockfile --cwd plugin-server && \
+    yarn cache clean
