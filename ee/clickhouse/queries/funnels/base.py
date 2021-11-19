@@ -106,10 +106,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
             boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
             data.update({"breakdown": boxed_breakdown})
 
-        if isinstance(self._filter.funnel_step_breakdown, str):
-            if self._filter.funnel_step_breakdown.startswith("["):  # naive list as string detection
-                data.update({"funnel_step_breakdown": json.loads(self._filter.funnel_step_breakdown)})
-
         for exclusion in self._filter.exclusions:
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
                 raise ValidationError("Exclusion event needs to define funnel steps")
@@ -160,13 +156,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
 
             if with_breakdown:
-                serialized_result.update({"breakdown": results[-1], "breakdown_value": results[-1]})
+                breakdown = results[-1]
+                serialized_result.update({"breakdown": breakdown, "breakdown_value": breakdown})
                 # important to not try and modify this value any how - as these
                 # are keys for fetching persons
 
                 # Add in the breakdown to people urls as well
-                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": results[-1]})
-                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": results[-1]})
+                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": breakdown})
+                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": breakdown})
 
             serialized_result.update(
                 {
@@ -445,19 +442,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
             raise ValueError("Missing both funnel_step and funnel_custom_steps")
 
         if self._filter.funnel_step_breakdown is not None:
-            prop_vals = self._parse_breakdown_prop_value()
-            self.params.update({"breakdown_prop_value": prop_vals})
-            conditions.append("hasAll(arrayFlatten(array(prop)), arrayFlatten(%(breakdown_prop_value)s))")
+            self.params.update({"breakdown_prop_value": self._filter.funnel_step_breakdown})
+            conditions.append("hasAll(arrayFlatten(array(prop)), arrayFlatten(array(%(breakdown_prop_value)s)))")
 
         return " AND ".join(conditions)
-
-    def _parse_breakdown_prop_value(self):
-        prop_vals: List[Union[str, int]] = (
-            [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
-            if isinstance(self._filter.funnel_step_breakdown, str)
-            else [cast(int, self._filter.funnel_step_breakdown)]
-        )
-        return prop_vals
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []

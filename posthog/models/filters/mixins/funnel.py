@@ -172,11 +172,25 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
     @cached_property
-    def funnel_step_breakdown(self) -> Optional[Union[str, int]]:
+    def funnel_step_breakdown(self) -> Optional[Union[List[str], int, str]]:
         """
         The breakdown value for which to get persons for.
+
+        For person and event properties as this value is set within the funnel it is always an array.
+        Until multi property breakdowns is released it is always a single value array
+
+        for groups it is always a string
+
+        for cohorts it is always an int
         """
-        return self._data.get(FUNNEL_STEP_BREAKDOWN)
+        raw: Optional[str] = self._data.get(FUNNEL_STEP_BREAKDOWN)
+        if not raw:
+            return raw
+
+        try:
+            return json.loads(raw)
+        except (TypeError, json.decoder.JSONDecodeError):
+            return raw
 
     @include_dict
     def funnel_person_breakdown_to_dict(self):
