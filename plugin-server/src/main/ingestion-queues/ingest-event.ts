@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/node'
 import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
+import { Action } from './../../types'
 
 export async function ingestEvent(
     server: Hub,
@@ -32,11 +33,15 @@ export async function ingestEvent(
     checkAndPause?.()
 
     if (processedEvent) {
+        let actionMatches: Action[] = []
         await Promise.all([
             runInstrumentedFunction({
                 server,
                 event: processedEvent,
-                func: (event) => workerMethods.ingestEvent(event),
+                func: async (event) => {
+                    const result = await workerMethods.ingestEvent(event)
+                    actionMatches = result.actionMatches || []
+                },
                 statsKey: 'kafka_queue.single_ingestion',
                 timeoutMessage: 'After 30 seconds still ingesting event',
             }),
@@ -48,6 +53,20 @@ export async function ingestEvent(
                 timeoutMessage: `After 30 seconds still running ${isSnapshot ? 'onSnapshot' : 'onEvent'}`,
             }),
         ])
+
+        if (actionMatches.length > 0) {
+            await Promise.all(
+                actionMatches.map((actionMatch) =>
+                    runInstrumentedFunction({
+                        server,
+                        event: processedEvent!,
+                        func: (event) => workerMethods.onAction(actionMatch, event),
+                        statsKey: `kafka_queue.on_action`,
+                        timeoutMessage: 'After 30 seconds still running onAction',
+                    })
+                )
+            )
+        }
     }
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
