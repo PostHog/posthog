@@ -194,7 +194,7 @@ export function Dashboards(): JSX.Element {
                     rowKey="id"
                     pagination={{ pageSize: 100 }}
                     columns={columns}
-                    defaultSorting={{ columnIndex: 1, order: -1 }}
+                    defaultSorting={{ columnIndex: 0, order: -1 }}
                 />
             ) : (
                 <div>
