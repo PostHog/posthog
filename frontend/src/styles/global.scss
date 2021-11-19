@@ -351,12 +351,23 @@ code.code {
     animation: highlight 2000ms ease-out;
 }
 
+// Highlight background blink
 @keyframes highlight {
     0% {
         background-color: $yellow_50;
     }
     100% {
         background-color: initial;
+    }
+}
+
+// Generic 360 spin
+@keyframes spin {
+    0% {
+        transform: rotateZ(0deg);
+    }
+    100% {
+        transform: rotateZ(360deg);
     }
 }
 

@@ -1,0 +1,55 @@
+@import '~/vars';
+
+.spinner {
+    animation: spin 1s infinite linear;
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    .base,
+    .overlay {
+        display: block;
+        fill: transparent;
+        stroke: var(--primary);
+        stroke-width: 8px;
+        transform-origin: center;
+    }
+    .base {
+        opacity: 0.25;
+    }
+    .overlay {
+        animation: writhe 1s infinite ease both;
+        stroke-linecap: round;
+        stroke-dashoffset: -30;
+        stroke-dasharray: 60;
+    }
+    &.inverse {
+        .base,
+        .overlay {
+            stroke: #fff;
+        }
+    }
+    &.sm {
+        width: 16px;
+        height: 16px;
+    }
+    &.lg {
+        width: 64px;
+        height: 64px;
+    }
+}
+
+@keyframes writhe {
+    0% {
+        stroke-dashoffset: -40;
+        stroke-dasharray: 50;
+    }
+    50% {
+        stroke-dashoffset: -30;
+        stroke-dasharray: 70;
+    }
+    100% {
+        stroke-dashoffset: -40;
+        stroke-dasharray: 50;
+    }
+}
