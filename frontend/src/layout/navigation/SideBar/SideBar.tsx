@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
-import { ProjectSwitcherOverlay } from '~/layout/lemonade/ProjectSwitcher'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconArrowDropDown,
     IconBarChart,
@@ -32,14 +32,14 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { urls } from '../../../scenes/urls'
 import { InsightType } from '../../../types'
 import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
-import { lemonadeLogic } from '../lemonadeLogic'
+import { navigationLogic } from '../navigationLogic'
 import './SideBar.scss'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { isProjectSwitcherShown } = useValues(lemonadeLogic)
-    const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(lemonadeLogic)
+    const { isProjectSwitcherShown } = useValues(navigationLogic)
+    const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
 
     return (
         <div className="ProjectSwitcher">
@@ -108,7 +108,7 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { showToolbarModal } = useActions(lemonadeLogic)
+    const { showToolbarModal } = useActions(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
@@ -196,8 +196,8 @@ function Pages(): JSX.Element {
 
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { isSideBarShown, isToolbarModalShown } = useValues(lemonadeLogic)
-    const { hideSideBar, hideToolbarModal } = useActions(lemonadeLogic)
+    const { isSideBarShown, isToolbarModalShown } = useValues(navigationLogic)
+    const { hideSideBar, hideToolbarModal } = useActions(navigationLogic)
 
     return (
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
