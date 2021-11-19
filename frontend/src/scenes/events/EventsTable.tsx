@@ -14,7 +14,6 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
 import { ActionType, EventsTableRowItem, EventType, InsightType } from '~/types'
-import { PageHeader } from 'lib/components/PageHeader'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -24,9 +23,11 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
-import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
+import { EventsTab } from 'scenes/events/EventsTabs'
 import { urls } from 'scenes/urls'
+import { EventPageHeader } from './EventPageHeader'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+
 export interface FixedFilters {
     action_id?: ActionType['id']
     person_id?: string | number
@@ -288,14 +289,9 @@ export function EventsTable({
     )
 
     return (
-        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 32 } : {}}>
-            {sceneIsEventsPage ? <EventsTabs tab={EventsTab.Events} /> : null}
+        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 16 } : undefined}>
             <div className="events" data-attr="events-table">
-                <PageHeader
-                    title="Events"
-                    caption="See events being sent to this project in near real time."
-                    style={{ marginTop: 0 }}
-                />
+                <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
 
                 <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12}>
