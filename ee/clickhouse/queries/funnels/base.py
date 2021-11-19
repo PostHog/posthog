@@ -442,7 +442,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
             raise ValueError("Missing both funnel_step and funnel_custom_steps")
 
         if self._filter.funnel_step_breakdown is not None:
-            self.params.update({"breakdown_prop_value": self._filter.funnel_step_breakdown})
+            breakdown_prop_value = self._filter.funnel_step_breakdown
+            if isinstance(breakdown_prop_value, int) and self._filter.breakdown_type != "cohort":
+                breakdown_prop_value = str(breakdown_prop_value)
+
+            self.params.update({"breakdown_prop_value": breakdown_prop_value})
             conditions.append("hasAll(arrayFlatten(array(prop)), arrayFlatten(array(%(breakdown_prop_value)s)))")
 
         return " AND ".join(conditions)

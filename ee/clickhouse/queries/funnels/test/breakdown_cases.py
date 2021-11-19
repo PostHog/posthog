@@ -817,6 +817,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
                     {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Safari"}},
                     {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                    # mixed property type!
                     {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15), "properties": {"$browser": 0}},
                 ]
             }
