@@ -447,18 +447,11 @@ def test_parse_prop_clauses_defaults(snapshot):
 
 
 TEST_BREAKDOWN_PROCESSING = [
-    ("$browser", "events", "properties", "prop", "trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')) AS prop"),
-    (
-        ["$browser"],
-        "events",
-        "properties",
-        "value",
-        "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser'))) AS value",
-    ),
+    ("$browser", "events", "prop", "trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')) AS prop"),
+    (["$browser"], "events", "value", "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser'))) AS value",),
     (
         ["$browser", "$browser_version"],
         "events",
-        "properties",
         "prop",
         "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')),trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser_version'))) AS prop",
     ),
@@ -467,13 +460,9 @@ TEST_BREAKDOWN_PROCESSING = [
 
 @pytest.mark.parametrize("breakdown, table, prop_var, identifier, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
-    breakdown: Union[str, List[str]],
-    table: TableWithProperties,
-    prop_var: str,
-    identifier: Literal["prop", "value"],
-    expected: str,
+    breakdown: Union[str, List[str]], table: TableWithProperties, identifier: Literal["prop", "value"], expected: str,
 ):
-    actual = get_single_or_multi_property_string_expr(breakdown, table, prop_var, identifier)
+    actual = get_single_or_multi_property_string_expr(breakdown, table, identifier)
 
     assert actual == expected
 

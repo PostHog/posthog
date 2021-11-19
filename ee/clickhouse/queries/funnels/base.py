@@ -508,11 +508,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, "person", "person_props", "prop"
-                )
+                return get_single_or_multi_property_string_expr(self._filter.breakdown, "person", "prop")
             elif self._filter.breakdown_type == "event":
-                return get_single_or_multi_property_string_expr(self._filter.breakdown, "events", "properties", "prop")
+                return get_single_or_multi_property_string_expr(self._filter.breakdown, "events", "prop")
             elif self._filter.breakdown_type == "cohort":
                 return "value AS prop"
             elif self._filter.breakdown_type == "group":

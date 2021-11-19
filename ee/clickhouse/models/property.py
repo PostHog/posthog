@@ -250,7 +250,7 @@ def property_table(property: Property) -> TableWithProperties:
 
 
 def get_single_or_multi_property_string_expr(
-    breakdown, table: TableWithProperties, prop_var: str, identifier: Literal["prop", "value"]
+    breakdown, table: TableWithProperties, identifier: Literal["prop", "value"]
 ):
     """
     When querying for breakdown properties:
@@ -259,12 +259,15 @@ def get_single_or_multi_property_string_expr(
     clickhouse parameterizes into a query template from a flat list using % string formatting
     values are escaped and inserted in the query here instead of adding new items to the flat list of values
     """
+
+    column = "properties" if table == "events" else "person_props"
+
     if isinstance(breakdown, str) or isinstance(breakdown, int):
-        expression, _ = get_property_string_expr(table, str(breakdown), escape_param(breakdown), prop_var)
+        expression, _ = get_property_string_expr(table, str(breakdown), escape_param(breakdown), column)
     else:
         expressions = []
         for b in breakdown:
-            expr, _ = get_property_string_expr(table, b, escape_param(b), prop_var)
+            expr, _ = get_property_string_expr(table, b, escape_param(b), column)
             expressions.append(expr)
 
         expression = f"array({','.join(expressions)})"
@@ -276,7 +279,7 @@ def get_property_string_expr(
     table: TableWithProperties,
     property_name: PropertyName,
     var: str,
-    prop_var: str,
+    column: str,
     allow_denormalized_props: bool = True,
 ) -> Tuple[str, bool]:
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
@@ -284,7 +287,7 @@ def get_property_string_expr(
     if allow_denormalized_props and property_name in materialized_columns:
         return materialized_columns[property_name], True
 
-    return f"trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, {var}))", False
+    return f"trim(BOTH '\"' FROM JSONExtractRaw({column}, {var}))", False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
