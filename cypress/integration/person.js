@@ -69,7 +69,7 @@ describe('Merge person', () => {
         cy.contains('Merge persons').click()
 
         cy.contains('Automatically load new events').click()
-        cy.contains('$create_alias').should('exist')
+        cy.contains('$create_alias', { timeout: 20000 }).should('exist')
         cy.get('span:contains(Pageview)').should('have.length', 2)
         cy.get('span:contains(clicked)').should('have.length', 2)
     })
