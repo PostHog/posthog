@@ -92,9 +92,7 @@ export function PlayerEvents(): JSX.Element {
                         align="top"
                         style={style}
                         onClick={() => {
-                            if (!isCurrent) {
-                                handleEventClick(event.timestamp)
-                            }
+                            handleEventClick(event.timestamp)
                         }}
                     >
                         <Col className="event-item-icon">

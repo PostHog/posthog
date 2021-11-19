@@ -95,6 +95,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
         },
         handleEventClick: ({ time }) => {
             if (!!time && !isNaN(time)) {
+                // console.log("TIME", time)
                 actions.seek(time)
             }
         },
@@ -117,9 +118,9 @@ export const eventsListLogic = kea<eventsListLogicType>({
                     return { start: 0, end: 0 }
                 }
                 const startIndex = events.findIndex(
-                    (e) => (e.zeroOffsetTime ?? 0) > ceilMsToClosestSecond(time.current)
+                    (e) => (e.zeroOffsetTime ?? 0) >= ceilMsToClosestSecond(time.current)
                 )
-                const end = ceilMsToClosestSecond(time.current)
+                const end = Math.max(ceilMsToClosestSecond(time.current), 1000)
                 const start = floorMsToClosestSecond(
                     events[clamp(startIndex === -1 ? events.length - 1 : startIndex - 1, 0, events.length - 1)]
                         .zeroOffsetTime ?? 0
