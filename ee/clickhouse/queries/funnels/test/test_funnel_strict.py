@@ -10,6 +10,7 @@ from ee.clickhouse.queries.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
@@ -59,47 +60,31 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
         filter = Filter(data=filters)
         funnel = ClickhouseFunnelStrict(filter, self.team)
 
-        # event
-        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="sign up",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T12:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="blah",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T13:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="play movie",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T14:00:00Z",
-        )
-
-        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="sign up",
-            distinct_id="person2",
-            properties={"key": "val", "$browser": "Safari"},
-            timestamp="2020-01-02T13:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="play movie",
-            distinct_id="person2",
-            properties={"key": "val", "$browser": "Safari"},
-            timestamp="2020-01-02T14:00:00Z",
+        people = journeys_for(
+            {
+                "person1": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
+                    {"event": "blah", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Chrome"}},
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 14),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                ],
+                "person2": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}},
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$browser": "Safari"},
+                    },
+                ],
+            },
+            self.team,
         )
 
         result = funnel.run()
+
         assert_funnel_results_equal(
             result[0],
             [
@@ -131,7 +116,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
         self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
 
         assert_funnel_results_equal(
@@ -165,8 +150,8 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [people["person2"].uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
 
 class TestFunnelStrictStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_person)):  # type: ignore
@@ -198,56 +183,46 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         funnel = ClickhouseFunnelStrict(filter, self.team)
 
-        person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-
-        person2_stopped_after_one_pageview = _create_person(
-            distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
+        people = journeys_for(
+            {
+                "stopped_after_signup1": [{"event": "user signed up"},],
+                "stopped_after_pageview1": [{"event": "$pageview"}, {"event": "user signed up"},],
+                "stopped_after_insightview": [
+                    {"event": "user signed up"},
+                    {"event": "$pageview"},
+                    {"event": "blaah blaa"},
+                    {"event": "insight viewed"},
+                ],
+                "stopped_after_insightview2": [
+                    {"event": "insight viewed"},
+                    {"event": "blaah blaa"},
+                    {"event": "$pageview"},
+                    {"event": "user signed up"},
+                ],
+                "stopped_after_insightview3": [
+                    {"event": "$pageview"},
+                    {"event": "user signed up"},
+                    {"event": "blaah blaa"},
+                    {"event": "$pageview"},
+                    {"event": "insight viewed"},
+                ],
+                "person6": [
+                    {"event": "blaah blaa"},
+                    {"event": "user signed up"},
+                    {"event": "blaah blaa"},
+                    {"event": "$pageview"},
+                ],
+                "person7": [
+                    {"event": "blaah blaa"},
+                    {"event": "user signed up"},
+                    {"event": "$pageview"},
+                    {"event": "insight viewed"},
+                    {"event": "blaah blaa"},
+                ],
+                "stopped_after_insightview6": [{"event": "insight viewed"}, {"event": "$pageview"},],
+            },
+            self.team,
         )
-        _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview1")
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview1")
-
-        person3_stopped_after_insight_view = _create_person(
-            distinct_ids=["stopped_after_insightview"], team_id=self.team.pk
-        )
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_insightview")
-        _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_insightview")
-        _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_insightview")
-        _create_event(team=self.team, event="insight viewed", distinct_id="stopped_after_insightview")
-
-        person4_stopped_after_insight_view_not_strict_order = _create_person(
-            distinct_ids=["stopped_after_insightview2"], team_id=self.team.pk
-        )
-        _create_event(team=self.team, event="insight viewed", distinct_id="stopped_after_insightview2")
-        _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_insightview2")
-        _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_insightview2")
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_insightview2")
-
-        person5_stopped_after_insight_view_random = _create_person(
-            distinct_ids=["stopped_after_insightview3"], team_id=self.team.pk
-        )
-        _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_insightview3")
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_insightview3")
-        _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_insightview3")
-        _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_insightview3")
-        _create_event(team=self.team, event="insight viewed", distinct_id="stopped_after_insightview3")
-
-        person6 = _create_person(distinct_ids=["person6"], team_id=self.team.pk)
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person6")
-        _create_event(team=self.team, event="user signed up", distinct_id="person6")
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person6")
-        _create_event(team=self.team, event="$pageview", distinct_id="person6")
-
-        person7 = _create_person(distinct_ids=["person7"], team_id=self.team.pk)
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person7")
-        _create_event(team=self.team, event="user signed up", distinct_id="person7")
-        _create_event(team=self.team, event="$pageview", distinct_id="person7")
-        _create_event(team=self.team, event="insight viewed", distinct_id="person7")
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person7")
-
-        person8_didnot_signup = _create_person(distinct_ids=["stopped_after_insightview6"], team_id=self.team.pk)
-        _create_event(team=self.team, event="insight viewed", distinct_id="stopped_after_insightview6")
-        _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_insightview6")
 
         result = funnel.run()
 
@@ -259,22 +234,22 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
             [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_insight_view.uuid,
-                person4_stopped_after_insight_view_not_strict_order.uuid,
-                person5_stopped_after_insight_view_random.uuid,
-                person6.uuid,
-                person7.uuid,
+                people["stopped_after_signup1"].uuid,
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_insightview"].uuid,
+                people["stopped_after_insightview2"].uuid,
+                people["stopped_after_insightview3"].uuid,
+                people["person6"].uuid,
+                people["person7"].uuid,
             ],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2), [person3_stopped_after_insight_view.uuid, person7.uuid,],
+            self._get_people_at_step(filter, 2), [people["stopped_after_insightview"].uuid, people["person7"].uuid,],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3), [person7.uuid],
+            self._get_people_at_step(filter, 3), [people["person7"].uuid,],
         )
 
     def test_advanced_strict_funnel(self):
@@ -306,65 +281,58 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data=filters)
         funnel = ClickhouseFunnelStrict(filter, self.team)
 
-        person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-
-        person2_stopped_after_one_pageview = _create_person(
-            distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
+        people = journeys_for(
+            {
+                "stopped_after_signup1": [{"event": "user signed up"}],
+                "stopped_after_pageview1": [{"event": "user signed up"}, {"event": "$pageview"},],
+                "stopped_after_insightview": [
+                    {"event": "user signed up"},
+                    {"event": "sign up", "properties": {"key": "val"}},
+                    {"event": "sign up", "properties": {"key": "val2"}},
+                    {"event": "$pageview"},
+                    {"event": "blaah blaa"},
+                    {"event": "insight viewed"},
+                ],
+                "person4": [
+                    {"event": "blaah blaa"},
+                    {"event": "user signed up"},
+                    {"event": "sign up", "properties": {"key": "val"}},
+                    {"event": "$pageview", "properties": {"key": "val"}},
+                    {"event": "blaah blaa"},
+                ],
+                "person5": [
+                    {"event": "blaah blaa"},
+                    {"event": "user signed up"},
+                    {"event": "sign up", "properties": {"key": "val"}},
+                    {"event": "$pageview"},
+                    {"event": "blaah blaa"},
+                ],
+                "person6": [
+                    {"event": "blaah blaa"},
+                    {"event": "user signed up"},
+                    {"event": "sign up", "properties": {"key": "val"}},
+                    {"event": "$pageview"},
+                    {"event": "pageview", "properties": {"key": "val1"}},
+                ],
+                "person7": [
+                    {"event": "blaah blaa"},
+                    {"event": "user signed up"},
+                    {"event": "sign up", "properties": {"key": "val"}},
+                    {"event": "$pageview"},
+                    {"event": "user signed up"},
+                    {"event": "pageview", "properties": {"key": "val"}},
+                ],
+                "person8": [
+                    {"event": "blaah blaa"},
+                    {"event": "user signed up"},
+                    {"event": "user signed up"},
+                    {"event": "sign up", "properties": {"key": "val"}},
+                    {"event": "$pageview"},
+                    {"event": "pageview", "properties": {"key": "val"}},
+                ],
+            },
+            self.team,
         )
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview1")
-        _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview1")
-
-        person3_stopped_after_insight_view = _create_person(
-            distinct_ids=["stopped_after_insightview"], team_id=self.team.pk
-        )
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_insightview")
-        _create_event(
-            team=self.team, event="sign up", distinct_id="stopped_after_insightview", properties={"key": "val"}
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="stopped_after_insightview", properties={"key": "val2"}
-        )
-        _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_insightview")
-        _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_insightview")
-        _create_event(team=self.team, event="insight viewed", distinct_id="stopped_after_insightview")
-
-        person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person4")
-        _create_event(team=self.team, event="user signed up", distinct_id="person4")
-        _create_event(team=self.team, event="sign up", distinct_id="person4", properties={"key": "val"})
-        _create_event(team=self.team, event="$pageview", distinct_id="person4", properties={"key": "val"})
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person4")
-
-        person5 = _create_person(distinct_ids=["person5"], team_id=self.team.pk)
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person5")
-        _create_event(team=self.team, event="user signed up", distinct_id="person5")
-        _create_event(team=self.team, event="sign up", distinct_id="person5", properties={"key": "val"})
-        _create_event(team=self.team, event="$pageview", distinct_id="person5")
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person5")
-
-        person6 = _create_person(distinct_ids=["person6"], team_id=self.team.pk)
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person6")
-        _create_event(team=self.team, event="user signed up", distinct_id="person6")
-        _create_event(team=self.team, event="sign up", distinct_id="person6", properties={"key": "val"})
-        _create_event(team=self.team, event="$pageview", distinct_id="person6")
-        _create_event(team=self.team, event="pageview", distinct_id="person6", properties={"key": "val1"})
-
-        person7 = _create_person(distinct_ids=["person7"], team_id=self.team.pk)
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person7")
-        _create_event(team=self.team, event="user signed up", distinct_id="person7")
-        _create_event(team=self.team, event="sign up", distinct_id="person7", properties={"key": "val"})
-        _create_event(team=self.team, event="$pageview", distinct_id="person7")
-        _create_event(team=self.team, event="user signed up", distinct_id="person7")
-        _create_event(team=self.team, event="pageview", distinct_id="person7", properties={"key": "val"})
-
-        person8 = _create_person(distinct_ids=["person8"], team_id=self.team.pk)
-        _create_event(team=self.team, event="blaah blaa", distinct_id="person8")
-        _create_event(team=self.team, event="user signed up", distinct_id="person8")
-        _create_event(team=self.team, event="user signed up", distinct_id="person8")
-        _create_event(team=self.team, event="sign up", distinct_id="person8", properties={"key": "val"})
-        _create_event(team=self.team, event="$pageview", distinct_id="person8")
-        _create_event(team=self.team, event="pageview", distinct_id="person8", properties={"key": "val"})
 
         result = funnel.run()
 
@@ -377,36 +345,42 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
             [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_insight_view.uuid,
-                person4.uuid,
-                person5.uuid,
-                person6.uuid,
-                person7.uuid,
-                person8.uuid,
+                people["stopped_after_signup1"].uuid,
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_insightview"].uuid,
+                people["person4"].uuid,
+                people["person5"].uuid,
+                people["person6"].uuid,
+                people["person7"].uuid,
+                people["person8"].uuid,
             ],
         )
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 2),
             [
-                person3_stopped_after_insight_view.uuid,
-                person4.uuid,
-                person5.uuid,
-                person6.uuid,
-                person7.uuid,
-                person8.uuid,
+                people["stopped_after_insightview"].uuid,
+                people["person4"].uuid,
+                people["person5"].uuid,
+                people["person6"].uuid,
+                people["person7"].uuid,
+                people["person8"].uuid,
             ],
         )
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 3),
-            [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid,],
+            [
+                people["person4"].uuid,
+                people["person5"].uuid,
+                people["person6"].uuid,
+                people["person7"].uuid,
+                people["person8"].uuid,
+            ],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 4), [person8.uuid,],
+            self._get_people_at_step(filter, 4), [people["person8"].uuid,],
         )
 
     def test_basic_strict_funnel_conversion_times(self):
@@ -425,41 +399,20 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         funnel = ClickhouseFunnelStrict(filter, self.team)
 
-        person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        _create_event(
-            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", timestamp="2021-05-02 00:00:00"
-        )
-
-        person2_stopped_after_one_pageview = _create_person(
-            distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
-        )
-        _create_event(
-            team=self.team,
-            event="user signed up",
-            distinct_id="stopped_after_pageview1",
-            timestamp="2021-05-02 00:00:00",
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="stopped_after_pageview1", timestamp="2021-05-02 01:00:00"
-        )
-
-        person3_stopped_after_insight_view = _create_person(
-            distinct_ids=["stopped_after_insightview"], team_id=self.team.pk
-        )
-        _create_event(
-            team=self.team,
-            event="user signed up",
-            distinct_id="stopped_after_insightview",
-            timestamp="2021-05-02 00:00:00",
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="stopped_after_insightview", timestamp="2021-05-02 02:00:00"
-        )
-        _create_event(
-            team=self.team,
-            event="insight viewed",
-            distinct_id="stopped_after_insightview",
-            timestamp="2021-05-02 04:00:00",
+        people = journeys_for(
+            {
+                "stopped_after_signup1": [{"event": "user signed up", "timestamp": datetime(2021, 5, 2)}],
+                "stopped_after_pageview1": [
+                    {"event": "user signed up", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "$pageview", "timestamp": datetime(2021, 5, 2, 1)},
+                ],
+                "stopped_after_insightview": [
+                    {"event": "user signed up", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "$pageview", "timestamp": datetime(2021, 5, 2, 2)},
+                    {"event": "insight viewed", "timestamp": datetime(2021, 5, 2, 4)},
+                ],
+            },
+            self.team,
         )
 
         result = funnel.run()
@@ -478,17 +431,17 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
             [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_insight_view.uuid,
+                people["stopped_after_signup1"].uuid,
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_insightview"].uuid,
             ],
         )
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 2),
-            [person2_stopped_after_one_pageview.uuid, person3_stopped_after_insight_view.uuid],
+            [people["stopped_after_pageview1"].uuid, people["stopped_after_insightview"].uuid,],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3), [person3_stopped_after_insight_view.uuid],
+            self._get_people_at_step(filter, 3), [people["stopped_after_insightview"].uuid,],
         )
