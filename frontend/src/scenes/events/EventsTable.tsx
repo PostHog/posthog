@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { DownloadOutlined, ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Col, Row, Spin } from 'antd'
+import { Button, Col, Row } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription, toParams } from 'lib/utils'
@@ -26,6 +26,8 @@ import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic
 import { EventsTab } from 'scenes/events/EventsTabs'
 import { urls } from 'scenes/urls'
 import { EventPageHeader } from './EventPageHeader'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+
 export interface FixedFilters {
     action_id?: ActionType['id']
     person_id?: string | number
@@ -389,8 +391,13 @@ export function EventsTable({
                             textAlign: 'center',
                         }}
                     >
-                        <Button type="primary" onClick={fetchNextEvents}>
-                            {isLoadingNext ? <Spin /> : 'Load more events'}
+                        <Button
+                            type="primary"
+                            onClick={fetchNextEvents}
+                            disabled={isLoadingNext}
+                            style={{ display: 'inline-flex', alignItems: 'center' }}
+                        >
+                            {isLoadingNext ? <Spinner size="sm" /> : 'Load more events'}
                         </Button>
                     </div>
                 </div>

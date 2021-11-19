@@ -33,7 +33,7 @@ import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
-import { updatePersonProperties } from './properties-updater'
+import { updatePersonProperties, upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
 
@@ -523,7 +523,7 @@ export class EventsProcessor {
         )
 
         if (event === '$groupidentify') {
-            await this.upsertGroup(teamId, properties)
+            await this.upsertGroup(teamId, properties, timestamp)
         } else if (!createdNewPersonWithProperties && (properties['$set'] || properties['$set_once'])) {
             await this.updatePersonProperties(
                 teamId,
@@ -689,8 +689,7 @@ export class EventsProcessor {
         return false
     }
 
-    // :TODO: Support _updating_ part of properties, not just setting everything at once.
-    private async upsertGroup(teamId: number, properties: Properties): Promise<void> {
+    private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
         if (!properties['$group_type'] || !properties['$group_key']) {
             return
         }
@@ -699,7 +698,7 @@ export class EventsProcessor {
         const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
 
         if (groupTypeIndex !== null) {
-            await this.db.upsertGroup(teamId, groupTypeIndex, groupKey, groupPropertiesToSet || {})
+            await upsertGroup(this.db, teamId, groupTypeIndex, groupKey, groupPropertiesToSet || {}, timestamp)
         }
     }
 }

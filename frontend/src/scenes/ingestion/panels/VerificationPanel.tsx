@@ -2,11 +2,12 @@ import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
-import { Button, Row, Spin, Space, Popconfirm, Dropdown, Menu, Typography } from 'antd'
+import { Button, Row, Space, Popconfirm, Dropdown, Menu, Typography } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { DownOutlined, SlackSquareOutlined, ReadOutlined } from '@ant-design/icons'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { teamLogic } from 'scenes/teamLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 const { Text } = Typography
 
@@ -112,14 +113,15 @@ export function VerificationPanel(): JSX.Element {
         <CardContainer index={index} totalSteps={totalSteps} onBack={() => setVerify(false)}>
             {!currentTeam?.ingested_event ? (
                 <>
-                    <Row align="middle">
-                        <Spin />
-                        <h2 className="ml-3">Listening for events!</h2>
+                    <Row className="flex-center">
+                        <Spinner style={{ marginRight: 4 }} />
+                        <h2 className="ml-3" style={{ marginBottom: 0, color: 'var(--primary-alt)' }}>
+                            Listening for events...
+                        </h2>
                     </Row>
-                    <p className="prompt-text">
-                        {' '}
-                        Once you have integrated the snippet and sent an event, we will verify it sent properly and
-                        continue.
+                    <p className="prompt-text mt-05">
+                        Once you have integrated the snippet and sent an event, we will verify it was properly received
+                        and continue.
                     </p>
                     <HelperButtonRow />
                 </>

@@ -548,7 +548,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     ENTITY_ID: "watched movie",
                     "display": "ActionsLineGraphCumulative",
                     "entity_math": "dau",
-                    "events": json.dumps([{"id": "watched movie", "math": "dau"}]),
+                    "events": json.dumps([{"id": "watched movie", "type": "events", "math": "dau"}]),
                 },
             )
             resp = people.content.decode("utf-8").split("\r\n")
