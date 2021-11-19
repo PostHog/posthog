@@ -68,8 +68,7 @@ jobs:
                   context: .
                   file: .devcontainer/Dockerfile
                   push: true
-                  platforms:
-                      - linux/amd64 # codespaces
+                  platforms: linux/amd64
                   # Cache from this branch, or master
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   # NOTE: we use inline as suggested here:
