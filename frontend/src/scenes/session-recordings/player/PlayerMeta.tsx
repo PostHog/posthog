@@ -1,6 +1,6 @@
 import './PlayerMeta.scss'
 import React from 'react'
-import { Col, Row, Skeleton } from 'antd'
+import { Col, Row, Skeleton, Space } from 'antd'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useValues } from 'kea'
@@ -15,15 +15,24 @@ export function PlayerMeta(): JSX.Element {
         <Col className="player-meta-container">
             <Row className="player-meta-person" align="middle" justify="space-between" wrap={false}>
                 <Row className="player-meta-person-title" align="middle" wrap={false}>
-                    <ProfilePicture
-                        name={sessionPerson?.name}
-                        email={sessionPerson?.properties?.$email}
-                        size="md"
-                        style={{ marginRight: '0.5rem' }}
-                    />
-                    <span className="email">
-                        <PersonHeader person={sessionPerson} withIcon={false} />
-                    </span>
+                    {isMetaLoading ? (
+                        <Space>
+                            <Skeleton.Avatar active size="small" shape="circle" />
+                            <Skeleton title={false} active paragraph={{ rows: 1, width: 160 }} />
+                        </Space>
+                    ) : (
+                        <>
+                            <ProfilePicture
+                                name={sessionPerson?.name}
+                                email={sessionPerson?.properties?.$email}
+                                size="md"
+                                style={{ marginRight: '0.5rem' }}
+                            />
+                            <span className="email">
+                                <PersonHeader person={sessionPerson} withIcon={false} />
+                            </span>
+                        </>
+                    )}
                 </Row>
                 <Col>
                     {isMetaLoading ? (
