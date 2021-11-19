@@ -2,18 +2,18 @@ import React from 'react'
 import { Meta } from '@storybook/react'
 import { Layout } from 'antd'
 import { keaStory } from 'lib/storybook/kea-story'
-import lemonadeInitial from './lemonade.initial.json'
+import navigationInitial from './navigation.initial.json'
 import { TopBar } from '../TopBar'
 import { SideBar } from '../SideBar/SideBar'
 
 export default {
-    title: 'PostHog/Lemonade',
+    title: 'PostHog/Navigation',
     parameters: {
         layout: 'fullscreen',
     },
 } as Meta
 
-export const Lemonade = keaStory(
+export const Navigation = keaStory(
     () => (
         <Layout>
             <TopBar />
@@ -22,5 +22,5 @@ export const Lemonade = keaStory(
             </SideBar>
         </Layout>
     ),
-    lemonadeInitial
+    navigationInitial
 )
