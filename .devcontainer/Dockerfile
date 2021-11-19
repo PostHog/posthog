@@ -34,6 +34,10 @@ RUN apt-get update \
         $([ "${TARGETPLATFORM}" = "${ARM64_PLATFORM}" ] || echo "clickhouse-client") \
     && rm -rf /var/lib/apt/lists/*
 
+RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash -
+
+# NOTE: the below is mostly just a copy of /dev.Dockerfile
+
 # Compile and install Python dependencies.
 #
 # Notes:
