@@ -161,6 +161,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ["short_id", "created_by"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0"),
         ):
@@ -234,6 +235,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        import time
+
+        time.sleep(100)
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
         next = format_paginated_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
@@ -241,6 +245,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @cached_function
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
+
         team = self.team
         filter = Filter(request=request, team=self.team)
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
