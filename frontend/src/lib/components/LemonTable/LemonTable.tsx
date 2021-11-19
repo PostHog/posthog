@@ -20,7 +20,7 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     title?: string | React.ReactNode
     key?: keyof T
     dataIndex?: D
-    render?: (dataValue: T[D] | undefined, record: T) => React.ReactNode
+    render?: (dataValue: T[D] | undefined, record: T) => React.ReactNode | string | boolean | null | undefined
     sorter?: (a: T, b: T) => number
     className?: string
     /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */

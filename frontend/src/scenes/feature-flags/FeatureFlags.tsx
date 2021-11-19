@@ -7,7 +7,6 @@ import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { LinkButton } from 'lib/components/LinkButton'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
@@ -18,8 +17,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '../../lib/components/LemonButton'
 import { LemonSpacer } from '../../lib/components/LemonRow'
 import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
-import { LemonTable, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
 import { More } from '../../lib/components/LemonButton/More'
+import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -28,7 +28,7 @@ export const scene: SceneExport = {
 
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags, featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
@@ -50,10 +50,8 @@ export function FeatureFlags(): JSX.Element {
                 )
             },
         },
-        // @ts-expect-error - these functions return an AntD column, but its compatible here too
-        createdByColumn(featureFlags),
-        // @ts-expect-error
-        createdAtColumn(),
+        createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
+        createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
         {
             title: 'Release conditions',
             render: function Render(_, featureFlag: FeatureFlagType) {
