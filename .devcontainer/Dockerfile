@@ -34,7 +34,9 @@ RUN apt-get update \
         $([ "${TARGETPLATFORM}" = "${ARM64_PLATFORM}" ] || echo "clickhouse-client") \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash -
+RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
 # NOTE: the below is mostly just a copy of /dev.Dockerfile
 
@@ -51,18 +53,18 @@ COPY requirements.txt requirements-dev.txt ./
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir
 
-# Compile and install Yarn dependencies.
-#
-# Notes:
-#
-# - we explicitly COPY the files so that we don't need to rebuild
-#   the container every time a dependency changes
-#
-# - we need few additional OS packages for this. Let's install
-#   and then uninstall them when the compilation is completed.
-COPY package.json yarn.lock ./
-COPY ./plugin-server/ ./plugin-server/
-RUN yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile && \
-    yarn install --frozen-lockfile --cwd plugin-server && \
-    yarn cache clean
+# # Compile and install Yarn dependencies.
+# #
+# # Notes:
+# #
+# # - we explicitly COPY the files so that we don't need to rebuild
+# #   the container every time a dependency changes
+# #
+# # - we need few additional OS packages for this. Let's install
+# #   and then uninstall them when the compilation is completed.
+# COPY package.json yarn.lock ./
+# COPY ./plugin-server/ ./plugin-server/
+# RUN yarn config set network-timeout 300000 && \
+#     yarn install --frozen-lockfile && \
+#     yarn install --frozen-lockfile --cwd plugin-server && \
+#     yarn cache clean
