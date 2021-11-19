@@ -187,11 +187,7 @@ export function InsightContainer(): JSX.Element {
             </Card>
             {renderTable()}
 
-            {preflight?.is_clickhouse_enabled &&
-            activeView === InsightType.FUNNELS &&
-            featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
-                <FunnelCorrelation />
-            ) : null}
+            {preflight?.is_clickhouse_enabled && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

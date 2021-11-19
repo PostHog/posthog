@@ -1013,11 +1013,9 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
         ],
         correlationAnalysisAvailable: [
-            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled, s.featureFlags],
-            (hasAvailableFeature, clickhouseFeaturesEnabled, featureFlags) =>
-                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                clickhouseFeaturesEnabled &&
-                hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
+            (hasAvailableFeature, clickhouseFeaturesEnabled) =>
+                clickhouseFeaturesEnabled && hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
         allProperties: [
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],
