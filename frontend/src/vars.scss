@@ -4,7 +4,7 @@ when changing any base config here, please remember to update antd.less too  */
 // Main colors
 $primary: #5375ff;
 $primary_alt: #35416b;
-$primary_hover: #7d9bff;
+$primary_hover: #eef2ff;
 $primary_active: #3d57d9;
 $primary_bg_hover: rgba($primary, 0.1);
 $primary_bg_active: rgba($primary, 0.2);
@@ -23,6 +23,7 @@ $text_default: #2d2d2d;
 $text_light: rgba(255, 255, 255, 0.88);
 $text_muted: rgba(0, 0, 0, 0.5);
 $text_muted_alt: #747ea1;
+$mark_color: #fdedc9;
 
 // Background colors
 $bg_navy: #35416b;
@@ -61,6 +62,7 @@ $antd_table_background_dark: #fafafa;
 $recording_player_container_bg: #797973;
 $recording_buffer_bg: #faaf8c;
 $recording_hover_event: rgba($primary, 0.1);
+$recording_hover_event_mid: rgba($primary, 0.2);
 $recording_hover_event_dark: $primary;
 $recording_current_event: #eef2ff;
 $recording_current_event_dark: #35416b;
