@@ -867,8 +867,14 @@ export interface FilterType {
     max_edge_weight?: number | undefined // Paths
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_correlation_details?: FunnelCorrelationDetails // Correlation details modal opened for event
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
+}
+
+interface FunnelCorrelationDetails {
+    key: string // Event or property name
+    type: 'event' | 'property'
 }
 
 export interface RecordingEventsFilters {

@@ -342,7 +342,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { excludeEventPropertyFromProject, excludeEventFromProject } = useActions(logic)
+    const { excludeEventPropertyFromProject, excludeEventFromProject, setFilters } = useActions(logic)
     const { isEventPropertyExcluded, isEventExcluded } = useValues(logic)
     const components = record.event.event.split('::')
     const [popoverOpen, setPopoverOpen] = useState(false)
@@ -355,6 +355,17 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 onClickOutside={() => setPopoverOpen(false)}
                 overlay={
                     <>
+                        {record.result_type === FunnelCorrelationResultsType.Events && (
+                            <LemonButton
+                                onClick={() =>
+                                    setFilters({ funnel_correlation_details: { key: components[0], type: 'event' } })
+                                }
+                                fullWidth
+                                type="stealth"
+                            >
+                                View correlation details
+                            </LemonButton>
+                        )}
                         <LemonButton
                             disabled={
                                 record.result_type === FunnelCorrelationResultsType.EventWithProperties
@@ -372,11 +383,6 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                         >
                             Exclude event from project
                         </LemonButton>
-                        {record.result_type === FunnelCorrelationResultsType.Events && (
-                            <LemonButton onClick={() => console.log(1)} fullWidth type="stealth">
-                                View correlation details
-                            </LemonButton>
-                        )}
                     </>
                 }
             >

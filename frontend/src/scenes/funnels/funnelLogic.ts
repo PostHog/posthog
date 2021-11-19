@@ -122,7 +122,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
 
     actions: () => ({
         clearFunnel: true,
-        setFilters: (filters: Partial<FilterType>, refresh = false, mergeWithExisting = true) => ({
+        setFilters: (filters: Partial<FilterType>, refresh: boolean = false, mergeWithExisting: boolean = true) => ({
             filters,
             refresh,
             mergeWithExisting,
