@@ -17,11 +17,10 @@ import {
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
 import { urls } from '../../../scenes/urls'
-import { lemonadeLogic } from '../lemonadeLogic'
+import { navigationLogic } from '../navigationLogic'
 import { LicenseType, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
-import { navigationLogic } from '../../navigation/navigationLogic'
 import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
@@ -29,7 +28,7 @@ import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
-} from '~/layout/lemonade/OrganizationSwitcher'
+} from '~/layout/navigation/OrganizationSwitcher'
 import { dayjs } from 'lib/dayjs'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
@@ -43,7 +42,7 @@ function SitePopoverSection({ title, children }: { title?: string; children: any
 
 function AccountInfo(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { closeSitePopover } = useActions(lemonadeLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
 
     return (
         <div className="AccountInfo">
@@ -67,7 +66,7 @@ function AccountInfo(): JSX.Element {
 }
 
 function CurrentOrganization({ organization }: { organization: OrganizationBasicType }): JSX.Element {
-    const { closeSitePopover } = useActions(lemonadeLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
 
     return (
         <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
@@ -90,7 +89,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 }
 
 function InviteMembersButton(): JSX.Element {
-    const { closeSitePopover, showInviteModal } = useActions(lemonadeLogic)
+    const { closeSitePopover, showInviteModal } = useActions(navigationLogic)
 
     return (
         <LemonButton
@@ -108,7 +107,7 @@ function InviteMembersButton(): JSX.Element {
 }
 
 function License(): JSX.Element {
-    const { closeSitePopover } = useActions(lemonadeLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
     const { licenses } = useValues(licenseLogic)
 
     const relevantLicense = licenses[0] as LicenseType | undefined
@@ -138,8 +137,8 @@ function License(): JSX.Element {
 }
 
 function SystemStatus(): JSX.Element {
-    const { closeSitePopover } = useActions(lemonadeLogic)
-    const { systemStatus } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { systemStatus } = useValues(navigationLogic)
 
     return (
         <LemonRow
@@ -165,8 +164,8 @@ function SystemStatus(): JSX.Element {
 }
 
 function Version(): JSX.Element {
-    const { closeSitePopover } = useActions(lemonadeLogic)
-    const { updateAvailable, latestVersion } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { updateAvailable, latestVersion } = useValues(navigationLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -215,9 +214,8 @@ export function SitePopover(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { isSitePopoverOpen } = useValues(lemonadeLogic)
-    const { toggleSitePopover, closeSitePopover } = useActions(lemonadeLogic)
-    const { systemStatus } = useValues(navigationLogic) // TODO: Don't use navigationLogic in Lemonade
+    const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
+    const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
     useMountedLogic(licenseLogic)
 
     return (

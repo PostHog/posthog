@@ -10,13 +10,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
-import { lemonadeLogic } from './lemonadeLogic'
+import { navigationLogic } from './navigationLogic'
 
 export function ProjectSwitcherOverlay(): JSX.Element {
     const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const { showCreateProjectModal, hideProjectSwitcher } = useActions(lemonadeLogic)
+    const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
 
     return (
         <div>
@@ -52,7 +52,7 @@ export function ProjectSwitcherOverlay(): JSX.Element {
 function CurrentProjectButton(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { push } = useActions(router)
-    const { hideProjectSwitcher } = useActions(lemonadeLogic)
+    const { hideProjectSwitcher } = useActions(navigationLogic)
 
     return currentTeam ? (
         <LemonRow
@@ -76,7 +76,7 @@ function CurrentProjectButton(): JSX.Element | null {
 
 function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
     const { updateCurrentTeam } = useActions(userLogic)
-    const { hideProjectSwitcher } = useActions(lemonadeLogic)
+    const { hideProjectSwitcher } = useActions(navigationLogic)
 
     return (
         <LemonButtonWithSideAction
