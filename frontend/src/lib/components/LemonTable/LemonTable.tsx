@@ -1,4 +1,6 @@
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React, { HTMLProps, Reducer, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { columnSort } from '../../../scenes/saved-insights/SavedInsights'
 import { useResizeObserver } from '../../hooks/useResizeObserver'
@@ -36,7 +38,7 @@ export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<
 export interface LemonTableProps<T extends Record<string, any>> {
     columns: LemonTableColumns<T>
     dataSource: T[]
-    rowKey?: string
+    rowKey: string
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     loading?: boolean
     pagination?: { pageSize: number; hideOnSinglePage?: boolean }
@@ -55,8 +57,12 @@ export function LemonTable<T extends Record<string, any>>({
     defaultSorting,
     ...divProps
 }: LemonTableProps<T>): JSX.Element {
+    const currentPageParam = `${rowKey}Page`
+
+    const { location, searchParams, hashParams } = useValues(router)
+    const { push } = useActions(router)
+
     const [isScrollable, setIsScrollable] = useState([false, false]) // Left and right
-    const [currentPage, setCurrentPage] = useState(1)
     const [sortingState, sortingDispatch] = useReducer<Reducer<Sorting | null, Pick<Sorting, 'columnIndex'>>>(
         (state, action) => {
             if (!state || state.columnIndex !== action.columnIndex) {
@@ -69,13 +75,17 @@ export function LemonTable<T extends Record<string, any>>({
         },
         defaultSorting || null
     )
+    const setCurrentPage = useCallback(
+        (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
+        [location, searchParams, hashParams, push]
+    )
 
     const contentRef = useRef<HTMLDivElement>(null)
 
     /** Number of pages. */
     const pageCount = pagination ? Math.ceil(dataSource.length / pagination.pageSize) : 1
-    /** Page count adjusted for `pageCount` possibly having gotten smaller since last `setCurrentPage`. */
-    const realCurrentPage = currentPage > pageCount ? pageCount : currentPage
+    /** Page adjusted for `pageCount` possibly having gotten smaller since last page param update. */
+    const currentPage = Math.min(parseInt(searchParams[currentPageParam]) || 1, pageCount)
     /** Whether there's reason to show pagination. */
     const showPagination = pageCount > 1 || pagination?.hideOnSinglePage === true
 
@@ -113,7 +123,7 @@ export function LemonTable<T extends Record<string, any>>({
                 processedDataSource = processedDataSource.slice().sort((a, b) => sortingState.order * sorter(a, b))
             }
         }
-        const calculatedStartIndex = pagination ? (realCurrentPage - 1) * pagination.pageSize : 0
+        const calculatedStartIndex = pagination ? (currentPage - 1) * pagination.pageSize : 0
         const calculatedFrame = pagination
             ? processedDataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
             : processedDataSource
@@ -123,7 +133,7 @@ export function LemonTable<T extends Record<string, any>>({
             currentStartIndex: calculatedStartIndex,
             currentEndIndex: calculatedEndIndex,
         }
-    }, [realCurrentPage, pageCount, pagination, dataSource, sortingState])
+    }, [currentPage, pageCount, pagination, dataSource, sortingState])
 
     return (
         <div
@@ -215,15 +225,15 @@ export function LemonTable<T extends Record<string, any>>({
                             compact
                             icon={<IconChevronLeft />}
                             type="stealth"
-                            disabled={realCurrentPage === 1}
-                            onClick={() => setCurrentPage((state) => Math.max(1, Math.min(pageCount, state) - 1))}
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage(Math.max(1, Math.min(pageCount, currentPage) - 1))}
                         />
                         <LemonButton
                             compact
                             icon={<IconChevronRight />}
                             type="stealth"
-                            disabled={realCurrentPage === pageCount}
-                            onClick={() => setCurrentPage((state) => Math.min(pageCount, state + 1))}
+                            disabled={currentPage === pageCount}
+                            onClick={() => setCurrentPage(Math.min(pageCount, currentPage + 1))}
                         />
                     </div>
                 )}
