@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Dict, List, Optional, TypedDict, Union, cast
+from typing import Any, Dict, List, Optional, TypedDict, Union, cast, Literal
 
 from django.test.client import Client
 
@@ -10,7 +10,7 @@ from posthog.constants import FunnelCorrelationType
 
 class EventPattern(TypedDict, total=False):
     id: str
-    type: str
+    type: Union[Literal["events"], Literal["actions"]]
     order: int
     properties: Dict[str, Any]
 

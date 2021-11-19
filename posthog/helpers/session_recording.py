@@ -3,7 +3,7 @@ import dataclasses
 import gzip
 import json
 from collections import defaultdict
-from typing import DefaultDict, Dict, Generator, List
+from typing import DefaultDict, Dict, Generator, List, Optional
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -118,19 +118,25 @@ def decompress(base64data: str) -> str:
     return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
 
 
-def paginate_snapshot_list(list_to_paginate: List, limit: int, offset: int) -> PaginatedSnapshotList:
-    if offset + limit < len(list_to_paginate):
+def paginate_snapshot_list(list_to_paginate: List, limit: Optional[int], offset: int) -> PaginatedSnapshotList:
+    if not limit:
+        has_next = False
+        paginated_list = list_to_paginate[offset:]
+    elif offset + limit < len(list_to_paginate):
         has_next = True
         paginated_list = list_to_paginate[offset : offset + limit]
     else:
         has_next = False
         paginated_list = list_to_paginate[offset:]
-
     return PaginatedSnapshotList(has_next=has_next, paginated_list=paginated_list)
 
 
 def paginate_chunk_decompression(
-    team_id: int, session_recording_id: str, all_recording_snapshots: List[SnapshotData], limit: int, offset: int
+    team_id: int,
+    session_recording_id: str,
+    all_recording_snapshots: List[SnapshotData],
+    limit: Optional[int] = None,
+    offset: int = 0,
 ) -> PaginatedSnapshotList:
     if len(all_recording_snapshots) == 0:
         return PaginatedSnapshotList(has_next=False, paginated_list=[])
@@ -144,11 +150,11 @@ def paginate_chunk_decompression(
     for snapshot in all_recording_snapshots:
         chunks_collector[snapshot["chunk_id"]].append(snapshot)
 
-    paginated_chunks_list = paginate_snapshot_list(list(chunks_collector.values()), limit, offset)
+    chunks_list = paginate_snapshot_list(list(chunks_collector.values()), limit, offset)
 
     decompressed_data_list: List[SnapshotData] = []
 
-    for chunks in paginated_chunks_list.paginated_list:
+    for chunks in chunks_list.paginated_list:
         if len(chunks) != chunks[0]["chunk_count"]:
             capture_message(
                 "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} chunks".format(
@@ -161,4 +167,25 @@ def paginate_chunk_decompression(
         decompressed_data = json.loads(decompress(b64_compressed_data))
 
         decompressed_data_list.extend(decompressed_data)
-    return PaginatedSnapshotList(has_next=paginated_chunks_list.has_next, paginated_list=decompressed_data_list)
+    return PaginatedSnapshotList(has_next=chunks_list.has_next, paginated_list=decompressed_data_list)
+
+
+def is_active_event(event: SnapshotData) -> bool:
+    # Determines which rr-web events are "active" - meaning user generated
+    # Event type 3 means incremental_update (not a full snapshot, metadata etc)
+    # And the following are the defined source types:
+    # Mutation = 0
+    # MouseMove = 1
+    # MouseInteraction = 2
+    # Scroll = 3
+    # ViewportResize = 4
+    # Input = 5
+    # TouchMove = 6
+    # MediaInteraction = 7
+    # StyleSheetRule = 8
+    # CanvasMutation = 9
+    # Font = 10
+    # Log = 11
+    # Drag = 12
+    # StyleDeclaration = 13
+    return event.get("type") == 3 and event.get("data", {}).get("source") in [1, 2, 3, 4, 5, 6, 7, 12]

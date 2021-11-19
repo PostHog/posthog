@@ -31,11 +31,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
-    ErrorMessage,
-    FunnelEmptyState,
-    FunnelInvalidExclusionFiltersEmptyState,
-    FunnelInvalidFiltersEmptyState,
-    TimeOut,
+    InsightEmptyState,
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightErrorState,
+    InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -263,22 +263,22 @@ export function DashboardItem({
         // Insight specific empty states - note order is important here
         if (item.filters.insight === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelInvalidFiltersEmptyState />
+                return <FunnelSingleStepState />
             }
             if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionFiltersEmptyState />
+                return <FunnelInvalidExclusionState />
             }
             if (!isValidFunnel && !(insightLoading || isLoading)) {
-                return <FunnelEmptyState />
+                return <InsightEmptyState />
             }
         }
 
         // Insight agnostic empty states
         if (showErrorMessage) {
-            return <ErrorMessage />
+            return <InsightErrorState />
         }
         if (showTimeoutMessage) {
-            return <TimeOut isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={isLoading} />
         }
 
         return null

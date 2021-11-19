@@ -17,8 +17,8 @@ import { featureFlagLogic } from '../../../scenes/feature-flags/featureFlagLogic
 import { personsLogic } from '../../../scenes/persons/personsLogic'
 import { asDisplay } from '../../../scenes/persons/PersonHeader'
 import { PopupProps } from 'lib/components/Popup/Popup'
-import { ProjectSwitcherOverlay } from '~/layout/lemonade/ProjectSwitcher'
-import { OrganizationSwitcherOverlay } from '~/layout/lemonade/OrganizationSwitcher'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 
 export interface Breadcrumb {
     /** Name to display. */
@@ -34,7 +34,7 @@ export interface Breadcrumb {
 }
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
-    path: ['layout', 'lemonade', 'Breadcrumbs', 'breadcrumbsLogic'],
+    path: ['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic'],
     props: {} as {
         hashParams: Record<string, any>
     },

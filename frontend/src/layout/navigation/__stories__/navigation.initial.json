@@ -364,7 +364,8 @@
         "logic": {
             "featureFlagLogic": {
                 "featureFlags": {
-                    "per-project-access": true
+                    "per-project-access": true,
+                    "cloud-announcement": "Random announcement – [visit our blog](https://posthog.com/blog) 🎉"
                 },
                 "receivedFeatureFlags": true
             }
@@ -536,17 +537,17 @@
     "layout": {
         "navigation": {
             "navigationLogic": {
-                "latestVersion": "1.28.0",
+                "latestVersion": "1.30.0",
                 "latestVersionLoading": false,
-                "menuCollapsed": false,
-                "changelogModalOpen": false,
-                "toolbarModalOpen": false,
-                "inviteMembersModalOpen": false,
-                "pinnedDashboardsVisible": false,
-                "hotkeyNavigationEngaged": false,
-                "filteredEnvironment": "production",
-                "projectModalShown": false,
-                "organizationModalShown": false
+                "isSideBarShownRaw": true,
+                "isAnnouncementShown": true,
+                "isSitePopoverOpen": false,
+                "isInviteModalShown": false,
+                "isCreateOrganizationModalShown": false,
+                "isCreateProjectModalShown": false,
+                "isToolbarModalShown": false,
+                "isProjectSwitcherShown": false,
+                "hotkeyNavigationEngaged": false
             }
         }
     }

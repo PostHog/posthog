@@ -4,7 +4,7 @@ import { FriendlyLogo } from '../../../toolbar/assets/FriendlyLogo'
 import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
 import { SearchBox } from './SearchBox'
-import { lemonadeLogic } from '../lemonadeLogic'
+import { navigationLogic } from '../navigationLogic'
 import './index.scss'
 import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
@@ -23,9 +23,9 @@ export function TopBar(): JSX.Element {
         isInviteModalShown,
         isCreateOrganizationModalShown,
         isCreateProjectModalShown,
-    } = useValues(lemonadeLogic)
+    } = useValues(navigationLogic)
     const { toggleSideBar, hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
-        useActions(lemonadeLogic)
+        useActions(navigationLogic)
 
     return (
         <>

@@ -5,8 +5,9 @@ import { StarOutlined, SettingOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
-import { navigationLogic } from './navigationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import './DemoWarnings.scss'
+import { navigationLogic } from '../navigationLogic'
 
 interface WarningInterface {
     message: JSX.Element | string
