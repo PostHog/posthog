@@ -1,8 +1,9 @@
 import dataclasses
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict, Union, cast
 
 from django.test.client import Client
 
+from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized
 from posthog.constants import FunnelCorrelationType
 
@@ -63,6 +64,17 @@ def get_funnel_actors_ok(client: Client, url: str):
 
     assert response.status_code == 200, response.content
     return response.json()["results"][0]["people"]
+
+
+def get_actor_ids(
+    actors: Union[List[SerializedGroup], List[SerializedPerson]], is_aggregating_by_group=False
+) -> List[int]:
+    if is_aggregating_by_group:
+        serialized_groups = cast(List[SerializedGroup], actors)
+        return [val["group_key"] for val in serialized_groups]
+    else:
+        serialized_people = cast(List[SerializedPerson], actors)
+        return [val["id"] for val in serialized_people]
 
 
 def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):

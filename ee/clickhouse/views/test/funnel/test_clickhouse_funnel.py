@@ -1,11 +1,20 @@
 import json
 from datetime import datetime
+from typing import List, cast
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.group import create_group
+from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
+from ee.clickhouse.views.test.funnel.util import (
+    EventPattern,
+    FunnelRequest,
+    get_actor_ids,
+    get_funnel_actors_ok,
+    get_funnel_ok,
+)
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -27,23 +36,38 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
 
+    def _get_actor_ids_from(self, filter, funnel_step, breakdown_value=None):
+        person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+        funnel_query_builder = ClickhouseFunnel(person_filter, self.team)
+        is_aggregating_by_groups = funnel_query_builder.is_aggregating_by_groups
+        _, serialized_result = funnel_query_builder.get_actors()
+
+        if is_aggregating_by_groups:
+            serialized_groups = cast(List[SerializedGroup], serialized_result)
+            return [val["group_key"] for val in serialized_groups]
+        else:
+            serialized_people = cast(List[SerializedPerson], serialized_result)
+            return [val["id"] for val in serialized_people]
+
     def _create_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        _create_group(
+        g1 = _create_group(
             team_id=self.team.pk, group_type_index=0, group_key="org:5", group_properties={"industry": "finance"}
         )
-        _create_group(
+        g2 = _create_group(
             team_id=self.team.pk, group_type_index=0, group_key="org:6", group_properties={"industry": "technology"}
         )
 
-        _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", group_properties={})
-        _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", group_properties={})
+        g3 = _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", group_properties={})
+        g4 = _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", group_properties={})
+
+        return g1, g2, g3, g4
 
     @snapshot_clickhouse_queries
     def test_funnel_aggregation_with_groups(self):
-        self._create_groups()
+        g1, g2, g3, g4 = self._create_groups()
 
         events_by_person = {
             "user_1": [
@@ -84,11 +108,12 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["average_conversion_time"] == 86400
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        assert len(actors) == 2
+        actor_ids = get_actor_ids(actors, is_aggregating_by_group=True)
+        assert actor_ids == sorted([g1.group_key, g2.group_key])
 
     @snapshot_clickhouse_queries
     def test_funnel_group_aggregation_with_groups_entity_filtering(self):
-        self._create_groups()
+        g1, g2, g3, g4 = self._create_groups()
 
         events_by_person = {
             "user_1": [
@@ -131,11 +156,12 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["average_conversion_time"] == 86400
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        assert len(actors) == 1
+        actor_ids = get_actor_ids(actors, is_aggregating_by_group=True)
+        assert actor_ids == sorted([g1.group_key])
 
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_entity_filtering(self):
-        self._create_groups()
+        g1, g2, g3, g4 = self._create_groups()
 
         events_by_person = {
             "user_1": [
@@ -180,11 +206,13 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["average_conversion_time"] == 86400
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        assert len(actors) == 1
+        actor_ids = get_actor_ids(actors, is_aggregating_by_group=False)
+
+        assert actor_ids == sorted([str(created_people["user_1"].uuid)])
 
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_global_filtering(self):
-        self._create_groups()
+        g1, g2, g3, g4 = self._create_groups()
 
         events_by_person = {
             "user_1": [
@@ -231,4 +259,8 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["count"] == 0
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        assert len(actors) == 1
+        actor_ids = get_actor_ids(actors, is_aggregating_by_group=False)
+
+        assert actor_ids == sorted([str(created_people["user_1"].uuid)])
+
+    # TODO: move all tests
