@@ -16,6 +16,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
+import { CorrelationMatrix } from './CorrelationMatrix'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -95,6 +96,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         ? 'have this event property'
                         : 'do this event'}
                 </div>
+                <CorrelationMatrix />
             </>
         )
     }
@@ -366,13 +368,19 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                             }
                             fullWidth
                             title="Remove this event from any correlation analysis report in this project."
+                            type="stealth"
                         >
                             Exclude event from project
                         </LemonButton>
+                        {record.result_type === FunnelCorrelationResultsType.Events && (
+                            <LemonButton onClick={() => console.log(1)} fullWidth type="stealth">
+                                View correlation details
+                            </LemonButton>
+                        )}
                     </>
                 }
             >
-                <LemonButton type="stealth" style={{ paddingLeft: 0 }} onClick={() => setPopoverOpen(!popoverOpen)}>
+                <LemonButton type="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
                     <EllipsisOutlined
                         style={{ color: 'var(--primary)', fontSize: 24 }}
                         className="insight-dropdown-actions"
