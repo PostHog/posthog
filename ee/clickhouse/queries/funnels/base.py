@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -104,6 +105,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event", None]:
             boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
             data.update({"breakdown": boxed_breakdown})
+
+        if isinstance(self._filter.funnel_step_breakdown, str):
+            if self._filter.funnel_step_breakdown.startswith("["):  # naive list as string detection
+                data.update({"funnel_step_breakdown": json.loads(self._filter.funnel_step_breakdown)})
 
         for exclusion in self._filter.exclusions:
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
