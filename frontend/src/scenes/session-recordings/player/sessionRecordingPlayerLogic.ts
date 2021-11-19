@@ -42,6 +42,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setRealTime: (time: number) => ({ time }),
         setLastBufferedTime: (time: number) => ({ time }),
         setSpeed: (speed: number) => ({ speed }),
+        setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
         seek: (time: number, forcePlay: boolean = false) => ({ time, forcePlay }),
         seekForward: true,
@@ -83,6 +84,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             1,
             {
                 setSpeed: (_, { speed }) => speed,
+            },
+        ],
+        scale: [
+            1,
+            {
+                setScale: (_, { scale }) => scale,
             },
         ],
         meta: [

@@ -179,11 +179,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}?${params}`
                 )
                 breakpoint()
-                console.log('setting to ', {
-                    ...response.result,
-                    session_recording: parseMetadataResponse(response.result?.session_recording),
-                    snapshots: values.sessionPlayerData?.snapshots ?? [],
-                })
                 return {
                     ...response.result,
                     session_recording: parseMetadataResponse(response.result?.session_recording),
@@ -196,11 +191,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 const response = await api.get(apiUrl)
                 breakpoint()
                 const currData = values.sessionPlayerData
-                console.log('setting to snapshots', {
-                    ...currData,
-                    next: response.result?.next,
-                    snapshots: [...(currData?.snapshots ?? []), ...(response.result?.snapshots ?? [])],
-                })
                 return {
                     ...currData,
                     next: response.result?.next,
@@ -244,12 +234,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                             playerData.session_recording.end_time
                         ) - playerData.session_recording.start_time,
                 }))
-            },
-        ],
-        sessionPerson: [
-            (selectors) => [selectors.sessionPlayerData],
-            (playerData) => {
-                return playerData.person
             },
         ],
         eventsToShow: [
