@@ -458,11 +458,11 @@ TEST_BREAKDOWN_PROCESSING = [
 ]
 
 
-@pytest.mark.parametrize("breakdown, table, prop_var, identifier, expected", TEST_BREAKDOWN_PROCESSING)
+@pytest.mark.parametrize("breakdown, table, query_alias, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
-    breakdown: Union[str, List[str]], table: TableWithProperties, identifier: Literal["prop", "value"], expected: str,
+    breakdown: Union[str, List[str]], table: TableWithProperties, query_alias: Literal["prop", "value"], expected: str,
 ):
-    actual = get_single_or_multi_property_string_expr(breakdown, table, identifier)
+    actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias)
 
     assert actual == expected
 
