@@ -10,8 +10,8 @@ name: GitHub Codespaces image build
 # can just remove the master branch restriction.
 on:
     push:
-        branches:
-            - master
+        # branches:
+        #     - master
 
 jobs:
     build:
@@ -69,7 +69,7 @@ jobs:
                   file: .devcontainer/Dockerfile
                   push: true
                   platforms:
-                      - linux/amd64 # codespaces?
+                      - linux/amd64 # codespaces
                   # Cache from this branch, or master
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   # NOTE: we use inline as suggested here:
