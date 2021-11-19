@@ -47,8 +47,7 @@ jobs:
                   tags: |
                       type=raw,value=master
 
-            # Install QEMU so we can target both x86_64 (github actions I think)
-            # and amd64 (github codespaces)
+            # Install QEMU so we can target amd64 (github codespaces)
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
 
