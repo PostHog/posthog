@@ -88,8 +88,10 @@ export function CorrelationMatrix(): JSX.Element {
                                                 correlationDetails.success_count /
                                                     (correlationDetails.success_count +
                                                         correlationDetails.failure_count)
-                                            )}
+                                            ) || '0.00%'}
                                         </div>
+                                        {/* TODO: Fix links to person modal */}
+                                        {/* TODO: Handle zero users */}
                                         <Link to={correlationDetails.success_people_url}>
                                             {correlationDetails.success_count.toLocaleString()}{' '}
                                             {pluralize(correlationDetails.success_count, 'user', undefined, false)}
@@ -101,7 +103,7 @@ export function CorrelationMatrix(): JSX.Element {
                                                 correlationDetails.failure_count /
                                                     (correlationDetails.success_count +
                                                         correlationDetails.failure_count)
-                                            )}
+                                            ) || '0.00%'}
                                         </div>
                                         <Link to={correlationDetails.failure_people_url}>
                                             {correlationDetails.failure_count.toLocaleString()}{' '}

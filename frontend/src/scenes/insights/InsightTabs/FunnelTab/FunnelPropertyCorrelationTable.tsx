@@ -251,7 +251,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { excludePropertyFromProject } = useActions(logic)
+    const { excludePropertyFromProject, setFilters } = useActions(logic)
     const { isPropertyExcludedFromProject } = useValues(logic)
     const propertyName = (record.event.event || '').split('::')[0]
 
@@ -266,12 +266,24 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 overlay={
                     <>
                         <LemonButton
+                            onClick={() =>
+                                setFilters({
+                                    funnel_correlation_details: { key: record.event.event, type: 'property' },
+                                })
+                            }
+                            fullWidth
+                            type="stealth"
+                        >
+                            View correlation details
+                        </LemonButton>
+                        <LemonButton
                             disabled={isPropertyExcludedFromProject(propertyName)}
                             onClick={() => excludePropertyFromProject(propertyName)}
                             fullWidth
                             title="Remove this property from any correlation analysis report in this project."
+                            type="stealth"
                         >
-                            Exclude event from project
+                            Exclude property from project
                         </LemonButton>
                     </>
                 }
