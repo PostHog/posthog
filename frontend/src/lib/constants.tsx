@@ -84,7 +84,6 @@ export const FEATURE_FLAGS = {
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     NEW_SESSIONS_PLAYER_EVENTS_LIST: 'new-sessions-player-events-list', // owner: @rcmarron / @alexkim205
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
-    LEMONADE: '5346-lemonade', // owner: @Twixes
     TURBO_MODE: 'turbo-mode', // owner: @mariusandra
     GROUP_ANALYTICS: 'group-analytics', // owner: @macobo
 }

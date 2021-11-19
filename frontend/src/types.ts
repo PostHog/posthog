@@ -545,6 +545,7 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     zeroOffsetTime?: number // Used in session recording events that have a start time offset
+    colonTimestamp?: string // Used in session recording events list
     person?: Partial<PersonType> | null
     event: string
 }
