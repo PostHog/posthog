@@ -95,7 +95,6 @@ export const eventsListLogic = kea<eventsListLogicType>({
         },
         handleEventClick: ({ time }) => {
             if (!!time && !isNaN(time)) {
-                // console.log("TIME", time)
                 actions.seek(time)
             }
         },
