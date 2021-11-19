@@ -187,9 +187,6 @@ export function FeatureFlags(): JSX.Element {
                 dataSource={searchedFeatureFlags}
                 columns={columns}
                 rowKey="key"
-                onRow={(featureFlag) => ({
-                    style: !featureFlag.active ? { color: 'var(--muted)' } : {},
-                })}
                 loading={featureFlagsLoading}
                 defaultSorting={{ columnIndex: 2, order: 1 }}
                 pagination={{ pageSize: 10 }}
