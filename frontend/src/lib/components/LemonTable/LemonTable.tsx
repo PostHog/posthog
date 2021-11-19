@@ -211,7 +211,6 @@ export function LemonTable<T extends Record<string, any>>({
                         )}
                     </tbody>
                 </table>
-                <div className="LemonTable__loader" />
                 {showPagination && (
                     <div className="LemonTable__pagination">
                         <span className="LemonTable__locator">
@@ -237,6 +236,8 @@ export function LemonTable<T extends Record<string, any>>({
                         />
                     </div>
                 )}
+                <div className="LemonTable__overlay" />
+                <div className="LemonTable__loader" />
             </div>
         </div>
     )

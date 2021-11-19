@@ -75,6 +75,22 @@
     overflow: auto hidden;
 }
 
+.LemonTable__overlay {
+    transition: opacity 200ms ease;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    .LemonTable--loading & {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
 .LemonTable__loader {
     transition: height 100ms ease, top 100ms ease;
     position: absolute;
