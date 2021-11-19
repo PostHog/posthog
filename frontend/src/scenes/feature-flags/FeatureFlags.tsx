@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { Input } from 'antd'
@@ -16,10 +16,10 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '../../lib/components/LemonButton'
-import { IconEllipsis } from '../../lib/components/icons'
 import { LemonSpacer } from '../../lib/components/LemonRow'
 import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
+import { More } from '../../lib/components/LemonButton/More'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -30,8 +30,6 @@ export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { featureFlags, featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
-
-    const [morePopupShownId, setMorePopupShownId] = useState<FeatureFlagType['id'] | null>(null)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -93,63 +91,48 @@ export function FeatureFlags(): JSX.Element {
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
-                    <LemonButton
-                        compact
-                        data-attr="more-button"
-                        icon={<IconEllipsis />}
-                        type="stealth"
-                        onClick={(e) => {
-                            setMorePopupShownId((state) => (state === null ? featureFlag.id : null))
-                            e.stopPropagation()
-                        }}
-                        popup={{
-                            visible: morePopupShownId === featureFlag.id,
-                            onClickOutside: () => setMorePopupShownId(null),
-                            onClickInside: () => setMorePopupShownId(null),
-                            placement: 'bottom-end',
-                            actionable: true,
-                            overlay: (
-                                <>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    type="stealth"
+                                    onClick={() => {
+                                        copyToClipboard(featureFlag.key, 'feature flag key')
+                                    }}
+                                    fullWidth
+                                >
+                                    Copy key
+                                </LemonButton>
+                                <LemonButton type="stealth" to={`/feature_flags/${featureFlag.id}`} fullWidth>
+                                    Edit
+                                </LemonButton>
+                                <LemonButton
+                                    type="stealth"
+                                    to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}`}
+                                    data-attr="usage"
+                                    fullWidth
+                                >
+                                    Use in Insights
+                                </LemonButton>
+                                <LemonSpacer />
+                                {featureFlag.id && (
                                     <LemonButton
                                         type="stealth"
+                                        style={{ color: 'var(--danger)' }}
                                         onClick={() => {
-                                            copyToClipboard(featureFlag.key, 'feature flag key')
+                                            deleteWithUndo({
+                                                endpoint: `projects/${currentTeamId}/feature_flags`,
+                                                object: { name: featureFlag.name, id: featureFlag.id },
+                                                callback: loadFeatureFlags,
+                                            })
                                         }}
                                         fullWidth
                                     >
-                                        Copy key
+                                        Delete feature flag
                                     </LemonButton>
-                                    <LemonButton type="stealth" to={`/feature_flags/${featureFlag.id}`} fullWidth>
-                                        Edit
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="stealth"
-                                        to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}`}
-                                        data-attr="usage"
-                                        fullWidth
-                                    >
-                                        Use in Insights
-                                    </LemonButton>
-                                    <LemonSpacer />
-                                    {featureFlag.id && (
-                                        <LemonButton
-                                            type="stealth"
-                                            style={{ color: 'var(--danger)' }}
-                                            onClick={() => {
-                                                deleteWithUndo({
-                                                    endpoint: `projects/${currentTeamId}/feature_flags`,
-                                                    object: { name: featureFlag.name, id: featureFlag.id },
-                                                    callback: loadFeatureFlags,
-                                                })
-                                            }}
-                                            fullWidth
-                                        >
-                                            Delete feature flag
-                                        </LemonButton>
-                                    )}
-                                </>
-                            ),
-                        }}
+                                )}
+                            </>
+                        }
                     />
                 )
             },
