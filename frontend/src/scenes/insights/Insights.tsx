@@ -237,7 +237,7 @@ export function Insights(): JSX.Element {
                                     </div>
                                 </div>
                             }
-                        ></Alert>
+                        />
                     )}
 
                     <Row gutter={16}>
