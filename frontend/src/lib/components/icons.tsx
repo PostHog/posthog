@@ -552,6 +552,30 @@ export function IconUnfoldLess({ style }: { style?: CSSProperties }): JSX.Elemen
     )
 }
 
+/** Material Design Chevron Left icon. */
+export function IconChevronLeft(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M13.9999 6L15.4099 7.41L10.8299 12L15.4099 16.59L13.9999 18L7.99991 12L13.9999 6Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Chevron Right icon. */
+export function IconChevronRight(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M10.0001 6L8.59009 7.41L13.1701 12L8.59009 16.59L10.0001 18L16.0001 12L10.0001 6Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Add icon. */
 export function IconPlus(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
@@ -664,6 +688,7 @@ export function IconBarChart(): JSX.Element {
     )
 }
 
+/** Material Design Bar Speed icon. */
 export function IconGauge(): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -834,6 +859,30 @@ export function IconExpandMore(props: React.SVGProps<SVGSVGElement>): JSX.Elemen
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path d="m16.59 8.59-4.59 4.58-4.59-4.58-1.41 1.41 6 6 6-6z" fill="currentColor" />
+        </svg>
+    )
+}
+
+/** Material Design More Horiz icon. */
+export function IconEllipsis(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Content Copy icon. */
+export function IconCopy(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m15.4545 3h-9.81814c-.9 0-1.63636.73636-1.63636 1.63636v11.45454h1.63636v-11.45454h9.81814zm2.4546 3.27273h-9.00001c-.9 0-1.63636.73636-1.63636 1.63636v11.45451c0 .9.73636 1.6364 1.63636 1.6364h9.00001c.9 0 1.6364-.7364 1.6364-1.6364v-11.45451c0-.9-.7364-1.63636-1.6364-1.63636zm0 13.09087h-9.00001v-11.45451h9.00001z"
+                fill="currentColor"
+            />
         </svg>
     )
 }

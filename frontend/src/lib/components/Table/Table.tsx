@@ -4,11 +4,15 @@ import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { TZLabel } from '../TimezoneAware'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import { ColumnType } from 'antd/lib/table'
+import { Row } from 'antd'
+import { ProfilePicture } from '../ProfilePicture'
 
-export function createdAtColumn(): Record<string, any> {
+export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): ColumnType<T> {
     return {
         title: normalizeColumnTitle('Created'),
-        render: function RenderCreatedAt(_: any, item: Record<string, any>): JSX.Element | undefined | '' {
+        align: 'right',
+        render: function RenderCreatedAt(_, item): JSX.Element | undefined | '' {
             return (
                 item.created_at && (
                     <div style={{ whiteSpace: 'nowrap' }}>
@@ -17,24 +21,28 @@ export function createdAtColumn(): Record<string, any> {
                 )
             )
         },
-        sorter: (a: Record<string, any>, b: Record<string, any>) =>
-            new Date(a.created_at) > new Date(b.created_at) ? 1 : -1,
+        sorter: (a, b) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
     }
 }
 
-export function createdByColumn(items: Record<string, any>[]): Record<string, any> {
+export function createdByColumn<T extends Record<string, any> = Record<string, any>>(items: T[]): ColumnType<T> {
     const { user } = useValues(userLogic)
     return {
         title: normalizeColumnTitle('Created by'),
         render: function Render(_: any, item: any) {
             return (
-                <div style={{ maxWidth: 250, width: 'auto' }}>
-                    {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
-                </div>
+                <Row align="middle" wrap={false}>
+                    {item.created_by && (
+                        <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
+                    )}
+                    <div style={{ maxWidth: 250, width: 'auto', verticalAlign: 'middle', marginLeft: 8 }}>
+                        {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
+                    </div>
+                </Row>
             )
         },
         filters: uniqueBy(
-            items.map((item: Record<string, any>) => {
+            items.map((item: T) => {
                 if (!item.created_by) {
                     return {
                         text: '(none)',
@@ -57,9 +65,8 @@ export function createdByColumn(items: Record<string, any>[]): Record<string, an
             }
             return (a.text + '').localeCompare(b.text + '')
         }),
-        onFilter: (value: string, item: Record<string, any>) =>
-            (value === null && item.created_by === null) || item.created_by?.uuid === value,
-        sorter: (a: Record<string, any>, b: Record<string, any>) =>
+        onFilter: (value, item) => (value === null && item.created_by === null) || item.created_by?.uuid === value,
+        sorter: (a, b) =>
             (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
                 b.created_by?.first_name || b.created_by?.email || ''
             ),

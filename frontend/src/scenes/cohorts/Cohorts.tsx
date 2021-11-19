@@ -19,6 +19,7 @@ import { Link } from 'lib/components/Link'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
+import { ColumnType } from 'antd/lib/table'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
 const NEW_COHORT: CohortType = {
@@ -83,20 +84,20 @@ export function Cohorts(): JSX.Element {
     const { setOpenCohort } = useActions(cohortsUrlLogic)
     const [searchTerm, setSearchTerm] = useState(false as string | false)
 
-    const columns = [
+    const columns: ColumnType<CohortType>[] = [
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
             className: 'ph-no-capture',
-            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name as string),
+            sorter: (a, b) => ('' + a.name).localeCompare(b.name as string),
         },
         {
             title: 'Users in cohort',
             render: function RenderCount(_: any, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
-            sorter: (a: CohortType, b: CohortType) => (a.count || 0) - (b.count || 0),
+            sorter: (a, b) => (a.count || 0) - (b.count || 0),
         },
         createdAtColumn(),
         createdByColumn(cohorts),

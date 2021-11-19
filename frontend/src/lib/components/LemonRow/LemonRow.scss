@@ -83,7 +83,7 @@
     display: flex;
     align-items: center;
     &:not(:first-child) {
-        padding-left: 0.5rem;
+        margin-left: 0.5rem;
     }
 }
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { IconExpandMore, IconArrowDropDown } from 'lib/components/icons'
+import { IconArrowDropDown, IconChevronRight } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
 import './Breadcrumbs.scss'
 import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
@@ -52,7 +52,7 @@ export function Breadcrumbs(): JSX.Element | null {
             <Breadcrumb breadcrumb={breadcrumbs[0]} />
             {breadcrumbs.slice(1).map((breadcrumb) => (
                 <React.Fragment key={breadcrumb.name || '…'}>
-                    <IconExpandMore className="Breadcrumbs__separator" />
+                    <IconChevronRight className="Breadcrumbs__separator" />
                     <Breadcrumb breadcrumb={breadcrumb} />
                 </React.Fragment>
             ))}
