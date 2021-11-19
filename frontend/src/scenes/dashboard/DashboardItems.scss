@@ -149,8 +149,8 @@
         display: flex;
         height: 100%;
         align-items: center;
+        border-radius: $radius;
 
-        .illustration-main,
         .ant-btn {
             display: none;
         }

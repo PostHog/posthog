@@ -86,6 +86,7 @@ export function FeatureFlags(): JSX.Element {
             },
         },
         {
+            width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <More
