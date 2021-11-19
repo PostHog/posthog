@@ -4,7 +4,6 @@ import { copyToClipboard, stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Button, Menu, Dropdown, Tooltip, Row } from 'antd'
 import { IconPathsCompletedArrow, IconPathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
@@ -24,6 +23,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 function NoData(): JSX.Element {
     return (
@@ -36,6 +36,8 @@ function NoData(): JSX.Element {
 
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
+const FALLBACK_CANVAS_WIDTH = 1000
+const FALLBACK_CANVAS_HEIGHT = 0
 
 const isMonochrome = (color: string): boolean => color === 'white' || color === 'black'
 
@@ -46,7 +48,8 @@ interface PathsProps {
 
 export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
     const canvas = useRef<HTMLDivElement>(null)
-    const size = useWindowSize()
+    const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
+        useResizeObserver({ ref: canvas })
     const { insightProps } = useValues(insightLogic)
     const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
     const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(pathsLogic(insightProps))
@@ -58,7 +61,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     useEffect(() => {
         setPathItemCards([])
         renderPaths()
-    }, [paths, !pathsLoading, size, color])
+    }, [paths, !pathsLoading, canvasWidth, canvasHeight, color])
 
     const createCanvas = (width: number, height: number): D3Selector => {
         return d3
@@ -260,14 +263,10 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
             return Math.max(prev, Number(currNum.match(/[^_]*/)))
         }, 0)
 
-        const minWidth = canvas?.current?.offsetWidth
-            ? canvas.current.offsetWidth > 1000 || maxLayer < 3
-                ? canvas.current.offsetWidth
-                : 1000
-            : 1000
+        const minWidth = canvasWidth > FALLBACK_CANVAS_WIDTH || maxLayer < 3 ? canvasWidth : FALLBACK_CANVAS_WIDTH
 
-        const width = maxLayer > 5 && canvas?.current?.offsetWidth ? (minWidth / 5) * maxLayer : minWidth
-        const height = canvas?.current?.offsetHeight || 0
+        const width = maxLayer > 5 && canvasWidth ? (minWidth / 5) * maxLayer : minWidth
+        const height = canvasHeight
 
         const svg = createCanvas(width, height)
         const sankey = createSankey(width, height)
