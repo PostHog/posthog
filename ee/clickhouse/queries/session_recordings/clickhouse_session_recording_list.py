@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, NamedTuple, Set, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
@@ -10,7 +10,7 @@ from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingQueryResult
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingQueryResult
 
 
 class EventFiltersSQL(NamedTuple):
@@ -24,17 +24,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
-    _session_recordings_query_with_entity_filter: str = """
-    SELECT
-        session_recordings.session_id,
-        any(session_recordings.start_time) as start_time,
-        any(session_recordings.end_time) as end_time,
-        any(session_recordings.duration) as duration,
-        any(session_recordings.distinct_id) as distinct_id,
-        arrayElement(groupArray(current_url), 1) as start_url,
-        arrayElement(groupArray(current_url), -1) as end_url
-        {event_filter_aggregate_select_clause}
-    FROM (
+    _core_events_query = """
         SELECT
             distinct_id,
             event,
@@ -46,8 +36,29 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             team_id = %(team_id)s
             {event_filter_where_conditions}
             {events_timestamp_clause}
-    ) AS events
-    RIGHT OUTER JOIN (
+    """
+
+    _event_and_recording_match_comditions_clause = """
+        (   
+            -- If there is a window_id on the recording, then it is newer data and we can match
+            -- the recording and events on session_id
+            (
+                notEmpty(session_recordings.window_id) AND
+                events.session_id == session_recordings.session_id
+            ) OR
+            -- If there is no window_id on the recording, then it is older data and we should match
+            -- events and recordings on timestamps
+            (
+                empty(session_recordings.window_id) AND
+                (
+                    events.timestamp >= session_recordings.start_time
+                    AND events.timestamp <= session_recordings.end_time
+                )
+            )
+        )
+    """
+
+    _core_session_recordings_query = """
         SELECT
             session_id,
             any(window_id) as window_id,
@@ -64,6 +75,21 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         HAVING full_snapshots > 0
         {recording_start_time_clause}
         {duration_clause} 
+    """
+
+    _session_recordings_query_with_events: str = """
+    SELECT
+        session_recordings.session_id,
+        any(session_recordings.start_time) as start_time,
+        any(session_recordings.end_time) as end_time,
+        any(session_recordings.duration) as duration,
+        any(session_recordings.distinct_id) as distinct_id
+        {event_filter_aggregate_select_clause}
+    FROM (
+        {core_events_query}
+    ) AS events
+    JOIN (
+        {core_recordings_query}
     ) AS session_recordings
     ON session_recordings.distinct_id = events.distinct_id
     JOIN (
@@ -72,30 +98,35 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     ON pdi.distinct_id = session_recordings.distinct_id
     {person_query}
     WHERE
-        (   
-            -- If there is a window_id on the recording, then it is newer data and we can match
-            -- the recording and events on session_id
-            (
-                notEmpty(session_recordings.window_id) AND
-                events.session_id == session_recordings.session_id
-            ) OR
-            -- If there is no window_id on the recording, then it is older data and we should match
-            -- events and recordings on timestamps
-            (
-                empty(session_recordings.window_id) AND
-                (
-                    events.timestamp >= session_recordings.start_time
-                    AND events.timestamp <= session_recordings.end_time
-                )
-            ) OR
-            -- If there are no event matches, we don't want to filter out the recording itself
-            empty(events.event)
-        )
+        {event_and_recording_match_comditions_clause}
         {prop_filter_clause}
         {person_id_clause}
     GROUP BY session_recordings.session_id
     HAVING 1 = 1
     {event_filter_aggregate_having_clause}
+    ORDER BY start_time DESC
+    LIMIT %(limit)s OFFSET %(offset)s
+    """
+
+    _session_recordings_query: str = """
+    SELECT
+        session_recordings.session_id,
+        any(session_recordings.start_time) as start_time,
+        any(session_recordings.end_time) as end_time,
+        any(session_recordings.duration) as duration,
+        any(session_recordings.distinct_id) as distinct_id
+    FROM (
+        {core_recordings_query}
+    ) AS session_recordings
+    JOIN (
+        {person_distinct_id_query}
+    ) as pdi 
+    ON pdi.distinct_id = session_recordings.distinct_id
+    {person_query}
+    WHERE 1 = 1
+        {prop_filter_clause}
+        {person_id_clause}
+    GROUP BY session_recordings.session_id
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
@@ -115,11 +146,12 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             self._should_join_persons = True
             return
 
+    def _determine_should_join_events(self):
+        return self._filter.entities and len(self._filter.entities) > 0
+
     def _get_properties_select_clause(self) -> str:
-        current_url_clause, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
         session_id_clause, _ = get_property_string_expr("events", "$session_id", "'$session_id'", "properties")
         clause = f""",
-            {current_url_clause} as current_url, 
             {session_id_clause} as session_id
         """
         clause += (
@@ -131,9 +163,6 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             f", events.{column_name} as {column_name}" for column_name in self._column_optimizer.event_columns_to_query
         )
         return clause
-
-    def _has_entity_filters(self):
-        return self._filter.entities and len(self._filter.entities) > 0
 
     def _get_person_id_clause(self) -> Tuple[str, Dict[str, Any]]:
         person_id_clause = ""
@@ -198,12 +227,11 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         return filter_sql, params
 
     def format_event_filters(self) -> EventFiltersSQL:
-
         aggregate_select_clause = ""
         aggregate_having_clause = ""
         where_conditions = "AND event IN %(event_names)s"
         # Always include $pageview events so the start_url and end_url can be extracted
-        event_names_to_filter: List[Union[int, str]] = ["$pageview"]
+        event_names_to_filter: List[Union[int, str]] = []
 
         params: Dict = {}
 
@@ -227,9 +255,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         return EventFiltersSQL(aggregate_select_clause, aggregate_having_clause, where_conditions, params,)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-
         offset = self._filter.offset or 0
-        # One more is added to the limit to check if there are more results available
         base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
         person_query, person_query_params = self._get_person_query()
         prop_query, prop_params = self._get_props(self._filter.properties)
@@ -237,21 +263,52 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()
         person_id_clause, person_id_params = self._get_person_id_clause()
         duration_clause, duration_params = self._get_duration_clause()
-        event_filters = self.format_event_filters()
         properties_select_clause = self._get_properties_select_clause()
 
+        core_recordings_query = self._core_session_recordings_query.format(
+            recording_start_time_clause=recording_start_time_clause,
+            duration_clause=duration_clause,
+            events_timestamp_clause=events_timestamp_clause,
+        )
+
+        if not self._determine_should_join_events():
+            return (
+                self._session_recordings_query.format(
+                    core_recordings_query=core_recordings_query,
+                    person_distinct_id_query=GET_TEAM_PERSON_DISTINCT_IDS,
+                    person_query=person_query,
+                    prop_filter_clause=prop_query,
+                    person_id_clause=person_id_clause,
+                ),
+                {
+                    **base_params,
+                    **person_id_params,
+                    **person_query_params,
+                    **prop_params,
+                    **events_timestamp_params,
+                    **duration_params,
+                    **recording_start_time_params,
+                },
+            )
+
+        event_filters = self.format_event_filters()
+
+        core_events_query = self._core_events_query.format(
+            properties_select_clause=properties_select_clause,
+            event_filter_where_conditions=event_filters.where_conditions,
+            events_timestamp_clause=events_timestamp_clause,
+        )
+
         return (
-            self._session_recordings_query_with_entity_filter.format(
-                person_id_clause=person_id_clause,
-                prop_filter_clause=prop_query,
+            self._session_recordings_query_with_events.format(
+                event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
+                core_events_query=core_events_query,
+                core_recordings_query=core_recordings_query,
                 person_distinct_id_query=GET_TEAM_PERSON_DISTINCT_IDS,
                 person_query=person_query,
-                properties_select_clause=properties_select_clause,
-                events_timestamp_clause=events_timestamp_clause,
-                recording_start_time_clause=recording_start_time_clause,
-                duration_clause=duration_clause,
-                event_filter_where_conditions=event_filters.where_conditions,
-                event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
+                event_and_recording_match_comditions_clause=self._event_and_recording_match_comditions_clause,
+                prop_filter_clause=prop_query,
+                person_id_clause=person_id_clause,
                 event_filter_aggregate_having_clause=event_filters.aggregate_having_clause,
             ),
             {
