@@ -26,7 +26,7 @@ import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { ResizableTable, ResizableColumnType, ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 import { teamLogic } from 'scenes/teamLogic'
-import { IconEventsShort } from 'lib/components/icons'
+import { IconGroupedEvents } from 'lib/components/icons'
 import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { urls } from 'scenes/urls'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
@@ -274,9 +274,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                             className="sessions-matching-events-icon cursor-pointer"
                                             count={<span className="badge-text">{session.matching_events.length}</span>}
                                             offset={[0, MATCHING_EVENT_ICON_SIZE]}
+                                            style={{ fontSize: MATCHING_EVENT_ICON_SIZE }}
                                             size="small"
                                         >
-                                            <IconEventsShort size={MATCHING_EVENT_ICON_SIZE} />
+                                            <IconGroupedEvents />
                                         </Badge>
                                     </Tooltip>
                                 ) : (
