@@ -109,6 +109,6 @@ def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSer
     assert failure_people_response.status_code == 200, failure_people_response.content
 
     return {
-        "success": [person["name"] for person in success_people_response.json()["results"][0]["people"]],
-        "failure": [person["name"] for person in failure_people_response.json()["results"][0]["people"]],
+        "success": sorted([person["name"] for person in success_people_response.json()["results"][0]["people"]]),
+        "failure": sorted([person["name"] for person in failure_people_response.json()["results"][0]["people"]]),
     }
