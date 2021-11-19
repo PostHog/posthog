@@ -1734,6 +1734,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "ajsharp",
+      "name": "Alex Sharp",
+      "avatar_url": "https://avatars.githubusercontent.com/u/12774?v=4",
+      "profile": "https://ajsharp.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
