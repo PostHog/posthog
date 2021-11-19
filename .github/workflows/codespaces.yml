@@ -45,8 +45,10 @@ jobs:
               with:
                   images: ghcr.io/${{ github.repository }}/codespaces
                   tags: |
-                      type=raw,value=cache
+                      type=raw,value=master
 
+            # Install QEMU so we can target both x86_64 (github actions I think)
+            # and amd64 (github codespaces)
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
 
@@ -57,7 +59,6 @@ jobs:
               uses: docker/login-action@v1
               with:
                   registry: ghcr.io
-                  # TODO: replace with `github.actor` and `GITHUB_TOKEN`
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -67,8 +68,14 @@ jobs:
                   context: .
                   file: .devcontainer/Dockerfile
                   push: true
+                  platforms:
+                      - linux/amd64
                   # Cache from this branch, or master
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
-                  cache-to: ${{ steps.meta-for-cache.outputs.tags }}
+                  # NOTE: we use inline as suggested here:
+                  # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
+                  # It notes that it doesn't support mode=max, but we're not
+                  # removing any layers, soooo, maybe it's fine.
+                  cache-to: type=inline
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
