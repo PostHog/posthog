@@ -21,7 +21,7 @@ services:
             context: ../
             dockerfile: .devcontainer/Dockerfile
             cache_from:
-                - ghcr.io/posthog/posthog/codespaces:cache
+                - ghcr.io/posthog/posthog/codespaces:master
 
         command: sleep infinity
         volumes:
