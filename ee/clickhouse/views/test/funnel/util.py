@@ -1,5 +1,14 @@
 import dataclasses
-from typing import Any, Dict, List, Optional, TypedDict, Union, cast, Literal
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    cast,
+)
 
 from django.test.client import Client
 
