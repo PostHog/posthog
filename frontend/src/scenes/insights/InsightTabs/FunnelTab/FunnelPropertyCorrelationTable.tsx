@@ -200,7 +200,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         key="propertName"
                         render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                         align="left"
-                        width="60%"
                     />
                     <Column
                         title={
@@ -241,6 +240,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         key="actions"
                         render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
                         align="center"
+                        width={30}
                     />
                 </Table>
             </div>

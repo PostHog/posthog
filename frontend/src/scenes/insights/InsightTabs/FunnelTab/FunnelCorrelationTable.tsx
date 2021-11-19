@@ -160,7 +160,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         key="eventName"
                         render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                         align="left"
-                        width="80%"
                     />
                     <Column
                         title="Completed"
@@ -173,7 +172,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         title="Dropped off"
                         key="failure_count"
                         render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                        width={100}
+                        width={120}
                         align="center"
                     />
 
@@ -182,6 +181,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         key="actions"
                         render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
                         align="center"
+                        width={30}
                     />
                 </Table>
             </div>
@@ -291,7 +291,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         key="eventName"
                         render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                         align="left"
-                        width="60%"
                         ellipsis
                     />
                     <Column
@@ -330,8 +329,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     />
                     <Column
                         title=""
-                        key="operation"
+                        key="actions"
                         render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                        width={30}
                     />
                 </Table>
             </div>

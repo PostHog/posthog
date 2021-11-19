@@ -34,8 +34,6 @@ export function CorrelationMatrix(): JSX.Element {
         )
     }
 
-    console.log(correlationDetails)
-
     const dismiss = (): void => {
         setFilters({ funnel_correlation_details: undefined })
     }
