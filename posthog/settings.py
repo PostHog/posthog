@@ -80,7 +80,6 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEB
         "4141-event-columns",
         "new-paths-ui",
         "new-paths-ui-edge-weights",
-        "5346-lemonade",
     ]
 
 

@@ -371,7 +371,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request)
-        result = retention.Retention().run(filter, team)
+        base_uri = request.build_absolute_uri("/")
+        result = retention.Retention(base_uri=base_uri).run(filter, team)
         return {"result": result}
 
     # ******************************************

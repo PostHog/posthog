@@ -30,7 +30,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     },
     actions: {
         initReplayer: (frame: HTMLDivElement) => ({ frame }),
-        setReplayer: (replayer: Replayer) => ({ replayer }),
+        setReplayer: (replayer: Replayer | null) => ({ replayer }),
         setPlay: true,
         setPause: true,
         setBuffer: true,
@@ -182,8 +182,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             actions.setReplayer(replayer)
         },
-        setReplayer: () => {
-            actions.setPlay()
+        setReplayer: ({ replayer }) => {
+            if (replayer) {
+                actions.setPlay()
+            }
         },
         loadRecordingMetaSuccess: async ({ sessionPlayerData }, breakpoint) => {
             // Set meta timestamps when first chunk loads. The first time is a guesstimate that's later corrected by
@@ -342,4 +344,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     windowValues: {
         isSmallScreen: (window) => window.innerWidth < getBreakpoint('md'),
     },
+    events: ({ values, actions }) => ({
+        beforeUnmount: () => {
+            values.replayer?.pause()
+            actions.setReplayer(null)
+        },
+    }),
 })

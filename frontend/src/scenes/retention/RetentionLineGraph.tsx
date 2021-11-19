@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
-import { LineGraphEmptyState } from '../insights/EmptyStates'
+import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
@@ -104,6 +104,6 @@ export function RetentionLineGraph({
             </Modal>
         </>
     ) : (
-        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
     )
 }

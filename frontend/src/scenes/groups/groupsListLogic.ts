@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
@@ -39,6 +40,17 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
             {
                 setTab: (_, { tab }) => tab,
             },
+        ],
+    },
+    selectors: {
+        currentTabName: [
+            (s) => [s.currentTab, s.groupTypes],
+            (currentTab, groupTypes): string =>
+                currentTab === '-1'
+                    ? 'Persons'
+                    : groupTypes?.length
+                    ? capitalizeFirstLetter(groupTypes[parseInt(currentTab)].group_type)
+                    : '',
         ],
     },
     actionToUrl: () => ({
