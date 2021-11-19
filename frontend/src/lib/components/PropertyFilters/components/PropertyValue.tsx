@@ -88,19 +88,20 @@ export function PropertyValue({
             return
         }
         const key = propertyKey.split('__')[0]
-        setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
+        setOptions({ ...options, [propertyKey]: { ...options[propertyKey], status: 'loading' } })
         if (outerOptions) {
             setOptions({
+                ...options,
                 [propertyKey]: {
                     values: [...Array.from(new Set(outerOptions))],
                     status: 'loaded',
                 },
-                ...options,
             })
         } else {
             api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
                 (propValues: PropValue[]) => {
                     setOptions({
+                        ...options,
                         [propertyKey]: {
                             values: [...Array.from(new Set(propValues))],
                             status: 'loaded',
