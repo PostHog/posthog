@@ -189,6 +189,7 @@ export function FunnelSingleStepState(): JSX.Element {
                         target="_blank"
                         rel="noopener"
                         className="flex-center"
+                        style={{ justifyContent: 'center' }}
                     >
                         Learn more about funnels in our support documentation
                         <IconExternalLinkBold style={{ marginLeft: 4, fontSize: '0.85em' }} />

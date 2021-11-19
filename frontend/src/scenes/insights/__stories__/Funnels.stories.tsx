@@ -17,7 +17,7 @@ import { EventType } from '~/types'
 let correlationConfig: any = null
 
 export default {
-    title: 'PostHog/Scenes/Insights/Funnel',
+    title: 'PostHog/Scenes/Insights/Funnels',
     decorators: [
         (Story) => {
             worker.use(
