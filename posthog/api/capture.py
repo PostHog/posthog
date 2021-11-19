@@ -2,7 +2,6 @@ import json
 import re
 from datetime import datetime
 from typing import Any, Dict, Optional
-from uuid import UUID
 
 from dateutil import parser
 from django.conf import settings
@@ -16,7 +15,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.utils import get_data, get_team, get_token
 from posthog.celery import app as celery_app
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team
 from posthog.models.feature_flag import get_overridden_feature_flags
@@ -208,7 +207,7 @@ def get_event(request):
 
         payload_uuid = event.get("uuid", None)
         if payload_uuid and UUIDT.is_valid_uuid(payload_uuid):
-            event_uuid = UUID(payload_uuid)
+            event_uuid = UUIDT(uuid_str=payload_uuid)
 
         event = parse_event(event, distinct_id, team)
         if not event:
