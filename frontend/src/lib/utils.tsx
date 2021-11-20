@@ -2,7 +2,7 @@ import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import { Button } from 'antd'
-import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
+import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode, dateMappingOption } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -684,11 +684,6 @@ export function determineDifferenceType(
     }
 }
 
-interface dateMappingOption {
-    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
-    values: string[]
-}
-
 export const dateMapping: Record<string, dateMappingOption> = {
     Custom: { values: [] },
     Today: { values: ['dStart'] },
@@ -710,7 +705,8 @@ export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
-    defaultValue: string
+    defaultValue: string,
+    dateOptions: Record<string, dateMappingOption> = dateMapping
 ): string {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
@@ -741,7 +737,7 @@ export function dateFilterToText(
     }
 
     let name = defaultValue
-    Object.entries(dateMapping).map(([key, { values }]) => {
+    Object.entries(dateOptions).map(([key, { values }]) => {
         if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
             name = key
         }
