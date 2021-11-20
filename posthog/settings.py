@@ -68,6 +68,11 @@ Arguments to the application will be slightly different in each case
 So, in order to set test variables we need to look in slightly different places 
 
 The /bin/tests file also runs mypy to do type checking. This needs DEBUG=1 set too
+
+Running pytest directly does not always load django settings but sometimes needs these environment variables.
+We use pytest-env to let us set environment variables from the closest pytest.ini 
+
+We can't rely only on pytest.ini as some tests evaluate this file before its environment variables have been read
 """
 runner = sys.argv[0] if len(sys.argv) >= 1 else None
 
