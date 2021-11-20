@@ -51,6 +51,45 @@ def get_list(text: str) -> List[str]:
     return [item.strip() for item in text.split(",")]
 
 
+print({"sys.argv": sys.argv})
+"""
+There are several options:
+1) running in pycharm
+        second argument is "test"
+2) running pytest at the CLI
+        first argument is the path to pytest and ends pytest
+3) running pytest using the script at /bin/tests
+        first argument is the path to pytest and ends pytest
+4) running in some other context (e.g. in prod)
+        first argument does not end pytest
+        second argument is not test
+
+Arguments to the application will be slightly different in each case
+
+So, in order to set test variables we need to look in slightly different places 
+
+The /bin/tests file also runs mypy to do type checking. This needs DEBUG=1 set too
+"""
+runner = sys.argv[0] if len(sys.argv) >= 1 else None
+
+if runner:
+    cmd = sys.argv[1] if len(sys.argv) >= 2 else None
+
+    if cmd == "test" or runner.endswith("pytest") or runner.endswith("mypy"):
+        print("Running in test mode. Setting DEBUG and TEST environment variables.")
+        os.environ["DEBUG"] = "1"
+        os.environ["TEST"] = "1"
+
+        try:
+            path = sys.argv[2] if cmd == "test" else sys.argv[3]
+            if path.startswith("ee"):
+                print("Running EE tests. Setting clickhouse as primary database.")
+                os.environ["PRIMARY_DB"] = "clickhouse"
+        except IndexError:
+            # there was no path, we don't want to set PRIMARY_DB
+            pass
+
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
