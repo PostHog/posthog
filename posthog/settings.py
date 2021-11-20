@@ -51,7 +51,6 @@ def get_list(text: str) -> List[str]:
     return [item.strip() for item in text.split(",")]
 
 
-print({"sys.argv": sys.argv})
 """
 There are several options:
 1) running in pycharm
