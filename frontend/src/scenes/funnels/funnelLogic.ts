@@ -169,7 +169,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
 
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
         removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
-        toggleAdvancedMode: true,
     }),
 
     loaders: ({ values }) => ({
@@ -386,12 +385,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     }
                     return current
                 },
-            },
-        ],
-        advancedMode: [
-            false, // Whether the advanced model options are displayed (`funnel-simple-mode`)
-            {
-                toggleAdvancedMode: (state) => !state,
             },
         ],
     }),

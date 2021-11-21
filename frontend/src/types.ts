@@ -869,6 +869,7 @@ export interface FilterType {
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    funnel_advanced?: boolean // funnel advanced mode
     aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 

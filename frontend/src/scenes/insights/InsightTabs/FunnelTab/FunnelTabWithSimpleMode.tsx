@@ -31,15 +31,20 @@ import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 export function FunnelTabWithSimpleMode(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps, advancedMode } =
-        useValues(funnelLogic(insightProps))
-    const { clearFunnel, setFilters, toggleAdvancedMode } = useActions(funnelLogic(insightProps))
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps } = useValues(
+        funnelLogic(insightProps)
+    )
+    const { clearFunnel, setFilters } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
     useMountedLogic(funnelCommandLogic)
+
+    const toggleAdvancedMode = (): void => {
+        setFilters({ funnel_advanced: !filters.funnel_advanced })
+    }
 
     return (
         <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
@@ -188,14 +193,14 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                             </h4>
                             <div>
                                 <div
-                                    className={clsx('advanced-options-dropdown', advancedMode && 'expanded')}
+                                    className={clsx('advanced-options-dropdown', filters.funnel_advanced && 'expanded')}
                                     onClick={toggleAdvancedMode}
                                 >
                                     <IconArrowDropDown />
                                 </div>
                             </div>
                         </div>
-                        {advancedMode ? (
+                        {filters.funnel_advanced ? (
                             <div className="funnel-advanced-options">
                                 <FunnelConversionWindowFilter />
                                 <div className="mb-05">
