@@ -110,6 +110,17 @@ export function Insights(): JSX.Element {
         },
     })
 
+    /* These are insight specific filters. They each have insight specific logics */
+    const insightTab = {
+        [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
+        [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
+        [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
+        [`${InsightType.SESSIONS}`]: <SessionTab />,
+        [`${InsightType.FUNNELS}`]: <FunnelTab />,
+        [`${InsightType.RETENTION}`]: <RetentionTab />,
+        [`${InsightType.PATHS}`]: <PathTab />,
+    }[activeView]
+
     const insightScene = (
         <div className="insights-page">
             <div className="insight-metadata">
@@ -236,43 +247,35 @@ export function Insights(): JSX.Element {
                         />
                     )}
 
-                    <Row gutter={16}>
+                    <Row gutter={16} style={verticalLayout ? { marginBottom: 64 } : undefined}>
                         <Col span={24} xl={verticalLayout ? 8 : undefined}>
-                            <Card
-                                className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
-                                onClick={() => controlsCollapsed && toggleControlsCollapsed()}
-                            >
-                                <div
-                                    role="button"
-                                    title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
-                                    className="collapse-control"
-                                    onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                            {featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && verticalLayout ? (
+                                insightTab
+                            ) : (
+                                <Card
+                                    className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
+                                    onClick={() => controlsCollapsed && toggleControlsCollapsed()}
                                 >
-                                    {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                </div>
-                                {controlsCollapsed && (
-                                    <div>
-                                        <h3 className="l3">Query definition</h3>
-                                        <span className="text-small text-muted">
-                                            Click here to view and change the query events, filters and other settings.
-                                        </span>
+                                    <div
+                                        role="button"
+                                        title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                        className="collapse-control"
+                                        onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                    >
+                                        {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
                                     </div>
-                                )}
-                                <div className="tabs-inner">
-                                    {/* These are insight specific filters. They each have insight specific logics */}
-                                    {
-                                        {
-                                            [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
-                                            [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
-                                            [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
-                                            [`${InsightType.SESSIONS}`]: <SessionTab />,
-                                            [`${InsightType.FUNNELS}`]: <FunnelTab />,
-                                            [`${InsightType.RETENTION}`]: <RetentionTab />,
-                                            [`${InsightType.PATHS}`]: <PathTab />,
-                                        }[activeView]
-                                    }
-                                </div>
-                            </Card>
+                                    {controlsCollapsed && (
+                                        <div>
+                                            <h3 className="l3">Query definition</h3>
+                                            <span className="text-small text-muted">
+                                                Click here to view and change the query events, filters and other
+                                                settings.
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="tabs-inner">{insightTab}</div>
+                                </Card>
+                            )}
                         </Col>
                         <Col span={24} xl={verticalLayout ? 16 : undefined}>
                             <InsightContainer />

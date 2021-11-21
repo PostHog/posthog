@@ -168,6 +168,17 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
+    .action-filters-bordered {
+        .draggable-action-filter {
+            border-bottom: 1px solid $border;
+            padding: $default_spacing $default_spacing / 4;
+            margin-top: 0;
+        }
+        .row-action-btn {
+            color: $primary_alt;
+        }
+    }
+
     .retention-date-picker {
         background-color: transparent;
         border: 0;
