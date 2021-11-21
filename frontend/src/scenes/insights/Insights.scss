@@ -179,15 +179,15 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
-    .funnel-advanced-options {
-        .advanced-options-dropdown {
-            font-size: 1.4em;
-            cursor: pointer;
-            color: $primary_alt;
-            &.expanded {
-                transform: rotateX(180deg);
-            }
+    .advanced-options-dropdown {
+        font-size: 1.4em;
+        color: $primary_alt;
+        &.expanded {
+            transform: rotateX(180deg);
         }
+    }
+
+    .funnel-advanced-options {
         .funnel-exclusions-filter {
             .mt:first-of-type {
                 margin-top: $default_spacing / 2;

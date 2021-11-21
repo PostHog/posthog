@@ -5,14 +5,11 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { PercentageOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelStepReference } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
-export function FunnelStepReferencePicker(): JSX.Element | null {
+export function FunnelStepReferencePicker({ bordered = false }: { bordered?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { stepReference } = useValues(funnelLogic(insightProps))
     const { setStepReference } = useActions(funnelLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const options = [
         {
@@ -27,16 +24,12 @@ export function FunnelStepReferencePicker(): JSX.Element | null {
         },
     ]
 
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE]) {
-        return null
-    }
-
     return (
         <Select
             defaultValue={FunnelStepReference.total}
             value={stepReference || FunnelStepReference.total}
             onChange={setStepReference}
-            bordered={false}
+            bordered={bordered}
             dropdownMatchSelectWidth={false}
             data-attr="funnel-step-reference-selector"
             optionLabelProp="label"

@@ -27,6 +27,7 @@ import clsx from 'clsx'
 import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
 import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
+import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 
 export function FunnelTabWithSimpleMode(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -187,14 +188,13 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                 {clickhouseFeaturesEnabled && (
                     <>
                         <hr />
-                        <div className="flex-center">
+                        <div className="flex-center cursor-pointer" onClick={toggleAdvancedMode}>
                             <h4 className="secondary" style={{ flexGrow: 1 }}>
                                 Advanced options
                             </h4>
                             <div>
                                 <div
                                     className={clsx('advanced-options-dropdown', filters.funnel_advanced && 'expanded')}
-                                    onClick={toggleAdvancedMode}
                                 >
                                     <IconArrowDropDown />
                                 </div>
@@ -226,6 +226,8 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                                     </Tooltip>
                                 </div>
                                 <FunnelStepOrderPicker />
+                                <div className="mt">Conversion rate calculation</div>
+                                <FunnelStepReferencePicker bordered />
                                 <div className="mt">
                                     Exclusion steps
                                     <Tooltip
