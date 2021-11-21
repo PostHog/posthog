@@ -10,6 +10,7 @@ export interface LemonSwitchProps {
     /** Whether the switch should use the alternative primary color. */
     alt?: boolean
     style?: React.CSSProperties
+    disabled?: boolean
 }
 
 export function LemonSwitch({ id, onChange, checked, loading, alt, style }: LemonSwitchProps): JSX.Element {
