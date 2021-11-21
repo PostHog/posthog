@@ -8,9 +8,10 @@ const UNIQUE_USERS = -1
 interface AggregationSelectProps {
     aggregationGroupTypeIndex: number | undefined
     onChange: (aggregationGroupTypeIndex: number | undefined) => void
+    style?: React.CSSProperties
 }
 
-export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: AggregationSelectProps): JSX.Element {
+export function AggregationSelect({ aggregationGroupTypeIndex, onChange, style }: AggregationSelectProps): JSX.Element {
     const { groupTypes } = useValues(groupsModel)
 
     return (
@@ -22,6 +23,7 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
             }}
             data-attr="retention-aggregation-selector"
             dropdownMatchSelectWidth={false}
+            style={style}
         >
             <Select.Option key="unique_users" value={UNIQUE_USERS} data-attr="aggregation-selector-users">
                 <div style={{ height: '100%', width: '100%' }}>unique users</div>

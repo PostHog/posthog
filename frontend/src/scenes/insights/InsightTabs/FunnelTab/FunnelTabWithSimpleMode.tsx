@@ -21,14 +21,21 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { AggregationSelect } from 'scenes/insights/AggregationSelect'
+import { IconArrowDropDown } from 'lib/components/icons'
+import clsx from 'clsx'
+import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
+import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
+import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 
 export function FunnelTabWithSimpleMode(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, filterSteps } = useValues(funnelLogic(insightProps))
-    const { clearFunnel, setFilters } = useActions(funnelLogic(insightProps))
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps, advancedMode } =
+        useValues(funnelLogic(insightProps))
+    const { clearFunnel, setFilters, toggleAdvancedMode } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
@@ -44,7 +51,7 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                             loadResults()
                         }}
                     >
-                        <Row className="mb" justify="space-between" align="middle">
+                        <Row className="mb-05" justify="space-between" align="middle">
                             <h4 className="secondary" style={{ marginBottom: 0 }}>
                                 Query steps
                             </h4>
@@ -108,6 +115,23 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         </Card>
                     </form>
                 </div>
+                {showGroupsOptions && (
+                    <>
+                        <Row className="mt" style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
+                            <div className="flex-center text-muted" style={{ width: '100%' }}>
+                                <span style={{ marginRight: 4 }}>Aggregating by</span>
+                                <AggregationSelect
+                                    aggregationGroupTypeIndex={filters.aggregation_group_type_index}
+                                    onChange={(newValue) => {
+                                        setFilters({ aggregation_group_type_index: newValue })
+                                    }}
+                                    style={{ flexGrow: 1 }}
+                                />
+                            </div>
+                        </Row>
+                        {!isHorizontalUIEnabled && <hr style={{ marginBottom: 0 }} />}
+                    </>
+                )}
             </Col>
             <Col xs={24} md={8} xl={isHorizontalUIEnabled ? undefined : 24}>
                 <div className="mt" />
@@ -152,6 +176,76 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         <Row align="middle">
                             <BreakdownFilter filters={filters} setFilters={setFilters} buttonType="default" />
                         </Row>
+                    </>
+                )}
+
+                {clickhouseFeaturesEnabled && (
+                    <>
+                        <hr />
+                        <div className="flex-center">
+                            <h4 className="secondary" style={{ flexGrow: 1 }}>
+                                Advanced options
+                            </h4>
+                            <div>
+                                <div
+                                    className={clsx('advanced-options-dropdown', advancedMode && 'expanded')}
+                                    onClick={toggleAdvancedMode}
+                                >
+                                    <IconArrowDropDown />
+                                </div>
+                            </div>
+                        </div>
+                        {advancedMode ? (
+                            <div className="funnel-advanced-options">
+                                <FunnelConversionWindowFilter />
+                                <div className="mb-05">
+                                    Step order
+                                    <Tooltip
+                                        title={
+                                            <ul style={{ paddingLeft: '1.2rem' }}>
+                                                <li>
+                                                    <b>Sequential</b> - Step B must happen after Step A, but any number
+                                                    events can happen between A and B.
+                                                </li>
+                                                <li>
+                                                    <b>Strict Order</b> - Step B must happen directly after Step A
+                                                    without any events in between.
+                                                </li>
+                                                <li>
+                                                    <b>Any Order</b> - Steps can be completed in any sequence.
+                                                </li>
+                                            </ul>
+                                        }
+                                    >
+                                        <InfoCircleOutlined className="info-indicator" style={{ marginRight: 4 }} />
+                                    </Tooltip>
+                                </div>
+                                <FunnelStepOrderPicker />
+                                <div className="mt">
+                                    Exclusion steps
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Exclude {aggregationTargetLabel.plural} who completed the specified
+                                                event between two specific steps. Note that these
+                                                {aggregationTargetLabel.plural} will be{' '}
+                                                <b>completely excluded from the entire funnel</b>.
+                                            </>
+                                        }
+                                    >
+                                        <InfoCircleOutlined className="info-indicator" />
+                                    </Tooltip>
+                                </div>
+                                <div className="funnel-exclusions-filter">
+                                    <FunnelExclusionsFilter />
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-muted-alt cursor-pointer" onClick={toggleAdvancedMode}>
+                                Exclude events between steps, custom conversion limit window and allow any step
+                                ordering.
+                            </div>
+                        )}
                     </>
                 )}
             </Col>

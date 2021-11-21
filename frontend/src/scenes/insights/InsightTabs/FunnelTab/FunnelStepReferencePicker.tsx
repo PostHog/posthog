@@ -5,11 +5,15 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { PercentageOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelStepReference } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export function FunnelStepReferencePicker(): JSX.Element {
+export function FunnelStepReferencePicker(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { stepReference } = useValues(funnelLogic(insightProps))
     const { setStepReference } = useActions(funnelLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const options = [
         {
             value: FunnelStepReference.total,
@@ -22,6 +26,10 @@ export function FunnelStepReferencePicker(): JSX.Element {
             label: 'Relative to previous step',
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE]) {
+        return null
+    }
 
     return (
         <Select
