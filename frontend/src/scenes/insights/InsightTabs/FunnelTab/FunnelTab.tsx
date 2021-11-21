@@ -26,8 +26,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { AggregationSelect } from 'scenes/insights/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FunnelTabWithSimpleMode } from './FunnelTabWithSimpleMode'
 
 export function FunnelTab(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] ? <FunnelTabWithSimpleMode /> : <FunnelTabOld />
+}
+
+function FunnelTabOld(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps } = useValues(
@@ -53,7 +59,9 @@ export function FunnelTab(): JSX.Element {
             <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
                 <Col xs={24} md={16} xl={isHorizontalUIEnabled ? undefined : 24}>
                     <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
-                        <ToggleButtonChartFilter />
+                        <div className="mb">
+                            <ToggleButtonChartFilter />
+                        </div>
                         <form
                             onSubmit={(e): void => {
                                 e.preventDefault()

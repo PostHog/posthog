@@ -180,6 +180,16 @@ body strong {
     color: $primary;
 }
 
+.secondary {
+    font-size: 0.9em;
+    letter-spacing: 1px;
+    color: $primary_alt;
+    font-weight: $medium;
+    text-transform: uppercase;
+    border: 0;
+    background: none;
+}
+
 mark {
     background-color: $mark_color !important;
     border-radius: $radius;
