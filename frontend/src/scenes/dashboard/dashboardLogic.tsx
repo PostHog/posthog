@@ -2,7 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -611,7 +611,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         addGraph: () => {
             if (values.dashboard) {
-                router.actions.push(urls.insightNew(InsightType.TRENDS))
+                router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
             }
         },
         saveNewTag: ({ tag }) => {
