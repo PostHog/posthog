@@ -12,7 +12,7 @@ from sentry_sdk import capture_exception
 from posthog.event_usage import report_org_usage, report_org_usage_failure
 from posthog.models import Event, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
-from posthog.utils import get_instance_realm, get_previous_day, is_clickhouse_enabled
+from posthog.utils import get_instance_realm, get_previous_day, get_same_date_previous_month, is_clickhouse_enabled
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
@@ -144,15 +144,6 @@ def send_all_reports(
             time.sleep(0.25)
 
     return org_reports
-
-
-def get_same_date_previous_month(date: datetime) -> datetime:
-    """
-    Returns same date (day number) in the previous month.
-    E.g. if date is 2021-10-22, returns 2021-09-22.
-    Compensates for irregular month lengths.
-    """
-    return date - relativedelta(months=1)
 
 
 def get_org_usage(

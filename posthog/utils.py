@@ -113,6 +113,15 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
+def get_same_date_previous_month(date: datetime) -> datetime:
+    """
+    Returns same date (day number) in the previous month.
+    E.g. if date is 2021-10-22, returns 2021-09-22.
+    Compensates for irregular month lengths.
+    """
+    return date - relativedelta(months=1)
+
+
 def relative_date_parse(input: str) -> datetime.datetime:
     try:
         return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
