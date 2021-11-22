@@ -550,10 +550,11 @@ export interface EventType {
     event: string
 }
 
-export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+export interface RecordingEventType extends Omit<EventType, 'timestamp'> {
     percentage: number
     timestamp: number
     queryValue?: string
+    colonTimestamp?: string
 }
 
 export interface EventsTableRowItem {

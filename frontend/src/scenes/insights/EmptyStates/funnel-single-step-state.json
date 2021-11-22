@@ -1,0 +1,1936 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/insights",
+                "search": "?insight=FUNNELS&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&display=FunnelViz&interval=day&properties=%5B%5D&funnel_viz_type=steps&exclusions=%5B%5D&funnel_from_step=0&funnel_to_step=1",
+                "hash": "#fromItem=33&edit=true"
+            },
+            "searchParams": {
+                "insight": "FUNNELS",
+                "actions": [],
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0
+                    }
+                ],
+                "display": "FunnelViz",
+                "interval": "day",
+                "properties": [],
+                "funnel_viz_type": "steps",
+                "exclusions": [],
+                "funnel_from_step": 0,
+                "funnel_to_step": 1
+            },
+            "hashParams": {
+                "fromItem": 33,
+                "edit": true
+            },
+            "lastMethod": "REPLACE"
+        }
+    },
+    "scenes": {
+        "organizationLogic": {
+            "currentOrganization": {
+                "id": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                "name": "Hogflix",
+                "slug": "hogflix",
+                "created_at": "2021-11-12T20:24:37.580946Z",
+                "updated_at": "2021-11-19T05:32:26.185018Z",
+                "membership_level": 15,
+                "personalization": {},
+                "setup": {
+                    "is_active": false,
+                    "current_section": null
+                },
+                "plugins_access_level": 9,
+                "teams": [
+                    {
+                        "id": 2,
+                        "uuid": "017d15d7-c4df-0000-9a71-a7bc0ba5f8f8",
+                        "organization": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                        "api_token": "phc_R5kpRUNBf7GVsQ5oBTVX0ApKnMnjE9MJU4n3jVluTKG",
+                        "name": "HogFlix Demo App",
+                        "completed_snippet_onboarding": true,
+                        "ingested_event": true,
+                        "is_demo": true,
+                        "timezone": "UTC",
+                        "access_control": false,
+                        "effective_membership_level": 15
+                    }
+                ],
+                "available_features": [],
+                "domain_whitelist": [],
+                "is_member_join_email_enabled": true
+            },
+            "currentOrganizationLoading": false,
+            "organizationBeingDeleted": null
+        },
+        "teamLogic": {
+            "currentTeam": {
+                "id": 2,
+                "uuid": "017d15d7-c4df-0000-9a71-a7bc0ba5f8f8",
+                "organization": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                "api_token": "phc_R5kpRUNBf7GVsQ5oBTVX0ApKnMnjE9MJU4n3jVluTKG",
+                "app_urls": [],
+                "name": "HogFlix Demo App",
+                "slack_incoming_webhook": null,
+                "created_at": "2021-11-12T20:30:01.952257Z",
+                "updated_at": "2021-11-19T05:18:21.129579Z",
+                "anonymize_ips": false,
+                "completed_snippet_onboarding": true,
+                "ingested_event": true,
+                "test_account_filters": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "@posthog.com",
+                        "operator": "not_icontains"
+                    },
+                    {
+                        "key": "$host",
+                        "value": ["localhost:8000"],
+                        "operator": "is_not"
+                    }
+                ],
+                "path_cleaning_filters": [],
+                "is_demo": true,
+                "timezone": "UTC",
+                "data_attributes": ["data-attr"],
+                "correlation_config": {
+                    "excluded_event_names": ["$autocapture"],
+                    "excluded_person_property_names": []
+                },
+                "session_recording_opt_in": false,
+                "session_recording_retention_period_days": null,
+                "effective_membership_level": 15,
+                "access_control": false
+            },
+            "currentTeamLoading": false,
+            "teamBeingDeleted": null
+        },
+        "userLogic": {
+            "user": {
+                "date_joined": "2021-11-12T20:24:39.015588Z",
+                "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                "first_name": "Jane Doe",
+                "email": "test@posthog.com",
+                "email_opt_in": true,
+                "anonymize_data": false,
+                "toolbar_mode": "toolbar",
+                "has_password": true,
+                "is_staff": false,
+                "is_impersonated": false,
+                "team": {
+                    "id": 2,
+                    "uuid": "017d15d7-c4df-0000-9a71-a7bc0ba5f8f8",
+                    "organization": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                    "api_token": "phc_R5kpRUNBf7GVsQ5oBTVX0ApKnMnjE9MJU4n3jVluTKG",
+                    "name": "HogFlix Demo App",
+                    "completed_snippet_onboarding": true,
+                    "ingested_event": true,
+                    "is_demo": true,
+                    "timezone": "UTC",
+                    "access_control": false,
+                    "effective_membership_level": 15
+                },
+                "organization": {
+                    "id": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                    "name": "Hogflix",
+                    "slug": "hogflix",
+                    "created_at": "2021-11-12T20:24:37.580946Z",
+                    "updated_at": "2021-11-19T05:32:26.185018Z",
+                    "membership_level": 15,
+                    "personalization": {},
+                    "setup": {
+                        "is_active": false,
+                        "current_section": null
+                    },
+                    "plugins_access_level": 9,
+                    "teams": [
+                        {
+                            "id": 2,
+                            "uuid": "017d15d7-c4df-0000-9a71-a7bc0ba5f8f8",
+                            "organization": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                            "api_token": "phc_R5kpRUNBf7GVsQ5oBTVX0ApKnMnjE9MJU4n3jVluTKG",
+                            "name": "HogFlix Demo App",
+                            "completed_snippet_onboarding": true,
+                            "ingested_event": true,
+                            "is_demo": true,
+                            "timezone": "UTC",
+                            "access_control": false,
+                            "effective_membership_level": 15
+                        }
+                    ],
+                    "available_features": [],
+                    "domain_whitelist": [],
+                    "is_member_join_email_enabled": true
+                },
+                "organizations": [
+                    {
+                        "id": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                        "name": "Hogflix",
+                        "slug": "hogflix",
+                        "membership_level": 15
+                    }
+                ],
+                "events_column_config": {
+                    "active": "DEFAULT"
+                }
+            },
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "preflightLogic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": false,
+                    "celery": false,
+                    "db": true,
+                    "initiated": true,
+                    "cloud": false,
+                    "realm": "hosted-clickhouse",
+                    "available_social_auth_providers": {
+                        "github": false,
+                        "gitlab": false,
+                        "google-oauth2": false,
+                        "saml": false
+                    },
+                    "can_create_org": true,
+                    "email_service_available": false,
+                    "ee_available": true,
+                    "is_clickhouse_enabled": true,
+                    "db_backend": "clickhouse",
+                    "available_timezones": {
+                        "US/Pacific": -8,
+                        "UTC": 0
+                    },
+                    "opt_out_capture": false,
+                    "posthog_version": "1.30.0",
+                    "is_debug": true,
+                    "is_event_property_usage_enabled": false,
+                    "licensed_users_available": null,
+                    "site_url": "http://localhost:8000",
+                    "instance_preferences": {
+                        "debug_queries": false,
+                        "disable_paid_fs": false
+                    }
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "Insights",
+            "loadedScenes": {
+                "404": {
+                    "name": "404",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {},
+                        "hashParams": {}
+                    }
+                },
+                "4xx": {
+                    "name": "4xx",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {},
+                        "hashParams": {}
+                    }
+                },
+                "ProjectUnavailable": {
+                    "name": "ProjectUnavailable",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {},
+                        "hashParams": {}
+                    }
+                },
+                "SavedInsights": {
+                    "name": "SavedInsights",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {},
+                        "hashParams": {}
+                    },
+                    "lastTouch": 1637336644871
+                },
+                "InsightRouter": {
+                    "name": "InsightRouter",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {
+                            "insight": "TRENDS"
+                        },
+                        "hashParams": {}
+                    },
+                    "lastTouch": 1637336647955
+                },
+                "Insights": {
+                    "name": "Insights",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {
+                            "insight": "FUNNELS",
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ],
+                            "display": "FunnelViz",
+                            "interval": "day",
+                            "properties": [],
+                            "funnel_viz_type": "steps",
+                            "exclusions": [],
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 1
+                        },
+                        "hashParams": {
+                            "fromItem": 33,
+                            "edit": true
+                        }
+                    },
+                    "lastTouch": 1637336665750
+                }
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null,
+            "lastReloadAt": null
+        },
+        "instance": {
+            "SystemStatus": {
+                "systemStatusLogic": {
+                    "systemStatus": {
+                        "overview": [
+                            {
+                                "key": "posthog_version",
+                                "metric": "PostHog version",
+                                "value": "1.30.0"
+                            },
+                            {
+                                "key": "posthog_git_sha",
+                                "metric": "PostHog Git SHA",
+                                "value": "Undefined"
+                            },
+                            {
+                                "key": "analytics_database",
+                                "metric": "Analytics database in use",
+                                "value": "ClickHouse"
+                            },
+                            {
+                                "key": "plugin_sever_alive",
+                                "metric": "Plugin server alive",
+                                "value": false
+                            },
+                            {
+                                "key": "plugin_sever_version",
+                                "metric": "Plugin server version",
+                                "value": "1.10.5"
+                            },
+                            {
+                                "key": "plugin_sever_job_queues",
+                                "metric": "Job queues enabled in plugin server",
+                                "value": "Graphile"
+                            },
+                            {
+                                "key": "db_alive",
+                                "metric": "Postgres database alive",
+                                "value": true
+                            },
+                            {
+                                "key": "clickhouse_alive",
+                                "metric": "Clickhouse database alive",
+                                "value": true
+                            },
+                            {
+                                "key": "redis_alive",
+                                "metric": "Redis alive",
+                                "value": true
+                            }
+                        ],
+                        "internal_metrics": {}
+                    },
+                    "systemStatusLoading": false,
+                    "queries": null,
+                    "queriesLoading": false,
+                    "analyzeQueryResult": null,
+                    "analyzeQueryResultLoading": false,
+                    "tab": "overview",
+                    "error": null,
+                    "openSections": ["0"],
+                    "analyzeModalOpen": false,
+                    "analyzeQuery": ""
+                }
+            },
+            "Licenses": {
+                "licenseLogic": {
+                    "licenses": [
+                        {
+                            "id": 1,
+                            "key": "123",
+                            "plan": "enterprise",
+                            "valid_until": "2022-11-19T05:33:55.999116Z",
+                            "max_users": null,
+                            "created_at": "2021-11-19T05:33:56.018147Z"
+                        }
+                    ],
+                    "licensesLoading": false,
+                    "error": null
+                }
+            }
+        },
+        "organization": {
+            "Settings": {
+                "bulkInviteLogic": {
+                    "invitedTeamMembers": [],
+                    "invitedTeamMembersLoading": false,
+                    "invites": [
+                        {
+                            "target_email": "",
+                            "first_name": "",
+                            "isValid": true
+                        }
+                    ]
+                }
+            }
+        },
+        "feature-flags": {
+            "featureFlagLogic": {
+                "featureFlag": null,
+                "featureFlagLoading": false,
+                "featureFlagId": null
+            }
+        },
+        "persons": {
+            "personsLogic": {
+                "persons": {
+                    "next": null,
+                    "previous": null,
+                    "results": []
+                },
+                "personsLoading": false,
+                "person": null,
+                "personLoading": false,
+                "cohorts": null,
+                "cohortsLoading": false,
+                "deletedPerson": false,
+                "deletedPersonLoading": false,
+                "listFilters": {},
+                "hasNewKeys": false,
+                "activeTab": null,
+                "splitMergeModalShown": false
+            }
+        },
+        "billing": {
+            "billingLogic": {
+                "billing": null,
+                "billingLoading": false,
+                "plans": [],
+                "plansLoading": false,
+                "billingSubscription": null,
+                "billingSubscriptionLoading": false
+            }
+        },
+        "insights": {
+            "InsightDateFilter": {
+                "insightDateFilterLogic": {
+                    "dates": {},
+                    "highlightDateChange": false,
+                    "initialLoad": false
+                }
+            },
+            "insightLogic": {
+                "scene": {
+                    "insight": {
+                        "id": 33,
+                        "short_id": "3gMfB91R",
+                        "name": "Cold Gerbil",
+                        "filters": {
+                            "insight": "FUNNELS",
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ],
+                            "display": "FunnelViz",
+                            "interval": "day",
+                            "properties": [],
+                            "funnel_viz_type": "steps",
+                            "exclusions": [],
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 1
+                        },
+                        "filters_hash": "cache_f9f6c2699aa06287232c19cdc5038876",
+                        "order": null,
+                        "deleted": false,
+                        "dashboard": null,
+                        "dive_dashboard": null,
+                        "layouts": {},
+                        "color": null,
+                        "last_refresh": null,
+                        "refreshing": false,
+                        "result": [
+                            {
+                                "action_id": "$pageview",
+                                "name": "$pageview",
+                                "custom_name": null,
+                                "order": 0,
+                                "people": [],
+                                "count": 5,
+                                "type": "events",
+                                "average_conversion_time": null,
+                                "median_conversion_time": null,
+                                "converted_people_url": "http://localhost:8000/api/person/funnel/?date_from=2021-11-12T00%3A00%3A00%2B00%3A00&date_to=2021-11-19T05%3A22%3A41.252292%2B00%3A00&display=FunnelViz&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_step=1&funnel_viz_type=steps&funnel_window_interval=14&funnel_window_interval_unit=day&insight=FUNNELS&interval=day&limit=100",
+                                "dropped_people_url": null
+                            }
+                        ],
+                        "created_at": "2021-11-19T15:44:07.985995Z",
+                        "description": "",
+                        "updated_at": "2021-11-19T15:44:07.986072Z",
+                        "tags": [],
+                        "favorited": false,
+                        "saved": false,
+                        "created_by": {
+                            "id": 1,
+                            "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                            "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                            "first_name": "Jane Doe",
+                            "email": "test@posthog.com"
+                        },
+                        "is_sample": false
+                    },
+                    "insightLoading": false,
+                    "filters": {
+                        "insight": "FUNNELS",
+                        "actions": [],
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0
+                            }
+                        ],
+                        "display": "FunnelViz",
+                        "interval": "day",
+                        "properties": [],
+                        "funnel_viz_type": "steps",
+                        "exclusions": [],
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1
+                    },
+                    "savedFilters": {
+                        "insight": "TRENDS",
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0
+                            }
+                        ],
+                        "actions": [],
+                        "display": "ActionsLineGraph",
+                        "interval": "day",
+                        "properties": [],
+                        "filter_test_accounts": false
+                    },
+                    "showTimeoutMessage": false,
+                    "maybeShowTimeoutMessage": false,
+                    "showErrorMessage": false,
+                    "maybeShowErrorMessage": false,
+                    "timeout": 88,
+                    "lastRefresh": "2021-11-19T05:22:41.401819Z",
+                    "isLoading": false,
+                    "isFirstLoad": false,
+                    "controlsCollapsed": false,
+                    "queryStartTimes": {
+                        "bc03481f-569f-4e78-9857-807aa3799ff1": 1637336648213,
+                        "a8ee18c8-bbfa-4c30-83aa-3c2ddd579b94": 1637336665738
+                    },
+                    "lastInsightModeSource": null,
+                    "insightMode": "edit",
+                    "tagLoading": false
+                }
+            },
+            "ActionFilter": {
+                "entityFilterLogic": {
+                    "EditFunnel-action": {
+                        "selectedFilter": null,
+                        "localFilters": [
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0
+                            }
+                        ],
+                        "entityFilterVisible": [],
+                        "modalVisible": false
+                    },
+                    "funnel-exclusions-filter": {
+                        "selectedFilter": null,
+                        "localFilters": [],
+                        "entityFilterVisible": [],
+                        "modalVisible": false
+                    }
+                },
+                "renameModalLogic": {
+                    "EditFunnel-action": {
+                        "name": ""
+                    }
+                }
+            }
+        },
+        "trends": {
+            "personsModalLogic": {
+                "people": null,
+                "peopleLoading": false,
+                "searchTerm": "",
+                "cohortModalVisible": false,
+                "firstLoadedPeople": null,
+                "loadingMorePeople": false,
+                "showingPeople": false,
+                "peopleParams": null
+            }
+        },
+        "funnels": {
+            "funnelLogic": {
+                "scene": {
+                    "people": [],
+                    "peopleLoading": false,
+                    "correlations": {
+                        "events": []
+                    },
+                    "correlationsLoading": false,
+                    "propertyCorrelations": {
+                        "events": []
+                    },
+                    "propertyCorrelationsLoading": false,
+                    "eventWithPropertyCorrelations": {},
+                    "eventWithPropertyCorrelationsLoading": false,
+                    "stepReference": "total",
+                    "isGroupingOutliers": true,
+                    "error": null,
+                    "correlationTypes": ["success", "failure"],
+                    "propertyCorrelationTypes": ["success", "failure"],
+                    "skewWarningHidden": false,
+                    "correlationFeedbackHidden": false,
+                    "correlationDetailedFeedbackVisible": false,
+                    "correlationFeedbackRating": 0,
+                    "correlationDetailedFeedback": "",
+                    "propertyNames": ["is_demo", "email", "address", "name"],
+                    "nestedTableExpandedKeys": [],
+                    "shouldReportCorrelationViewed": true,
+                    "shouldReportPropertyCorrelationViewed": true
+                }
+            }
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "receivedFeatureFlags": true
+            }
+        },
+        "components": {
+            "PersonalAPIKeys": {
+                "personalAPIKeysLogic": {
+                    "keys": [],
+                    "keysLoading": false
+                }
+            },
+            "CommandPalette": {
+                "commandPaletteLogic": {
+                    "isPaletteShown": false,
+                    "keyboardResultIndex": 0,
+                    "hoverResultIndex": null,
+                    "input": "",
+                    "activeFlow": null,
+                    "rawCommandRegistrations": {
+                        "go-to": {
+                            "key": "go-to",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"],
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Go to Dashboards"
+                                }
+                            ]
+                        },
+                        "open-urls": {
+                            "key": "open-urls",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"]
+                        },
+                        "debug-clickhouse-queries": {
+                            "key": "debug-clickhouse-queries",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Debug queries (ClickHouse)"
+                            }
+                        },
+                        "calculator": {
+                            "key": "calculator",
+                            "scope": "global"
+                        },
+                        "create-personal-api-key": {
+                            "key": "create-personal-api-key",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Personal API Key"
+                            }
+                        },
+                        "create-dashboard": {
+                            "key": "create-dashboard",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Dashboard"
+                            }
+                        },
+                        "share-feedback": {
+                            "key": "share-feedback",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Share Feedback",
+                                "synonyms": ["send opinion", "ask question", "message posthog", "github issue"]
+                            }
+                        },
+                        "insight-graph": {
+                            "key": "insight-graph",
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Toggle \"Compare Previous\" on Graph"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Custom"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Today"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Yesterday"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 24 hours"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 48 hours"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 7 days"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 14 days"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 30 days"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 90 days"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to This month"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Previous month"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Year to date"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to All time"
+                                }
+                            ],
+                            "scope": "insights"
+                        },
+                        "funnels": {
+                            "key": "funnels",
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Clear Funnel"
+                                }
+                            ],
+                            "scope": "funnels"
+                        }
+                    }
+                }
+            },
+            "HelpButton": {
+                "HelpButton": {
+                    "isHelpVisible": false
+                }
+            },
+            "BackTo": {
+                "backTo": null
+            },
+            "CompareFilter": {
+                "compareFilterLogic": {
+                    "compare": false,
+                    "disabled": false
+                }
+            },
+            "SaveToDashboard": {
+                "saveToDashboardModalLogic": {
+                    "33": {
+                        "_dashboardId": null
+                    }
+                }
+            },
+            "PropertyFilters": {
+                "propertyFilterLogic": {
+                    "EditFunnel-property": {
+                        "filters": [{}]
+                    }
+                }
+            },
+            "Annotations": {
+                "annotationsLogic": {
+                    "33_annotations": {
+                        "annotations": [],
+                        "annotationsLoading": false,
+                        "annotationsToCreate": [],
+                        "diffType": "day"
+                    }
+                }
+            },
+            "VisibilitySensor": {
+                "visibilitySensorLogic": {
+                    "correlation-scene": {
+                        "innerHeight": 581,
+                        "visible": false
+                    },
+                    "correlation-scene-properties": {
+                        "innerHeight": 581,
+                        "visible": false
+                    }
+                }
+            },
+            "ChartFilter": {
+                "chartFilterLogic": {
+                    "chartFilter": "steps"
+                }
+            }
+        },
+        "experimental": {
+            "NPSPrompt": {
+                "step": 0,
+                "hidden": true,
+                "payload": null
+            }
+        }
+    },
+    "models": {
+        "actionsModel": {
+            "actions": [
+                {
+                    "id": 9,
+                    "name": "new action",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "9",
+                            "event": "correlation interaction",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-18T03:52:55.629603Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-18T03:52:55.629105Z",
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                        "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                        "first_name": "Jane Doe",
+                        "email": "test@posthog.com"
+                    },
+                    "team_id": 2
+                },
+                {
+                    "id": 8,
+                    "name": "Entered Free Trial",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "8",
+                            "event": "entered_free_trial",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.711843Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.494238Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 7,
+                    "name": "Purchase",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "7",
+                            "event": "purchase",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.693882Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.465794Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 6,
+                    "name": "Watched Movie",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "6",
+                            "event": "watched_movie",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.273208Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.260641Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 5,
+                    "name": "Rated App",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "5",
+                            "event": "rated_app",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.255899Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.284401Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 4,
+                    "name": "Installed App",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "4",
+                            "event": "installed_app",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.238262Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.313787Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 3,
+                    "name": "HogFlix paid",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "3",
+                            "event": "$autocapture",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": "button",
+                            "url": "http://hogflix.com/2",
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:02.751479Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.431438Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 2,
+                    "name": "HogFlix signed up",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "2",
+                            "event": "$autocapture",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": "button",
+                            "url": "http://hogflix.com/1",
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:02.724308Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.391735Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 1,
+                    "name": "HogFlix homepage view",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "1",
+                            "event": "$pageview",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": "http://hogflix.com",
+                            "name": null,
+                            "url_matching": "exact",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:02.691259Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.350260Z",
+                    "created_by": null,
+                    "team_id": 2
+                }
+            ],
+            "actionsLoading": false
+        },
+        "annotationsModel": {
+            "globalAnnotations": [
+                {
+                    "id": 1,
+                    "content": "123123",
+                    "date_marker": "2021-11-17T06:00:00Z",
+                    "creation_type": "USR",
+                    "dashboard_item": null,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                        "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                        "first_name": "Jane Doe",
+                        "email": "test@posthog.com"
+                    },
+                    "created_at": "2021-11-18T03:56:02.252300Z",
+                    "updated_at": "2021-11-18T03:56:02.252964Z",
+                    "deleted": false,
+                    "scope": "organization"
+                }
+            ],
+            "globalAnnotationsLoading": false
+        },
+        "cohortsModel": {
+            "cohorts": [
+                {
+                    "id": 1,
+                    "name": "test",
+                    "description": "",
+                    "groups": [
+                        {
+                            "days": null,
+                            "count": null,
+                            "label": null,
+                            "end_date": null,
+                            "event_id": null,
+                            "action_id": null,
+                            "properties": [
+                                {
+                                    "key": "is_demo",
+                                    "type": "person",
+                                    "value": ["true"],
+                                    "operator": "exact"
+                                }
+                            ],
+                            "start_date": null,
+                            "count_operator": null
+                        }
+                    ],
+                    "deleted": false,
+                    "is_calculating": false,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                        "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                        "first_name": "Jane Doe",
+                        "email": "test@posthog.com"
+                    },
+                    "created_at": "2021-11-18T04:01:39.878752Z",
+                    "last_calculation": "2021-11-18T17:50:19.809394Z",
+                    "errors_calculating": 0,
+                    "count": 0,
+                    "is_static": false
+                }
+            ],
+            "cohortsLoading": false,
+            "pollTimeout": null
+        },
+        "dashboardsModel": {
+            "rawDashboards": {
+                "2": {
+                    "id": 2,
+                    "name": "Web Analytics",
+                    "description": "",
+                    "pinned": false,
+                    "items": null,
+                    "created_at": "2021-11-12T20:30:02.798795Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "PSF6rewcq76I_bP07eRB4QV5fx3XSA",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                },
+                "3": {
+                    "id": 3,
+                    "name": "App Analytics",
+                    "description": "",
+                    "pinned": false,
+                    "items": null,
+                    "created_at": "2021-11-12T20:30:03.292080Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "PP8vvl1ywSmrogQlX8P0uNsqZ2moqw",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                },
+                "4": {
+                    "id": 4,
+                    "name": "Sales & Revenue",
+                    "description": "",
+                    "pinned": false,
+                    "items": null,
+                    "created_at": "2021-11-12T20:30:03.739938Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "yXKUan54_W5teydFHVSwH6lkDFNxVw",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                }
+            },
+            "rawDashboardsLoading": false,
+            "sharedDashboard": null,
+            "sharedDashboardLoading": false,
+            "dashboard": null,
+            "dashboardLoading": false,
+            "redirect": true,
+            "lastDashboardId": 3,
+            "diveSourceId": null
+        },
+        "eventDefinitionsModel": {
+            "eventStorage": {
+                "count": 29,
+                "results": [
+                    {
+                        "id": "017d15d8-126d-0001-508f-78eb18a4c6d5",
+                        "name": "$autocapture",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d16e9-756f-0000-c81e-887ab58b5cb9",
+                        "name": "$capture_failed_request",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-4d76-0000-9665-9a902145846f",
+                        "name": "$capture_metrics",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-e0f7-0001-3e7e-ecbffc0d005b",
+                        "name": "$feature_flag_called",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-06ac-0001-fd29-4b8df28c48be",
+                        "name": "$groupidentify",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-f6aa-0000-efe6-994317a2bedb",
+                        "name": "$identify",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-e28f-0001-4a50-f942450dfec9",
+                        "name": "$pageleave",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-cd12-0000-eb5a-99a61f2b4131",
+                        "name": "$pageview",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d16eb-9c1c-0001-f48a-c5247e37c80e",
+                        "name": "client_request_failure",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-bef1-0001-3c99-44dcf3ae8c0c",
+                        "name": "correlation analyzed",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-9bfe-0001-3183-d2db82286610",
+                        "name": "correlation interaction",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-bef1-0001-21a1-6a7ccdb037f9",
+                        "name": "correlation properties analyzed",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-9cb3-0000-dfa3-a1785a60e946",
+                        "name": "correlation properties viewed",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-9bfc-0001-9e2a-5ff876b6225f",
+                        "name": "correlation viewed",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-cb25-0000-0c4d-340febae4723",
+                        "name": "entered_free_trial",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-6b40-0001-677f-104895b60e58",
+                        "name": "filter added",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-6b42-0001-3bf5-d594efd0a5d7",
+                        "name": "filters set",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-60a4-0001-8096-5c6c0758d25f",
+                        "name": "funnel result calculated",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d16e8-5630-0001-7064-505f50ebc2b9",
+                        "name": "funnel step reordered",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d16f7-87ee-0001-c7dc-fbd0efff3a3d",
+                        "name": "hotkey navigation",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-87e8-0000-2db8-c51d274d7683",
+                        "name": "insight analyzed",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-5fcf-0001-73ca-be8f01347695",
+                        "name": "insight loaded",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-5fcb-0001-d7b0-b5fef7aa5959",
+                        "name": "insight viewed",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-c8e5-0000-23aa-b7355e1b3224",
+                        "name": "installed_app",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d16e8-8583-0000-5179-f650de05c0c4",
+                        "name": "local filter removed",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d8-6b43-0001-8e21-cafda5b66275",
+                        "name": "pay gate shown",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-cb1c-0000-118a-d0ca6d34cf92",
+                        "name": "purchase",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-c8ef-0000-bc25-19a806c1b96d",
+                        "name": "rated_app",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    },
+                    {
+                        "id": "017d15d7-c8da-0000-702e-c20469f51514",
+                        "name": "watched_movie",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    }
+                ],
+                "next": null
+            },
+            "eventStorageLoading": false
+        },
+        "personPropertiesModel": {
+            "personProperties": [
+                {
+                    "name": "is_demo",
+                    "count": 320
+                },
+                {
+                    "name": "email",
+                    "count": 71
+                },
+                {
+                    "name": "address",
+                    "count": 70
+                },
+                {
+                    "name": "name",
+                    "count": 70
+                },
+                {
+                    "name": "phone",
+                    "count": 70
+                },
+                {
+                    "name": "$geoip_city_name",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_continent_code",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_continent_name",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_country_code",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_country_name",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_latitude",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_longitude",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_postal_code",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_subdivision_1_code",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_subdivision_1_name",
+                    "count": 2
+                },
+                {
+                    "name": "$geoip_time_zone",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_browser",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_browser_version",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_current_url",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_device_type",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_city_name",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_continent_code",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_continent_name",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_country_code",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_country_name",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_latitude",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_longitude",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_postal_code",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_subdivision_1_code",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_subdivision_1_name",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_geoip_time_zone",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_os",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_referrer",
+                    "count": 2
+                },
+                {
+                    "name": "$initial_referring_domain",
+                    "count": 2
+                },
+                {
+                    "name": "$browser",
+                    "count": 1
+                },
+                {
+                    "name": "$browser_version",
+                    "count": 1
+                },
+                {
+                    "name": "$os",
+                    "count": 1
+                }
+            ],
+            "personPropertiesLoading": false
+        },
+        "propertyDefinitionsModel": {
+            "propertyStorage": {
+                "count": 159,
+                "results": [
+                    {
+                        "id": "017d15d7-d483-0000-f0ed-0a56c7f24580",
+                        "name": "$active_feature_flags",
+                        "description": null,
+                        "tags": null,
+                        "is_numerical": false,
+                        "updated_at": null,
+                        "updated_by": null,
+                        "query_usage_30_day": null
+                    }
+                ],
+                "next": null
+            },
+            "propertyStorageLoading": false
+        },
+        "groupsModel": {
+            "groupTypes": [
+                {
+                    "group_type": "project",
+                    "group_type_index": 0
+                },
+                {
+                    "group_type": "organization",
+                    "group_type_index": 1
+                },
+                {
+                    "group_type": "instance",
+                    "group_type_index": 2
+                }
+            ],
+            "groupTypesLoading": false
+        },
+        "groupPropertiesModel": {
+            "allGroupProperties": {
+                "0": [
+                    {
+                        "name": "id",
+                        "count": 1
+                    },
+                    {
+                        "name": "ingested_event",
+                        "count": 1
+                    },
+                    {
+                        "name": "is_demo",
+                        "count": 1
+                    },
+                    {
+                        "name": "name",
+                        "count": 1
+                    },
+                    {
+                        "name": "timezone",
+                        "count": 1
+                    },
+                    {
+                        "name": "uuid",
+                        "count": 1
+                    }
+                ],
+                "1": [
+                    {
+                        "name": "available_features",
+                        "count": 1
+                    },
+                    {
+                        "name": "created_at",
+                        "count": 1
+                    },
+                    {
+                        "name": "id",
+                        "count": 1
+                    },
+                    {
+                        "name": "name",
+                        "count": 1
+                    },
+                    {
+                        "name": "slug",
+                        "count": 1
+                    }
+                ]
+            },
+            "allGroupPropertiesLoading": false
+        }
+    },
+    "layout": {
+        "navigation": {
+            "navigationLogic": {
+                "latestVersion": "1.30.0",
+                "latestVersionLoading": false,
+                "isSideBarShownRaw": true,
+                "isAnnouncementShown": true,
+                "isSitePopoverOpen": false,
+                "isInviteModalShown": false,
+                "isCreateOrganizationModalShown": false,
+                "isCreateProjectModalShown": false,
+                "isToolbarModalShown": false,
+                "isProjectSwitcherShown": false,
+                "hotkeyNavigationEngaged": false
+            }
+        }
+    }
+}

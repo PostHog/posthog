@@ -3,6 +3,7 @@ import { Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import { copyToClipboard } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
+import { IconCopy } from './icons'
 
 interface InlineProps extends HTMLProps<HTMLSpanElement> {
     children?: JSX.Element | string
@@ -41,7 +42,7 @@ export function CopyToClipboardInline({
                 display: 'flex',
                 alignItems: 'center',
                 flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
-                flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
+                flexWrap: 'nowrap',
                 ...style,
             }}
             onClick={() => {
@@ -50,8 +51,13 @@ export function CopyToClipboardInline({
             {...props}
         >
             <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
-            <CopyOutlined
-                style={iconPosition === 'end' ? { marginLeft: 4, ...iconStyle } : { marginRight: 4, ...iconStyle }}
+            <IconCopy
+                style={{
+                    [iconPosition === 'end' ? 'marginLeft' : 'marginRight']: 4,
+                    color: 'var(--primary)',
+                    flexShrink: 0,
+                    ...iconStyle,
+                }}
             />
         </span>
     )

@@ -3,9 +3,9 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
-import { SeekbarEventType } from '~/types'
+import { RecordingEventType } from '~/types'
 
-function Tick({ marker }: { marker: SeekbarEventType }): JSX.Element {
+function Tick({ marker }: { marker: RecordingEventType }): JSX.Element {
     const [hovering, setHovering] = useState(false)
     const { handleTickClick } = useActions(seekbarLogic)
     return (

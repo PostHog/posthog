@@ -44,11 +44,32 @@ $funnel_canvas_background: #fafafa;
             background-color: rgba($primary, 0.1) !important;
             border-color: rgba($primary, 0.1) !important;
         }
+        // TODO: Remove deprecated style if we fully remove or actively support again
+        .deprecated {
+            color: $text_muted;
+            .hotkey {
+                margin-bottom: 0;
+                background-color: rgba($border, 0.1) !important;
+                border-color: $border !important;
+                color: $text_muted;
+            }
+        }
+        &.ant-tabs-tab-active {
+            .deprecated {
+                color: $primary;
+            }
+        }
     }
 
     .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
+        // TODO: If we remove deprecated tabs, remove the :not selector below
         .hotkey {
             background-color: rgba($primary, 0.2) !important;
+        }
+        .deprecated {
+            .hotkey {
+                background-color: rgba($border, 0.2) !important;
+            }
         }
     }
 
@@ -59,22 +80,6 @@ $funnel_canvas_background: #fafafa;
 
         .ant-card-body {
             padding: $default_spacing * 0.8 $default_spacing;
-        }
-
-        .collapse-control {
-            position: absolute;
-            right: $default_spacing / 2;
-            top: $default_spacing / 2;
-            cursor: pointer;
-            z-index: $z_raised;
-        }
-
-        &.collapsed {
-            cursor: pointer;
-            border-color: $primary !important;
-            .tabs-inner {
-                display: none;
-            }
         }
     }
 

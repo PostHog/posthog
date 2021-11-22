@@ -8,6 +8,7 @@ import { PlayerController } from 'scenes/session-recordings/player/PlayerControl
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 import { Col, Row } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { PlayerMeta } from 'scenes/session-recordings/player/PlayerMeta'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, initReplayer, stopAnimation } =
@@ -54,20 +55,25 @@ export function SessionRecordingPlayerV2(): JSX.Element {
                 <div className="player-container ph-no-capture">
                     <PlayerFrame ref={frame} />
                 </div>
-                {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && !isSmallScreen && (
-                    <div className="player-events">
-                        <PlayerEvents />
-                    </div>
-                )}
+                {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && !isSmallScreen && <PlayerSidebar />}
             </Row>
             <Row className="player-controller" align="middle">
                 <PlayerController />
             </Row>
-            {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && isSmallScreen && (
-                <div className="player-events">
-                    <PlayerEvents />
-                </div>
-            )}
+            {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && isSmallScreen && <PlayerSidebar />}
+        </Col>
+    )
+}
+
+function PlayerSidebar(): JSX.Element {
+    return (
+        <Col className="player-sidebar">
+            <div className="player-meta">
+                <PlayerMeta />
+            </div>
+            <div className="player-events">
+                <PlayerEvents />
+            </div>
         </Col>
     )
 }

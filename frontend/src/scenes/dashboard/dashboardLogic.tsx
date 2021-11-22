@@ -611,12 +611,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         addGraph: () => {
             if (values.dashboard) {
-                router.actions.push(
-                    combineUrl(urls.insightNew({ insight: InsightType.TRENDS }), '', {
-                        backTo: values.dashboard.name,
-                        backToURL: urls.dashboard(values.dashboard.id),
-                    }).url
-                )
+                router.actions.push(urls.insightNew(InsightType.TRENDS))
             }
         },
         saveNewTag: ({ tag }) => {

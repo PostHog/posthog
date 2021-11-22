@@ -1,23 +1,25 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch, Typography, Input } from 'antd'
+import { Input } from 'antd'
 import { Link } from 'lib/components/Link'
-import { DeleteWithUndo } from 'lib/utils'
-import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
+import { copyToClipboard, deleteWithUndo } from 'lib/utils'
+import { PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
-import { Tooltip } from 'lib/components/Tooltip'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonButton } from '../../lib/components/LemonButton'
+import { LemonSpacer } from '../../lib/components/LemonRow'
+import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
+import { More } from '../../lib/components/LemonButton/More'
+import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -26,78 +28,33 @@ export const scene: SceneExport = {
 
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags, featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
-    const { push } = useActions(router)
-    const { tableScrollX } = useIsTableScrolling('lg')
 
-    const columns = [
+    const columns: LemonTableColumns<FeatureFlagType> = [
         {
             title: normalizeColumnTitle('Key'),
             dataIndex: 'key',
             className: 'ph-no-capture',
-            fixed: 'left',
+            sticky: true,
             width: '15%',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
+            render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            maxWidth: 210,
-                            width: 'auto',
-                        }}
-                    >
-                        {!featureFlag.active && (
-                            <Tooltip title="This feature flag is disabled.">
-                                <DisconnectOutlined style={{ marginRight: 4 }} />
-                            </Tooltip>
-                        )}
-                        <div onClick={(e) => e.stopPropagation()}>
-                            <CopyToClipboardInline
-                                iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="start"
-                                explicitValue={featureFlag.key}
-                            />
-                        </div>
-                        <Typography.Text title={featureFlag.key}>{stringWithWBR(featureFlag.key, 17)}</Typography.Text>
-                    </div>
+                    <>
+                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}>
+                            <h4 className="row-name">{stringWithWBR(featureFlag.key, 17)}</h4>
+                        </Link>
+                        {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
+                    </>
                 )
             },
         },
+        createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
+        createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
         {
-            title: normalizeColumnTitle('Description'),
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
-                return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            wordWrap: 'break-word',
-                            maxWidth: 450,
-                            width: 'auto',
-                            whiteSpace: 'break-spaces',
-                        }}
-                    >
-                        <Typography.Paragraph
-                            ellipsis={{
-                                rows: 5,
-                            }}
-                            title={featureFlag.name}
-                        >
-                            {featureFlag.name}
-                        </Typography.Paragraph>
-                    </div>
-                )
-            },
-            className: 'ph-no-capture',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
-        },
-        createdAtColumn(),
-        createdByColumn(featureFlags),
-        {
-            title: 'Filters',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
+            title: 'Release conditions',
+            render: function Render(_, featureFlag: FeatureFlagType) {
                 if (!featureFlag.filters?.groups) {
                     return 'N/A'
                 }
@@ -108,63 +65,79 @@ export function FeatureFlags(): JSX.Element {
             },
         },
         {
-            title: 'Enabled',
+            title: 'Status',
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
             width: 90,
-            align: 'right',
-            render: function RenderActive(_: string, featureFlag: FeatureFlagType) {
+            render: function RenderActive(_, featureFlag: FeatureFlagType) {
+                const switchId = `feature-flag-${featureFlag.id}-switch`
                 return (
-                    <Switch
-                        onClick={(_checked, e) => e.stopPropagation()}
-                        checked={featureFlag.active}
-                        onChange={(active) =>
-                            featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <label htmlFor={switchId}>{featureFlag.active ? 'Enabled' : 'Disabled'}</label>
+                        <LemonSwitch
+                            id={switchId}
+                            checked={featureFlag.active}
+                            onChange={(active) =>
+                                featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
+                            }
+                            style={{ marginLeft: '0.5rem' }}
+                        />
+                    </div>
+                )
+            },
+        },
+        {
+            width: 100,
+            render: function Render(_, featureFlag: FeatureFlagType) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    type="stealth"
+                                    onClick={() => {
+                                        copyToClipboard(featureFlag.key, 'feature flag key')
+                                    }}
+                                    fullWidth
+                                >
+                                    Copy key
+                                </LemonButton>
+                                {featureFlag.id && (
+                                    <LemonButton type="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
+                                        Edit
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    type="stealth"
+                                    to={urls.insightNew({
+                                        events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
+                                        breakdown_type: 'event',
+                                        breakdown: `$feature/${featureFlag.key}`,
+                                    })}
+                                    data-attr="usage"
+                                    fullWidth
+                                >
+                                    Use in Insights
+                                </LemonButton>
+                                <LemonSpacer />
+                                {featureFlag.id && (
+                                    <LemonButton
+                                        type="stealth"
+                                        style={{ color: 'var(--danger)' }}
+                                        onClick={() => {
+                                            deleteWithUndo({
+                                                endpoint: `projects/${currentTeamId}/feature_flags`,
+                                                object: { name: featureFlag.name, id: featureFlag.id },
+                                                callback: loadFeatureFlags,
+                                            })
+                                        }}
+                                        fullWidth
+                                    >
+                                        Delete feature flag
+                                    </LemonButton>
+                                )}
+                            </>
                         }
                     />
-                )
-            },
-        },
-        {
-            title: normalizeColumnTitle('Usage'),
-            width: 100,
-            align: 'right',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
-                return (
-                    <Link
-                        to={urls.insightNew({
-                            events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
-                            breakdown_type: 'event',
-                            breakdown: `$feature/${featureFlag.key}`,
-                        })}
-                        data-attr="usage"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        Insights <ExportOutlined />
-                    </Link>
-                )
-            },
-        },
-        {
-            title: normalizeColumnTitle('Actions'),
-            width: 100,
-            align: 'right',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
-                return (
-                    <>
-                        <Link to={`/feature_flags/${featureFlag.id}`}>
-                            <EditOutlined />
-                        </Link>
-                        {featureFlag.id && (
-                            <DeleteWithUndo
-                                endpoint={`projects/${currentTeamId}/feature_flags`}
-                                object={{ name: featureFlag.name, id: featureFlag.id }}
-                                className="text-danger"
-                                style={{ marginLeft: 8 }}
-                                callback={loadFeatureFlags}
-                            >
-                                <DeleteOutlined />
-                            </DeleteWithUndo>
-                        )}
-                    </>
                 )
             },
         },
@@ -197,19 +170,14 @@ export function FeatureFlags(): JSX.Element {
                     </LinkButton>
                 </div>
             </div>
-            <Table
+            <LemonTable
                 dataSource={searchedFeatureFlags}
                 columns={columns}
-                loading={featureFlagsLoading && featureFlags.length === 0}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                onRow={(featureFlag) => ({
-                    onClick: () => featureFlag.id && push(urls.featureFlag(featureFlag.id)),
-                    style: !featureFlag.active ? { color: 'var(--muted)' } : {},
-                })}
-                size="small"
-                rowClassName="cursor-pointer"
+                rowKey="key"
+                loading={featureFlagsLoading}
+                defaultSorting={{ columnIndex: 2, order: 1 }}
+                pagination={{ pageSize: 20 }}
                 data-attr="feature-flag-table"
-                scroll={{ x: tableScrollX }}
             />
         </div>
     )

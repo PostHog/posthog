@@ -35,7 +35,7 @@ import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
 import { navigationLogic } from '../navigationLogic'
 import './SideBar.scss'
 
-function SidebarProjectSwitcher(): JSX.Element {
+function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { isProjectSwitcherShown } = useValues(navigationLogic)
@@ -203,7 +203,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
             <div className="SideBar__slider">
                 <div className="SideBar__content">
-                    <SidebarProjectSwitcher />
+                    <ProjectSwitcherInternal />
                     {currentTeam && (
                         <>
                             <LemonSpacer />
