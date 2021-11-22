@@ -21,9 +21,10 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    const { breakdown, breakdown_type } = filters
+    const { breakdown, breakdowns, breakdown_type } = filters
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
+    const { cohorts } = useValues(cohortsModel)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -32,14 +33,16 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
 
     const hasSelectedBreakdown = breakdown && typeof breakdown === 'string'
 
-    const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b) => !!b)
-    const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))).filter((b) => !!b)
-    const { cohorts } = useValues(cohortsModel)
-
     const multiPropertyBreakdownIsEnabled =
         filters.insight === InsightType.FUNNELS &&
         featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] &&
         preflight?.is_clickhouse_enabled //breakdown is not available on postgres anyway but for completeness is checked here
+
+    const breakdownArray = multiPropertyBreakdownIsEnabled
+        ? (breakdowns || []).map((b) => b.property) // for now we ignore the breakdowns' type
+        : (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b) => !!b)
+
+    const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))).filter((b) => !!b)
 
     /**
      * There are several cases
