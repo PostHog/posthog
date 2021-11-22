@@ -11,25 +11,10 @@
 # understand what leaning into codespaces looks like first.
 FROM mcr.microsoft.com/vscode/devcontainers/python:3.9-bullseye
 
-# We might want to, e.g. install pip and node packages, but for now I'm just
-# expecting to have to install these manually, for evaluation purposes.
-
-ARG TARGETPLATFORM
-ENV ARM64_PLATFORM=linux/arm64
 WORKDIR /workspace
 
 # Make sure all exit codes on pipes cause failures
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-# Add clickhouse deb repo
-RUN [ "${TARGETPLATFORM}" != "${ARM64_PLATFORM}" ] \
-    || apt-get -y install --no-install-recommends \
-    "apt-transport-https=2.2.4" \
-    "ca-certificates=20210119" \
-    "dirmngr=2.2.27-2" \
-    && curl -fsSL https://repo.clickhouse.com/CLICKHOUSE-KEY.GPG | gpg --dearmor > /etc/apt/trusted.gpg.d/clickhouse.gpg \
-    && echo "deb [signed-by=/etc/apt/trusted.gpg.d/clickhouse.gpg] https://repo.clickhouse.com/deb/stable/ main/" > \
-    /etc/apt/sources.list.d/clickhouse.list
 
 # Add in some useful dev cli tools
 # hadolint ignore=DL3008
@@ -39,8 +24,6 @@ RUN apt-get update \
     "docker.io=20.10.5+dfsg1-1+b5" \
     # Add in useful db debugging tools
     "postgresql-client=13+225" \
-    # If we're on a supported platform, install the clickhouse cli
-    "$([ "${TARGETPLATFORM}" = "${ARM64_PLATFORM}" ] || echo "clickhouse-client=21.11.4.14")" \
     && rm -rf /var/lib/apt/lists/*
 
 # Install node
