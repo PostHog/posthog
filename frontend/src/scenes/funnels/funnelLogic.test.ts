@@ -223,7 +223,7 @@ describe('funnelLogic', () => {
                 .toDispatchActions(['loadResults'])
                 .toMatchValues({
                     insight: expect.objectContaining({
-                        id: undefined,
+                        short_id: undefined,
                         filters: {},
                         result: null,
                     }),

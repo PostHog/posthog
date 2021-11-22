@@ -40,7 +40,23 @@ describe('insightLogic', () => {
             return {
                 result: pathname.endsWith('42') ? ['result from api'] : null,
                 id: pathname.endsWith('42') ? 42 : 43,
+                short_id: pathname.endsWith('42') ? '42' : '43',
                 filters: data?.filters || API_FILTERS,
+            }
+        } else if (pathname === 'api/projects/997/insights/' && url.searchParams.short_id) {
+            if (url.searchParams.short_id === 500) {
+                throwAPIError()
+            }
+
+            return {
+                results: [
+                    {
+                        result: parseInt(url.searchParams.short_id) === 42 ? ['result from api'] : null,
+                        id: parseInt(url.searchParams.short_id),
+                        short_id: url.searchParams.short_id.toString(),
+                        filters: data?.filters || API_FILTERS,
+                    },
+                ],
             }
         } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
             return {
@@ -49,6 +65,7 @@ describe('insightLogic', () => {
                 items: [
                     {
                         id: 42,
+                        short_id: '42',
                         result: 'result!',
                         filters: { insight: InsightType.TRENDS, interval: 'month' },
                         tags: ['bla'],
@@ -60,8 +77,8 @@ describe('insightLogic', () => {
         } else if (pathname === 'api/projects/997/insights/' && url.searchParams.saved) {
             return {
                 results: [
-                    { id: 42, result: ['result 42'], filters: API_FILTERS },
-                    { id: 43, result: ['result 43'], filters: API_FILTERS },
+                    { id: 42, short_id: '42', result: ['result 42'], filters: API_FILTERS },
+                    { id: 43, short_id: '43', result: ['result 43'], filters: API_FILTERS },
                 ],
             }
         } else if (
@@ -132,12 +149,12 @@ describe('insightLogic', () => {
             })
 
             it('has the key set to the id', () => {
-                expect(logic.key).toEqual(42)
+                expect(logic.key).toEqual('42')
             })
             it('no query to load results', async () => {
                 await expectLogic(logic)
                     .toMatchValues({
-                        insight: partial({ id: 42, result: ['cached result'] }),
+                        insight: partial({ short_id: '42', result: ['cached result'] }),
                         filters: partial({
                             events: [{ id: 2 }],
                             properties: [partial({ type: 'lol' })],
@@ -163,7 +180,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['loadResults', 'loadResultsSuccess'])
                     .toMatchValues({
-                        insight: partial({ id: 42, result: ['result from api'] }),
+                        insight: partial({ short_id: '42', result: ['result from api'] }),
                         filters: partial({
                             events: [{ id: 3 }],
                             properties: [partial({ value: 'a' })],
@@ -191,7 +208,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['loadResults', 'loadResultsFailure'])
                     .toMatchValues({
-                        insight: partial({ id: 42, result: null }),
+                        insight: partial({ short_id: '42', result: null }),
                         filters: partial({
                             events: [partial({ id: 3 })],
                             properties: [partial({ value: 'a' })],
@@ -218,7 +235,7 @@ describe('insightLogic', () => {
 
                 await expectLogic(logic)
                     .toMatchValues({
-                        insight: partial({ id: 42, result: null }),
+                        insight: partial({ short_id: '42', result: null }),
                         filters: partial({
                             events: [partial({ id: 3 })],
                             properties: [partial({ value: 'a' })],
@@ -241,7 +258,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['loadInsight', 'loadInsightSuccess'])
                     .toMatchValues({
-                        insight: partial({ id: 42, result: ['result from api'] }),
+                        insight: partial({ short_id: '42', result: ['result from api'] }),
                         filters: partial({
                             events: [{ id: 3 }],
                             properties: [partial({ value: 'a' })],
@@ -292,7 +309,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['loadInsight', 'loadInsightFailure'])
                     .toMatchValues({
-                        insight: partial({ id: 500, result: null, filters: {} }),
+                        insight: partial({ short_id: '500', result: null, filters: {} }),
                         filters: {},
                     })
                     .delay(1)
@@ -366,7 +383,7 @@ describe('insightLogic', () => {
                 .toNotHaveDispatchedActions(['loadResults'])
                 .toMatchValues({
                     filters: partial({ insight: InsightType.TRENDS }),
-                    insight: partial({ id: 42, result: ['result from api'] }),
+                    insight: partial({ short_id: '42', result: ['result from api'] }),
                 })
 
             // changing the ID, does not query twice
@@ -424,7 +441,7 @@ describe('insightLogic', () => {
                 .toDispatchActions(['loadInsightSuccess'])
                 .toMatchValues({
                     filters: partial({ insight: InsightType.TRENDS }),
-                    insight: partial({ id: 42, result: ['result from api'] }),
+                    insight: partial({ short_id: '42', result: ['result from api'] }),
                     insightMode: ItemMode.View,
                 })
 

@@ -95,8 +95,8 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].id]: { loading: true },
-                            [dashboardJson.items[1].id]: { loading: true },
+                            [dashboardJson.items[0].short_id]: { loading: true },
+                            [dashboardJson.items[1].short_id]: { loading: true },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -117,8 +117,8 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].id]: { refreshed: true },
-                            [dashboardJson.items[1].id]: { refreshed: true },
+                            [dashboardJson.items[0].short_id]: { refreshed: true },
+                            [dashboardJson.items[1].short_id]: { refreshed: true },
                         },
                         refreshMetrics: {
                             completed: 2,
@@ -137,7 +137,7 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].id]: { loading: true },
+                            [dashboardJson.items[0].short_id]: { loading: true },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -152,7 +152,7 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].id]: { refreshed: true },
+                            [dashboardJson.items[0].short_id]: { refreshed: true },
                         },
                         refreshMetrics: {
                             completed: 1,
