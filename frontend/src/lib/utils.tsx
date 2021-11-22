@@ -667,17 +667,17 @@ export function autoCaptureEventToDescription(
     const getValue = (): string | null => {
         if (event.elements?.[0]?.text) {
             return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
-        } else if (event.elements?.[0]?.attributes['attr__aria-label']) {
+        } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
         }
         return null
     }
 
     if (shortForm) {
-        return `${getVerb()} ${getValue() ?? getTag()}`
+        return [getVerb(), getValue() ?? getTag()].filter((x) => x).join(' ')
     } else {
         const value = getValue()
-        return `${getVerb()} ${getTag()} ${value ?? ''}`
+        return [getVerb(), getTag(), value].filter((x) => x).join(' ')
     }
 }
 

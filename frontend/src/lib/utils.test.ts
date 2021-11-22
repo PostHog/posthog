@@ -376,7 +376,7 @@ describe('eventToName()', () => {
                 event: '$autocapture',
                 properties: { $event_type: 'click' },
             })
-        ).toEqual('clicked element ')
+        ).toEqual('clicked element')
     })
 
     it('handles long form autocapture as expected', () => {
