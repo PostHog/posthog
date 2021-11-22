@@ -6,7 +6,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
-import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 import { HotKeys, ItemMode, InsightType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -43,7 +42,6 @@ export function Insights(): JSX.Element {
         insightProps,
         activeView,
         filters,
-        controlsCollapsed,
         insight,
         insightMode,
         filtersChanged,
@@ -51,16 +49,8 @@ export function Insights(): JSX.Element {
         tagLoading,
         metadataEditable,
     } = useValues(logic)
-    const {
-        setActiveView,
-        toggleControlsCollapsed,
-        setInsightMode,
-        saveInsight,
-        setFilters,
-        setInsightMetadata,
-        saveNewTag,
-        deleteTag,
-    } = useActions(logic)
+    const { setActiveView, setInsightMode, saveInsight, setFilters, setInsightMetadata, saveNewTag, deleteTag } =
+        useActions(logic)
 
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
@@ -238,26 +228,7 @@ export function Insights(): JSX.Element {
 
                     <Row gutter={16}>
                         <Col span={24} xl={verticalLayout ? 8 : undefined}>
-                            <Card
-                                className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
-                                onClick={() => controlsCollapsed && toggleControlsCollapsed()}
-                            >
-                                <div
-                                    role="button"
-                                    title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
-                                    className="collapse-control"
-                                    onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
-                                >
-                                    {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                </div>
-                                {controlsCollapsed && (
-                                    <div>
-                                        <h3 className="l3">Query definition</h3>
-                                        <span className="text-small text-muted">
-                                            Click here to view and change the query events, filters and other settings.
-                                        </span>
-                                    </div>
-                                )}
+                            <Card className="insight-controls">
                                 <div className="tabs-inner">
                                     {/* These are insight specific filters. They each have insight specific logics */}
                                     {
