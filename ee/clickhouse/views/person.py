@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Dict, List, Optional, Tuple, Union, cast
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -34,7 +34,7 @@ from posthog.utils import format_query_params_absolute_url
 
 
 def should_paginate(results, limit: Union[str, int]) -> bool:
-    return len(results) > cast(int, limit) - 1
+    return len(results) > int(limit) - 1
 
 
 class ClickhousePersonViewSet(PersonViewSet):
