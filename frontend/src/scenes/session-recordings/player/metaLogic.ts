@@ -4,6 +4,7 @@ import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordin
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PersonType } from '~/types'
+import { findLastIndex } from 'lib/utils'
 
 const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
     if (keys.some((k) => !person?.properties?.[k])) {
@@ -21,6 +22,15 @@ export const metaLogic = kea<metaLogicType>({
             sessionRecordingPlayerLogic,
             ['snapshots', 'time', 'scale', 'meta'],
         ],
+        actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
+    },
+    reducers: {
+        loading: [
+            true,
+            {
+                loadRecordingMetaSuccess: () => false,
+            },
+        ],
     },
     selectors: {
         sessionPerson: [
@@ -37,32 +47,25 @@ export const metaLogic = kea<metaLogicType>({
                 return [device, location].filter((s) => s).join(' · ')
             },
         ],
-        currentSnapshot: [
-            (selectors) => [selectors.snapshots, selectors.time],
-            (snapshots, time): eventWithTime | null => {
-                const index = snapshots.findIndex((s: eventWithTime) => s.timestamp > time.current && 'width' in s.data)
-                if (index === -1) {
-                    return null
-                }
-                return snapshots[index]
-            },
-        ],
         resolution: [
-            (selectors) => [selectors.currentSnapshot],
-            (snapshot) => {
-                if (!(snapshot && 'width' in snapshot.data && 'height' in snapshot.data)) {
-                    return null
+            (selectors) => [selectors.snapshots, selectors.time],
+            (snapshots, time) => {
+                // Find snapshot to pull resolution from
+                const lastIndex = findLastIndex(snapshots, (s: eventWithTime) => 'width' in s.data)
+                if (lastIndex === -1) {
+                    return {
+                        width: 0,
+                        height: 0,
+                    }
                 }
+                const currIndex = snapshots.findIndex(
+                    (s: eventWithTime) => s.timestamp > time.current && 'width' in s.data
+                )
+                const snapshot = snapshots[currIndex === -1 ? lastIndex : currIndex]
                 return {
                     width: snapshot.data.width,
                     height: snapshot.data.height,
                 }
-            },
-        ],
-        isMetaLoading: [
-            (selectors) => [selectors.sessionPerson, selectors.resolution],
-            (sessionPerson, resolution) => {
-                return !resolution || !sessionPerson
             },
         ],
     },
