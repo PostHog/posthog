@@ -508,14 +508,6 @@ describe('funnelLogic', () => {
         // teamLogic to update the currentTeam, and also explicitly mount the
         // userLogic.
 
-        it('initially not loaded', async () => {
-            await expectLogic(logic)
-                .toFinishListeners()
-                .toMatchValues({
-                    propertyCorrelations: { events: [] },
-                })
-        })
-
         it('Selecting all properties returns expected result', async () => {
             featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
 

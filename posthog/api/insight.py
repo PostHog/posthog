@@ -1,5 +1,4 @@
-import copy
-from typing import Any, Dict, List, Type
+from typing import Any, Dict, Type
 
 from django.core.cache import cache
 from django.db.models import QuerySet
@@ -24,6 +23,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
+from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Event, Filter, Insight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -287,43 +287,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         funnel = self.calculate_funnel(request)
 
-        funnel["result"] = self.protect_old_clients_from_multi_property_default(request.data, funnel["result"])
+        funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
 
         return Response(funnel)
-
-    @staticmethod
-    def protect_old_clients_from_multi_property_default(
-        data: Dict[str, Any], result: List[List[Dict[str, Any]]]
-    ) -> List[List[Dict[str, Any]]]:
-        """
-        Implementing multi property breakdown will default breakdown to a list even if it is received as a string.
-        This is a breaking change for clients.
-        Clients which do not have multi property breakdown enabled will send a single breakdown as a string
-        This method checks if the request has come in that format and "unboxes" the list
-        to avoid breaking that client
-        :param data: the data in the request
-        :param result: the query result which may contain an unwanted array breakdown
-        :return:
-        """
-        is_single_property_breakdown = (
-            "insight" in data
-            and data["insight"] == "FUNNELS"
-            and "breakdown_type" in data
-            and data["breakdown_type"] in ["person", "event"]
-            and "breakdown" in data
-            and isinstance(data["breakdown"], str)
-        )
-        if is_single_property_breakdown:
-            copied_result = copy.deepcopy(result)
-            for series_index, series in enumerate(result):
-                for data_index, data in enumerate(series):
-                    if isinstance(data["breakdown"], List):
-                        copied_result[series_index][data_index]["breakdown"] = data["breakdown"][0]
-                    if isinstance(data["breakdown_value"], List):
-                        copied_result[series_index][data_index]["breakdown_value"] = data["breakdown_value"][0]
-            return copied_result
-        else:
-            return result
 
     @cached_function
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:

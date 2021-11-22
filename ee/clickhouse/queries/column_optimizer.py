@@ -2,7 +2,7 @@ from typing import Counter, List, Set, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
-from ee.clickhouse.models.property import extract_tables_and_properties
+from ee.clickhouse.models.property import box_value, extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -84,9 +84,10 @@ class ColumnOptimizer:
             # See ee/clickhouse/queries/trends/breakdown.py#get_query or
             # ee/clickhouse/queries/breakdown_props.py#get_breakdown_prop_values
             if self.filter.breakdown_type in ["event", "person"]:
-                # :TRICKY: We only support string breakdown for event/person properties
-                assert isinstance(self.filter.breakdown, str)
-                counter[(self.filter.breakdown, self.filter.breakdown_type, None)] += 1
+                boxed_breakdown = box_value(self.filter.breakdown)
+                for b in boxed_breakdown:
+                    if isinstance(b, str):
+                        counter[(b, self.filter.breakdown_type, self.filter.breakdown_group_type_index)] += 1
             elif self.filter.breakdown_type == "group":
                 # :TRICKY: We only support string breakdown for group properties
                 assert isinstance(self.filter.breakdown, str)

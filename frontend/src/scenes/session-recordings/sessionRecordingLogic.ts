@@ -6,7 +6,7 @@ import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     RecordingEventsFilters,
-    SeekbarEventType,
+    RecordingEventType,
     SessionPlayerData,
     SessionRecordingId,
     SessionRecordingMeta,
@@ -30,7 +30,7 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
 }
 
 // TODO: Replace this with permanent querying alternative in backend. Filtering on frontend should do for now.
-const makeEventsQueryable = (events: SeekbarEventType[]): SeekbarEventType[] => {
+const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[] => {
     return events.map((e) => ({
         ...e,
         queryValue: `${getKeyMapping(e.event, 'event')?.label ?? e.event ?? ''} ${eventToDescription(e)}`.replace(
@@ -240,7 +240,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             (selectors) => [selectors.filters, selectors.sessionEvents],
             (filters, events) => {
                 return filters?.query
-                    ? new Fuse<SeekbarEventType>(makeEventsQueryable(events), {
+                    ? new Fuse<RecordingEventType>(makeEventsQueryable(events), {
                           threshold: 0.3,
                           keys: ['queryValue'],
                           findAllMatches: true,

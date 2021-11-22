@@ -9,7 +9,6 @@ import { UserBasicType } from '~/types'
 export function createdAtColumn<T extends { created_at: string | null }>(): LemonTableColumn<T, 'created_at'> {
     return {
         title: normalizeColumnTitle('Created'),
-        align: 'right',
         render: function RenderCreatedAt(_, item) {
             return item.created_at ? (
                 <div style={{ whiteSpace: 'nowrap' }}>
