@@ -27,17 +27,17 @@ RUN [ "${TARGETPLATFORM}" != "${ARM64_PLATFORM}" ] \
         /etc/apt/sources.list.d/clickhouse.list
 
 RUN apt-get update \
-    && apt-get install -y \
+    && apt-get -y install \
         # Add docker cli so we can do things like `docker logs`, and build images
-        docker.io \
+        "docker.io=20.10.5+dfsg1-1+b5" \
         # Add in useful db debugging tools
-        postgresql-client \
+        "postgresql-client=13+225" \
         $([ "${TARGETPLATFORM}" = "${ARM64_PLATFORM}" ] || echo "clickhouse-client") \
     && rm -rf /var/lib/apt/lists/*
 
 # Install node
 RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get install -y nodejs \
+    && apt-get -y install nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # NOTE: the below is mostly just a copy of /dev.Dockerfile
