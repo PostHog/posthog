@@ -4,14 +4,14 @@ when changing any base config here, please remember to update antd.less too  */
 // Main colors
 $primary: #5375ff;
 $primary_alt: #35416b;
-$primary_hover: #7d9bff;
+$primary_hover: #eef2ff;
 $primary_active: #3d57d9;
 $primary_bg_hover: rgba($primary, 0.1);
 $primary_bg_active: rgba($primary, 0.2);
 $success: #77b96c;
 $warning: #f7a501;
 $danger: #f96132;
-$danger_bridge: #df4313; // Used for bridge pages
+$danger_bridge: #df4313; // Used for bridge pages (posthog.com to PostHog App transition)
 
 // Brand colors, as in logo
 $brand_blue: #1d4aff;
@@ -23,6 +23,7 @@ $text_default: #2d2d2d;
 $text_light: rgba(255, 255, 255, 0.88);
 $text_muted: rgba(0, 0, 0, 0.5);
 $text_muted_alt: #747ea1;
+$mark_color: #fdedc9;
 
 // Background colors
 $bg_navy: #35416b;
@@ -61,6 +62,7 @@ $antd_table_background_dark: #fafafa;
 $recording_player_container_bg: #797973;
 $recording_buffer_bg: #faaf8c;
 $recording_hover_event: rgba($primary, 0.1);
+$recording_hover_event_mid: rgba($primary, 0.2);
 $recording_hover_event_dark: $primary;
 $recording_current_event: #eef2ff;
 $recording_current_event_dark: #35416b;
@@ -91,7 +93,7 @@ $hc_navy: #35416b; // paired with $hc_light_lilac or $hc_yellow
 $hc_light_lilac: #ead1ee; // paired with $hc_navy
 $hc_yellow: #fbd577;
 
-// Gradients
+// Gradients - DEPRECATED
 $sky: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
 $dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
 $night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
@@ -136,7 +138,7 @@ $default_spacing: 1rem;
 $radius: 4px;
 $top_nav_height: 50px;
 
-// Session Recording
+// Recordings
 $recording_spacing: $default_spacing * 2 / 3;
 
 .text-ellipsis {
@@ -146,7 +148,7 @@ $recording_spacing: $default_spacing * 2 / 3;
     max-width: calc(100% - 8px);
 }
 
-// Z-indexes, sync with vars.ts
+// z-indexes, synced with vars.ts
 $z_nps_overlay: 5200;
 $z_bottom_notice: 5100;
 $z_command_palette: 1875;

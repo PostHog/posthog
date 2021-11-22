@@ -498,3 +498,12 @@ class TestLoginViews(APIBaseTest):
         User.objects.all().delete()
         response = self.client.get("/", follow=True)
         self.assertRedirects(response, "/preflight")
+
+
+def create_user(email: str, password: str, organization: Organization):
+    """
+    Helper that just creates a user. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world scenarios.
+    """
+    return User.objects.create_and_join(organization, email, password)

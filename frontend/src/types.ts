@@ -545,14 +545,16 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     zeroOffsetTime?: number // Used in session recording events that have a start time offset
+    colonTimestamp?: string // Used in session recording events list
     person?: Partial<PersonType> | null
     event: string
 }
 
-export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+export interface RecordingEventType extends Omit<EventType, 'timestamp'> {
     percentage: number
     timestamp: number
     queryValue?: string
+    colonTimestamp?: string
 }
 
 export interface EventsTableRowItem {

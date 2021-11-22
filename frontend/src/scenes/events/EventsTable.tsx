@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { DownloadOutlined, ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Col, Row, Spin } from 'antd'
+import { Button, Col, Row } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription, toParams } from 'lib/utils'
@@ -14,18 +14,18 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
 import { ActionType, EventsTableRowItem, EventType, InsightType } from '~/types'
-import { PageHeader } from 'lib/components/PageHeader'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
-import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
+import { EventsTab } from 'scenes/events/EventsTabs'
 import { urls } from 'scenes/urls'
+import { EventPageHeader } from './EventPageHeader'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+
 export interface FixedFilters {
     action_id?: ActionType['id']
     person_id?: string | number
@@ -66,7 +66,6 @@ export function EventsTable({
 
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -287,14 +286,9 @@ export function EventsTable({
     )
 
     return (
-        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 32 } : {}}>
-            {sceneIsEventsPage ? <EventsTabs tab={EventsTab.Events} /> : null}
+        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 16 } : undefined}>
             <div className="events" data-attr="events-table">
-                <PageHeader
-                    title="Events"
-                    caption="See events being sent to this project in near real time."
-                    style={{ marginTop: 0 }}
-                />
+                <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
 
                 <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12}>
@@ -330,15 +324,13 @@ export function EventsTable({
                             </Tooltip>
                         )}
                     </Col>
-                    {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
-                        <Col flex="0">
-                            <TableConfig
-                                availableColumns={propertyNames}
-                                immutableColumns={['event', 'person', 'when']}
-                                defaultColumns={defaultColumns.map((e) => e.key || '')}
-                            />
-                        </Col>
-                    )}
+                    <Col flex="0">
+                        <TableConfig
+                            availableColumns={propertyNames}
+                            immutableColumns={['event', 'person', 'when']}
+                            defaultColumns={defaultColumns.map((e) => e.key || '')}
+                        />
+                    </Col>
                 </Row>
 
                 <div>
@@ -394,8 +386,13 @@ export function EventsTable({
                             textAlign: 'center',
                         }}
                     >
-                        <Button type="primary" onClick={fetchNextEvents}>
-                            {isLoadingNext ? <Spin /> : 'Load more events'}
+                        <Button
+                            type="primary"
+                            onClick={fetchNextEvents}
+                            disabled={isLoadingNext}
+                            style={{ display: 'inline-flex', alignItems: 'center' }}
+                        >
+                            {isLoadingNext ? <Spinner size="sm" /> : 'Load more events'}
                         </Button>
                     </div>
                 </div>

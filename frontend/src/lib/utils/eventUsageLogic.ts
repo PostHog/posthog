@@ -260,7 +260,6 @@ export const eventUsageLogic = kea<
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
         reportInsightsTabReset: true,
-        reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
@@ -278,6 +277,7 @@ export const eventUsageLogic = kea<
             type: SessionRecordingUsageType,
             delay?: number
         ) => ({ recordingData, source, loadTime, type, delay }),
+        reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
@@ -624,9 +624,6 @@ export const eventUsageLogic = kea<
         reportInsightsTabReset: async () => {
             posthog.capture('insights tab reset')
         },
-        reportInsightsControlsCollapseToggle: async (payload) => {
-            posthog.capture('insight controls collapse toggled', payload)
-        },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
         },
@@ -662,6 +659,9 @@ export const eventUsageLogic = kea<
         },
         reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
             posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
+        },
+        reportRecordingScrollTo: ({ rowIndex }) => {
+            posthog.capture(`recording event list scrolled to row index ${rowIndex ?? -1}`)
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)

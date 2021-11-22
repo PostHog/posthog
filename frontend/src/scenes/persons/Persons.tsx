@@ -3,7 +3,6 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Button, Row, Radio, Alert } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PersonLogicProps, personsLogic } from './personsLogic'
 import { Link } from 'lib/components/Link'
 import { CohortType } from '~/types'
@@ -13,8 +12,7 @@ import { toParams } from 'lib/utils'
 import { PersonsSearch } from './PersonsSearch'
 import { IconExternalLink } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
-import { groupsModel } from '~/models/groupsModel'
-import { GroupsTabs } from 'scenes/groups/GroupsTabs'
+import { PersonPageHeader } from './PersonPageHeader'
 
 export const scene: SceneExport = {
     component: Persons,
@@ -30,12 +28,11 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const personsLogicProps: PersonLogicProps = { cohort: cohort?.id, syncWithUrl: !cohort }
     const { loadPersons, setListFilters } = useActions(personsLogic(personsLogicProps))
     const { persons, listFilters, personsLoading } = useValues(personsLogic(personsLogicProps))
-    const { groupsEnabled } = useValues(groupsModel)
 
     return (
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <div className="persons-list">
-                {!cohort && (groupsEnabled ? <GroupsTabs /> : <PageHeader title="Persons" />)}
+                <PersonPageHeader hideGroupTabs={!!cohort} />
                 <Row style={{ gap: '0.75rem' }} className="mb">
                     <div style={{ flexGrow: 1, maxWidth: 600 }}>
                         <PersonsSearch autoFocus={!cohort} />

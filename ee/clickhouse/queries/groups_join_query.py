@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter

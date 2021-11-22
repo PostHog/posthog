@@ -4,14 +4,13 @@ import { kea, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import api from 'lib/api'
-import { Spin } from 'antd'
 import { EventsTable } from 'scenes/events'
 import { urls } from 'scenes/urls'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ActionType } from '~/types'
-
 import { actionLogicType } from './ActionType'
 import { dayjs } from 'lib/dayjs'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 interface ActionLogicProps {
     id?: ActionType['id']
     onComplete: () => void
@@ -79,7 +78,7 @@ export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
 
     const { push } = useActions(router)
     const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters, sceneUrl: urls.action(id) }))
-    const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
+    const { action, isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
     const { preflight } = useValues(preflightLogic)
     const isClickHouseEnabled = !!preflight?.is_clickhouse_enabled
@@ -101,8 +100,10 @@ export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
             {id && !isComplete && (
                 <div style={{ marginBottom: '10rem' }}>
                     <h2 className="subtitle">Events</h2>
-                    <Spin style={{ marginRight: 12 }} />
-                    Calculating action, please hold on.
+                    <div className="flex-center">
+                        <Spinner style={{ marginRight: 12 }} />
+                        Calculating action, please hold on.
+                    </div>
                 </div>
             )}
             {isComplete && (

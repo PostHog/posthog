@@ -5,9 +5,9 @@ import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTab
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Group } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
-import { GroupsTabs } from './GroupsTabs'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
 
 export function Groups(): JSX.Element {
     const { groups, groupsLoading } = useValues(groupsListLogic)
@@ -34,7 +34,7 @@ export function Groups(): JSX.Element {
 
     return (
         <>
-            <GroupsTabs />
+            <PersonPageHeader />
             <ResizableTable
                 size="small"
                 columns={columns}

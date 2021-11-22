@@ -83,7 +83,6 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
-        toggleControlsCollapsed: true,
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
         setInsight: (insight: Partial<DashboardItemType>, options: SetInsightOptions) => ({
@@ -354,12 +353,6 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
-        controlsCollapsed: [
-            false,
-            {
-                toggleControlsCollapsed: (state) => !state,
-            },
-        ],
         queryStartTimes: [
             {} as Record<string, number>,
             {
@@ -530,9 +523,6 @@ export const insightLogic = kea<insightLogicType>({
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
-        },
-        toggleControlsCollapsed: async () => {
-            eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
         },
         saveNewTag: async ({ tag }) => {
             if (values.insight.tags?.includes(tag)) {
