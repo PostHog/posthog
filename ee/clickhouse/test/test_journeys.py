@@ -1,5 +1,6 @@
 import dataclasses
 import json
+from datetime import datetime
 from typing import Any, Dict, List
 from uuid import uuid4
 
@@ -36,7 +37,11 @@ def journeys_for(events_by_person: Dict[str, List[Dict[str, Any]]], team: Team) 
     events_to_create = []
     for distinct_id, events in events_by_person.items():
         people[distinct_id] = update_or_create_person(distinct_ids=[distinct_id], team_id=team.pk)
+
         for event in events:
+            if "timestamp" not in event:
+                event["timestamp"] = datetime.now()
+
             events_to_create.append(
                 _create_event(
                     team=team,

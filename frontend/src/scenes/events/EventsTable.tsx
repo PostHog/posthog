@@ -231,10 +231,7 @@ export function EventsTable({
                     const eventLink = `/insights?${encodedParams}`
 
                     return (
-                        <Link
-                            to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
-                            data-attr="events-table-usage"
-                        >
+                        <Link to={eventLink} data-attr="events-table-usage">
                             Insights <ExportOutlined />
                         </Link>
                     )

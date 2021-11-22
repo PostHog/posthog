@@ -79,6 +79,10 @@
                 {
                     "name": "PERSISTED_FEATURE_FLAGS",
                     "value": "0"
+                },
+                {
+                    "name": "NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS",
+                    "value": "2"
                 }
             ],
             "secrets": [
