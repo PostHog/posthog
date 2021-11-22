@@ -46,7 +46,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
                 notEmpty(session_recordings.window_id) AND
                 events.session_id == session_recordings.session_id
             ) OR
-            -- If there is no window_id on the recording, then it is older data and we should match
+            -- If there's no window_id on the recording, then it is older data and we should match
             -- events and recordings on timestamps
             (
                 empty(session_recordings.window_id) AND
