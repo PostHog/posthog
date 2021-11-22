@@ -84,7 +84,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$country": "EE"})
         _create_event(
             team=self.team,
             event="sign up",
