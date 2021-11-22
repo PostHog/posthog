@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, TypedDict, Union, cast
 
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
@@ -40,6 +41,7 @@ OrgUsageData = TypedDict(
         "event_count_lifetime": Optional[int],
         "event_count_in_period": Optional[int],
         "event_count_in_month": Optional[int],
+        "event_count_in_month_vs_previous": Optional[int],
     },
 )
 
@@ -56,6 +58,7 @@ OrgReport = TypedDict(
         "event_count_lifetime": int,
         "event_count_in_period": int,
         "event_count_in_month": int,
+        "event_count_in_month_vs_previous": int,
         "organization_id": str,
         "organization_name": str,
         "organization_created_at": str,
@@ -143,6 +146,15 @@ def send_all_reports(
     return org_reports
 
 
+def get_same_date_previous_month(date: datetime) -> datetime:
+    """
+    Returns same date (day number) in the previous month.
+    E.g. if date is 2021-10-22, returns 2021-09-22.
+    Compensates for irregular month lengths.
+    """
+    return date - relativedelta(months=1)
+
+
 def get_org_usage(
     team_ids: List[Union[str, int]],
     period_start: datetime,
@@ -154,14 +166,23 @@ def get_org_usage(
         "event_count_lifetime": None,
         "event_count_in_period": None,
         "event_count_in_month": None,
+        "event_count_in_month_vs_previous": None,
     }
     usage = default_usage
     if data_source == "clickhouse":
         from ee.clickhouse.models.event import get_agg_event_count_for_teams, get_agg_event_count_for_teams_and_period
 
+        event_count_in_current_month = get_agg_event_count_for_teams_and_period(team_ids, month_start, period_end)
+        previous_month_start = get_same_date_previous_month(month_start)
+        previous_period_end = get_same_date_previous_month(period_end)
+        event_count_in_previous_month = get_agg_event_count_for_teams_and_period(
+            team_ids, previous_month_start, previous_period_end
+        )
+
         usage["event_count_lifetime"] = get_agg_event_count_for_teams(team_ids)
         usage["event_count_in_period"] = get_agg_event_count_for_teams_and_period(team_ids, period_start, period_end)
-        usage["event_count_in_month"] = get_agg_event_count_for_teams_and_period(team_ids, month_start, period_end)
+        usage["event_count_in_month"] = event_count_in_current_month
+        usage["event_count_in_month_vs_previous"] = event_count_in_current_month - event_count_in_previous_month
     else:
         usage["event_count_lifetime"] = Event.objects.filter(team_id__in=team_ids).count()
         usage["event_count_in_period"] = Event.objects.filter(
