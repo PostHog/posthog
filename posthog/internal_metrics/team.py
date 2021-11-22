@@ -385,7 +385,6 @@ def get_internal_metrics_dashboards() -> Dict:
         return {}
 
     clickhouse_dashboard = get_or_create_dashboard(team_id, CLICKHOUSE_DASHBOARD)
-    print("dashboard: ", clickhouse_dashboard)
 
     return {"clickhouse": {"id": clickhouse_dashboard.id, "share_token": clickhouse_dashboard.share_token}}
 
