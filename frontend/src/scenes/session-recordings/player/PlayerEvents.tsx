@@ -12,8 +12,11 @@ import {
     OverscanIndicesGetterParams,
 } from 'react-virtualized/dist/commonjs/Grid'
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
-import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
-import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recordings/player/eventsListLogic'
+import {
+    eventsListLogic,
+    OVERSCANNED_ROW_COUNT,
+    DEFAULT_ROW_HEIGHT,
+} from 'scenes/session-recordings/player/eventsListLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
 import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -61,7 +64,6 @@ export function PlayerEvents(): JSX.Element {
     const {
         localFilters,
         listEvents,
-        cellMeasurerCache,
         currentEventsBoxSizeAndPosition,
         showPositionFinder,
         isRowIndexRendered,
@@ -79,44 +81,45 @@ export function PlayerEvents(): JSX.Element {
     }, [listRef.current])
 
     const rowRenderer = useCallback(
-        function _rowRenderer({ index, style, key, parent }: ListRowProps): JSX.Element {
+        function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
             const event = listEvents[index]
             const hasDescription = getKeyMapping(event.event, 'event')
 
             return (
-                <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
-                    <Row
-                        className={clsx('event-list-item', { 'current-event': isEventCurrent(index) })}
-                        align="top"
-                        style={style}
+                // <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0}  rowIndex={index}>
+                <Row
+                    key={key}
+                    className={clsx('event-list-item', { 'current-event': isEventCurrent(index) })}
+                    align="top"
+                    style={style}
+                >
+                    <Col className="event-item-icon">
+                        <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
+                    </Col>
+                    <Col
+                        className={clsx('event-item-content', {
+                            rendering: !isRowIndexRendered(index),
+                        })}
                     >
-                        <Col className="event-item-icon">
-                            <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
-                        </Col>
-                        <Col
-                            className={clsx('event-item-content', {
-                                rendering: !isRowIndexRendered(index),
-                            })}
-                        >
-                            <Row className="event-item-content-top-row">
-                                <PropertyKeyInfo
-                                    className="event-item-content-title"
-                                    value={event.event}
-                                    disableIcon
-                                    disablePopover
-                                    ellipsis={true}
-                                />
-                                <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
-                            </Row>
-                            {hasDescription && (
-                                <span className="event-item-content-subtitle">
-                                    {capitalizeFirstLetter(eventToDescription(event))}
-                                </span>
-                            )}
-                            <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
-                        </Col>
-                    </Row>
-                </CellMeasurer>
+                        <Row className="event-item-content-top-row">
+                            <PropertyKeyInfo
+                                className="event-item-content-title"
+                                value={event.event}
+                                disableIcon
+                                disablePopover
+                                ellipsis={true}
+                            />
+                            <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
+                        </Row>
+                        {hasDescription && (
+                            <span className="event-item-content-subtitle">
+                                {capitalizeFirstLetter(eventToDescription(event))}
+                            </span>
+                        )}
+                        <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
+                    </Col>
+                </Row>
+                // </CellMeasurer>
             )
         },
         [
@@ -201,12 +204,12 @@ export function PlayerEvents(): JSX.Element {
                                         onRowsRendered={setRenderedRows}
                                         noRowsRenderer={noRowsRenderer}
                                         cellRangeRenderer={cellRangeRenderer}
-                                        deferredMeasurementCache={cellMeasurerCache}
+                                        // deferredMeasurementCache={cellMeasurerCache}
                                         overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                         overscanIndicesGetter={overscanIndicesGetter}
                                         rowCount={listEvents.length}
                                         rowRenderer={rowRenderer}
-                                        rowHeight={cellMeasurerCache.rowHeight}
+                                        rowHeight={DEFAULT_ROW_HEIGHT}
                                     />
                                 )
                             }}
