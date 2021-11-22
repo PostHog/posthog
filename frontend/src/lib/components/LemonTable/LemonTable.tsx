@@ -168,6 +168,7 @@ export function LemonTable<T extends Record<string, any>>({
                             <tr>
                                 {columns.map((column, columnIndex) => (
                                     <th
+                                        data-cy={'table-header-cell'}
                                         key={columnIndex}
                                         className={clsx(
                                             column.sorter && 'LemonTable__header--actionable',
