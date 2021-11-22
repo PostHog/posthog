@@ -198,6 +198,14 @@ describe('dateFilterToText()', () => {
         expect(dateFilterToText('-1d', 'dStart', 'default')).toEqual('Yesterday')
         expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
     })
+
+    it('can have overridden date options', () => {
+        expect(
+            dateFilterToText('-21d', null, 'default', {
+                'Last 3 weeks': { values: ['-21d'] },
+            })
+        ).toEqual('Last 3 weeks')
+    })
 })
 
 describe('hexToRGBA()', () => {
