@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
-from typing import Any, Dict, List, cast, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
@@ -135,8 +135,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            self.assertCountEqual(self._get_people_at_step(filter, 1, ["Safari", "14"]), [people["person3"].uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, ["Safari", "14"]), [])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari", "14"]), [people["person3"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari", "14"]), [])
 
             assert_funnel_breakdown_result_is_correct(
                 result[1],
@@ -152,8 +152,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     FunnelStepResult(name="buy", breakdown=["Safari", "15"], count=0),
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, ["Safari", "15"]), [people["person2"].uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, ["Safari", "15"]), [people["person2"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari", "15"]), [people["person2"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari", "15"]), [people["person2"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
                 result[2],
@@ -175,8 +175,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     ),
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, ["Chrome", "95"]), [people["person1"].uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, ["Chrome", "95"]), [people["person1"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome", "95"]), [people["person1"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome", "95"]), [people["person1"].uuid])
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_with_string_only_breakdown(self):
@@ -275,9 +275,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             self.assertCountEqual(
-                self._get_people_at_step(filter, 1, "Safari"), [people["person2"].uuid, people["person3"].uuid]
+                self._get_actor_ids_at_step(filter, 1, "Safari"), [people["person2"].uuid, people["person3"].uuid]
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [people["person2"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
         @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
@@ -358,8 +358,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     ),
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [people["person1"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Chrome"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
                 result[1],
