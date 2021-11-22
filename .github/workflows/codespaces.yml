@@ -10,13 +10,21 @@ name: GitHub Codespaces image build
 # can just remove the master branch restriction.
 on:
     push:
-        # branches:
-        #     - master
+        branches:
+            - master
+    pull_request:
+        types:
+            - opened
+            - labeled
+            - synchronize
 
 jobs:
     build:
         name: Build Codespaces image
         runs-on: ubuntu-latest
+
+        # Build on
+        if: ${{ github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'codespaces-build')  }}
 
         steps:
             - uses: actions/checkout@v1
