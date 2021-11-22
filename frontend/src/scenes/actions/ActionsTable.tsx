@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
-import { DeleteOutlined, EditOutlined, ExportOutlined, CheckOutlined } from '@ant-design/icons'
+import { CheckOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons'
 import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
@@ -10,7 +10,7 @@ import { NewActionButton } from './NewActionButton'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { ActionType, InsightType } from '~/types'
+import { ActionType, ChartDisplayType, FilterType, InsightType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
@@ -136,10 +136,10 @@ export function ActionsTable(): JSX.Element {
         {
             title: '',
             render: function RenderActions(action: ActionType): JSX.Element {
-                const params = {
+                const params: Partial<FilterType> = {
                     insight: InsightType.TRENDS,
                     interval: 'day',
-                    display: 'ActionsLineGraph',
+                    display: ChartDisplayType.ActionsLineGraphLinear,
                     actions: [
                         {
                             id: action.id,
@@ -149,9 +149,8 @@ export function ActionsTable(): JSX.Element {
                         },
                     ],
                 }
-                const encodedParams = toParams(params)
 
-                const actionsLink = `/insights?${encodedParams}#backTo=Actions&backToURL=${window.location.pathname}`
+                const actionsLink = `/insights?${toParams(params)}`
 
                 return (
                     <span>
@@ -167,7 +166,7 @@ export function ActionsTable(): JSX.Element {
                         >
                             <DeleteOutlined />
                         </DeleteWithUndo>
-                        <Link to={`${actionsLink}`} data-attr="actions-table-usage">
+                        <Link to={actionsLink} data-attr="actions-table-usage">
                             Insights <ExportOutlined />
                         </Link>
                     </span>

@@ -9,7 +9,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { BackTo } from 'lib/components/BackTo'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { teamLogic } from './teamLogic'
@@ -142,7 +141,6 @@ function AppScene(): JSX.Element | null {
             {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
             <Breadcrumbs />
             <BillingAlerts />
-            <BackTo />
             <SceneComponent user={user} {...params} />
         </Layout.Content>
     ) : null

@@ -566,9 +566,6 @@
                         }
                     }
                 }
-            },
-            "BackTo": {
-                "backTo": null
             }
         }
     },

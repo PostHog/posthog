@@ -25,11 +25,9 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     className?: string
     /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */
     align?: 'left' | 'right' | 'center'
-    /** TODO: Set colspan */
-    span?: number
     /** TODO: Whether the column should be sticky when scrolling */
     sticky?: boolean
-    /** TODO: Set width */
+    /** Set width. */
     width?: string | number
 }
 
@@ -48,6 +46,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     pagination?: { pageSize: number; hideOnSinglePage?: boolean }
     /** Sorting order to start with. */
     defaultSorting?: Sorting
+    /** What to show when there's no data. By default it's generic "No data" */
+    emptyState?: React.ReactNode
     'data-attr'?: string
 }
 
@@ -60,6 +60,7 @@ export function LemonTable<T extends Record<string, any>>({
     loading,
     pagination,
     defaultSorting,
+    emptyState = 'No data',
     ...divProps
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing the current page */
@@ -158,6 +159,11 @@ export function LemonTable<T extends Record<string, any>>({
             <div className="LemonTable__scroll" ref={scrollRef}>
                 <div className="LemonTable__content">
                     <table>
+                        <colgroup>
+                            {columns.map(({ width }, index) => (
+                                <col key={index} style={{ width }} />
+                            ))}
+                        </colgroup>
                         <thead>
                             <tr>
                                 {columns.map((column, columnIndex) => (
@@ -216,7 +222,7 @@ export function LemonTable<T extends Record<string, any>>({
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={columns.length}>No data</td>
+                                    <td colSpan={columns.length}>{emptyState}</td>
                                 </tr>
                             )}
                         </tbody>
