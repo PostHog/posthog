@@ -72,8 +72,10 @@ RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
 #   and then uninstall them when the compilation is completed.
 COPY package.json yarn.lock ./
 RUN yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile
+    yarn install --frozen-lockfile \
+    yarn cache clean
 
 COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/
 RUN yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile
+    yarn install --frozen-lockfile \
+    yarn cache clean
