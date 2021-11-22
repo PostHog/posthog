@@ -1052,19 +1052,15 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     (filters.funnel_window_interval !== 14 ||
                         filters.funnel_window_interval_unit !== FunnelConversionWindowTimeUnit.Day)
                 ) {
-                    console.log('1')
                     count = count + 1
                 }
                 if (filters.funnel_order_type && filters.funnel_order_type !== StepOrderValue.ORDERED) {
-                    console.log('2')
                     count = count + 1
                 }
                 if (stepReference !== FunnelStepReference.total) {
-                    console.log('3')
                     count = count + 1
                 }
                 if (filters.exclusions?.length) {
-                    console.log('4')
                     count = count + 1
                 }
                 return count
