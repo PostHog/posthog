@@ -10,12 +10,23 @@ from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTab
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
+
+
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    properties = kwargs.pop("properties", {})
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name, properties=properties)
+    return action
 
 
 def _create_person(**kwargs):
@@ -159,6 +170,104 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_people_for_event(filter, "positively_related", success=False)), 0)
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related", success=False)), 5)
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
+
+    @snapshot_clickhouse_queries
+    def test_funnel_correlation_with_events_and_actions(self):
+
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"key": "val"},
+            )
+            # same event, but missing property, so not part of action.
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:10:00Z",
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="positively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+                properties={"key": "val"},
+            )
+
+        for i in range(10, 20):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"key": "val"},
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                )
+
+        sign_up_action = _create_action(
+            name="user signed up",
+            team=self.team,
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+        paid_action = _create_action(
+            name="paid",
+            team=self.team,
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+        filters = {
+            "events": [],
+            "actions": [{"id": sign_up_action.id, "order": 0}, {"id": paid_action.id, "order": 1},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "events",
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+        result = correlation._run()[0]
+
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        expected_odds_ratios = [11, 1 / 11]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        #  missing user signed up and paid from result set, as expected
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positively_related",
+                    "success_count": 5,
+                    "failure_count": 0,
+                    # "odds_ratio": 11.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "negatively_related",
+                    "success_count": 0,
+                    "failure_count": 5,
+                    # "odds_ratio": 1 / 11,
+                    "correlation_type": "failure",
+                },
+            ],
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_events_and_groups(self):
