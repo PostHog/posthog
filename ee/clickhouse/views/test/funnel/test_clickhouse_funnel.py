@@ -8,13 +8,7 @@ from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPe
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from ee.clickhouse.views.test.funnel.util import (
-    EventPattern,
-    FunnelRequest,
-    get_actor_ids,
-    get_funnel_actors_ok,
-    get_funnel_ok,
-)
+from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
