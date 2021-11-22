@@ -85,6 +85,7 @@ jobs:
               with:
                   path: |
                       **/node_modules
+                      **/plugin-server/node_modules
                       ~/.cache/Cypress
                   key: ${{ runner.os }}-cypress-node-modules-2-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
