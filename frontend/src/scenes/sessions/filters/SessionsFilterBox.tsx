@@ -107,9 +107,11 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 return (
                     <>
                         <UsergroupAddOutlined /> Cohorts
-                        <Link to={item.id ? urls.cohort(item.id) : urls.cohorts()} style={{ float: 'right' }}>
-                            edit
-                        </Link>
+                        {item.id && (
+                            <Link to={urls.cohort(item.id)} style={{ float: 'right' }}>
+                                edit
+                            </Link>
+                        )}
                         <br />
                         <h3>{item.name}</h3>
                         {item?.cohort?.count && (

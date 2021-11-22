@@ -13,9 +13,11 @@ export function ActionInfo({ item }: RenderInfoProps): JSX.Element {
     return (
         <>
             <AimOutlined /> Actions
-            <Link to={item.id ? urls.action(item.id) : urls.createAction()} style={{ float: 'right' }} tabIndex={-1}>
-                edit
-            </Link>
+            {item.id && (
+                <Link to={urls.action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
+                    edit
+                </Link>
+            )}
             <br />
             <h3>
                 <PropertyKeyInfo value={item.name} />
