@@ -40,6 +40,7 @@ describe('Feature Flags', () => {
 
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=feature-flag-key]')
+            .scrollIntoView()
             .type('-updated')
             .should('have.value', name + '-updated')
         cy.get('[data-attr=feature-flag-submit]').click()
