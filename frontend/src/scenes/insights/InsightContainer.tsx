@@ -62,7 +62,9 @@ export function InsightContainer(): JSX.Element {
         showErrorMessage,
         insightLoading,
     } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
+        funnelLogic(insightProps)
+    )
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -187,7 +189,7 @@ export function InsightContainer(): JSX.Element {
             </Card>
             {renderTable()}
 
-            {preflight?.is_clickhouse_enabled && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
+            {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }
