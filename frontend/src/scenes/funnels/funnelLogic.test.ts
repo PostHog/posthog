@@ -19,6 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
@@ -851,6 +852,36 @@ describe('funnelLogic', () => {
                 rating: 2,
                 comments: 'tests',
             })
+        })
+    })
+
+    describe('processing breakdown properties', () => {
+        it('can handle single property breakdown', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES], {
+                'FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES': false,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                    },
+                })
+            })
+                .toFinishListeners()
+                .toMatchValues({
+                    steps: [],
+                    flattenedBreakdowns: [],
+                    flattenedSteps: [],
+                    flattenedStepsByBreakdown: [],
+                    results: [],
+                    stepResults: [],
+                    stepsWithCount: [],
+                    stepsWithConversionMetrics: [],
+                    visibleStepsWithConversionMetrics: [],
+                })
         })
     })
 })

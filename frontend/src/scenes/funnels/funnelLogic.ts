@@ -406,10 +406,17 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         ],
         stepResults: [
             (s) => [s.results, s.filters],
-            (results, filters) =>
-                filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+            (results, filters) => {
+                console.log({
+                    results,
+                    filters,
+                    vt: filters.funnel_viz_type,
+                    converted: results as FunnelStep[] | FunnelStep[][],
+                })
+                return filters.funnel_viz_type !== FunnelVizType.TimeToConvert
                     ? (results as FunnelStep[] | FunnelStep[][])
-                    : [],
+                    : []
+            },
         ],
         timeConversionResults: [
             (s) => [s.results, s.filters],
@@ -582,6 +589,15 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             (results, stepsWithNestedBreakdown, filters): FunnelStepWithNestedBreakdown[] => {
                 if (!Array.isArray(results)) {
                     return []
+                }
+                console.log({
+                    place: 'steps',
+                    results,
+                    filters,
+                })
+                if (filters.breakdowns) {
+                    // TODO what about "stepsWithNestedBreakdown"
+                    return ([...results] as FunnelStep[]).sort((a, b) => a.order - b.order)
                 }
                 return !!filters.breakdown
                     ? stepsWithNestedBreakdown
@@ -764,6 +780,12 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         layout === FunnelLayout.vertical &&
                         (!baseStep.breakdown || (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
+                    console.log({
+                        place: 'flattenedStepsByBreakdown',
+                        baseStep,
+                        hasBaseline,
+                        nested: baseStep.nested_breakdown,
+                    })
                     if (hasBaseline) {
                         flattenedStepsByBreakdown.push({
                             rowKey: 'baseline',

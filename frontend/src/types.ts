@@ -990,6 +990,7 @@ export interface FunnelStep {
     type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
+    breakdowns?: Breakdown[]
     breakdown_value?: string | number
 
     // Url that you can GET to retrieve the people that converted in this step

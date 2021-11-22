@@ -56,13 +56,6 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
      *  Not adding groups multi select now
      */
 
-    console.log({
-        multiPropertyBreakdownIsEnabled,
-        breakdownArray,
-        breakdownParts,
-        breakdownType,
-    })
-
     const tags = !breakdown_type
         ? []
         : breakdownArray
