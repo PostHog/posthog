@@ -152,6 +152,7 @@ body strong {
 }
 
 .l5 {
+    // DEPRECATED: Shouldn't be used
     font-size: 13px;
     font-weight: bold;
 }
@@ -212,6 +213,7 @@ code.code {
 }
 
 // Spacing & layout
+
 .mb {
     margin-bottom: $default_spacing;
 }
@@ -321,19 +323,6 @@ code.code {
     align-items: center;
 }
 
-.main-app-content {
-    min-width: 0;
-    padding: 0 2rem 2rem;
-
-    @media (min-width: $sm) and (max-width: $lg) {
-        padding: 0 1rem 2rem;
-    }
-
-    @media (max-width: $sm) {
-        padding: 0 1rem;
-    }
-}
-
 // Color styles
 .bg-primary {
     background-color: $primary;
@@ -367,6 +356,7 @@ code.code {
 }
 
 // Highlight background blink
+
 @keyframes highlight {
     0% {
         background-color: $yellow_50;
@@ -377,6 +367,7 @@ code.code {
 }
 
 // Generic 360 spin
+
 @keyframes spin {
     0% {
         transform: rotateZ(0deg);
@@ -384,10 +375,6 @@ code.code {
     100% {
         transform: rotateZ(360deg);
     }
-}
-
-.fullscreen-scroll {
-    overflow-y: auto;
 }
 
 // Toasts
@@ -585,7 +572,7 @@ code.code {
     }
 }
 
-// Overlays styles
+// Bottom notice (DEBUG=1 mode)
 
 #bottom-notice {
     z-index: $z_bottom_notice;
@@ -683,13 +670,6 @@ code.code {
     }
 }
 
-.clickable-card {
-    cursor: pointer;
-    &:hover {
-        border-color: $primary;
-    }
-}
-
 // Stateful badges
 
 .stateful-badge {
@@ -720,7 +700,7 @@ code.code {
     }
 }
 
-// Simple tags
+// Tags
 
 .simple-tag {
     border-radius: $radius;
@@ -733,7 +713,14 @@ code.code {
     }
 }
 
-// Hotkey styles
+.lemonade-tag {
+    color: $primary_alt !important;
+    background-color: $bg_mid !important;
+    border-color: $border !important;
+}
+
+// Hotkeys
+
 .hotkey {
     width: 22px;
     height: 22px;
@@ -760,6 +747,22 @@ code.code {
         font-size: 1rem;
     }
 }
+
+// Main app/body styles
+
 .fullscreen-scroll {
     overflow-y: auto;
+}
+
+.main-app-content {
+    min-width: 0;
+    padding: 0 2rem 2rem;
+
+    @media (min-width: $sm) and (max-width: $lg) {
+        padding: 0 1rem 2rem;
+    }
+
+    @media (max-width: $sm) {
+        padding: 0 1rem;
+    }
 }

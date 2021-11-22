@@ -3,7 +3,7 @@ import { useValues, useActions, useMountedLogic } from 'kea'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Button, Card, Col, Row } from 'antd'
+import { Button, Card, Col, Row, Tag } from 'antd'
 import { useState } from 'react'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -28,13 +28,19 @@ import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
 import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
+import { pluralize } from 'lib/utils'
 
 export function FunnelTabWithSimpleMode(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps } = useValues(
-        funnelLogic(insightProps)
-    )
+    const {
+        isStepsEmpty,
+        filters,
+        clickhouseFeaturesEnabled,
+        aggregationTargetLabel,
+        filterSteps,
+        advancedOptionsUsedCount,
+    } = useValues(funnelLogic(insightProps))
     const { clearFunnel, setFilters } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
@@ -190,7 +196,13 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         <hr />
                         <div className="flex-center cursor-pointer" onClick={toggleAdvancedMode}>
                             <h4 className="secondary" style={{ flexGrow: 1 }}>
-                                Advanced options
+                                Advanced options{' '}
+                                {!filters.funnel_advanced && !!advancedOptionsUsedCount && (
+                                    <Tag className="lemonade-tag">{`${pluralize(
+                                        advancedOptionsUsedCount,
+                                        'option'
+                                    )} applied`}</Tag>
+                                )}
                             </h4>
                             <div>
                                 <div

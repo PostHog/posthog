@@ -32,6 +32,7 @@ import {
     EntityTypes,
     PropertyFilter,
     PropertyOperator,
+    StepOrderValue,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -1039,6 +1040,34 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
                 }
                 return { singular: 'user', plural: 'users' }
+            },
+        ],
+        advancedOptionsUsedCount: [
+            (s) => [s.filters, s.stepReference],
+            (filters: FilterType, stepReference: FunnelStepReference): number => {
+                let count = 0
+                if (
+                    filters.funnel_window_interval &&
+                    filters.funnel_window_interval_unit &&
+                    (filters.funnel_window_interval !== 14 ||
+                        filters.funnel_window_interval_unit !== FunnelConversionWindowTimeUnit.Day)
+                ) {
+                    console.log('1')
+                    count = count + 1
+                }
+                if (filters.funnel_order_type && filters.funnel_order_type !== StepOrderValue.ORDERED) {
+                    console.log('2')
+                    count = count + 1
+                }
+                if (stepReference !== FunnelStepReference.total) {
+                    console.log('3')
+                    count = count + 1
+                }
+                if (filters.exclusions?.length) {
+                    console.log('4')
+                    count = count + 1
+                }
+                return count
             },
         ],
     }),
