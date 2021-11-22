@@ -163,16 +163,9 @@ class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_convers
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        funnel_query_builder = ClickhouseFunnelUnorderedActors(person_filter, self.team)
-        is_aggregating_by_groups = funnel_query_builder.is_aggregating_by_groups
-        _, serialized_result = funnel_query_builder.get_actors()
+        _, serialized_result = ClickhouseFunnelUnorderedActors(person_filter, self.team).get_actors()
 
-        if is_aggregating_by_groups:
-            serialized_groups = cast(List[SerializedGroup], serialized_result)
-            return [val["group_key"] for val in serialized_groups]
-        else:
-            serialized_people = cast(List[SerializedPerson], serialized_result)
-            return [val["id"] for val in serialized_people]
+        return [val["id"] for val in serialized_result]
 
     def test_basic_unordered_funnel(self):
         filter = Filter(

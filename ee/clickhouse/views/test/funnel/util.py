@@ -75,17 +75,6 @@ def get_funnel_actors_ok(client: Client, url: str):
     return response.json()["results"][0]["people"]
 
 
-def get_actor_ids(
-    actors: Union[List[SerializedGroup], List[SerializedPerson]], is_aggregating_by_group=False
-) -> List[str]:
-    if is_aggregating_by_group:
-        serialized_groups = cast(List[SerializedGroup], actors)
-        return [val["group_key"] for val in serialized_groups]
-    else:
-        serialized_people = cast(List[SerializedPerson], actors)
-        return [str(val["id"]) for val in serialized_people]
-
-
 def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):
     return client.get(
         f"/api/projects/{team_id}/insights/funnel/correlation",

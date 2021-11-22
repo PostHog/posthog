@@ -95,7 +95,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["average_conversion_time"] == 86400
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        actor_ids = get_actor_ids(actors, is_aggregating_by_group=True)
+        actor_ids = [str(val["id"]) for val in actors]
         assert actor_ids == sorted([g1.group_key, g2.group_key])
 
     @snapshot_clickhouse_queries
@@ -143,7 +143,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["average_conversion_time"] == 86400
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        actor_ids = get_actor_ids(actors, is_aggregating_by_group=True)
+        actor_ids = [str(val["id"]) for val in actors]
         assert actor_ids == sorted([g1.group_key])
 
     @snapshot_clickhouse_queries
@@ -193,7 +193,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["average_conversion_time"] == 86400
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        actor_ids = get_actor_ids(actors, is_aggregating_by_group=False)
+        actor_ids = [str(val["id"]) for val in actors]
 
         assert actor_ids == sorted([str(created_people["user_1"].uuid)])
 
@@ -246,7 +246,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert result["paid"]["count"] == 0
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
-        actor_ids = get_actor_ids(actors, is_aggregating_by_group=False)
+        actor_ids = [str(val["id"]) for val in actors]
 
         assert actor_ids == sorted([str(created_people["user_1"].uuid)])
 
