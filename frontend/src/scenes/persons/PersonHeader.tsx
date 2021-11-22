@@ -1,6 +1,6 @@
 import { PersonType } from '~/types'
 import React from 'react'
-import { IconPersons } from 'lib/components/icons'
+import { IconPersonFilled } from 'lib/components/icons'
 import './PersonHeader.scss'
 import { Link } from 'lib/components/Link'
 import clsx from 'clsx'
@@ -47,7 +47,7 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
                     anonymous: !props.person?.is_identified,
                 })}
             >
-                {props.withIcon && <IconPersons style={{ marginRight: 8 }} />}
+                {props.withIcon && <IconPersonFilled style={{ marginRight: 8 }} />}
                 {props.person?.is_identified ? (
                     <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
                 ) : (

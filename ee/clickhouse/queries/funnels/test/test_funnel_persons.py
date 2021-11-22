@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, cast
 from uuid import uuid4
 
@@ -5,6 +6,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.actor_base_query import SerializedPerson
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
@@ -46,26 +48,40 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
     def _create_browser_breakdown_events(self):
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$country": "PL"})
-        _create_event(
-            team=self.team,
-            event="sign up",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T12:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="play movie",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T13:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="buy",
-            distinct_id="person1",
-            properties={"key": "val", "$browser": "Chrome"},
-            timestamp="2020-01-01T15:00:00Z",
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$country": "EE"})
+        journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
+                    },
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 1, 15),
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$browser": "Safari", "$browser_version": "14"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 16),
+                        "properties": {"$browser": "Safari", "$browser_version": "14"},
+                    },
+                ],
+            },
+            self.team,
         )
 
         person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$country": "EE"})
@@ -289,7 +305,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "event",
                 "breakdown": "$browser",
             }
@@ -320,6 +336,36 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertCountEqual([val["id"] for val in results], [person2.uuid, person1.uuid])
 
+    def test_first_step_breakdowns_with_multi_property_breakdown(self):
+        person1, person2 = self._create_browser_breakdown_events()
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "interval": "day",
+                "funnel_window_days": 7,
+                "funnel_step": 1,
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "breakdown_type": "event",
+                "breakdown": ["$browser", "$browser_version"],
+            }
+        )
+        results = ClickhouseFunnelActors(filter, self.team)._exec_query()
+
+        self.assertCountEqual([val[0] for val in results], [person1.uuid, person2.uuid])
+
+        results = ClickhouseFunnelActors(
+            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
+        )._exec_query()
+
+        self.assertCountEqual([val[0] for val in results], [person1.uuid])
+
+        results = ClickhouseFunnelActors(
+            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
+        )._exec_query()
+        self.assertCountEqual([val[0] for val in results], [person2.uuid])
+
     @test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
         person1, person2 = self._create_browser_breakdown_events()
@@ -331,7 +377,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "person",
                 "breakdown": "$country",
             }
@@ -373,7 +419,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
         filters = {
-            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
             "date_to": "2020-01-08",

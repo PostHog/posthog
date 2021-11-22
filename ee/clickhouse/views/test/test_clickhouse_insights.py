@@ -706,58 +706,125 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             else:
                 self.assertEqual(response.status_code, 200)
 
-    @patch("ee.clickhouse.views.insights.ClickhouseInsightsViewSet.calculate_funnel")
-    def test_that_multi_property_breakdown_is_not_breaking(self, mcf):
-
-        test_cases: List[Dict[str, Any]] = [
-            # single property
-            {"breakdown": "$browser", "funnel result": ["Chrome", "Safari"], "expected": ["Chrome", "Safari"]},
-            # single property client, multi property query result
-            {"breakdown": "$browser", "funnel result": [["Chrome"], ["Safari"]], "expected": ["Chrome", "Safari"]},
-            # multi property client, multi property query result
+    def test_single_property_breakdown(self):
+        journeys_for(
             {
-                "breakdown": ["$browser"],
-                "funnel result": [["Chrome"], ["Safari"]],
-                "expected": [["Chrome"], ["Safari"]],
-            },
-        ]
-
-        for test_case in test_cases:
-
-            filter_with_breakdown = {
-                "insight": "FUNNELS",
-                "date_from": "-14d",
-                "actions": [],
-                "events": [
-                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-                    {"id": "$pageview", "type": "events", "order": 1, "name": "$pageview"},
+                "person1": [
+                    {"event": "$pageview", "properties": {"$browser": "Chrome", "$browser_version": 95}},
+                    {"event": "$pageleave", "properties": {"$browser": "Chrome", "$browser_version": 95}},
                 ],
-                "display": "FunnelViz",
-                "interval": "day",
-                "properties": [],
-                "funnel_viz_type": "steps",
-                "exclusions": [],
-                "breakdown": test_case["breakdown"],
-                "breakdown_type": "event",
-                "funnel_from_step": 0,
-                "funnel_to_step": 1,
-            }
+                "person2": [
+                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                ],
+            },
+            self.team,
+        )
 
-            mcf.return_value = {"result": [[self.as_result(b), self.as_result(b)] for b in test_case["funnel result"]]}
+        filter_with_breakdown = {
+            "insight": "FUNNELS",
+            "date_from": "-14d",
+            "actions": [],
+            "events": [
+                {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+                {"id": "$pageleave", "name": "$pageleave", "type": "events", "order": 1},
+            ],
+            "display": "FunnelViz",
+            "interval": "day",
+            "properties": [],
+            "funnel_viz_type": "steps",
+            "exclusions": [],
+            "breakdown": "$browser",
+            "breakdown_type": "event",
+            "funnel_from_step": 0,
+            "funnel_to_step": 1,
+        }
 
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel", filter_with_breakdown)
-            self.assertEqual(200, response.status_code)
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel?refresh=true", filter_with_breakdown)
+        self.assertEqual(200, response.status_code)
 
-            response_data = response.json()
+        response_data = response.json()
+        result = response_data["result"]
 
-            result = response_data["result"]
+        self.assertEqual(result[0][0]["name"], "$pageview")
+        self.assertEqual(result[0][0]["count"], 1)
+        self.assertEqual("Chrome", result[0][0]["breakdown"])
+        self.assertEqual("Chrome", result[0][0]["breakdown_value"])
 
-            # input events have chrome and safari so results is an array with two arrays as its contents
-            for i in range(0, 2):
-                for funnel_data in result[i]:
-                    self.assertIsInstance(funnel_data["name"], str)
-                    self.assertEqual(test_case["expected"][i], funnel_data["breakdown"])
-                    self.assertEqual(test_case["expected"][i], funnel_data["breakdown_value"])
+        self.assertEqual(result[0][1]["name"], "$pageleave")
+        self.assertEqual(result[0][1]["count"], 1)
+        self.assertEqual("Chrome", result[0][1]["breakdown"])
+        self.assertEqual("Chrome", result[0][1]["breakdown_value"])
+
+        self.assertEqual(result[1][0]["name"], "$pageview")
+        self.assertEqual(result[1][0]["count"], 1)
+        self.assertEqual("Safari", result[1][0]["breakdown"])
+        self.assertEqual("Safari", result[1][0]["breakdown_value"])
+
+        self.assertEqual(result[1][1]["name"], "$pageleave")
+        self.assertEqual(result[1][1]["count"], 0)
+        self.assertEqual("Safari", result[1][1]["breakdown"])
+        self.assertEqual("Safari", result[1][1]["breakdown_value"])
+
+    def test_multi_property_breakdown(self):
+        journeys_for(
+            {
+                "person1": [
+                    {"event": "$pageview", "properties": {"$browser": "Chrome", "$browser_version": 95}},
+                    {"event": "$pageleave", "properties": {"$browser": "Chrome", "$browser_version": 95}},
+                ],
+                "person2": [
+                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                ],
+            },
+            self.team,
+        )
+
+        filter_with_breakdown = {
+            "insight": "FUNNELS",
+            "date_from": "-14d",
+            "actions": [],
+            "events": [
+                {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+                {"id": "$pageleave", "name": "$pageleave", "type": "events", "order": 1},
+            ],
+            "display": "FunnelViz",
+            "interval": "day",
+            "properties": [],
+            "funnel_viz_type": "steps",
+            "exclusions": [],
+            "breakdowns": '[{"property": "$browser", "type": "event"}, {"property": "$browser_version", "type": "event"}]',
+            "breakdown_type": "event",
+            "funnel_from_step": 0,
+            "funnel_to_step": 1,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel?refresh=true", filter_with_breakdown)
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+        result = response_data["result"]
+
+        self.assertEqual(result[0][0]["name"], "$pageview")
+        self.assertEqual(result[0][0]["count"], 1)
+        self.assertEqual(["Safari", "11"], result[0][0]["breakdown"])
+        self.assertEqual(["Safari", "11"], result[0][0]["breakdown_value"])
+
+        self.assertEqual(result[0][1]["name"], "$pageleave")
+        self.assertEqual(result[0][1]["count"], 0)
+        self.assertEqual(["Safari", "11"], result[0][1]["breakdown"])
+        self.assertEqual(["Safari", "11"], result[0][1]["breakdown_value"])
+
+        self.assertEqual(result[1][0]["name"], "$pageview")
+        self.assertEqual(result[1][0]["count"], 1)
+        self.assertEqual(["Chrome", "95"], result[1][0]["breakdown"])
+        self.assertEqual(["Chrome", "95"], result[1][0]["breakdown_value"])
+
+        self.assertEqual(result[1][1]["name"], "$pageleave")
+        self.assertEqual(result[1][1]["count"], 1)
+        self.assertEqual(["Chrome", "95"], result[1][1]["breakdown"])
+        self.assertEqual(["Chrome", "95"], result[1][1]["breakdown_value"])
 
     @staticmethod
     def as_result(breakdown_properties: Union[str, List[str]]) -> Dict[str, Any]:
