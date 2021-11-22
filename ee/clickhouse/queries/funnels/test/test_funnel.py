@@ -1540,17 +1540,15 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(result[1]["count"], 0)
 
     def test_breakdown_values_is_set_on_the_query_with_fewer_than_two_entities(self):
+        """
+        failing test for https://sentry.io/organizations/posthog/issues/2807609211/?project=1899813&referrer=slack
+        """
 
         filter_with_breakdown = {
-            "events": [{"id": "user signed up", "type": "events", "order": 0},],
-            "insight": INSIGHT_FUNNELS,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
+            "events": [{"id": "with one entity", "type": "events", "order": 0},],
             "breakdown": "something",
-            "breakdown_type": "event",
         }
-        filter = Filter(data=filter_with_breakdown)
-        funnel = ClickhouseFunnel(filter, self.team)
+        funnel = ClickhouseFunnel(Filter(data=filter_with_breakdown), self.team)
 
         # because this calls get_step_counts_query
         # which calls get_step_counts_without_aggregation_query
