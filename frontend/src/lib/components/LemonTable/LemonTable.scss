@@ -55,7 +55,9 @@
     th,
     td {
         padding-left: 1rem;
-        padding-right: 1rem;
+        &:last-child {
+            padding-right: 1rem;
+        }
     }
 
     h4.row-name {
