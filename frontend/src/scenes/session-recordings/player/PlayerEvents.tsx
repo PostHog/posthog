@@ -18,7 +18,7 @@ import {
     DEFAULT_ROW_HEIGHT,
 } from 'scenes/session-recordings/player/eventsListLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
-import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
+import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType } from '~/types'
 
@@ -59,6 +59,20 @@ function noRowsRenderer(): JSX.Element {
     )
 }
 
+function EventDescription({ description }: { description: string }): JSX.Element {
+    const ref = useRef<HTMLDivElement>(null)
+    return (
+        <span
+            className={clsx('event-item-content-subtitle', isEllipsisActive(ref.current) && 'overflowing')}
+            title={description}
+        >
+            <div className="inner" ref={ref}>
+                {description}
+            </div>
+        </span>
+    )
+}
+
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<List>(null)
     const {
@@ -93,7 +107,7 @@ export function PlayerEvents(): JSX.Element {
                     key={key}
                     className={clsx('event-list-item', { 'current-event': isCurrent })}
                     align="top"
-                    style={style}
+                    style={{ ...style, zIndex: listEvents.length - index }}
                     onClick={() => {
                         handleEventClick(event.timestamp)
                     }}
@@ -117,9 +131,7 @@ export function PlayerEvents(): JSX.Element {
                             <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
                         </Row>
                         {hasDescription && (
-                            <span className="event-item-content-subtitle">
-                                {capitalizeFirstLetter(eventToDescription(event))}
-                            </span>
+                            <EventDescription description={capitalizeFirstLetter(eventToDescription(event))} />
                         )}
                         <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
                     </Col>
@@ -209,7 +221,6 @@ export function PlayerEvents(): JSX.Element {
                                         onRowsRendered={setRenderedRows}
                                         noRowsRenderer={noRowsRenderer}
                                         cellRangeRenderer={cellRangeRenderer}
-                                        // deferredMeasurementCache={cellMeasurerCache}
                                         overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                         overscanIndicesGetter={overscanIndicesGetter}
                                         rowCount={listEvents.length}

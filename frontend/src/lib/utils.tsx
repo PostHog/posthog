@@ -1170,3 +1170,7 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
     }
     return -1
 }
+
+export function isEllipsisActive(e: HTMLElement | null): boolean {
+    return !!e && e.offsetWidth < e.scrollWidth
+}
