@@ -212,7 +212,6 @@ test('fetchPostgresElementsByHash', async () => {
 
     const elementsHash = await hub!.db.createElementGroup(elements, teamId)
 
-    // fetch elements as they would come in an event payload
     const result = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash)
 
     expect(hub.db.redisGet).toHaveBeenCalledTimes(1)
