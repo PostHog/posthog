@@ -10,8 +10,8 @@ describe('Dashboard', () => {
 
     it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('h1').should('contain', 'Dashboards')
-        cy.get('th.ant-table-cell').contains('Description').should('not.exist')
-        cy.get('th.ant-table-cell').contains('Tags').should('not.exist')
+        cy.get('th .LemonTable__header-content').contains('Description').should('not.exist')
+        cy.get('th .LemonTable__header-content').contains('Tags').should('not.exist')
 
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('[data-attr=dashboard-item-0]').should('exist')
