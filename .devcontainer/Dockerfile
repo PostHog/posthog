@@ -18,26 +18,32 @@ ARG TARGETPLATFORM
 ENV ARM64_PLATFORM=linux/arm64
 WORKDIR /workspace
 
-# Add clickhouse deb repo. Note that as of writing this repo doesn't have arm64
-# debs so if you're e.g. on an M1 you'll have issues building this image
+# Make sure all exit codes on pipes cause failures
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Add clickhouse deb repo
 RUN [ "${TARGETPLATFORM}" != "${ARM64_PLATFORM}" ] \
-    || apt-get install apt-transport-https ca-certificates dirmngr \
-    && apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv E0C56BD4 \
-    && echo "deb https://repo.clickhouse.com/deb/stable/ main/" | tee \
-        /etc/apt/sources.list.d/clickhouse.list
+    || apt-get -y install --no-install-recomments \
+    "apt-transport-https=2.2.4" \
+    "ca-certificates=20210119" \
+    "dirmngr=2.2.27-2" \
+    && curl -fsSL https://repo.clickhouse.com/CLICKHOUSE-KEY.GPG | gpg --dearmor > /etc/apt/trusted.gpg.d/clickhouse.gpg \
+    && echo "deb [signed-by=/etc/apt/trusted.gpg.d/clickhouse.gpg] https://repo.clickhouse.com/deb/stable/ main/" > \
+    /etc/apt/sources.list.d/clickhouse.list
 
 RUN apt-get update \
-    && apt-get -y install \
-        # Add docker cli so we can do things like `docker logs`, and build images
-        "docker.io=20.10.5+dfsg1-1+b5" \
-        # Add in useful db debugging tools
-        "postgresql-client=13+225" \
-        $([ "${TARGETPLATFORM}" = "${ARM64_PLATFORM}" ] || echo "clickhouse-client") \
+    && apt-get -y install --no-install-recommends \
+    # Add docker cli so we can do things like `docker logs`, and build images
+    "docker.io=20.10.5+dfsg1-1+b5" \
+    # Add in useful db debugging tools
+    "postgresql-client=13+225" \
+    # If we're on a supported platform, install the clickhouse cli
+    "$([ "${TARGETPLATFORM}" = "${ARM64_PLATFORM}" ] || echo "clickhouse-client=21.11.4.14")" \
     && rm -rf /var/lib/apt/lists/*
 
 # Install node
 RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get -y install nodejs \
+    && apt-get -y install --no-install-recommends "nodejs=14.18.1-deb-1nodesource1" \
     && rm -rf /var/lib/apt/lists/*
 
 # NOTE: the below is mostly just a copy of /dev.Dockerfile
