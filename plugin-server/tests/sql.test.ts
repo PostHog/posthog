@@ -200,6 +200,9 @@ describe('setPluginMetrics', () => {
 })
 
 test('fetchPostgresElementsByHash', async () => {
+    jest.spyOn(hub.db, 'redisSet')
+    jest.spyOn(hub.db, 'redisGet')
+
     const teamId = 2
     const elements = [
         { tag_name: 'button', text: 'Sign up!', attr_class: ['my-class'], attr_id: 'my-id', href: 'posthog.com' },
@@ -210,6 +213,9 @@ test('fetchPostgresElementsByHash', async () => {
 
     // fetch elements as they would come in an event payload
     const result = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash, true)
+
+    expect(hub.db.redisGet).toHaveBeenCalledTimes(1)
+    expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
 
     expect(result).toEqual([
         {
@@ -234,6 +240,10 @@ test('fetchPostgresElementsByHash', async () => {
 
     // fetch elements as stored in db
     const result2 = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash, false)
+
+    // we hit the cache for the second result
+    expect(hub.db.redisGet).toHaveBeenCalledTimes(2)
+    expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
 
     expect(result2).toEqual([
         {

@@ -874,50 +874,56 @@ export class DB {
         elementsHash: string,
         transformToEventPayload = true
     ): Promise<Record<string, any>[]> {
-        const cacheKey = `${elementsHash}_${transformToEventPayload}`
-        const cachedResult = await this.redisGet(cacheKey, null)
+        const cachedResult = await this.redisGet(elementsHash, null)
+
+        let result: Record<string, any>[]
+
         if (cachedResult) {
-            return JSON.parse(String(cachedResult))
+            result = JSON.parse(String(cachedResult))
+        } else {
+            result = (
+                await this.postgresQuery(
+                    `
+                SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class 
+                FROM posthog_element
+                LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
+                WHERE 
+                    posthog_elementgroup.team_id=$1 AND
+                    posthog_elementgroup.hash=$2
+                ORDER BY posthog_element.order
+                `,
+                    [teamId, elementsHash],
+                    'fetchPostgresElementsByHash'
+                )
+            ).rows
+
+            await this.redisSet(elementsHash, JSON.stringify(result), 60 * 2) // 2 hour TTL
         }
 
-        const result = await this.postgresQuery(
-            `
-            SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class 
-            FROM posthog_element
-            LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
-            WHERE 
-                posthog_elementgroup.team_id=$1 AND
-                posthog_elementgroup.hash=$2
-            ORDER BY posthog_element.order
-            `,
-            [teamId, elementsHash],
-            'fetchPostgresElementsByHash'
-        )
-        if (!transformToEventPayload) {
-            return result.rows
-        }
-
-        const elementTransformations: Record<string, string> = {
-            text: '$el_text',
-            attr_class: 'attr__class',
-            attr_id: 'attr__id',
-            href: 'attr__href',
-        }
-
-        const elements = []
-        for (const element of result.rows) {
-            for (const [key, val] of Object.entries(element)) {
-                if (key in elementTransformations) {
-                    element[elementTransformations[key]] = val
-                    delete element[key]
-                }
+        if (transformToEventPayload) {
+            const elementTransformations: Record<string, string> = {
+                text: '$el_text',
+                attr_class: 'attr__class',
+                attr_id: 'attr__id',
+                href: 'attr__href',
             }
-            delete element['attributes']
-            elements.push(element)
+
+            const elements = []
+            for (const element of result) {
+                for (const [key, val] of Object.entries(element)) {
+                    if (key in elementTransformations) {
+                        element[elementTransformations[key]] = val
+                        delete element[key]
+                    }
+                }
+                delete element['attributes']
+                elements.push(element)
+            }
+
+            return elements
         }
 
-        await this.redisSet(cacheKey, JSON.stringify(elements), 60 * 2) // 2 hour TTL
-        return elements
+        return result
     }
 
     public async createElementGroup(elements: Element[], teamId: number): Promise<string> {
