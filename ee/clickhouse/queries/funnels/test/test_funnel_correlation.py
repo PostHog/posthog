@@ -8,6 +8,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
@@ -172,58 +173,40 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
 
     @snapshot_clickhouse_queries
-    def test_funnel_correlation_with_events_and_actions(self):
+    def test_action_events_are_excluded_from_correlations(self):
 
-        for i in range(10):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id=f"user_{i}",
-                timestamp="2020-01-02T14:00:00Z",
-                properties={"key": "val"},
-            )
-            # same event, but missing property, so not part of action.
-            _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:10:00Z",
-            )
+        journey = {}
+
+        for i in range(3):
+            person_id = f"user_{i}"
+            events = [
+                {"event": "user signed up", "timestamp": "2020-01-02T14:00:00", "properties": {"key": "val"},},
+                # same event, but missing property, so not part of action.
+                {"event": "user signed up", "timestamp": "2020-01-02T14:10:00",},
+            ]
             if i % 2 == 0:
-                _create_event(
-                    team=self.team,
-                    event="positively_related",
-                    distinct_id=f"user_{i}",
-                    timestamp="2020-01-03T14:00:00Z",
+                events.append(
+                    {"event": "positively_related", "timestamp": "2020-01-03T14:00:00",}
                 )
-            _create_event(
-                team=self.team,
-                event="paid",
-                distinct_id=f"user_{i}",
-                timestamp="2020-01-04T14:00:00Z",
-                properties={"key": "val"},
+            events.append(
+                {"event": "paid", "timestamp": "2020-01-04T14:00:00", "properties": {"key": "val"},}
             )
 
-        for i in range(10, 20):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id=f"user_{i}",
-                timestamp="2020-01-02T14:00:00Z",
-                properties={"key": "val"},
-            )
-            if i % 2 == 0:
-                _create_event(
-                    team=self.team,
-                    event="negatively_related",
-                    distinct_id=f"user_{i}",
-                    timestamp="2020-01-03T14:00:00Z",
-                )
+            journey[person_id] = events
+
+        # one failure needed
+        journey["failure"] = [
+            {"event": "user signed up", "timestamp": "2020-01-02T14:00:00", "properties": {"key": "val"},},
+        ]
+
+        journeys_for(events_by_person=journey, team=self.team)  # type: ignore
 
         sign_up_action = _create_action(
             name="user signed up",
             team=self.team,
             properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
         )
+
         paid_action = _create_action(
             name="paid",
             team=self.team,
@@ -242,30 +225,17 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         correlation = FunnelCorrelation(filter, self.team)
         result = correlation._run()[0]
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
-        expected_odds_ratios = [11, 1 / 11]
-
-        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
-
         #  missing user signed up and paid from result set, as expected
         self.assertEqual(
             result,
             [
                 {
                     "event": "positively_related",
-                    "success_count": 5,
+                    "success_count": 2,
                     "failure_count": 0,
-                    # "odds_ratio": 11.0,
+                    "odds_ratio": 3,
                     "correlation_type": "success",
-                },
-                {
-                    "event": "negatively_related",
-                    "success_count": 0,
-                    "failure_count": 5,
-                    # "odds_ratio": 1 / 11,
-                    "correlation_type": "failure",
-                },
+                }
             ],
         )
 
