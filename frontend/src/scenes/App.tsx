@@ -12,7 +12,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BackTo } from 'lib/components/BackTo'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { SideBar } from '../layout/navigation/SideBar/SideBar'
@@ -66,14 +65,13 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
 
     if (showApp) {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
-                {featureFlags[FEATURE_FLAGS.TURBO_MODE] ? <LoadedSceneLogics /> : null}
+                <LoadedSceneLogics />
                 <AppScene />
             </>
         )

@@ -6,8 +6,6 @@ import { AvailableFeature, InsightType, ItemMode, PropertyOperator } from '~/typ
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
@@ -426,10 +424,6 @@ describe('insightLogic', () => {
 
     describe('takes data from other logics if available', () => {
         it('dashboardLogic', async () => {
-            // 0. the feature flag must be set
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
-
             // 1. the URL must have the dashboard and insight IDs
             router.actions.push('/insights', {}, { fromDashboard: 33, fromItem: 42 })
 
@@ -456,10 +450,6 @@ describe('insightLogic', () => {
         })
 
         it('savedInsightLogic', async () => {
-            // 0. the feature flag must be set
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
-
             // 1. open saved insights
             router.actions.push('/saved_insights', {}, {})
             savedInsightsLogic.mount()
@@ -486,7 +476,6 @@ describe('insightLogic', () => {
     })
 
     test('keeps saved filters', async () => {
-        featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: InsightType.FUNNELS },
