@@ -6,15 +6,16 @@ import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
 import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from '../scenes/teamLogic'
+import { getInsightId } from 'scenes/insights/insightLogic'
 
 export const annotationsModel = kea<annotationsModelType>({
     path: ['models', 'annotationsModel'],
     actions: {
-        createGlobalAnnotation: (content: string, date_marker: string, dashboard_item?: number) => ({
+        createGlobalAnnotation: (content: string, date_marker: string, dashboardItemId?: string) => ({
             content,
             date_marker,
             created_at: dayjs() as Dayjs,
-            dashboard_item,
+            dashboardItemId,
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
     },
@@ -30,12 +31,13 @@ export const annotationsModel = kea<annotationsModelType>({
                 )
                 return response.results
             },
-            createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
+            createGlobalAnnotation: async ({ dashboardItemId, content, date_marker, created_at }) => {
+                const insightId = await getInsightId({ short_id: dashboardItemId })
                 await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                     content,
                     date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
                     created_at,
-                    dashboard_item,
+                    insightId,
                     scope: AnnotationScope.Organization,
                 })
                 return values.globalAnnotations || []

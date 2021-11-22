@@ -44,7 +44,7 @@ interface AnnotationMarkerProps {
     size?: number
     color: string | null
     accessoryColor: string | null
-    dashboardItemId?: number
+    dashboardItemId?: string
     currentDateMarker: string
     dynamic?: boolean
     graphColor: string | null

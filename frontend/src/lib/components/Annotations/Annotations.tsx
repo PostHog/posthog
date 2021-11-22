@@ -10,7 +10,7 @@ interface AnnotationsProps {
     leftExtent: number
     interval: number
     topExtent: number
-    dashboardItemId?: number
+    dashboardItemId?: string
     color: string | null
     graphColor: string
     accessoryColor: string | null
