@@ -869,6 +869,50 @@ export class DB {
         }
     }
 
+    public async fetchPostgresElementsByHash(elementsHash: string, transformToEventPayload = true): Promise<Element[]> {
+        const cachedResult = await this.redisGet(elementsHash, null)
+        if (cachedResult) {
+            return JSON.parse(String(cachedResult))
+        }
+
+        const result = await this.postgresQuery(
+            `
+            SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class 
+            FROM posthog_element
+            LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
+            WHERE posthog_elementgroup.hash=$1
+            ORDER BY posthog_element.order
+            `,
+            [elementsHash],
+            'fetchPostgresElementsByHash'
+        )
+        if (!transformToEventPayload) {
+            return result.rows
+        }
+
+        const elementTransformations: Record<string, string> = {
+            text: '$el_text',
+            attr_class: 'attr__class',
+            attr_id: 'attr__id',
+            href: 'attr__href',
+        }
+
+        const elements = []
+        for (const element of result.rows) {
+            for (const [key, val] of Object.entries(element)) {
+                if (key in elementTransformations) {
+                    element[elementTransformations[key]] = val
+                    delete element[key]
+                }
+            }
+            delete element['attributes']
+            elements.push(element)
+        }
+
+        await this.redisSet(elementsHash, JSON.stringify(elements), 60 * 2) // 2 hour TTL
+        return elements
+    }
+
     public async createElementGroup(elements: Element[], teamId: number): Promise<string> {
         const cleanedElements = elements.map((element, index) => ({ ...element, order: index }))
         const hash = hashElements(cleanedElements)

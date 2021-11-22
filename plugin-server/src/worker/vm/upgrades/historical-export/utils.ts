@@ -135,7 +135,10 @@ export const fetchEventsForInterval = async (
             'fetchEventsForInterval'
         )
 
-        return postgresFetchEventsResult.rows.map(convertPostgresEventToPluginEvent)
+        const events = await Promise.all(
+            postgresFetchEventsResult.rows.map((event) => convertPostgresEventToPluginEvent(db, event))
+        )
+        return events
     }
 }
 
@@ -160,11 +163,25 @@ export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): His
     return addHistoricalExportEventProperties(parsedEvent)
 }
 
-export const convertPostgresEventToPluginEvent = (event: Event): HistoricalExportEvent => {
-    const { event: eventName, timestamp, team_id, distinct_id, created_at, properties, elements, id } = event
+export const convertPostgresEventToPluginEvent = async (db: DB, event: Event): Promise<HistoricalExportEvent> => {
+    const {
+        event: eventName,
+        timestamp,
+        team_id,
+        distinct_id,
+        created_at,
+        properties,
+        elements,
+        id,
+        elements_hash,
+    } = event
     properties['$$postgres_event_id'] = id
-    if (eventName === '$autocapture' && elements) {
-        properties['$elements'] = convertDatabaseElementsToRawElements(elements)
+    if (eventName === '$autocapture') {
+        if (elements && elements.length > 0) {
+            properties['$elements'] = convertDatabaseElementsToRawElements(elements)
+        } else {
+            properties['$elements'] = await db.fetchPostgresElementsByHash(elements_hash)
+        }
     }
     console.log(properties)
 
