@@ -328,13 +328,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
-        _, results = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
-        ).get_actors()
-        results = cast(List[SerializedPerson], results)
-
-        self.assertCountEqual([val["id"] for val in results], [person2.uuid, person1.uuid])
-
     def test_first_step_breakdowns_with_multi_property_breakdown(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
@@ -350,16 +343,20 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": ["$browser", "$browser_version"],
             }
         )
-        results = ClickhouseFunnelActors(filter, self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([val[0] for val in results], [person1.uuid, person2.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
-        results = ClickhouseFunnelActors(filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(
+            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
+        ).get_actors()
 
-        self.assertCountEqual([val[0] for val in results], [person1.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
-        results = ClickhouseFunnelActors(filter.with_data({"funnel_step_breakdown": "Safari"}), self.team)._exec_query()
-        self.assertCountEqual([val[0] for val in results], [person2.uuid])
+        _, results = ClickhouseFunnelActors(
+            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
+        ).get_actors()
+        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
     @test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
