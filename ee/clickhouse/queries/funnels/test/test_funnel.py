@@ -1548,12 +1548,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             "events": [{"id": "with one entity", "type": "events", "order": 0},],
             "breakdown": "something",
         }
-        funnel = ClickhouseFunnel(Filter(data=filter_with_breakdown), self.team)
 
-        # because this calls get_step_counts_query
-        # which calls get_step_counts_without_aggregation_query
-        # which calls _get_inner_event_query
-        # which calls _get_breakdown_conditions
-        funnel.get_query()
-
-        assert "breakdown_values" in funnel.params
+        try:
+            ClickhouseFunnel(Filter(data=filter_with_breakdown), self.team).run()
+        except KeyError as ke:
+            assert False, f"Should not have raised a key error: {ke}"
