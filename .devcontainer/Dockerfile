@@ -23,7 +23,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Add clickhouse deb repo
 RUN [ "${TARGETPLATFORM}" != "${ARM64_PLATFORM}" ] \
-    || apt-get -y install --no-install-recomments \
+    || apt-get -y install --no-install-recommends \
     "apt-transport-https=2.2.4" \
     "ca-certificates=20210119" \
     "dirmngr=2.2.27-2" \
@@ -31,6 +31,8 @@ RUN [ "${TARGETPLATFORM}" != "${ARM64_PLATFORM}" ] \
     && echo "deb [signed-by=/etc/apt/trusted.gpg.d/clickhouse.gpg] https://repo.clickhouse.com/deb/stable/ main/" > \
     /etc/apt/sources.list.d/clickhouse.list
 
+# Add in some useful dev cli tools
+# hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
     # Add docker cli so we can do things like `docker logs`, and build images
