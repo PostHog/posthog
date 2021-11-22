@@ -78,9 +78,4 @@ RUN yarn install --frozen-lockfile && \
 #   https://github.com/PostHog/posthog/pull/6575#discussion_r733457836
 #   https://github.com/PostHog/posthog/pull/6607
 #
-RUN apt-get -y install --no-install-recommends \
-    "libxml2-dev~=2.9" \
-    "xmlsec~=1.2" \
-    "xmlsec-dev~=1.2" \
-    && \
-    pip install python3-saml==1.12.0 --compile --no-cache-dir
+RUN pip install python3-saml==1.12.0 --compile --no-cache-dir
