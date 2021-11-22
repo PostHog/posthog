@@ -869,11 +869,7 @@ export class DB {
         }
     }
 
-    public async fetchPostgresElementsByHash(
-        teamId: number,
-        elementsHash: string,
-        transformToEventPayload = true
-    ): Promise<Record<string, any>[]> {
+    public async fetchPostgresElementsByHash(teamId: number, elementsHash: string): Promise<Record<string, any>[]> {
         const cachedResult = await this.redisGet(elementsHash, null)
 
         let result: Record<string, any>[]
@@ -898,29 +894,6 @@ export class DB {
             ).rows
 
             await this.redisSet(elementsHash, JSON.stringify(result), 60 * 2) // 2 hour TTL
-        }
-
-        if (transformToEventPayload) {
-            const elementTransformations: Record<string, string> = {
-                text: '$el_text',
-                attr_class: 'attr__class',
-                attr_id: 'attr__id',
-                href: 'attr__href',
-            }
-
-            const elements = []
-            for (const element of result) {
-                for (const [key, val] of Object.entries(element)) {
-                    if (key in elementTransformations) {
-                        element[elementTransformations[key]] = val
-                        delete element[key]
-                    }
-                }
-                delete element['attributes']
-                elements.push(element)
-            }
-
-            return elements
         }
 
         return result

@@ -5,7 +5,7 @@ import { Client } from 'pg'
 
 import { ClickHouseEvent, Element, Event, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
-import { chainToElements } from '../../../../utils/db/utils'
+import { chainToElements, transformPostgresElementsToEventPayloadFormat } from '../../../../utils/db/utils'
 import { castTimestampToClickhouseFormat, UUIDT } from '../../../../utils/utils'
 
 export interface RawElement extends Element {
@@ -180,7 +180,8 @@ export const convertPostgresEventToPluginEvent = async (db: DB, event: Event): P
         if (elements && elements.length > 0) {
             properties['$elements'] = convertDatabaseElementsToRawElements(elements)
         } else {
-            properties['$elements'] = await db.fetchPostgresElementsByHash(team_id, elements_hash)
+            const dbElements = await db.fetchPostgresElementsByHash(team_id, elements_hash)
+            properties['$elements'] = transformPostgresElementsToEventPayloadFormat(dbElements)
         }
     }
     console.log(properties)

@@ -8,6 +8,7 @@ import {
     setError,
     setPluginMetrics,
 } from '../src/utils/db/sql'
+import { transformPostgresElementsToEventPayloadFormat } from '../src/utils/db/utils'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -212,40 +213,12 @@ test('fetchPostgresElementsByHash', async () => {
     const elementsHash = await hub!.db.createElementGroup(elements, teamId)
 
     // fetch elements as they would come in an event payload
-    const result = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash, true)
+    const result = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash)
 
     expect(hub.db.redisGet).toHaveBeenCalledTimes(1)
     expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
 
     expect(result).toEqual([
-        {
-            $el_text: 'Sign up!',
-            attr__class: ['my-class'],
-            attr__href: 'posthog.com',
-            attr__id: 'my-id',
-            nth_child: null,
-            nth_of_type: null,
-            tag_name: 'button',
-        },
-        {
-            $el_text: null,
-            attr__class: null,
-            attr__href: null,
-            attr__id: null,
-            nth_child: 1,
-            nth_of_type: 2,
-            tag_name: 'div',
-        },
-    ])
-
-    // fetch elements as stored in db
-    const result2 = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash, false)
-
-    // we hit the cache for the second result
-    expect(hub.db.redisGet).toHaveBeenCalledTimes(2)
-    expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
-
-    expect(result2).toEqual([
         {
             text: 'Sign up!',
             attr_class: ['my-class'],
@@ -265,6 +238,36 @@ test('fetchPostgresElementsByHash', async () => {
             nth_of_type: 2,
             tag_name: 'div',
             attributes: {},
+        },
+    ])
+
+    // test cache and transformPostgresElementsToEventPayloadFormat util
+    const result2 = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash)
+
+    // we hit the cache for the second result
+    expect(hub.db.redisGet).toHaveBeenCalledTimes(2)
+    expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
+
+    const parsedResult = transformPostgresElementsToEventPayloadFormat(result2)
+
+    expect(parsedResult).toEqual([
+        {
+            $el_text: 'Sign up!',
+            attr__class: ['my-class'],
+            attr__href: 'posthog.com',
+            attr__id: 'my-id',
+            nth_child: null,
+            nth_of_type: null,
+            tag_name: 'button',
+        },
+        {
+            $el_text: null,
+            attr__class: null,
+            attr__href: null,
+            attr__id: null,
+            nth_child: 1,
+            nth_of_type: 2,
+            tag_name: 'div',
         },
     ])
 })
