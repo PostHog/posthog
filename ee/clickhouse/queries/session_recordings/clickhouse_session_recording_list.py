@@ -38,7 +38,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             {events_timestamp_clause}
     """
 
-    _event_and_recording_match_comditions_clause = """
+    _event_and_recording_match_conditions_clause = """
         (   
             -- If there is a window_id on the recording, then it is newer data and we can match
             -- the recording and events on session_id
@@ -306,7 +306,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
                 core_recordings_query=core_recordings_query,
                 person_distinct_id_query=GET_TEAM_PERSON_DISTINCT_IDS,
                 person_query=person_query,
-                event_and_recording_match_comditions_clause=self._event_and_recording_match_comditions_clause,
+                event_and_recording_match_comditions_clause=self._event_and_recording_match_conditions_clause,
                 prop_filter_clause=prop_query,
                 person_id_clause=person_id_clause,
                 event_filter_aggregate_having_clause=event_filters.aggregate_having_clause,
