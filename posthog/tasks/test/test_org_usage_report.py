@@ -5,7 +5,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from posthog.models import Event, Organization, Person, Team, User
+from posthog.models import Event, FeatureFlag, Organization, Person, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.org_usage_report import OrgReport, send_all_org_usage_reports
 from posthog.test.base import APIBaseTest
@@ -171,11 +171,23 @@ def factory_org_usage_report(
                         org_report_with_previous["event_count_in_month_vs_previous"], expected_count,
                     )
 
+                    # Create a feature flag and verify the count
+                    create_feature_flag(default_team, self.user)
+                    org_reports_with_flag = _send_all_org_usage_reports(dry_run=True)
+                    org_report_with_flag = self.select_report_by_org_id(
+                        str(default_team.organization.id), org_reports_with_flag
+                    )
+                    self.assertEqual(org_report_with_flag["feature_flag_count"], 1)
+
     return TestOrganizationUsageReport  # type: ignore
 
 
 def create_person(distinct_id: str, team: Team) -> Person:
     return Person.objects.create(team=team, distinct_ids=[distinct_id])
+
+
+def create_feature_flag(team: Team, user: User, **kwargs) -> FeatureFlag:
+    return FeatureFlag.objects.create(team=team, name="Beta feature", key="beta-feature", created_by=user, **kwargs)
 
 
 def create_event_postgres(distinct_id: str, event: str, lib: str, created_at: datetime, team: Team) -> Event:

@@ -10,7 +10,7 @@ from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
-from posthog.models import Event, OrganizationMembership, Team, User
+from posthog.models import Event, FeatureFlag, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day, get_same_date_previous_month, is_clickhouse_enabled
 from posthog.version import VERSION
@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 
-OrgData = TypedDict("OrgData", {"teams": List[Union[str, int]], "user_count": int, "name": str, "created_at": str,},)
+OrgData = TypedDict(
+    "OrgData",
+    {"teams": List[Union[str, int]], "user_count": int, "name": str, "created_at": str, "feature_flag_count": int,},
+)
 
 OrgReportMetadata = TypedDict(
     "OrgReportMetadata",
@@ -65,6 +68,7 @@ OrgReport = TypedDict(
         "organization_user_count": int,
         "team_count": int,
         "product": str,
+        "feature_flag_count": int,
     },
 )
 
@@ -105,12 +109,15 @@ def send_all_reports(
         id = str(org.id)
         if id in org_data:
             org_data[id]["teams"].append(team.id)
+            feature_flag_count = org_data[id]["feature_flag_count"]
+            org_data[id]["feature_flag_count"] = feature_flag_count + get_feature_flags_count_for_team(team.id)
         else:
             org_data[id] = {
                 "teams": [team.id],
                 "user_count": get_org_user_count(id),
                 "name": org.name,
                 "created_at": str(org.created_at),
+                "feature_flag_count": get_feature_flags_count_for_team(team.id),
             }
 
     for id, org in org_data.items():
@@ -135,6 +142,7 @@ def send_all_reports(
                 "organization_created_at": org["created_at"],
                 "organization_user_count": org["user_count"],
                 "team_count": len(org["teams"]),
+                "feature_flag_count": org["feature_flag_count"],
             }
             org_reports.append(report)  # type: ignore
         except Exception as err:
@@ -226,3 +234,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
             Exception("No user found for org while generating report"), {"org": {"organization_id": organization_id}},
         )
     return user
+
+
+def get_feature_flags_count_for_team(team_id: int) -> int:
+    return FeatureFlag.objects.filter(team_id=team_id).count()
