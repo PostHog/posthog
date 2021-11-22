@@ -130,7 +130,7 @@ export function PlayerEvents(): JSX.Element {
                             <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
                         </Row>
                         {hasDescription && (
-                            <EventDescription description={capitalizeFirstLetter(eventToDescription(event))} />
+                            <EventDescription description={capitalizeFirstLetter(eventToDescription(event, true))} />
                         )}
                         <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
                     </Col>

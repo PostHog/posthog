@@ -21,7 +21,7 @@ import {
     ceilMsToClosestSecond,
     floorMsToClosestSecond,
 } from './utils'
-import { ActionFilter, PropertyOperator } from '~/types'
+import { ActionFilter, ElementType, PropertyOperator } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -369,14 +369,39 @@ describe('eventToName()', () => {
         )
     })
 
-    it('handles autocapture as expected', () => {
+    it('handles no text autocapture as expected', () => {
         expect(
             eventToDescription({
                 ...baseEvent,
                 event: '$autocapture',
                 properties: { $event_type: 'click' },
             })
-        ).toEqual('clicked ')
+        ).toEqual('clicked element')
+    })
+
+    it('handles long form autocapture as expected', () => {
+        expect(
+            eventToDescription({
+                ...baseEvent,
+                event: '$autocapture',
+                properties: { $event_type: 'click' },
+                elements: [{ tag_name: 'button', text: 'hello' } as ElementType],
+            })
+        ).toEqual('clicked button with text "hello"')
+    })
+
+    it('handles short form autocapture as expected', () => {
+        expect(
+            eventToDescription(
+                {
+                    ...baseEvent,
+                    event: '$autocapture',
+                    properties: { $event_type: 'click' },
+                    elements: [{ tag_name: 'button', text: 'hello' } as ElementType],
+                },
+                true
+            )
+        ).toEqual('clicked "hello"')
     })
 
     it('handles unknown event/action', () => {
