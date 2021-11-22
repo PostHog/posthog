@@ -16,6 +16,7 @@ FROM mcr.microsoft.com/vscode/devcontainers/python:3.9-bullseye
 
 ARG TARGETPLATFORM
 ENV ARM64_PLATFORM=linux/arm64
+WORKDIR /workspace
 
 # Add clickhouse deb repo. Note that as of writing this repo doesn't have arm64
 # debs so if you're e.g. on an M1 you'll have issues building this image
@@ -64,8 +65,9 @@ RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
 COPY package.json yarn.lock ./
-COPY ./plugin-server/ ./plugin-server/
 RUN yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile && \
-    yarn install --frozen-lockfile --cwd plugin-server && \
-    yarn cache clean
+    yarn install --frozen-lockfile
+
+COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/
+RUN yarn config set network-timeout 300000 && \
+    yarn install --frozen-lockfile
