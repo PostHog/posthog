@@ -25,7 +25,12 @@ export interface PersonLogicProps {
 
 export const personsLogic = kea<personsLogicType<PersonLogicProps, PersonPaginatedResponse>>({
     props: {} as PersonLogicProps,
-    key: (props) => (props.cohort ? `cohort_${props.cohort}` : props.syncWithUrl ? 'scene' : 'default'),
+    key: (props) => {
+        if (!props.cohort && !props.syncWithUrl) {
+            throw new Error(`personsLogic must be initialized with props.cohort or props.syncWithUrl`)
+        }
+        return props.cohort ? `cohort_${props.cohort}` : 'scene'
+    },
     path: (key) => ['scenes', 'persons', 'personsLogic', key],
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
