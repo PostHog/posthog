@@ -248,14 +248,16 @@ describe('e2e', () => {
                 .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
+            const ts = new Date(0).toISOString()
+
             const kwargs = {
                 pluginConfigTeam: 2,
                 pluginConfigId: 39,
                 type: 'Export historical events',
                 jobOp: 'start',
                 payload: {
-                    dateFrom: new Date().toISOString(),
-                    dateTo: new Date().toISOString(),
+                    dateFrom: ts,
+                    dateTo: ts,
                 },
             }
             let args = Object.values(kwargs)
