@@ -85,13 +85,13 @@ class ClickhousePersonViewSet(PersonViewSet):
             else:
                 funnel_actor_class = ClickhouseFunnelActors
 
-        _, actors = funnel_actor_class(filter, self.team).get_actors()
+        actors, serialized_actors = funnel_actor_class(filter, self.team).get_actors()
         _should_paginate = should_paginate(actors, filter.limit)
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (actors, next_url, initial_url)}
+        return {"result": (serialized_actors, next_url, initial_url)}
 
     @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
     def funnel_correlation(self, request: Request, **kwargs) -> Response:
