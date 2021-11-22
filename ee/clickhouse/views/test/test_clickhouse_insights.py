@@ -808,22 +808,26 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(result[0][0]["name"], "$pageview")
         self.assertEqual(result[0][0]["count"], 1)
-        self.assertEqual(["Safari", "11"], result[0][0]["breakdown"])
+        self.assertEqual(["Safari", "11"], result[0][0]["breakdowns"])
+        assert "breakdown" not in result[0][0]
         self.assertEqual(["Safari", "11"], result[0][0]["breakdown_value"])
 
         self.assertEqual(result[0][1]["name"], "$pageleave")
         self.assertEqual(result[0][1]["count"], 0)
-        self.assertEqual(["Safari", "11"], result[0][1]["breakdown"])
+        self.assertEqual(["Safari", "11"], result[0][1]["breakdowns"])
+        assert "breakdown" not in result[0][1]
         self.assertEqual(["Safari", "11"], result[0][1]["breakdown_value"])
 
         self.assertEqual(result[1][0]["name"], "$pageview")
         self.assertEqual(result[1][0]["count"], 1)
-        self.assertEqual(["Chrome", "95"], result[1][0]["breakdown"])
+        self.assertEqual(["Chrome", "95"], result[1][0]["breakdowns"])
+        assert "breakdown" not in result[1][0]
         self.assertEqual(["Chrome", "95"], result[1][0]["breakdown_value"])
 
         self.assertEqual(result[1][1]["name"], "$pageleave")
         self.assertEqual(result[1][1]["count"], 1)
-        self.assertEqual(["Chrome", "95"], result[1][1]["breakdown"])
+        self.assertEqual(["Chrome", "95"], result[1][1]["breakdowns"])
+        assert "breakdown" not in result[1][1]
         self.assertEqual(["Chrome", "95"], result[1][1]["breakdown_value"])
 
     @staticmethod

@@ -138,14 +138,17 @@ class BreakdownMixin(BaseParamMixin):
     def breakdowns(self) -> Optional[List[Breakdown]]:
         breakdowns = self._data.get(BREAKDOWNS)
 
-        if breakdowns is None:
-            return breakdowns
-
         try:
-            loaded = json.loads(breakdowns)
-            breakdowns = [Breakdown(**item) for item in loaded]
-            return breakdowns
-        except (TypeError, json.decoder.JSONDecodeError) as e:
+            if isinstance(breakdowns, List):
+                return [Breakdown(**item) for item in breakdowns]
+            elif isinstance(breakdowns, str):
+                loaded = json.loads(breakdowns)
+                breakdowns = [Breakdown(**item) for item in loaded]
+                return breakdowns
+            else:
+                return breakdowns
+
+        except (TypeError, json.decoder.JSONDecodeError):
             raise ValidationError(detail="breakdowns must be a list of Breakdown items, each with property and type")
 
     @cached_property
