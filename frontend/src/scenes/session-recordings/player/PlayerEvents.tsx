@@ -20,7 +20,7 @@ import {
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
 import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { EventType } from '~/types'
+import { RecordingEventType } from '~/types'
 
 function overscanIndicesGetter({
     cellCount,
@@ -36,7 +36,7 @@ function overscanIndicesGetter({
     }
 }
 
-const renderIcon = (event: EventType): JSX.Element => {
+const renderIcon = (event: RecordingEventType): JSX.Element => {
     if (event.event === '$pageview') {
         return <PageviewIcon />
     }
@@ -72,7 +72,8 @@ export function PlayerEvents(): JSX.Element {
         renderedRows,
         isEventListLoading,
     } = useValues(eventsListLogic)
-    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder } = useActions(eventsListLogic)
+    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } =
+        useActions(eventsListLogic)
 
     useEffect(() => {
         if (listRef?.current) {
@@ -84,14 +85,18 @@ export function PlayerEvents(): JSX.Element {
         function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
             const event = listEvents[index]
             const hasDescription = getKeyMapping(event.event, 'event')
+            const isCurrent = isEventCurrent(index)
 
             return (
-                // <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0}  rowIndex={index}>
+                // <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
                 <Row
                     key={key}
-                    className={clsx('event-list-item', { 'current-event': isEventCurrent(index) })}
+                    className={clsx('event-list-item', { 'current-event': isCurrent })}
                     align="top"
                     style={style}
+                    onClick={() => {
+                        handleEventClick(event.timestamp)
+                    }}
                 >
                     <Col className="event-item-icon">
                         <div className="event-item-icon-wrapper">{renderIcon(event)}</div>

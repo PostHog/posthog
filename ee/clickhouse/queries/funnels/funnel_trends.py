@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from itertools import groupby
-from typing import Optional, Tuple, Type, Union, cast
+from typing import List, Optional, Tuple, Type, Union, cast
 
 from dateutil.relativedelta import relativedelta
 
@@ -174,13 +174,12 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             }
 
             if breakdown_clause:
-                serialized_result.update(
-                    {
-                        "breakdown_value": period_row[-1]
-                        if isinstance(period_row[-1], str)
-                        else Cohort.objects.get(pk=period_row[-1]).name
-                    }
-                )
+                if isinstance(period_row[-1], str) or (
+                    isinstance(period_row[-1], List) and all(isinstance(item, str) for item in period_row[-1])
+                ):
+                    serialized_result.update({"breakdown_value": (period_row[-1])})
+                else:
+                    serialized_result.update({"breakdown_value": Cohort.objects.get(pk=period_row[-1]).name})
 
             summary.append(serialized_result)
         return summary

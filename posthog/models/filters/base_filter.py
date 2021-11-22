@@ -1,3 +1,4 @@
+import dataclasses
 import inspect
 import json
 from enum import Enum
@@ -50,9 +51,16 @@ class BaseFilter(BaseParamMixin):
     __repr__ = sane_repr("_data", "kwargs", include_id=False)
 
 
+class DataclassJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if dataclasses.is_dataclass(o):
+            return dataclasses.asdict(o)
+        return super().default(o)
+
+
 def encode_value_as_param(value: Union[str, list, dict]) -> str:
     if isinstance(value, (list, dict)):
-        return json.dumps(value)
+        return json.dumps(value, cls=DataclassJSONEncoder)
     elif isinstance(value, Enum):
         return value.value
     else:
