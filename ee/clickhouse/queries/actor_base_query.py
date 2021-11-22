@@ -46,7 +46,7 @@ class ActorBaseQuery:
         self.filter = filter
 
     def actor_query(self) -> Tuple[str, Dict]:
-        """ Implemented by subclasses. Must return list of uuids. Can be group uuids (group_key) or person uuids """
+        """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
         raise NotImplementedError()
 
     @cached_property
