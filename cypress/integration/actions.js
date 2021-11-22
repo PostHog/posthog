@@ -31,7 +31,7 @@ describe('Actions', () => {
         createAction(actionName)
 
         // Test the action is immediately available
-        cy.clickNavMenu('insights')
+        cy.clickNavMenu('insight')
         // cy.reload() //TODO is this only because of turbo mode?
 
         cy.contains('Add graph series').click()
