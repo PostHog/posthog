@@ -1,5 +1,6 @@
 import random
 import secrets
+from typing import Dict, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -17,7 +18,7 @@ class RevenueDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="first_visit")
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase_value", is_numerical=True)
 
-    def populate_person_events(self, person: Person, distinct_id: str, index: int):
+    def populate_person_events(self, person: Person, distinct_id: str, index: int, groups: Optional[Dict] = None):
         if random.randint(0, 10) <= 4:
             self.add_event(
                 event="entered_free_trial", distinct_id=distinct_id, timestamp=now() - relativedelta(days=345),

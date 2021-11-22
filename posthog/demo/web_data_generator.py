@@ -2,6 +2,7 @@ import json
 import random
 import secrets
 from datetime import timedelta
+from typing import Dict, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -69,7 +70,7 @@ class WebDataGenerator(DataGenerator):
             },
         )
 
-    def populate_person_events(self, person: Person, distinct_id: str, index: int):
+    def populate_person_events(self, person: Person, distinct_id: str, index: int, groups: Optional[Dict] = None):
         start_day = random.randint(1, 7) if index > 0 else 0
         browser = random.choice(["Chrome", "Safari", "Firefox"])
 
@@ -77,7 +78,7 @@ class WebDataGenerator(DataGenerator):
             event="$pageview",
             distinct_id=distinct_id,
             timestamp=now() - relativedelta(days=start_day),
-            properties={"$current_url": "http://hogflix.com", "$browser": browser, "$lib": "web"},
+            properties={"$current_url": "http://hogflix.com", "$browser": browser, "$lib": "web", "$groups": groups},
         )
 
         self.add_event(

@@ -1,5 +1,6 @@
 import random
 import secrets
+from typing import Dict, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -58,7 +59,7 @@ class AppDataGenerator(DataGenerator):
             },
         )
 
-    def populate_person_events(self, person: Person, distinct_id: str, _index: int):
+    def populate_person_events(self, person: Person, distinct_id: str, _index: int, groups: Optional[Dict] = None):
         start_day = random.randint(1, self.n_days)
         self.add_event(event="$pageview", distinct_id=distinct_id, timestamp=now() - relativedelta(days=start_day))
         self.add_event(event="installed_app", distinct_id=distinct_id, timestamp=now() - relativedelta(days=start_day))
