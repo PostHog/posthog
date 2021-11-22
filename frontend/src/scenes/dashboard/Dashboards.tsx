@@ -1,8 +1,8 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Input, Row } from 'antd'
-import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
+import { Button, Card, Col, Drawer, Input, Row, Tabs } from 'antd'
+import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
@@ -30,48 +30,38 @@ export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
-    const { setNewDashboardDrawer, setSearchTerm } = useActions(dashboardsLogic)
-    const { dashboards, newDashboardDrawer, searchTerm } = useValues(dashboardsLogic)
+    const { setNewDashboardDrawer, setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
+    const { dashboards, newDashboardDrawer, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
-            width: 24,
-            align: 'center',
-            render: function Render(_, { id, pinned }: DashboardType) {
-                return (
-                    <span
-                        onClick={() =>
-                            pinned
-                                ? unpinDashboard(id, DashboardEventSource.DashboardsList)
-                                : pinDashboard(id, DashboardEventSource.DashboardsList)
-                        }
-                        style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
-                    >
-                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                    </span>
-                )
-            },
-            sorter: (a, b) => {
-                const aAsInt = a.pinned ? 1 : 0
-                const bAsInt = b.pinned ? 1 : 0
-                return aAsInt + bAsInt !== 1 ? 0 : aAsInt < bAsInt ? -1 : 1
-            },
-        },
-        {
-            title: 'Dashboard',
+            title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function Render(name, { id, description }) {
+            render: function Render(name, { id, pinned, description, _highlight }) {
                 return (
-                    <>
-                        <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
-                            <h4 className="row-name">{name || 'Untitled'}</h4>
-                        </Link>
-                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
-                            <span className="row-description">{description}</span>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {pinned ? (
+                            <PushpinFilled
+                                onClick={() => unpinDashboard(id, DashboardEventSource.DashboardsList)}
+                                style={{ cursor: 'pointer' }}
+                            />
+                        ) : (
+                            <PushpinOutlined
+                                onClick={() => pinDashboard(id, DashboardEventSource.DashboardsList)}
+                                style={{ cursor: 'pointer' }}
+                            />
                         )}
-                    </>
+                        <div className={_highlight ? 'highlighted' : undefined} style={{ marginLeft: 16 }}>
+                            <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
+                                <h4 className="row-name">{name || 'Untitled'}</h4>
+                            </Link>
+                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
+                                <span className="row-description">{description}</span>
+                            )}
+                        </div>
+                    </div>
                 )
             },
             sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
@@ -95,6 +85,7 @@ export function Dashboards(): JSX.Element {
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType>,
         {
+            width: 0,
             render: function RenderActions(_, { id, name }: DashboardType) {
                 return (
                     <More
@@ -103,12 +94,13 @@ export function Dashboards(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     to={urls.dashboard(id)}
-                                    onClick={() =>
+                                    onClick={() => {
+                                        dashboardLogic({ id }).mount()
                                         dashboardLogic({ id }).actions.setDashboardMode(
                                             null,
                                             DashboardEventSource.DashboardsList
                                         )
-                                    }
+                                    }}
                                     fullWidth
                                 >
                                     View
@@ -116,12 +108,13 @@ export function Dashboards(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     to={urls.dashboard(id)}
-                                    onClick={() =>
+                                    onClick={() => {
+                                        dashboardLogic({ id }).mount()
                                         dashboardLogic({ id }).actions.setDashboardMode(
                                             DashboardMode.Edit,
                                             DashboardEventSource.DashboardsList
                                         )
-                                    }
+                                    }}
                                     fullWidth
                                 >
                                     Edit
@@ -148,18 +141,9 @@ export function Dashboards(): JSX.Element {
 
     return (
         <div>
-            <PageHeader title="Dashboards" />
-            <div>
-                <Input.Search
-                    allowClear
-                    enterButton
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
-                />
-                <div className="mb float-right">
+            <PageHeader
+                title="Dashboards"
+                buttons={
                     <Button
                         data-attr={'new-dashboard'}
                         onClick={() => setNewDashboardDrawer(true)}
@@ -168,11 +152,31 @@ export function Dashboards(): JSX.Element {
                     >
                         New Dashboard
                     </Button>
-                </div>
+                }
+            />
+            <Tabs
+                activeKey={currentTab}
+                style={{ borderColor: '#D9D9D9' }}
+                onChange={(tab) => setCurrentTab(tab as DashboardsTab)}
+            >
+                <Tabs.TabPane tab="All Dashboards" key={DashboardsTab.All} />
+                <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
+            </Tabs>
+            <div>
+                <Input.Search
+                    allowClear
+                    enterButton
+                    placeholder="Search for dashboards"
+                    style={{ width: 240 }}
+                    value={searchTerm}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value)
+                    }}
+                />
             </div>
-
+            <LemonSpacer large />
             <Drawer
-                title={'New Dashboard'}
+                title="New Dashboard"
                 width={400}
                 onClose={() => setNewDashboardDrawer(false)}
                 destroyOnClose={true}
@@ -188,17 +192,30 @@ export function Dashboards(): JSX.Element {
                         <b>Loading dashboards</b>
                     </div>
                 </div>
-            ) : dashboards.length > 0 || searchTerm ? (
+            ) : dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
                     dataSource={dashboards}
                     rowKey="id"
                     pagination={{ pageSize: 100 }}
                     columns={columns}
-                    defaultSorting={{ columnIndex: 0, order: -1 }}
+                    defaultSorting={{ columnIndex: 0, order: 1 }}
+                    emptyState={
+                        searchTerm ? (
+                            `No ${
+                                currentTab === DashboardsTab.Pinned ? 'pinned ' : ''
+                            }dashboards matching "${searchTerm}"!`
+                        ) : currentTab === DashboardsTab.Pinned ? (
+                            <>
+                                No dashboards have been pinned for quick access yet.{' '}
+                                <Link onClick={() => setCurrentTab(DashboardsTab.All)}>
+                                    Go to All Dashboards to pin one now.
+                                </Link>
+                            </>
+                        ) : undefined
+                    }
                 />
             ) : (
-                <div>
-                    <br />
+                <div className="mt">
                     <p>Create your first dashboard:</p>
                     <Row gutter={[16, 16]}>
                         <Col xs={24} xl={6}>
