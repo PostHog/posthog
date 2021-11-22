@@ -26,6 +26,7 @@ black
 isort
 pytest
 pytest-django
+pytest-env
 pytest-mock
 pytest-cov
 pytest-split

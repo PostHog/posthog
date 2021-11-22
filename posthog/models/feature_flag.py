@@ -1,4 +1,5 @@
 import hashlib
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 from django.contrib.auth.models import AnonymousUser
@@ -20,6 +21,11 @@ from .person import Person, PersonDistinctId
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 
+@dataclass
+class FeatureFlagMatch:
+    variant: Optional[str] = None
+
+
 class FeatureFlag(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -38,28 +44,26 @@ class FeatureFlag(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
 
-    def distinct_id_matches(self, distinct_id: str) -> bool:
-        return FeatureFlagMatcher(distinct_id, self).is_match()
-
-    def get_variant_for_distinct_id(self, distinct_id: str) -> Optional[str]:
-        return FeatureFlagMatcher(distinct_id, self).get_matching_variant()
+    def matches(self, distinct_id: str) -> Optional[FeatureFlagMatch]:
+        return FeatureFlagMatcher(distinct_id, self).get_match()
 
     def get_analytics_metadata(self) -> Dict:
-        filter_count = sum(len(group.get("properties", [])) for group in self.groups)
+        filter_count = sum(len(group.get("properties", [])) for group in self.conditions)
         variants_count = len(self.variants)
 
         return {
-            "groups_count": len(self.groups),
+            "groups_count": len(self.conditions),
             "has_variants": variants_count > 0,
             "variants_count": variants_count,
             "has_filters": filter_count > 0,
-            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.groups),
+            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.conditions),
             "filter_count": filter_count,
             "created_at": self.created_at,
         }
 
     @property
-    def groups(self):
+    def conditions(self):
+        "Each feature flag can have multiple conditions to match, they are OR-ed together."
         return self.get_filters().get("groups", []) or []
 
     @property
@@ -109,8 +113,12 @@ class FeatureFlagMatcher:
         self.distinct_id = distinct_id
         self.feature_flag = feature_flag
 
-    def is_match(self):
-        return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.groups))
+    def get_match(self) -> Optional[FeatureFlagMatch]:
+        is_match = any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.conditions))
+        if is_match:
+            return FeatureFlagMatch(variant=self.get_matching_variant())
+        else:
+            return None
 
     def get_matching_variant(self) -> Optional[str]:
         for variant in self.variant_lookup_table:
@@ -118,10 +126,10 @@ class FeatureFlagMatcher:
                 return variant["key"]
         return None
 
-    def is_group_match(self, group: Dict, group_index: int):
-        rollout_percentage = group.get("rollout_percentage")
-        if len(group.get("properties", [])) > 0:
-            if not self._match_distinct_id(group_index):
+    def is_group_match(self, match_group: Dict, match_group_index: int):
+        rollout_percentage = match_group.get("rollout_percentage")
+        if len(match_group.get("properties", [])) > 0:
+            if not self._match_distinct_id(match_group_index):
                 return False
             elif not rollout_percentage:
                 return True
@@ -131,8 +139,8 @@ class FeatureFlagMatcher:
 
         return True
 
-    def _match_distinct_id(self, group_index: int) -> bool:
-        return len(self.query_groups) > 0 and self.query_groups[0][group_index]
+    def _match_distinct_id(self, match_group_index: int) -> bool:
+        return len(self.query_conditions) > 0 and self.query_conditions[0][match_group_index]
 
     # Define contiguous sub-domains within [0, 1].
     # By looking up a random hash value, you can find the associated variant key.
@@ -149,7 +157,7 @@ class FeatureFlagMatcher:
         return lookup_table
 
     @cached_property
-    def query_groups(self) -> List[List[bool]]:
+    def query_conditions(self) -> List[List[bool]]:
         query: QuerySet = Person.objects.filter(
             team_id=self.feature_flag.team_id,
             persondistinctid__distinct_id=self.distinct_id,
@@ -157,12 +165,12 @@ class FeatureFlagMatcher:
         )
 
         fields = []
-        for index, group in enumerate(self.feature_flag.groups):
-            key = f"group_{index}"
+        for index, match_group in enumerate(self.feature_flag.conditions):
+            key = f"match_group_{index}"
 
-            if len(group.get("properties", {})) > 0:
+            if len(match_group.get("properties", {})) > 0:
                 expr: Any = properties_to_Q(
-                    Filter(data=group).properties, team_id=self.feature_flag.team_id, is_person_query=True
+                    Filter(data=match_group).properties, team_id=self.feature_flag.team_id, is_person_query=True
                 )
             else:
                 expr = RawSQL("true", [])
@@ -177,7 +185,7 @@ class FeatureFlagMatcher:
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, distinct_id) < 0.2
     def get_hash(self, salt="") -> float:
-        hash_key = "%s.%s%s" % (self.feature_flag.key, self.distinct_id, salt)
+        hash_key = f"{self.feature_flag.key}.{self.distinct_id}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
@@ -199,14 +207,9 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bo
 
     for feature_flag in feature_flags:
         try:
-            if not feature_flag.distinct_id_matches(distinct_id):
-                continue
-            if len(feature_flag.variants) > 0:
-                variant = feature_flag.get_variant_for_distinct_id(distinct_id)
-                if variant is not None:
-                    flags_enabled[feature_flag.key] = variant
-            else:
-                flags_enabled[feature_flag.key] = True
+            match = feature_flag.matches(distinct_id)
+            if match:
+                flags_enabled[feature_flag.key] = match.variant or True
         except Exception as err:
             capture_exception(err)
     return flags_enabled

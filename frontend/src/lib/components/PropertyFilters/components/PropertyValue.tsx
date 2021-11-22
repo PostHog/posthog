@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
@@ -88,24 +88,24 @@ export function PropertyValue({
             return
         }
         const key = propertyKey.split('__')[0]
-        setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
+        setOptions({ ...options, [propertyKey]: { ...options[propertyKey], status: 'loading' } })
         if (outerOptions) {
             setOptions({
+                ...options,
                 [propertyKey]: {
                     values: [...Array.from(new Set(outerOptions))],
                     status: 'loaded',
                 },
-                ...options,
             })
         } else {
             api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
                 (propValues: PropValue[]) => {
                     setOptions({
+                        ...options,
                         [propertyKey]: {
                             values: [...Array.from(new Set(propValues))],
                             status: 'loaded',
                         },
-                        ...options,
                     })
                 }
             )

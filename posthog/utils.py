@@ -307,9 +307,9 @@ def friendly_time(seconds: float):
     minutes, seconds = divmod(seconds, 60.0)
     hours, minutes = divmod(minutes, 60.0)
     return "{hours}{minutes}{seconds}".format(
-        hours="{h} hours ".format(h=int(hours)) if hours > 0 else "",
-        minutes="{m} minutes ".format(m=int(minutes)) if minutes > 0 else "",
-        seconds="{s} seconds".format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else "",
+        hours=f"{int(hours)} hours " if hours > 0 else "",
+        minutes=f"{int(minutes)} minutes " if minutes > 0 else "",
+        seconds=f"{int(seconds)} seconds" if seconds > 0 or (minutes == 0 and hours == 0) else "",
     ).strip()
 
 
@@ -373,7 +373,7 @@ def cors_response(request, response):
     if not request.META.get("HTTP_ORIGIN"):
         return response
     url = urlparse(request.META["HTTP_ORIGIN"])
-    response["Access-Control-Allow-Origin"] = "%s://%s" % (url.scheme, url.netloc)
+    response["Access-Control-Allow-Origin"] = f"{url.scheme}://{url.netloc}"
     response["Access-Control-Allow-Credentials"] = "true"
     response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response["Access-Control-Allow-Headers"] = "X-Requested-With"
@@ -518,12 +518,12 @@ def compact_number(value: Union[int, float]) -> str:
     """Return a number in a compact format, with a SI suffix if applicable.
     Client-side equivalent: utils.tsx#compactNumber.
     """
-    value = float("{:.3g}".format(value))
+    value = float(f"{value:.3g}")
     magnitude = 0
     while abs(value) >= 1000:
         magnitude += 1
         value /= 1000.0
-    return "{:f}".format(value).rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
+    return f"{value:f}".rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
 
 
 def is_postgres_alive() -> bool:

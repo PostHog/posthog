@@ -12,10 +12,10 @@ import {
 } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
-import dayjs from 'dayjs'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
+import { dayjs } from 'lib/dayjs'
 
 export type SessionRecordingId = string
 export type PersonUUID = string
@@ -172,7 +172,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             },
         ],
         fromDate: [
-            dayjs().subtract(30, 'days').format('YYYY-MM-DD') as null | string,
+            dayjs().subtract(7, 'days').format('YYYY-MM-DD') as null | string,
             {
                 setDateRange: (_, { incomingFromDate }) => incomingFromDate ?? null,
             },

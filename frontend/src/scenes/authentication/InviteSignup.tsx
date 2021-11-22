@@ -8,19 +8,31 @@ import { userLogic } from 'scenes/userLogic'
 import { Button, Row, Col, Input, Space } from 'antd'
 import { ArrowLeftOutlined, ArrowRightOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
-import { PrevalidatedInvite } from '~/types'
+import { PrevalidatedInvite, UserType } from '~/types'
 import { Link } from 'lib/components/Link'
-import { WhoAmI } from '~/layout/navigation/TopNavigation'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import smLogo from 'public/icon-white.svg'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
+import { ProfilePicture } from '../../lib/components/ProfilePicture'
 
 export const scene: SceneExport = {
     component: InviteSignup,
     logic: inviteSignupLogic,
+}
+
+export function WhoAmI({ user }: { user: UserType }): JSX.Element {
+    return (
+        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
+            <ProfilePicture name={user.first_name} email={user.email} />
+            <div className="details hide-lte-lg">
+                <span>{user.first_name}</span>
+                <span>{user.organization?.name}</span>
+            </div>
+        </div>
+    )
 }
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'

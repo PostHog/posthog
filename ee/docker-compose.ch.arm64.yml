@@ -14,8 +14,8 @@ services:
         ports:
             - '6379:6379'
     clickhouse:
-        # Build with: yarn arm64:build:clickhouse
-        image: clickhouse-dev-arm64:latest
+        # Built with: yarn arm64:build:clickhouse
+        image: posthog/clickhouse:v21.9.2.17-stable
         depends_on:
             - kafka
             - zookeeper

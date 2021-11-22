@@ -12838,9 +12838,6 @@
                     }
                 }
             },
-            "BackTo": {
-                "backTo": null
-            },
             "ResizableTable": {
                 "tableConfigLogic": {
                     "state": null

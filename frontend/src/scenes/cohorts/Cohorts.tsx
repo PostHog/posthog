@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
-import dayjs from 'dayjs'
-import { DeleteWithUndo, toParams } from 'lib/utils'
-import { Table, Spin, Button, Input } from 'antd'
+import { DeleteWithUndo } from 'lib/utils'
+import { Table, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
@@ -15,13 +14,15 @@ import './Cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { Tooltip } from 'lib/components/Tooltip'
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
-
-dayjs.extend(relativeTime)
+import { dayjs } from 'lib/dayjs'
+import { ColumnType } from 'antd/lib/table'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { urls } from 'scenes/urls'
+import { combineUrl } from 'kea-router'
 
 const NEW_COHORT: CohortType = {
     id: 'new',
@@ -85,20 +86,20 @@ export function Cohorts(): JSX.Element {
     const { setOpenCohort } = useActions(cohortsUrlLogic)
     const [searchTerm, setSearchTerm] = useState(false as string | false)
 
-    const columns = [
+    const columns: ColumnType<CohortType>[] = [
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
             className: 'ph-no-capture',
-            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name as string),
+            sorter: (a, b) => ('' + a.name).localeCompare(b.name as string),
         },
         {
             title: 'Users in cohort',
             render: function RenderCount(_: any, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
-            sorter: (a: CohortType, b: CohortType) => (a.count || 0) - (b.count || 0),
+            sorter: (a, b) => (a.count || 0) - (b.count || 0),
         },
         createdAtColumn(),
         createdByColumn(cohorts),
@@ -116,8 +117,8 @@ export function Cohorts(): JSX.Element {
                     return <>N/A</>
                 }
                 return cohort.is_calculating ? (
-                    <span>
-                        Calculating <Spin />
+                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        Calculating <Spinner size="sm" />
                     </span>
                 ) : (
                     dayjs(cohort.last_calculation).fromNow()
@@ -128,7 +129,7 @@ export function Cohorts(): JSX.Element {
             title: 'Actions',
             render: function RenderActions(cohort: CohortType) {
                 const filters = {
-                    filters: [
+                    properties: [
                         {
                             key: 'id',
                             label: cohort.name,
@@ -138,7 +139,7 @@ export function Cohorts(): JSX.Element {
                     ],
                 }
 
-                const sessionsLink = '/sessions?' + toParams(filters)
+                const sessionsLink = combineUrl(urls.sessionRecordings(), { filters }).url
                 return (
                     <span>
                         <a href={'/api/person.csv?cohort=' + cohort.id}>
@@ -161,7 +162,7 @@ export function Cohorts(): JSX.Element {
                             onClick={(e) => {
                                 e.stopPropagation()
                             }}
-                            to={`${sessionsLink}#backTo=cohorts&backToURL=${window.location.pathname}`}
+                            to={sessionsLink}
                             data-attr="cohorts-table-sessions"
                         >
                             Sessions <ClockCircleOutlined />

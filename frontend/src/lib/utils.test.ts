@@ -1,4 +1,3 @@
-import dayjs from 'dayjs'
 import {
     areObjectValuesEmpty,
     average,
@@ -19,8 +18,11 @@ import {
     pluralize,
     toParams,
     eventToDescription,
+    ceilMsToClosestSecond,
+    floorMsToClosestSecond,
 } from './utils'
 import { ActionFilter, PropertyOperator } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
     it('handles unusual input', () => {
@@ -195,6 +197,14 @@ describe('dateFilterToText()', () => {
         expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
         expect(dateFilterToText('-1d', 'dStart', 'default')).toEqual('Yesterday')
         expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
+    })
+
+    it('can have overridden date options', () => {
+        expect(
+            dateFilterToText('-21d', null, 'default', {
+                'Last 3 weeks': { values: ['-21d'] },
+            })
+        ).toEqual('Last 3 weeks')
     })
 })
 
@@ -376,5 +386,39 @@ describe('eventToName()', () => {
                 event: 'custom event/action',
             })
         ).toEqual('custom event/action')
+    })
+})
+
+describe('{floor|ceil}MsToClosestSecond()', () => {
+    describe('ceil', () => {
+        it('handles ms as expected', () => {
+            expect(ceilMsToClosestSecond(10532)).toEqual(11000)
+            expect(ceilMsToClosestSecond(1500)).toEqual(2000)
+            expect(ceilMsToClosestSecond(500)).toEqual(1000)
+            expect(ceilMsToClosestSecond(-10532)).toEqual(-10000)
+            expect(ceilMsToClosestSecond(-1500)).toEqual(-1000)
+            expect(ceilMsToClosestSecond(-500)).toEqual(-0)
+        })
+        it('handles whole seconds as expected', () => {
+            expect(ceilMsToClosestSecond(0)).toEqual(0)
+            expect(ceilMsToClosestSecond(1000)).toEqual(1000)
+            expect(ceilMsToClosestSecond(-1000)).toEqual(-1000)
+        })
+    })
+
+    describe('floor', () => {
+        it('handles ms as expected', () => {
+            expect(floorMsToClosestSecond(10532)).toEqual(10000)
+            expect(floorMsToClosestSecond(1500)).toEqual(1000)
+            expect(floorMsToClosestSecond(500)).toEqual(0)
+            expect(floorMsToClosestSecond(-10532)).toEqual(-11000)
+            expect(floorMsToClosestSecond(-1500)).toEqual(-2000)
+            expect(floorMsToClosestSecond(-500)).toEqual(-1000)
+        })
+        it('handles whole seconds as expected', () => {
+            expect(floorMsToClosestSecond(0)).toEqual(0)
+            expect(floorMsToClosestSecond(1000)).toEqual(1000)
+            expect(floorMsToClosestSecond(-1000)).toEqual(-1000)
+        })
     })
 })

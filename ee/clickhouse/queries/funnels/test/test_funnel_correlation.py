@@ -8,14 +8,26 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
+
+
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    properties = kwargs.pop("properties", {})
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name, properties=properties)
+    return action
 
 
 def _create_person(**kwargs):
@@ -159,6 +171,73 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_people_for_event(filter, "positively_related", success=False)), 0)
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related", success=False)), 5)
         self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
+
+    @snapshot_clickhouse_queries
+    def test_action_events_are_excluded_from_correlations(self):
+
+        journey = {}
+
+        for i in range(3):
+            person_id = f"user_{i}"
+            events = [
+                {"event": "user signed up", "timestamp": "2020-01-02T14:00:00", "properties": {"key": "val"},},
+                # same event, but missing property, so not part of action.
+                {"event": "user signed up", "timestamp": "2020-01-02T14:10:00",},
+            ]
+            if i % 2 == 0:
+                events.append(
+                    {"event": "positively_related", "timestamp": "2020-01-03T14:00:00",}
+                )
+            events.append(
+                {"event": "paid", "timestamp": "2020-01-04T14:00:00", "properties": {"key": "val"},}
+            )
+
+            journey[person_id] = events
+
+        # one failure needed
+        journey["failure"] = [
+            {"event": "user signed up", "timestamp": "2020-01-02T14:00:00", "properties": {"key": "val"},},
+        ]
+
+        journeys_for(events_by_person=journey, team=self.team)  # type: ignore
+
+        sign_up_action = _create_action(
+            name="user signed up",
+            team=self.team,
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+
+        paid_action = _create_action(
+            name="paid",
+            team=self.team,
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+        filters = {
+            "events": [],
+            "actions": [{"id": sign_up_action.id, "order": 0}, {"id": paid_action.id, "order": 1},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "events",
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+        result = correlation._run()[0]
+
+        #  missing user signed up and paid from result set, as expected
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positively_related",
+                    "success_count": 2,
+                    "failure_count": 0,
+                    "odds_ratio": 3,
+                    "correlation_type": "success",
+                }
+            ],
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_events_and_groups(self):

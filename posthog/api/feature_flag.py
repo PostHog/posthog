@@ -41,13 +41,13 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
-        return len(feature_flag.groups) == 1 and all(
-            len(group.get("properties", [])) == 0 for group in feature_flag.groups
+        return len(feature_flag.conditions) == 1 and all(
+            len(group.get("properties", [])) == 0 for group in feature_flag.conditions
         )
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
-            return feature_flag.groups[0].get("rollout_percentage")
+            return feature_flag.conditions[0].get("rollout_percentage")
         else:
             return None
 
@@ -147,11 +147,8 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             if len(my_overrides) > 0:
                 override = my_overrides[0]
 
-            value_for_user_without_override: Union[bool, str, None] = feature_flag.distinct_id_matches(
-                request.user.distinct_id
-            )
-            if len(feature_flag.variants) > 0 and value_for_user_without_override:
-                value_for_user_without_override = feature_flag.get_variant_for_distinct_id(request.user.distinct_id)
+            match = feature_flag.matches(request.user.distinct_id)
+            value_for_user_without_override = (match.variant or True) if match else False
 
             flags.append(
                 {

@@ -109,9 +109,9 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
             return Q()
         if not date_from:
             date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{"{}__gte".format(field): date_from})
+        filter = Q(**{f"{field}__gte": date_from})
         if date_to:
-            filter &= Q(**{"{}__lte".format(field): date_to})
+            filter &= Q(**{f"{field}__lte": date_to})
         return filter
 
     def recurring_date_filter_Q(self, field: str = "timestamp") -> Q:
@@ -121,9 +121,9 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
             return Q()
         if not date_from:
             date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{"{}__gte".format(field): date_from})
+        filter = Q(**{f"{field}__gte": date_from})
         if date_to:
-            filter &= Q(**{"{}__lte".format(field): date_to})
+            filter &= Q(**{f"{field}__lte": date_to})
         return filter
 
     @staticmethod

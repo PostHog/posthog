@@ -147,10 +147,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
         actions,
         properties,
     }
-    const encodedParams = toParams(params)
-    const insightLink = `/insights?${encodedParams}#backTo=Sessions&backToURL=${
-        window.location.pathname + window.location.search
-    }`
+    const insightLink = `/insights?${toParams(params)}`
 
     return (
         <Card>

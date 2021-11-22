@@ -23,5 +23,4 @@ FROM (
 WHERE (
     {steps_condition}
 )
-{extra_conditions}
 """
