@@ -36,31 +36,34 @@ export function Dashboards(): JSX.Element {
 
     const columns: LemonTableColumns<DashboardType> = [
         {
+            width: 0,
+            dataIndex: 'pinned',
+            render: function Render(pinned, { id }) {
+                return pinned ? (
+                    <PushpinFilled
+                        onClick={() => unpinDashboard(id, DashboardEventSource.DashboardsList)}
+                        style={{ cursor: 'pointer' }}
+                    />
+                ) : (
+                    <PushpinOutlined
+                        onClick={() => pinDashboard(id, DashboardEventSource.DashboardsList)}
+                        style={{ cursor: 'pointer' }}
+                    />
+                )
+            },
+        },
+        {
             title: 'Name',
             dataIndex: 'name',
-            key: 'name',
-            render: function Render(name, { id, pinned, description, _highlight }) {
+            render: function Render(name, { id, description, _highlight }) {
                 return (
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                        {pinned ? (
-                            <PushpinFilled
-                                onClick={() => unpinDashboard(id, DashboardEventSource.DashboardsList)}
-                                style={{ cursor: 'pointer' }}
-                            />
-                        ) : (
-                            <PushpinOutlined
-                                onClick={() => pinDashboard(id, DashboardEventSource.DashboardsList)}
-                                style={{ cursor: 'pointer' }}
-                            />
+                    <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
+                        <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
+                            <h4 className="row-name">{name || 'Untitled'}</h4>
+                        </Link>
+                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
+                            <span className="row-description">{description}</span>
                         )}
-                        <div className={_highlight ? 'highlighted' : undefined} style={{ marginLeft: 16 }}>
-                            <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
-                                <h4 className="row-name">{name || 'Untitled'}</h4>
-                            </Link>
-                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
-                                <span className="row-description">{description}</span>
-                            )}
-                        </div>
                     </div>
                 )
             },
