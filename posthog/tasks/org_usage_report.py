@@ -169,12 +169,12 @@ def get_org_usage(
         "event_count_in_month_vs_previous": None,
     }
     usage = default_usage
+    previous_month_start = get_same_date_previous_month(month_start)
+    previous_period_end = get_same_date_previous_month(period_end)
     if data_source == "clickhouse":
         from ee.clickhouse.models.event import get_agg_event_count_for_teams, get_agg_event_count_for_teams_and_period
 
         event_count_in_current_month = get_agg_event_count_for_teams_and_period(team_ids, month_start, period_end)
-        previous_month_start = get_same_date_previous_month(month_start)
-        previous_period_end = get_same_date_previous_month(period_end)
         event_count_in_previous_month = get_agg_event_count_for_teams_and_period(
             team_ids, previous_month_start, previous_period_end
         )
@@ -184,13 +184,19 @@ def get_org_usage(
         usage["event_count_in_month"] = event_count_in_current_month
         usage["event_count_in_month_vs_previous"] = event_count_in_current_month - event_count_in_previous_month
     else:
+        event_count_in_current_month = Event.objects.filter(
+            team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,
+        ).count()
+        event_count_in_previous_month = Event.objects.filter(
+            team_id__in=team_ids, timestamp__gte=previous_month_start, timestamp__lte=previous_period_end,
+        ).count()
+
         usage["event_count_lifetime"] = Event.objects.filter(team_id__in=team_ids).count()
         usage["event_count_in_period"] = Event.objects.filter(
             team_id__in=team_ids, timestamp__gte=period_start, timestamp__lte=period_end,
         ).count()
-        usage["event_count_in_month"] = Event.objects.filter(
-            team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,
-        ).count()
+        usage["event_count_in_month"] = event_count_in_current_month
+        usage["event_count_in_month_vs_previous"] = event_count_in_current_month - event_count_in_previous_month
 
     return usage
 
