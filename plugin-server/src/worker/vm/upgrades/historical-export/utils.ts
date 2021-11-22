@@ -180,7 +180,7 @@ export const convertPostgresEventToPluginEvent = async (db: DB, event: Event): P
         if (elements && elements.length > 0) {
             properties['$elements'] = convertDatabaseElementsToRawElements(elements)
         } else {
-            properties['$elements'] = await db.fetchPostgresElementsByHash(elements_hash)
+            properties['$elements'] = await db.fetchPostgresElementsByHash(team_id, elements_hash)
         }
     }
     console.log(properties)

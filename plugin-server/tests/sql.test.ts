@@ -198,3 +198,63 @@ describe('setPluginMetrics', () => {
         expect(rowsAfter[0].metrics).toEqual({ metric1: 'sum' })
     })
 })
+
+test('fetchPostgresElementsByHash', async () => {
+    const teamId = 2
+    const elements = [
+        { tag_name: 'button', text: 'Sign up!', attr_class: ['my-class'], attr_id: 'my-id', href: 'posthog.com' },
+        { tag_name: 'div', nth_child: 1, nth_of_type: 2 },
+    ]
+
+    const elementsHash = await hub!.db.createElementGroup(elements, teamId)
+
+    // fetch elements as they would come in an event payload
+    const result = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash, true)
+
+    expect(result).toEqual([
+        {
+            $el_text: 'Sign up!',
+            attr__class: ['my-class'],
+            attr__href: 'posthog.com',
+            attr__id: 'my-id',
+            nth_child: null,
+            nth_of_type: null,
+            tag_name: 'button',
+        },
+        {
+            $el_text: null,
+            attr__class: null,
+            attr__href: null,
+            attr__id: null,
+            nth_child: 1,
+            nth_of_type: 2,
+            tag_name: 'div',
+        },
+    ])
+
+    // fetch elements as stored in db
+    const result2 = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash, false)
+
+    expect(result2).toEqual([
+        {
+            text: 'Sign up!',
+            attr_class: ['my-class'],
+            href: 'posthog.com',
+            attr_id: 'my-id',
+            nth_child: null,
+            nth_of_type: null,
+            tag_name: 'button',
+            attributes: {},
+        },
+        {
+            text: null,
+            attr_class: null,
+            href: null,
+            attr_id: null,
+            nth_child: 1,
+            nth_of_type: 2,
+            tag_name: 'div',
+            attributes: {},
+        },
+    ])
+})

@@ -869,8 +869,13 @@ export class DB {
         }
     }
 
-    public async fetchPostgresElementsByHash(elementsHash: string, transformToEventPayload = true): Promise<Element[]> {
-        const cachedResult = await this.redisGet(elementsHash, null)
+    public async fetchPostgresElementsByHash(
+        teamId: number,
+        elementsHash: string,
+        transformToEventPayload = true
+    ): Promise<Record<string, any>[]> {
+        const cacheKey = `${elementsHash}_${transformToEventPayload}`
+        const cachedResult = await this.redisGet(cacheKey, null)
         if (cachedResult) {
             return JSON.parse(String(cachedResult))
         }
@@ -880,10 +885,12 @@ export class DB {
             SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class 
             FROM posthog_element
             LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
-            WHERE posthog_elementgroup.hash=$1
+            WHERE 
+                posthog_elementgroup.team_id=$1 AND
+                posthog_elementgroup.hash=$2
             ORDER BY posthog_element.order
             `,
-            [elementsHash],
+            [teamId, elementsHash],
             'fetchPostgresElementsByHash'
         )
         if (!transformToEventPayload) {
@@ -909,7 +916,7 @@ export class DB {
             elements.push(element)
         }
 
-        await this.redisSet(elementsHash, JSON.stringify(elements), 60 * 2) // 2 hour TTL
+        await this.redisSet(cacheKey, JSON.stringify(elements), 60 * 2) // 2 hour TTL
         return elements
     }
 
