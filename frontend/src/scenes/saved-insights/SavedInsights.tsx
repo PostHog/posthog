@@ -114,7 +114,16 @@ export const scene: SceneExport = {
 }
 
 export const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
-    <div style={{ fontSize: 10, paddingLeft: 8, whiteSpace: 'nowrap' }}>
+    <div
+        style={{
+            fontSize: 10,
+            paddingLeft: 8,
+            whiteSpace: 'nowrap',
+            width: 20,
+            display: 'flex',
+            justifyContent: 'center',
+        }}
+    >
         {direction === 'down' ? <ArrowDownOutlined /> : direction === 'up' ? <ArrowUpOutlined /> : null}
         <MenuOutlined />
     </div>
