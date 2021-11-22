@@ -10,6 +10,7 @@ import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
 
 export const INSIGHTS_PER_PAGE = 15
 
