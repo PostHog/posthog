@@ -237,7 +237,7 @@ describe('e2e', () => {
                 .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
-            const ts = new Date(0).toISOString()
+            const ts = new Date(100).toISOString()
 
             const kwargs = {
                 pluginConfigTeam: 2,
