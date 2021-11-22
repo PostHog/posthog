@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Literal, Union
 from uuid import UUID, uuid4
 
 import pytest
@@ -6,7 +6,11 @@ import pytest
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.property import parse_prop_clauses, prop_filter_json_extract
+from ee.clickhouse.models.property import (
+    get_single_or_multi_property_string_expr,
+    parse_prop_clauses,
+    prop_filter_json_extract,
+)
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
@@ -14,7 +18,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.models.property import Property
+from posthog.models.property import Property, TableWithProperties
 from posthog.test.base import BaseTest
 
 
@@ -440,6 +444,27 @@ def test_parse_prop_clauses_defaults(snapshot):
         == snapshot
     )
     assert parse_prop_clauses(filter.properties, None, person_properties_mode=PersonPropertiesMode.EXCLUDE) == snapshot
+
+
+TEST_BREAKDOWN_PROCESSING = [
+    ("$browser", "events", "prop", "trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')) AS prop"),
+    (["$browser"], "events", "value", "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser'))) AS value",),
+    (
+        ["$browser", "$browser_version"],
+        "events",
+        "prop",
+        "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')),trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser_version'))) AS prop",
+    ),
+]
+
+
+@pytest.mark.parametrize("breakdown, table, query_alias, expected", TEST_BREAKDOWN_PROCESSING)
+def test_breakdown_query_expression(
+    breakdown: Union[str, List[str]], table: TableWithProperties, query_alias: Literal["prop", "value"], expected: str,
+):
+    actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias)
+
+    assert actual == expected
 
 
 @pytest.fixture
