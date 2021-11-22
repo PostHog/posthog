@@ -19,7 +19,7 @@ services:
     app:
         image: ghcr.io/posthog/posthog/codespaces:master
         command: sleep infinity
-        env_file: ../.dev.env
+        env_file: ../.env
         volumes:
             # Make sure we can see the code in our workspace! Should match the
             # `workspaceFolder` setting in `devcontainer.json`.
@@ -70,7 +70,6 @@ services:
 
     kafka:
         image: wurstmeister/kafka
-        network_mode: service:app
         depends_on:
             - zookeeper
         ports:
