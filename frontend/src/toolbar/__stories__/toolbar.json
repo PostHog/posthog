@@ -4,13 +4,10 @@
             "location": {
                 "pathname": "/feature_flags/new",
                 "search": "",
-                "hash": "#backTo=Feature%20Flags&backToURL=%2Ffeature_flags"
+                "hash": ""
             },
             "searchParams": {},
-            "hashParams": {
-                "backTo": "Feature Flags",
-                "backToURL": "/feature_flags"
-            }
+            "hashParams": {}
         }
     },
     "toolbar": {
@@ -25,7 +22,7 @@
         },
         "stats": {
             "currentPageLogic": {
-                "href": "http://localhost:8000/feature_flags/new#backTo=Feature%20Flags&backToURL=%2Ffeature_flags"
+                "href": "http://localhost:8000/feature_flags/new"
             }
         },
         "elements": {

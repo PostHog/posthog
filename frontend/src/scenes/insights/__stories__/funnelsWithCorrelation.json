@@ -1327,9 +1327,6 @@
                     }
                 }
             },
-            "BackTo": {
-                "backTo": null
-            },
             "CompareFilter": {
                 "compareFilterLogic": {
                     "compare": false,

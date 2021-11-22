@@ -528,9 +528,6 @@
                         }
                     }
                 }
-            },
-            "BackTo": {
-                "backTo": null
             }
         }
     },

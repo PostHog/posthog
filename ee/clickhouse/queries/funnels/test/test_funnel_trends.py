@@ -1090,9 +1090,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 2)
 
         for res in result:
-            if res["breakdown_value"] == "Chrome":
+            if res["breakdown_value"] == ["Chrome"]:
                 self.assertEqual(res["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-            elif res["breakdown_value"] == "Safari":
+            elif res["breakdown_value"] == ["Safari"]:
                 self.assertEqual(res["data"], [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             else:
                 self.fail(msg="Invalid breakdown value")
@@ -1151,9 +1151,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 2)
 
         for res in result:
-            if res["breakdown_value"] == "Chrome":
+            if res["breakdown_value"] == ["Chrome"]:
                 self.assertEqual(res["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-            elif res["breakdown_value"] == "Safari":
+            elif res["breakdown_value"] == ["Safari"]:
                 self.assertEqual(res["data"], [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             else:
                 self.fail(msg="Invalid breakdown value")
