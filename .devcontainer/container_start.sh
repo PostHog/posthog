@@ -1,3 +1,3 @@
-#!/bin/bash
+#!/bin/env zsh
 
-echo "printf 'Hello 🦔! To start PostHog run this:\n "./ee/bin/docker-ch-dev-web"\n'" > ~/.bashrc
+echo "printf 'Hello 🦔! To start PostHog run this:\n "./ee/bin/docker-ch-dev-web"\n'" > ~/.zshrc
