@@ -12,6 +12,7 @@ import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from './components/Spinner/Spinner'
+import { getInsightId } from 'scenes/insights/insightLogic'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -255,8 +256,13 @@ export function SceneLoading(): JSX.Element {
     )
 }
 
-export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
-    api.update(`api/${props.endpoint}/${props.object.id}`, {
+export async function deleteWithUndo({ undo = false, ...props }: Record<string, any>): Promise<void> {
+    let objectId = props.object.id || props.object.short_id
+    if (props.endpoint.includes('/insights') && props.object.short_id) {
+        objectId = await getInsightId({ short_id: props.object.short_id })
+    }
+
+    api.update(`api/${props.endpoint}/${objectId}`, {
         ...props.object,
         deleted: !undo,
     }).then(() => {

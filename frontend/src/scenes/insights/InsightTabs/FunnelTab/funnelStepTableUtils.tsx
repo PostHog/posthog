@@ -46,7 +46,7 @@ function BreakdownBarGroupWrapper({
     showLabels,
 }: {
     step: FunnelStepWithConversionMetrics
-    dashboardItemId?: number
+    dashboardItemId?: string
     showLabels: boolean
 }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -99,7 +99,7 @@ export const renderGraphAndHeader = (
     headerElement: JSX.Element,
     showLabels: boolean,
     step?: FunnelStepWithConversionMetrics,
-    dashboardItemId?: number,
+    dashboardItemId?: string,
     useCustomName?: boolean
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
     const stepIndex = step?.order ?? 0

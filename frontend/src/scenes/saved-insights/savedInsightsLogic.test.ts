@@ -9,31 +9,31 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 jest.mock('lib/api')
 
-const createInsight = (obj: Partial<DashboardItemType> = {}, string = 'hi'): DashboardItemType => ({
-    id: 1,
-    name: `${string} ${obj.id || 1}`,
-    short_id: 'insght',
-    order: 0,
-    layouts: [],
-    last_refresh: 'now',
-    refreshing: false,
-    created_by: null,
-    is_sample: false,
-    updated_at: 'now',
-    result: {},
-    tags: [],
-    color: null,
-    created_at: 'now',
-    dashboard: null,
-    deleted: false,
-    saved: true,
-    filters_hash: 'hash',
-    filters: {},
-    ...obj,
-})
+const createInsight = (id: number, string = 'hi'): DashboardItemType =>
+    ({
+        id: id || 1,
+        name: `${string} ${id || 1}`,
+        short_id: `${id || 1}`,
+        order: 0,
+        layouts: [],
+        last_refresh: 'now',
+        refreshing: false,
+        created_by: null,
+        is_sample: false,
+        updated_at: 'now',
+        result: {},
+        tags: [],
+        color: null,
+        created_at: 'now',
+        dashboard: null,
+        deleted: false,
+        saved: true,
+        filters_hash: 'hash',
+        filters: {},
+    } as any as DashboardItemType)
 const createSavedInsights = (string = 'hello'): InsightsResult => ({
     count: 3,
-    results: [createInsight({ id: 1 }, string), createInsight({ id: 2 }, string), createInsight({ id: 3 }, string)],
+    results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)],
 })
 
 describe('savedInsightsLogic', () => {
@@ -48,7 +48,7 @@ describe('savedInsightsLogic', () => {
             return createSavedInsights(search)
         }
         if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/123`) {
-            return createInsight({ id: 123 })
+            return createInsight(123)
         }
         return defaultAPIMocks(url)
     })
@@ -147,7 +147,7 @@ describe('savedInsightsLogic', () => {
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42 }).url
             )
             await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightView(42) }),
+                location: partial({ pathname: urls.insightView('42') }),
                 searchParams: partial({ insight: InsightType.TRENDS }),
             })
         })
@@ -157,7 +157,7 @@ describe('savedInsightsLogic', () => {
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42, edit: true }).url
             )
             await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightEdit(42) }),
+                location: partial({ pathname: urls.insightEdit('42') }),
                 searchParams: partial({ insight: InsightType.TRENDS }),
             })
         })

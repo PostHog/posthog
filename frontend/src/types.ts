@@ -620,7 +620,7 @@ export interface PlanInterface {
 }
 
 export interface DashboardItemType {
-    id: number
+    // id: number
     name: string
     short_id: string
     description?: string
@@ -841,7 +841,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
-    from_dashboard?: boolean | number
+    from_dashboard?: boolean | string
     layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
@@ -1031,7 +1031,7 @@ export enum FunnelConversionWindowTimeUnit {
 
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
-    from_dashboard?: boolean | number
+    from_dashboard?: boolean | string
     funnel_window_days?: number
 }
 
@@ -1084,7 +1084,7 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: number
+    dashboardItemId?: string
     color?: string
     filters: Partial<FilterType>
     inSharedMode?: boolean
@@ -1095,7 +1095,7 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: number | null
+    dashboardItemId?: string | null
     /** enable url handling for this insight */
     syncWithUrl?: boolean
     /** cached results, avoid making a request */

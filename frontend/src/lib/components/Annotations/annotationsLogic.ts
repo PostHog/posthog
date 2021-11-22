@@ -7,9 +7,10 @@ import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from '../../../scenes/teamLogic'
+import { getInsightId } from 'scenes/insights/insightLogic'
 
 interface AnnotationsLogicProps {
-    pageKey?: string | number | null
+    pageKey?: string | null
 }
 
 export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
@@ -51,7 +52,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
                 const params = {
-                    ...(props.pageKey ? { dashboardItemId: props.pageKey } : {}),
+                    ...(props.pageKey ? { dashboardItemId: await getInsightId({ short_id: props.pageKey }) } : {}),
                     scope: AnnotationScope.DashboardItem,
                     deleted: false,
                 }

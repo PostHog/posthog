@@ -218,9 +218,7 @@ export function SavedInsights(): JSX.Element {
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content' }}
-                                onClick={() =>
-                                    updateFavoritedInsight({ id: insight.id, favorited: !insight.favorited })
-                                }
+                                onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                             >
                                 {insight.favorited ? (
                                     <StarFilled className="text-warning" />
@@ -308,17 +306,20 @@ export function SavedInsights(): JSX.Element {
                             trigger={['click']}
                             overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
                             overlay={
-                                <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
+                                <Menu
+                                    style={{ padding: '12px 4px' }}
+                                    data-attr={`insight-${item.short_id}-dropdown-menu`}
+                                >
                                     <Menu.Item
-                                        onClick={() => renameInsight(item.id)}
-                                        data-attr={`insight-item-${item.id}-dropdown-rename`}
+                                        onClick={() => renameInsight(item)}
+                                        data-attr={`insight-item-${item.short_id}-dropdown-rename`}
                                         title="Rename"
                                     >
                                         Rename
                                     </Menu.Item>
                                     <Menu.Item
                                         onClick={() => duplicateInsight(item)}
-                                        data-attr={`insight-item-${item.id}-dropdown-duplicate`}
+                                        data-attr={`insight-item-${item.short_id}-dropdown-duplicate`}
                                     >
                                         Duplicate
                                     </Menu.Item>
@@ -331,7 +332,7 @@ export function SavedInsights(): JSX.Element {
                                             })
                                         }
                                         style={{ color: 'var(--danger)' }}
-                                        data-attr={`insight-item-${item.id}-dropdown-remove`}
+                                        data-attr={`insight-item-${item.short_id}-dropdown-remove`}
                                     >
                                         Remove
                                     </Menu.Item>
@@ -505,12 +506,12 @@ export function SavedInsights(): JSX.Element {
                                         lg={12}
                                         xl={12}
                                         xxl={8}
-                                        key={insight.id}
+                                        key={insight.short_id}
                                         style={{ height: 340 }}
                                     >
                                         <DashboardItem
                                             item={{ ...insight, color: null }}
-                                            key={insight.id + '_user'}
+                                            key={insight.short_id + '_user'}
                                             loadDashboardItems={() => {
                                                 loadInsights()
                                             }}

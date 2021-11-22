@@ -89,7 +89,7 @@ describe('dashboardLogic', () => {
                         'refreshAllDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses(
-                            dashboardJson.items.map(({ id }) => id),
+                            dashboardJson.items.map(({ short_id }) => short_id),
                             true
                         ),
                     ])
@@ -112,8 +112,8 @@ describe('dashboardLogic', () => {
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
                             a.payload.item.id === dashboardJson.items[0].id,
                         // no longer reloading
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, false),
+                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].short_id, false),
+                        logic.actionCreators.setRefreshStatus(dashboardJson.items[1].short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
@@ -133,7 +133,7 @@ describe('dashboardLogic', () => {
                 })
                     .toDispatchActions([
                         'refreshAllDashboardItems',
-                        logic.actionCreators.setRefreshStatuses([dashboardJson.items[0].id], true),
+                        logic.actionCreators.setRefreshStatuses([dashboardJson.items[0].short_id], true),
                     ])
                     .toMatchValues({
                         refreshStatus: {
@@ -148,7 +148,7 @@ describe('dashboardLogic', () => {
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
                             a.payload.item.id === dashboardJson.items[0].id,
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
+                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {

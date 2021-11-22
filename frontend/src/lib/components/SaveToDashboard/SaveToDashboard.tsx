@@ -24,7 +24,7 @@ export function SaveToDashboard({ insight }: Props): JSX.Element {
             {dashboard ? (
                 <Tooltip title={`Go to dashboard "${dashboard?.name}"`} placement="bottom">
                     <LinkButton
-                        to={`${urls.dashboard(dashboard.id)}?highlightInsightId=${insight.id}`}
+                        to={`${urls.dashboard(dashboard.id)}?highlightInsightId=${insight.short_id}`}
                         type="default"
                         style={{ color: 'var(--primary)' }}
                         icon={<CheckSquareOutlined />}

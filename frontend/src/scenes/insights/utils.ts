@@ -65,19 +65,21 @@ export function extractObjectDiffKeys(
 }
 
 export function findInsightFromMountedLogic(
-    insightId: number,
+    insightId: string,
     dashboardId: number | undefined
 ): Partial<DashboardItemType> | null {
     if (dashboardId) {
         const insight = dashboardLogic
             .findMounted({ id: dashboardId })
-            ?.values.allItems?.items?.find((item) => item.id === insightId)
+            ?.values.allItems?.items?.find((item) => item.short_id === insightId)
         if (insight) {
             return insight
         }
     }
 
-    const insight2 = savedInsightsLogic.findMounted()?.values.insights?.results?.find((item) => item.id === insightId)
+    const insight2 = savedInsightsLogic
+        .findMounted()
+        ?.values.insights?.results?.find((item) => item.short_id === insightId)
     if (insight2) {
         return insight2
     }

@@ -333,7 +333,7 @@ describe('funnelLogic', () => {
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { dashboardItemId: '123' }
         initKeaTestLogic({
             logic: funnelLogic,
             props,
@@ -379,7 +379,7 @@ describe('funnelLogic', () => {
     })
 
     describe('it is connected with personsModalLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { dashboardItemId: '123' }
         initKeaTestLogic({
             logic: funnelLogic,
             props,

@@ -11,6 +11,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
+import { getInsightId } from 'scenes/insights/insightLogic'
 
 export const INSIGHTS_PER_PAGE = 15
 
@@ -59,7 +60,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         addGraph: (type: string) => ({ type }),
 
-        renameInsight: (id: number) => ({ id }),
+        updateFavoritedInsight: (insight: DashboardItemType, favorited: boolean) => ({ insight, favorited }),
+        renameInsight: (insight: DashboardItemType) => ({ insight }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
         loadInsights: true,
     },
@@ -99,17 +101,21 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
                 return { ...response, filters }
             },
-            updateFavoritedInsight: async ({ id, favorited }) => {
-                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, {
-                    favorited,
-                })
-                const updatedInsights = values.insights.results.map((insight) =>
-                    insight.id === id ? response : insight
+            updateFavoritedInsight: async ({ insight, favorited }) => {
+                const insightId = getInsightId(insight)
+                const response = await api.update(
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                    {
+                        favorited,
+                    }
+                )
+                const updatedInsights = values.insights.results.map((i) =>
+                    i.short_id === insight.short_id ? response : i
                 )
                 return { ...values.insights, results: updatedInsights }
             },
             setInsight: (insight: DashboardItemType) => {
-                const results = values.insights.results.map((i) => (i.id === insight.id ? insight : i))
+                const results = values.insights.results.map((i) => (i.short_id === insight.short_id ? insight : i))
                 return { ...values.insights, results }
             },
         },
@@ -192,18 +198,22 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 }
             }
         },
-        renameInsight: async ({ id }) => {
-            prompt({ key: `rename-insight-${id}` }).actions.prompt({
+        renameInsight: async ({ insight }) => {
+            prompt({ key: `rename-insight-${insight.short_id}` }).actions.prompt({
                 title: 'Rename panel',
                 placeholder: 'Please enter the new name',
                 value: name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    const insight = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, {
-                        name,
-                    })
+                    const insightId = getInsightId(insight)
+                    const newInsight = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                        {
+                            name,
+                        }
+                    )
                     toast('Successfully renamed item')
-                    actions.setInsight(insight)
+                    actions.setInsight(newInsight)
                 },
             })
         },

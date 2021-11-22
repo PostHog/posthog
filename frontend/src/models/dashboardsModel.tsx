@@ -22,11 +22,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
         updateDashboardRefreshStatus: (
-            id: number | undefined | null,
+            shortId: string | undefined | null,
             refreshing: boolean | null,
             last_refresh: string | null
         ) => ({
-            id,
+            shortId,
             refreshing,
             last_refresh,
         }),

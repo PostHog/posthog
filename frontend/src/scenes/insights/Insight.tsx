@@ -33,7 +33,7 @@ export const scene: SceneExport = {
 export function Insight({ id }: { id?: string } = {}): JSX.Element {
     useMountedLogic(insightCommandLogic)
 
-    const logic = insightLogic({ dashboardItemId: id ? parseInt(id) : null, syncWithUrl: true })
+    const logic = insightLogic({ dashboardItemId: id || null, syncWithUrl: true })
     const {
         insightProps,
         activeView,
@@ -129,7 +129,7 @@ export function Insight({ id }: { id?: string } = {}): JSX.Element {
                                 </Button>
                             </Popconfirm>
                         ) : null}
-                        {insight.id && <SaveToDashboard insight={insight} />}
+                        {insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             <HotkeyButton
                                 type="primary"

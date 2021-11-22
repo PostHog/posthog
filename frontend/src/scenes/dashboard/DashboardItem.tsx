@@ -50,8 +50,8 @@ import { urls } from 'scenes/urls'
 interface Props {
     item: DashboardItemType
     dashboardId?: number
-    updateItemColor?: (id: number, itemClassName: string) => void
-    setDiveDashboard?: (id: number, dashboardId: number | null) => void
+    updateItemColor?: (shortId: string, itemClassName: string) => void
+    setDiveDashboard?: (shortId: string, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     isReloading?: boolean
@@ -84,8 +84,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'graph',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -94,8 +94,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'graph',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -104,8 +104,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'bar',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -114,8 +114,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'bar',
         element: ActionsBarValueGraph,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -124,8 +124,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'table',
         element: ActionsTable,
         viewText: 'View table',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -134,8 +134,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'pie',
         element: ActionsPie,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -144,8 +144,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'funnel',
         element: Funnel,
         viewText: 'View funnel',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ short_id, dashboard, name, filters }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -154,8 +154,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'retention',
         element: RetentionContainer,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ short_id, dashboard, name, filters }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -164,8 +164,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'paths-viz',
         element: Paths,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
+        link: ({ short_id, dashboard, name, filters }: DashboardItemType): string =>
+            combineUrl(urls.insightView(short_id, filters), undefined, {
                 fromItemName: name,
                 fromDashboard: dashboard,
             }).url,
@@ -184,8 +184,8 @@ export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
     ) as DisplayedType
 }
 
-const dashboardDiveLink = (dive_dashboard: number, dive_source_id: number): string => {
-    return combineUrl(`/dashboard/${dive_dashboard}`, { dive_source_id: dive_source_id.toString() }).url
+const dashboardDiveLink = (dive_dashboard: number, dive_source_id: string): string => {
+    return combineUrl(`/dashboard/${dive_dashboard}`, { dive_source_id: dive_source_id }).url
 }
 
 export function DashboardItem({
@@ -247,9 +247,9 @@ export function DashboardItem({
         exclude: 'table, table *',
     })
 
-    const filters = { ...item.filters, from_dashboard: item.id }
+    const filters = { ...item.filters, from_dashboard: item.short_id }
     const logicProps: InsightLogicProps = {
-        dashboardItemId: item.id,
+        dashboardItemId: item.short_id,
         filters: filters,
         cachedResults: (item as any).result,
         doNotLoad,
@@ -307,7 +307,7 @@ export function DashboardItem({
 
     const response = (
         <div
-            key={item.id}
+            key={item.short_id}
             className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${
                 layout?.h || 0
             } ph-no-capture`}
@@ -377,7 +377,7 @@ export function DashboardItem({
                                         typeof item.dive_dashboard === 'number' && (
                                             <Tooltip title={`Dive to ${diveDashboard?.name || 'connected dashboard'}`}>
                                                 <LinkButton
-                                                    to={dashboardDiveLink(item.dive_dashboard, item.id)}
+                                                    to={dashboardDiveLink(item.dive_dashboard, item.short_id)}
                                                     icon={
                                                         <span role="img" aria-label="dive" className="anticon">
                                                             <DiveIcon />
@@ -446,7 +446,7 @@ export function DashboardItem({
                                                                 <Menu.Item
                                                                     key={itemClassName}
                                                                     onClick={() =>
-                                                                        updateItemColor(item.id, itemClassName)
+                                                                        updateItemColor(item.short_id, itemClassName)
                                                                     }
                                                                     data-attr={
                                                                         'dashboard-item-' +
@@ -488,7 +488,9 @@ export function DashboardItem({
                                                                     diveIndex
                                                                 }
                                                                 key={dashboard.id}
-                                                                onClick={() => setDiveDashboard(item.id, dashboard.id)}
+                                                                onClick={() =>
+                                                                    setDiveDashboard(item.short_id, dashboard.id)
+                                                                }
                                                                 disabled={dashboard.id === item.dive_dashboard}
                                                             >
                                                                 {dashboard.name}
@@ -499,7 +501,7 @@ export function DashboardItem({
                                                                 'dashboard-item-' + index + '-dive-dashboard-remove'
                                                             }
                                                             key="remove"
-                                                            onClick={() => setDiveDashboard(item.id, null)}
+                                                            onClick={() => setDiveDashboard(item.short_id, null)}
                                                             className="text-danger"
                                                         >
                                                             Remove
@@ -580,7 +582,7 @@ export function DashboardItem({
                                                     onClick={() =>
                                                         deleteWithUndo({
                                                             object: {
-                                                                id: item.id,
+                                                                short_id: item.short_id,
                                                                 name: item.name,
                                                             },
                                                             endpoint: `projects/${currentTeamId}/insights`,
@@ -620,7 +622,7 @@ export function DashboardItem({
                                 <Skeleton />
                             ) : (
                                 <Element
-                                    dashboardItemId={item.id}
+                                    dashboardItemId={item.short_id}
                                     cachedResults={item.result}
                                     filters={filters}
                                     color={color}
