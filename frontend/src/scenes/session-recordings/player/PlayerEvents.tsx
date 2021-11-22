@@ -102,7 +102,6 @@ export function PlayerEvents(): JSX.Element {
             const isCurrent = isEventCurrent(index)
 
             return (
-                // <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
                 <Row
                     key={key}
                     className={clsx('event-list-item', { 'current-event': isCurrent })}
@@ -136,7 +135,6 @@ export function PlayerEvents(): JSX.Element {
                         <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
                     </Col>
                 </Row>
-                // </CellMeasurer>
             )
         },
         [
