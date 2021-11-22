@@ -33,7 +33,7 @@ services:
     # The applications service dependencies
     db:
         image: postgres:12-alpine
-        network_mode: host
+        network_mode: service:app
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
@@ -44,15 +44,15 @@ services:
     # Used for/by 1. celery broker 2. django.core.cache
     redis:
         image: 'redis:alpine'
-        network_mode: host
+        network_mode: service:app
 
     clickhouse:
         # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
         # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
         image: yandex/clickhouse-server:21.6.5
-        network_mode: host
+        network_mode: service:app
         volumes:
-            - ./idl:/idl
+            - ../ee/idl:/idl
             - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
@@ -61,11 +61,11 @@ services:
     # Needed for 1. clickhouse distributed queries 2. kafka replication
     zookeeper:
         image: wurstmeister/zookeeper
-        network_mode: host
+        network_mode: service:app
 
     kafka:
         image: wurstmeister/kafka
-        network_mode: host
+        network_mode: service:app
         depends_on:
             - zookeeper
         environment:
