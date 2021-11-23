@@ -6,8 +6,6 @@ import { AvailableFeature, InsightType, ItemMode, PropertyOperator } from '~/typ
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
@@ -24,7 +22,7 @@ describe('insightLogic', () => {
     beforeEach(initKeaTests)
 
     mockAPI(async (url) => {
-        const { pathname, searchParams } = url
+        const { pathname, searchParams, method, data } = url
         const throwAPIError = (): void => {
             throw { status: 0, statusText: 'error from the API' }
         }
@@ -62,6 +60,8 @@ describe('insightLogic', () => {
                     { id: 43, result: ['result 43'], filters: API_FILTERS },
                 ],
             }
+        } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
+            return { id: 12, name: data?.name }
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
@@ -426,10 +426,6 @@ describe('insightLogic', () => {
 
     describe('takes data from other logics if available', () => {
         it('dashboardLogic', async () => {
-            // 0. the feature flag must be set
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
-
             // 1. the URL must have the dashboard and insight IDs
             router.actions.push('/insights', {}, { fromDashboard: 33, fromItem: 42 })
 
@@ -456,10 +452,6 @@ describe('insightLogic', () => {
         })
 
         it('savedInsightLogic', async () => {
-            // 0. the feature flag must be set
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
-
             // 1. open saved insights
             router.actions.push('/saved_insights', {}, {})
             savedInsightsLogic.mount()
@@ -486,7 +478,6 @@ describe('insightLogic', () => {
     })
 
     test('keeps saved filters', async () => {
-        featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: InsightType.FUNNELS },
@@ -563,5 +554,35 @@ describe('insightLogic', () => {
 
         logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
         await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
+    })
+
+    test('Save as new insight', async () => {
+        const url = combineUrl('/insights', { insight: InsightType.FUNNELS }).url
+        router.actions.push(url)
+
+        logic = insightLogic({
+            dashboardItemId: 42,
+            filters: { insight: InsightType.FUNNELS },
+            savedFilters: { insight: InsightType.FUNNELS },
+            syncWithUrl: true,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.saveAsNamingSuccess('New Insight (copy)')
+        })
+            .toDispatchActions(['setInsight'])
+            .toMatchValues({
+                filters: partial({ insight: InsightType.FUNNELS }),
+                // savedFilters: partial({ insight: InsightType.FUNNELS }),
+                insight: partial({ id: 12, name: 'New Insight (copy)' }),
+                filtersChanged: true,
+                syncWithUrl: true,
+            })
+        await expectLogic()
+            .toDispatchActions(router, ['locationChanged'])
+            .toMatchValues(router, {
+                hashParams: { edit: true, fromItem: 12 },
+            })
     })
 })

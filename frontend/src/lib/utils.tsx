@@ -620,47 +620,65 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>): string {
+export function eventToDescription(
+    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
+    shortForm: boolean = false
+): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
         return event.properties.$pathname
     }
     if (event.event === '$autocapture') {
-        return autoCaptureEventToDescription(event)
+        return autoCaptureEventToDescription(event, shortForm)
     }
     // All other events and actions
     return event.event
 }
 
-export function autoCaptureEventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
+export function autoCaptureEventToDescription(
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
+    shortForm: boolean = false
+): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
-    let name: string | JSX.Element = ''
-    if (event.properties.$event_type === 'click') {
-        name += 'clicked '
-    }
-    if (event.properties.$event_type === 'change') {
-        name += 'typed something into '
-    }
-    if (event.properties.$event_type === 'submit') {
-        name += 'submitted '
+
+    const getVerb = (): string => {
+        if (event.properties.$event_type === 'click') {
+            return 'clicked'
+        }
+        if (event.properties.$event_type === 'change') {
+            return 'typed something into'
+        }
+        if (event.properties.$event_type === 'submit') {
+            return 'submitted'
+        }
+        return 'interacted with'
     }
 
-    if (event.elements.length > 0) {
-        if (event.elements[0].tag_name === 'a') {
-            name += 'link'
-        } else if (event.elements[0].tag_name === 'img') {
-            name += 'image'
-        } else {
-            name += event.elements[0].tag_name
+    const getTag = (): string => {
+        if (event.elements?.[0]?.tag_name === 'a') {
+            return 'link'
+        } else if (event.elements?.[0]?.tag_name === 'img') {
+            return 'image'
         }
-        if (event.elements[0].text) {
-            name += ' with text "' + event.elements[0].text + '"'
-        } else if (event.elements[0].attributes['attr__aria-label']) {
-            name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
-        }
+        return event.elements?.[0]?.tag_name ?? 'element'
     }
-    return name
+
+    const getValue = (): string | null => {
+        if (event.elements?.[0]?.text) {
+            return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
+        } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
+            return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
+        }
+        return null
+    }
+
+    if (shortForm) {
+        return [getVerb(), getValue() ?? getTag()].filter((x) => x).join(' ')
+    } else {
+        const value = getValue()
+        return [getVerb(), getTag(), value].filter((x) => x).join(' ')
+    }
 }
 
 export function determineDifferenceType(
@@ -1169,4 +1187,8 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
         }
     }
     return -1
+}
+
+export function isEllipsisActive(e: HTMLElement | null): boolean {
+    return !!e && e.offsetWidth < e.scrollWidth
 }

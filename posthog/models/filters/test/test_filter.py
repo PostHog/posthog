@@ -484,10 +484,20 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, Event.o
 
         matched_person = (
             Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
-            .filter(properties_to_Q(filter.properties, team_id=self.team.pk, is_person_query=True))
+            .filter(properties_to_Q(filter.properties, team_id=self.team.pk, is_direct_query=True))
             .exists()
         )
         self.assertTrue(matched_person)
+
+    def test_group_property_filters_direct(self):
+        filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
+        query_filter = properties_to_Q(filter.properties, team_id=self.team.pk, is_direct_query=True)
+
+        self.assertEqual(query_filter, Q(group_properties__some_prop=5))
+
+    def test_group_property_filters_used(self):
+        filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
+        self.assertRaises(ValueError, lambda: properties_to_Q(filter.properties, team_id=self.team.pk))
 
 
 class TestDateFilterQ(BaseTest):
