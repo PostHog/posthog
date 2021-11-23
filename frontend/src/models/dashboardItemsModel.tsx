@@ -8,8 +8,7 @@ import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
 import { urls } from 'scenes/urls'
-import { teamLogic } from '../scenes/teamLogic'
-import { getInsightId } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
     path: ['models', 'dashboardItemsModel'],
@@ -31,8 +30,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                 value: item.name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    const insightId = await getInsightId(item)
-                    item = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`, {
+                    item = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
                         name,
                     })
                     toast('Successfully renamed item')
@@ -58,9 +56,8 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
             if (move && dashboard) {
-                const insightId = await getInsightId(item)
                 const deletedItem = await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
                     {
                         deleted: true,
                     }
@@ -78,9 +75,8 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                             to="#"
                             onClick={async () => {
                                 toast.dismiss(toastId)
-                                const itemId = await getInsightId(item)
                                 const [restoredItem, removedItem] = await Promise.all([
-                                    api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${itemId}`, {
+                                    api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
                                         deleted: false,
                                     }),
                                     api.update(

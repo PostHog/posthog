@@ -145,9 +145,8 @@ export const insightLogic = kea<insightLogicType>({
                     if (!Object.entries(insight).length) {
                         return values.insight
                     }
-                    const insightId = await getInsightId(values.insight)
                     const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         insight
                     )
                     breakpoint()
@@ -165,9 +164,8 @@ export const insightLogic = kea<insightLogicType>({
                         return { ...values.insight, ...metadata }
                     }
 
-                    const insightId = await getInsightId(values.insight)
                     const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         metadata
                     )
                     breakpoint()
@@ -562,13 +560,9 @@ export const insightLogic = kea<insightLogicType>({
             actions.setInsightMetadata({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
         saveInsight: async ({ setViewMode }) => {
-            const insightId = await getInsightId(values.insight)
             const savedInsight: DashboardItemType = await api.update(
-                `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
-                {
-                    ...values.insight,
-                    saved: true,
-                }
+                `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                { ...values.insight, saved: true }
             )
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },

@@ -11,7 +11,6 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
-import { getInsightId } from 'scenes/insights/insightLogic'
 
 export const INSIGHTS_PER_PAGE = 15
 
@@ -102,9 +101,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 return { ...response, filters }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
-                const insightId = getInsightId(insight)
                 const response = await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
                     {
                         favorited,
                     }
@@ -205,9 +203,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 value: name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    const insightId = getInsightId(insight)
                     const newInsight: DashboardItemType = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
                         {
                             name,
                         }

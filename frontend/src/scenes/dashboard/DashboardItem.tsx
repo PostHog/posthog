@@ -583,7 +583,7 @@ export function DashboardItem({
                                                     onClick={() =>
                                                         deleteWithUndo({
                                                             object: {
-                                                                short_id: item.short_id,
+                                                                id: item.id,
                                                                 name: item.name,
                                                             },
                                                             endpoint: `projects/${currentTeamId}/insights`,
