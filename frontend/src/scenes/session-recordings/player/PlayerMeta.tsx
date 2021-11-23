@@ -9,13 +9,13 @@ import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
 import { formatDisplayPercentage } from 'scenes/funnels/funnelUtils'
 
 export function PlayerMeta(): JSX.Element {
-    const { sessionPerson, description, resolution, scale, meta, isMetaLoading } = useValues(metaLogic)
+    const { sessionPerson, description, resolution, scale, meta, loading } = useValues(metaLogic)
 
     return (
         <Col className="player-meta-container">
             <Row className="player-meta-person" align="middle" justify="space-between" wrap={false}>
                 <Row className="player-meta-person-title" align="middle" wrap={false}>
-                    {isMetaLoading ? (
+                    {loading ? (
                         <Space>
                             <Skeleton.Avatar active size="small" shape="circle" />
                             <Skeleton title={false} active paragraph={{ rows: 1, width: 160 }} />
@@ -35,7 +35,7 @@ export function PlayerMeta(): JSX.Element {
                     )}
                 </Row>
                 <Col>
-                    {isMetaLoading ? (
+                    {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1, width: 80 }} />
                     ) : (
                         <span className="time text-small">{meta.startTime && dayjs(meta.startTime).fromNow()}</span>
@@ -44,14 +44,14 @@ export function PlayerMeta(): JSX.Element {
             </Row>
             <Row className="player-meta-other" align="middle" justify="start">
                 <Row className="player-meta-other-description">
-                    {isMetaLoading ? (
+                    {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1 }} />
                     ) : (
                         <span className="text-small">{description}</span>
                     )}
                 </Row>
                 <Row className="player-meta-other-resolution">
-                    {isMetaLoading ? (
+                    {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1, width: '100%' }} />
                     ) : (
                         <span className="text-small">
@@ -61,7 +61,7 @@ export function PlayerMeta(): JSX.Element {
                                     {formatDisplayPercentage(scale)}%)
                                 </>
                             ) : (
-                                <>Resolution not found</>
+                                <>Resolution: ...</>
                             )}
                         </span>
                     )}

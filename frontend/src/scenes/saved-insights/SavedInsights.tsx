@@ -1,9 +1,10 @@
-import { Col, Input, Radio, Row, Select, Tabs } from 'antd'
+import { Col, Dropdown, Input, Menu, Radio, Row, Select, Tabs } from 'antd'
+import { router } from 'kea-router'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
-import React, { useState } from 'react'
+import React from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import {
@@ -25,6 +26,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
+    IconArrowDropDown,
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
@@ -37,12 +39,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonButton } from '../../lib/components/LemonButton'
 import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { LemonButton } from 'lib/components/LemonButton'
 
 const { TabPane } = Tabs
 
@@ -128,48 +130,61 @@ export const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
 )
 
 function NewInsightButton(): JSX.Element {
-    const [isNewInsightsPopupVisible, setIsNewInsightsPopupVisible] = useState(false)
+    const menu = (
+        <Menu
+            style={{
+                maxWidth: '19rem',
+                borderRadius: 'var(--radius)',
+                border: '1px solid var(--primary)',
+                padding: '0.5rem',
+            }}
+        >
+            {insightTypes.map(
+                (listedInsightType) =>
+                    listedInsightType.inMenu && (
+                        <Menu.Item
+                            key={listedInsightType.type}
+                            onClick={() => {
+                                eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType.type)
+                                router.actions.push(urls.newInsight(listedInsightType.type))
+                            }}
+                            data-attr="saved-insights-create-new-insight"
+                            data-attr-insight-type={listedInsightType.type}
+                        >
+                            <Row wrap={false}>
+                                <Col flex="none">
+                                    {listedInsightType.icon && (
+                                        <listedInsightType.icon color="var(--muted-alt)" noBackground />
+                                    )}
+                                </Col>
+                                <Col flex="Auto" style={{ paddingLeft: '1rem' }}>
+                                    <strong>{listedInsightType.name}</strong>
+                                    <br />
+                                    <div style={{ whiteSpace: 'initial', fontSize: '0.8125rem' }}>
+                                        {listedInsightType.description}
+                                    </div>
+                                </Col>
+                            </Row>
+                        </Menu.Item>
+                    )
+            )}
+        </Menu>
+    )
 
     return (
-        <LemonButton
+        <Dropdown.Button
+            overlayStyle={{ borderColor: 'var(--primary)' }}
+            style={{ marginLeft: 8 }}
+            size="large"
             type="primary"
-            onClick={() => setIsNewInsightsPopupVisible((state) => !state)}
-            popup={{
-                placement: 'bottom-end',
-                visible: isNewInsightsPopupVisible,
-                onClickOutside: () => setIsNewInsightsPopupVisible(false),
-                className: 'new-insight-overlay',
-                actionable: true,
-                overlay: insightTypes.map(
-                    (listedInsightType) =>
-                        listedInsightType.inMenu && (
-                            <LemonButton
-                                key={listedInsightType.type}
-                                type="stealth"
-                                icon={
-                                    listedInsightType.icon && (
-                                        <listedInsightType.icon color="var(--muted-alt)" noBackground />
-                                    )
-                                }
-                                to={urls.newInsight(listedInsightType.type)}
-                                data-attr="saved-insights-create-new-insight"
-                                data-attr-insight-type={listedInsightType.type}
-                                onClick={() => {
-                                    setIsNewInsightsPopupVisible(false)
-                                    eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType.type)
-                                }}
-                                fullWidth
-                                extendedContent={listedInsightType.description}
-                            >
-                                <strong>{listedInsightType.name}</strong>
-                            </LemonButton>
-                        )
-                ),
+            onClick={() => {
+                router.actions.push(urls.newInsight(InsightType.TRENDS))
             }}
-            data-attr="saved-insights-new-insight-button"
+            overlay={menu}
+            icon={<IconArrowDropDown style={{ fontSize: 25 }} data-attr="saved-insights-new-insight-dropdown" />}
         >
-            New insight
-        </LemonButton>
+            New Insight
+        </Dropdown.Button>
     )
 }
 

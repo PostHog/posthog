@@ -42,9 +42,7 @@
         .player-sidebar {
             display: flex;
             flex-direction: column;
-            width: 30%;
-            min-width: 300px;
-            max-width: 400px;
+            width: 350px;
             padding: $recording_spacing $recording_spacing 0 0;
 
             .player-meta {

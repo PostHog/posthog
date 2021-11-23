@@ -1064,7 +1064,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            if (values.correlationAnalysisAvailable) {
+            if (values.correlationAnalysisAvailable && insight.filters?.funnel_viz_type === FunnelVizType.Steps) {
                 actions.loadCorrelations()
                 actions.setPropertyNames(values.allProperties) // select all properties by default
             }
