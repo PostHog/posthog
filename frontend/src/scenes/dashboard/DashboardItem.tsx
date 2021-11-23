@@ -248,7 +248,7 @@ export function DashboardItem({
         exclude: 'table, table *',
     })
 
-    const filters = { ...item.filters, from_dashboard: item.short_id }
+    const filters = { ...item.filters, from_dashboard: item.dashboard || undefined }
     const logicProps: InsightLogicProps = {
         dashboardItemId: item.short_id,
         filters: filters,
