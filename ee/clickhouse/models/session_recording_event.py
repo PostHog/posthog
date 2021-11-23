@@ -2,8 +2,9 @@ import datetime
 import json
 import logging
 import uuid
-from typing import Union
+from typing import List, Union
 
+from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from ee.clickhouse.client import sync_execute
@@ -49,3 +50,17 @@ def create_session_recording_event(
         capture_exception(Exception(f"Session recording event data too large - {len(snapshot_data_json)}"))
 
     return str(uuid)
+
+
+def get_session_count_for_teams_and_period(
+    team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime,
+) -> int:
+    return sync_execute(
+        """
+        SELECT uniq(session_id)
+        FROM session_recording_events
+        WHERE team_id IN (%(team_id_clause)s)
+        AND timestamp between %(begin)s and %(end)s
+    """,
+        {"team_id_clause": team_ids, "begin": begin, "end": end},
+    )[0][0]
