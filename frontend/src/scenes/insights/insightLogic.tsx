@@ -573,10 +573,10 @@ export const insightLogic = kea<insightLogicType>({
         },
         saveAs: async () => {
             prompt({ key: `save-as-insight` }).actions.prompt({
-                title: 'Save as',
+                title: 'Save as new insight',
                 placeholder: 'Please enter the new name',
                 value: values.insight.name + ' (copy)',
-                error: 'You must enter name',
+                error: 'You must enter a name',
                 success: actions.saveAsNamingSuccess,
             })
         },
@@ -591,6 +591,7 @@ export const insightLogic = kea<insightLogicType>({
             if (values.syncWithUrl) {
                 router.actions.replace('/insights', router.values.searchParams, {
                     ...router.values.hashParams,
+                    edit: true,
                     fromItem: insight.id,
                 })
             }
