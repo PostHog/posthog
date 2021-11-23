@@ -2,9 +2,9 @@ from semantic_version.base import SimpleSpec, Version
 
 
 class VersionRequirement:
-    accepted_services = ("clickhouse", "postgres")
+    accepted_services = ("clickhouse", "postgresql")
 
-    def __init__(self, service, version_range):
+    def __init__(self, service, supported_version):
         if service not in self.accepted_services:
             services_str = ", ".join(self.accepted_services)
             raise Exception(
@@ -14,18 +14,18 @@ class VersionRequirement:
         self.service = service
 
         try:
-            self.version_range = SimpleSpec(version_range)
+            self.supported_version = SimpleSpec(supported_version)
         except:
             raise Exception(
-                f"version_range is invalid. See the Docs for SimpleSpec: https://pypi.org/project/semantic-version/"
+                f"supported_version is invalid. See the Docs for SimpleSpec: https://pypi.org/project/semantic-version/"
             )
 
     def is_service_in_accepted_version(self):
         service_version = self.get_service_version()
-        return [service_version in self.version_range, service_version]
+        return [service_version in self.supported_version, service_version]
 
     def get_service_version(self):
-        if self.service == "postgres":
+        if self.service == "postgresql":
             return self.get_postgres_version()
 
         if self.service == "clickhouse":

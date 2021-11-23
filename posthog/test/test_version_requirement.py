@@ -8,24 +8,24 @@ from posthog.version_requirement import VersionRequirement
 
 class TestVersionRequirement(TestCase):
     def test_accepted_services(self):
-        v1 = VersionRequirement(service="postgres", version_range="==14.0.0")
-        v2 = VersionRequirement(service="clickhouse", version_range="==21.6.0")
+        v1 = VersionRequirement(service="postgresql", supported_version="==14.0.0")
+        v2 = VersionRequirement(service="clickhouse", supported_version="==21.6.0")
 
-        self.assertEqual(v1.service, "postgres")
+        self.assertEqual(v1.service, "postgresql")
         self.assertEqual(v2.service, "clickhouse")
 
-        self.assertEqual(type(v1.version_range), SimpleSpec)
-        self.assertEqual(type(v2.version_range), SimpleSpec)
+        self.assertEqual(type(v1.supported_version), SimpleSpec)
+        self.assertEqual(type(v2.supported_version), SimpleSpec)
 
-        self.assertEqual(str(v1.version_range), "==14.0.0")
-        self.assertEqual(str(v2.version_range), "==21.6.0")
+        self.assertEqual(str(v1.supported_version), "==14.0.0")
+        self.assertEqual(str(v2.supported_version), "==21.6.0")
 
         try:
-            VersionRequirement(service="kea", version_range="==2.5.0")
+            VersionRequirement(service="kea", supported_version="==2.5.0")
         except Exception as e:
             self.assertEqual(
                 str(e),
-                "service kea cannot be used to specify a version requirement. service should be one of clickhouse, postgres",
+                "service kea cannot be used to specify a version requirement. service should be one of clickhouse, postgresql",
             )
 
     def test_service_versions(self):
@@ -62,23 +62,23 @@ class TestVersionRequirement(TestCase):
 
     @patch("posthog.version_requirement.VersionRequirement.get_service_version", lambda x: Version("12.1.2"))
     def test_ranges(self):
-        v1 = VersionRequirement(service="postgres", version_range="==14.0.0")
+        v1 = VersionRequirement(service="postgresql", supported_version="==14.0.0")
         in_range, service_version = v1.is_service_in_accepted_version()
         self.assertEqual(in_range, False)
         self.assertEqual(str(service_version), "12.1.2")
 
-        v2 = VersionRequirement(service="postgres", version_range="==12.1.2")
+        v2 = VersionRequirement(service="postgresql", supported_version="==12.1.2")
         in_range, _ = v2.is_service_in_accepted_version()
         self.assertEqual(in_range, True)
 
-        v3 = VersionRequirement(service="postgres", version_range=">=12.0.0,<12.1.2")
+        v3 = VersionRequirement(service="postgresql", supported_version=">=12.0.0,<12.1.2")
         in_range, _ = v3.is_service_in_accepted_version()
         self.assertEqual(in_range, False)
 
-        v4 = VersionRequirement(service="postgres", version_range=">=12.0.0,<=12.1.2")
+        v4 = VersionRequirement(service="postgresql", supported_version=">=12.0.0,<=12.1.2")
         in_range, _ = v4.is_service_in_accepted_version()
         self.assertEqual(in_range, True)
 
-        v5 = VersionRequirement(service="postgres", version_range=">=11.0.0,<=13.0.0")
+        v5 = VersionRequirement(service="postgresql", supported_version=">=11.0.0,<=13.0.0")
         in_range, _ = v5.is_service_in_accepted_version()
         self.assertEqual(in_range, True)
