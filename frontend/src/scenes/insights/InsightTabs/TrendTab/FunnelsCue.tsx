@@ -3,21 +3,23 @@ import { IconLightBulb, InsightsFunnelsIcon } from 'lib/components/icons'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import { funnelsUpsellLogicType } from './FunnelsUpsellType'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps, InsightType } from '~/types'
 import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import clsx from 'clsx'
-import './FunnelsUpsell.scss'
+import './FunnelsCue.scss'
+import { funnelsCueLogicType } from './FunnelsCueType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-const funnelsUpsellLogic = kea<funnelsUpsellLogicType>({
-    path: ['scenes', 'insights', 'InsightTabs', 'TrendTab', 'FunnelsUpsell'],
+const funnelsCueLogic = kea<funnelsCueLogicType>({
+    path: ['scenes', 'insights', 'InsightTabs', 'TrendTab', 'FunnelsCue'],
     props: {} as InsightLogicProps,
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters']],
-        actions: [insightLogic(props), ['setFilters']],
+        values: [insightLogic(props), ['filters', 'isFirstLoad'], featureFlagLogic, ['featureFlags']],
+        actions: [insightLogic(props), ['setFilters'], featureFlagLogic, ['setFeatureFlags']],
     }),
     actions: {
         setDestPath: (path: string) => ({ path }),
@@ -33,7 +35,7 @@ const funnelsUpsellLogic = kea<funnelsUpsellLogicType>({
             },
         ],
         _shouldShow: [
-            false, // Whether the conditions are met to show the upsell (right filters, user has not used funnels recently)
+            false,
             {
                 setShouldShow: (_, { show }) => show,
             },
@@ -48,16 +50,22 @@ const funnelsUpsellLogic = kea<funnelsUpsellLogicType>({
     listeners: ({ actions, values }) => ({
         optOut: async () => {
             posthog.capture('funnel cue 7301 - opted out')
-            window.localStorage.setItem('p7301', '1')
+            posthog.people.set({ funnels_cue_3701_opt_out: true })
+            // funnels_cue_3701_opt_out -> will add the user to a FF that will permanently exclude the user
             actions.setPermanentOptOut()
         },
         setFilters: async ({ filters }) => {
             const step_count = (filters.events?.length ?? 0) + (filters.actions?.length ?? 0)
-            if (filters.insight === InsightType.TRENDS && step_count >= 2) {
+            if (!values.isFirstLoad && filters.insight === InsightType.TRENDS && step_count >= 2) {
                 actions.setShouldShow(true)
                 !values.permanentOptOut && posthog.capture('funnel cue 7301 - shown', { step_count })
             } else {
                 actions.setShouldShow(false)
+            }
+        },
+        setFeatureFlags: async ({ flags }) => {
+            if (flags[FEATURE_FLAGS.FUNNELS_CUE_OPT_OUT]) {
+                actions.setPermanentOptOut()
             }
         },
     }),
@@ -67,9 +75,9 @@ const funnelsUpsellLogic = kea<funnelsUpsellLogicType>({
             (shouldShow, permanentOptout): boolean => shouldShow && !permanentOptout,
         ],
     },
-    events: ({ actions }) => ({
+    events: ({ actions, values }) => ({
         afterMount: async () => {
-            if (window.localStorage.getItem('p7301')) {
+            if (values.featureFlags[FEATURE_FLAGS.FUNNELS_CUE_OPT_OUT]) {
                 actions.setPermanentOptOut()
             }
         },
@@ -86,8 +94,8 @@ const funnelsUpsellLogic = kea<funnelsUpsellLogicType>({
     }),
 })
 
-export function FunnelsUpsell({ props }: { props: InsightLogicProps }): JSX.Element | null {
-    const logic = funnelsUpsellLogic(props)
+export function FunnelsCue({ props }: { props: InsightLogicProps }): JSX.Element | null {
+    const logic = funnelsCueLogic(props)
     const { optOut } = useActions(logic)
     const { destPath, shown } = useValues(logic)
 

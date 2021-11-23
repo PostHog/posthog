@@ -18,7 +18,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FunnelsUpsell } from './FunnelsUpsell'
+import { FunnelsCue } from './FunnelsCue'
 
 export interface TrendTabProps {
     view: string
@@ -76,7 +76,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             ) : undefined
                         }
                     />
-                    <FunnelsUpsell props={insightProps} />
+                    <FunnelsCue props={insightProps} />
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === InsightType.LIFECYCLE && (
