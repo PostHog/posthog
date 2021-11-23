@@ -604,7 +604,7 @@ describe('insightLogic', () => {
         router.actions.push(url)
 
         logic = insightLogic({
-            dashboardItemId: 42,
+            dashboardItemId: '42',
             filters: { insight: InsightType.FUNNELS },
             savedFilters: { insight: InsightType.FUNNELS },
             syncWithUrl: true,
