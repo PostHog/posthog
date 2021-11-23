@@ -213,43 +213,46 @@ export function ActorRow({ actor }: ActorRowProps): JSX.Element {
         expandable: Object.keys(actor.properties).length > 0,
         prefixCls: 'ant-table',
     } as ExpandIconProps
-    const _isGroupType = isGroupType(actor)
 
-    function Header(): JSX.Element {
-        return _isGroupType ? (
-            <GroupActorHeader actor={actor} withIcon={false} />
-        ) : (
-            <PersonHeader person={actor} withIcon={false} />
-        )
-    }
-
-    function Inline(): JSX.Element {
-        return _isGroupType ? (
-            <></>
-        ) : (
-            <CopyToClipboardInline
-                explicitValue={actor.distinct_ids[0]}
-                iconStyle={{ color: 'var(--primary)' }}
-                iconPosition="end"
-                className="text-small text-muted-alt"
-            >
-                {midEllipsis(actor.distinct_ids[0], 32)}
-            </CopyToClipboardInline>
-        )
-    }
-
-    return (
-        <div key={actor.id} className="person-row-container">
-            <div className="person-row">
-                <ExpandIcon {...expandProps} />
-                <div className="person-ids">
-                    <strong>
-                        <Header />
-                    </strong>
-                    <Inline />
+    if (isGroupType(actor)) {
+        return (
+            <div key={actor.id} className="person-row-container">
+                <div className="person-row">
+                    <ExpandIcon {...expandProps} />
+                    <div className="person-ids">
+                        <strong>
+                            <GroupActorHeader actor={actor} withIcon={false} />
+                        </strong>
+                    </div>
                 </div>
+                {showProperties && (
+                    <PropertiesTable properties={actor.properties} className="person-modal-properties" />
+                )}
             </div>
-            {showProperties && <PropertiesTable properties={actor.properties} className="person-modal-properties" />}
-        </div>
-    )
+        )
+    } else {
+        return (
+            <div key={actor.id} className="person-row-container">
+                <div className="person-row">
+                    <ExpandIcon {...expandProps} />
+                    <div className="person-ids">
+                        <strong>
+                            <PersonHeader person={actor} withIcon={false} />
+                        </strong>
+                        <CopyToClipboardInline
+                            explicitValue={actor.distinct_ids[0]}
+                            iconStyle={{ color: 'var(--primary)' }}
+                            iconPosition="end"
+                            className="text-small text-muted-alt"
+                        >
+                            {midEllipsis(actor.distinct_ids[0], 32)}
+                        </CopyToClipboardInline>
+                    </div>
+                </div>
+                {showProperties && (
+                    <PropertiesTable properties={actor.properties} className="person-modal-properties" />
+                )}
+            </div>
+        )
+    }
 }
