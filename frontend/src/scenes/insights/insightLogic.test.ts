@@ -560,7 +560,6 @@ describe('insightLogic', () => {
         const url = combineUrl('/insights', { insight: InsightType.FUNNELS }).url
         router.actions.push(url)
 
-        featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: InsightType.FUNNELS },
