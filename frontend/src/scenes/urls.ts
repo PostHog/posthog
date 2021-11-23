@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { FilterType } from '~/types'
+import { FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 
 export const urls = {
@@ -15,9 +15,9 @@ export const urls = {
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
-    insightEdit: (id: string, filters?: Partial<FilterType>) =>
+    insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>
         `/insights/${id}/edit${filters ? combineUrl('', filters).search : ''}`,
-    insightView: (id: string, filters?: Partial<FilterType>) =>
+    insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
         `/insights/${id}${filters ? combineUrl('', filters).search : ''}`,
     savedInsights: () => '/insights',
     sessions: () => '/sessions',

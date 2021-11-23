@@ -1,13 +1,15 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
-import { DashboardItemType, InsightType } from '~/types'
+import { DashboardItemType, InsightShortId, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
 import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 jest.mock('lib/api')
+
+const Insight42 = '42' as InsightShortId
 
 const createInsight = (id: number, string = 'hi'): DashboardItemType =>
     ({
@@ -147,7 +149,7 @@ describe('savedInsightsLogic', () => {
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42 }).url
             )
             await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightView('42') }),
+                location: partial({ pathname: urls.insightView(Insight42) }),
                 searchParams: partial({ insight: InsightType.TRENDS }),
             })
         })
@@ -157,7 +159,7 @@ describe('savedInsightsLogic', () => {
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42, edit: true }).url
             )
             await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightEdit('42') }),
+                location: partial({ pathname: urls.insightEdit(Insight42) }),
                 searchParams: partial({ insight: InsightType.TRENDS }),
             })
         })

@@ -334,11 +334,11 @@ describe('insightLogic', () => {
         })
 
         it('redirects when opening /insight/new', async () => {
-            router.actions.push(urls.insightEdit('42'))
+            router.actions.push(urls.insightEdit(Insight42))
             await expectLogic(router)
                 .delay(1)
                 .toMatchValues({
-                    location: partial({ pathname: urls.insightEdit('42') }),
+                    location: partial({ pathname: urls.insightEdit(Insight42) }),
                     searchParams: partial({ insight: 'TRENDS' }),
                 })
 
@@ -346,13 +346,13 @@ describe('insightLogic', () => {
             await expectLogic(router)
                 .delay(1)
                 .toMatchValues({
-                    location: partial({ pathname: urls.insightEdit('43') }),
+                    location: partial({ pathname: urls.insightEdit(Insight43) }),
                     searchParams: partial({ insight: 'FUNNELS' }),
                 })
         })
 
         it('sets filters from the URL', async () => {
-            const url = urls.insightEdit('44', { insight: InsightType.TRENDS, interval: 'minute' })
+            const url = urls.insightEdit(Insight44, { insight: InsightType.TRENDS, interval: 'minute' })
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
@@ -370,7 +370,7 @@ describe('insightLogic', () => {
                 })
 
             // calls when the values changed
-            const url2 = urls.insightEdit('44', { insight: InsightType.TRENDS, interval: 'week' })
+            const url2 = urls.insightEdit(Insight44, { insight: InsightType.TRENDS, interval: 'week' })
             router.actions.push(url2)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url2), 'setFilters'])
@@ -380,7 +380,7 @@ describe('insightLogic', () => {
         })
 
         it('takes the dashboardItemId from the URL', async () => {
-            const url = urls.insightView('42', { insight: InsightType.TRENDS })
+            const url = urls.insightView(Insight42, { insight: InsightType.TRENDS })
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'loadInsight', 'loadInsightSuccess'])
@@ -391,7 +391,7 @@ describe('insightLogic', () => {
                 })
 
             // changing the ID, does not query twice
-            router.actions.push(urls.insightView('43', { insight: InsightType.FUNNELS }))
+            router.actions.push(urls.insightView(Insight43, { insight: InsightType.FUNNELS }))
             await expectLogic(logic)
                 .toDispatchActions(['loadInsight', 'setFilters', 'loadResults', 'loadInsightSuccess'])
                 .toMatchValues({
@@ -436,8 +436,8 @@ describe('insightLogic', () => {
         })
 
         it('persists edit mode in the url', async () => {
-            const viewUrl = combineUrl(urls.insightView('42', cleanFilters({ insight: InsightType.TRENDS })))
-            const editUrl = combineUrl(urls.insightEdit('42', cleanFilters({ insight: InsightType.TRENDS })))
+            const viewUrl = combineUrl(urls.insightView(Insight42, cleanFilters({ insight: InsightType.TRENDS })))
+            const editUrl = combineUrl(urls.insightEdit(Insight42, cleanFilters({ insight: InsightType.TRENDS })))
 
             router.actions.push(viewUrl.url)
             await expectLogic(logic)
@@ -474,7 +474,7 @@ describe('insightLogic', () => {
     describe('takes data from other logics if available', () => {
         it('dashboardLogic', async () => {
             // 1. the URL must have the dashboard and insight IDs
-            router.actions.push(urls.insightView('42'), {}, { fromDashboard: 33 })
+            router.actions.push(urls.insightView(Insight42), {}, { fromDashboard: 33 })
 
             // 2. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })

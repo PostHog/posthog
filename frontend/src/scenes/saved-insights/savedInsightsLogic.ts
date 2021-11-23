@@ -80,7 +80,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const insight = await api.get(
+                        const insight: DashboardItemType = await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}`
                         )
                         return {
@@ -206,7 +206,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 error: 'You must enter name',
                 success: async (name: string) => {
                     const insightId = getInsightId(insight)
-                    const newInsight = await api.update(
+                    const newInsight: DashboardItemType = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
                         {
                             name,

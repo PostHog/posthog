@@ -3,6 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
+import { InsightShortId } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -190,8 +191,8 @@ export const routes: Record<string, Scene> = {
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.insightNew()]: Scene.Insight,
-    [urls.insightEdit(':shortId')]: Scene.Insight,
-    [urls.insightView(':shortId')]: Scene.Insight,
+    [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.insightRouter(':shortId')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,

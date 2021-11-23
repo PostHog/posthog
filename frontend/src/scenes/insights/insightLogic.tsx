@@ -563,7 +563,7 @@ export const insightLogic = kea<insightLogicType>({
         },
         saveInsight: async ({ setViewMode }) => {
             const insightId = await getInsightId(values.insight)
-            const savedInsight = await api.update(
+            const savedInsight: DashboardItemType = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
                 {
                     ...values.insight,
@@ -596,15 +596,18 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         saveAsNamingSuccess: async ({ name }) => {
-            const insight = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
-                name,
-                filters: values.filters,
-                saved: true,
-            })
+            const insight: DashboardItemType = await api.create(
+                `api/projects/${teamLogic.values.currentTeamId}/insights/`,
+                {
+                    name,
+                    filters: values.filters,
+                    saved: true,
+                }
+            )
             toast(`You're now working on a copy of ${values.insight.name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
             if (values.syncWithUrl) {
-                router.actions.push(urls.insightEdit(insight.id))
+                router.actions.push(urls.insightEdit(insight.short_id))
             }
         },
         loadInsightSuccess: async ({ payload, insight }) => {
@@ -647,13 +650,13 @@ export const insightLogic = kea<insightLogicType>({
                 filters: cleanFilters(filters || {}),
                 result: null,
             }
-            const createdInsight = await api.create(
+            const createdInsight: Partial<DashboardItemType> = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )
             breakpoint()
             router.actions.replace(
-                urls.insightEdit(createdInsight.id, cleanFilters(createdInsight.filters || filters || {}))
+                urls.insightEdit(createdInsight.short_id, cleanFilters(createdInsight.filters || filters || {}))
             )
         },
     }),
