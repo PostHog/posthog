@@ -1043,21 +1043,6 @@ test('onEvent', async () => {
     expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent')
 })
 
-test('onAction', async () => {
-    const indexJs = `
-        async function onAction (action, event, meta) {
-            await fetch('https://test.com', { body: { action, event } })
-        }
-    `
-    await resetTestDatabase(indexJs)
-    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'onEvent',
-    }
-    await vm.methods.onAction!(event)
-    expect(fetch).toHaveBeenCalledWith('https://test.com')
-})
 test('onSnapshot', async () => {
     const indexJs = `
         async function onSnapshot (event, meta) {
