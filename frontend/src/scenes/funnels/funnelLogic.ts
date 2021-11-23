@@ -833,7 +833,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         exclusionFilters: [
             () => [selectors.filters],
             (filters: FilterType): FilterType => ({
-                events: filters.exclusions,
+                events: filters.exclusions?.map((exclusion, index) => ({ ...exclusion, order: index })),
             }),
         ],
         areExclusionFiltersValid: [
@@ -1109,7 +1109,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         setEventExclusionFilters: ({ filters }) => {
             actions.setFilters({
                 ...values.filters,
-                exclusions: filters.events as FunnelStepRangeEntityFilter[],
+                exclusions: filters.events,
             })
         },
         setOneEventExclusionFilter: ({ eventFilter, index }) => {

@@ -1,6 +1,14 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
+import {
+    EntityTypes,
+    FilterType,
+    Entity,
+    ActionFilter,
+    EntityFilter,
+    AnyPropertyFilter,
+    ActionsArrayElement,
+} from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
@@ -18,7 +26,7 @@ export function toLocalFilters(filters: FilterType): LocalFilter[] {
         ...(filters[EntityTypes.NEW_ENTITY] || []),
     ]
         .sort((a, b) => a.order - b.order)
-        .map((filter, order) => ({ ...(filter as EntityFilter), order }))
+        .map((filter, order) => ({ ...filter, order }))
 }
 
 export function toFilters(localFilters: LocalFilter[]): FilterType {
@@ -28,14 +36,16 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     }))
 
     return {
-        [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
+        [EntityTypes.ACTIONS]: filters.filter(
+            (filter): filter is ActionsArrayElement => filter.type === EntityTypes.ACTIONS
+        ),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
         [EntityTypes.NEW_ENTITY]: filters.filter((filter) => filter.type === EntityTypes.NEW_ENTITY),
-    } as FilterType
+    }
 }
 
 export interface EntityFilterProps {
-    setFilters: (filters: FilterType) => void
+    setFilters: (filters: Pick<FilterType, 'actions' | 'events' | 'new_entity'>) => void
     filters: Record<string, any>
     typeKey: string
     singleMode?: boolean
@@ -56,7 +66,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                 index: number
             }
         ) => ({
-            type: filter.type as EntityType,
+            type: filter.type,
             math: filter.math,
             math_property: filter.math_property,
             index: filter.index,
@@ -109,7 +119,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             },
         ],
         localFilters: [
-            toLocalFilters(props.filters ?? {}) as LocalFilter[],
+            toLocalFilters(props.filters ?? {}),
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
@@ -156,10 +166,8 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
 
             actions.updateFilter({
                 ...values.selectedFilter,
-                index: values.selectedFilter?.order,
+                index: values.selectedFilter.order,
                 custom_name,
-            } as EntityFilter & {
-                index: number
             })
             actions.hideModal()
         },
@@ -201,7 +209,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         addFilter: async () => {
             const previousLength = values.localFilters.length
             const newLength = previousLength + 1
-            const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
+            const precedingEntity = values.localFilters[previousLength - 1]
             actions.setFilters([
                 ...values.localFilters,
                 {

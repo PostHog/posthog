@@ -13,8 +13,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../teamLogic'
 
 export interface ActionFilterProps {
-    setFilters: (filters: FilterType) => void
-    filters: Optional<FilterType, 'type'>
+    setFilters: (filters: Pick<FilterType, 'actions' | 'events' | 'new_entity'>) => void
+    filters: Pick<FilterType, 'actions' | 'events' | 'new_entity' | 'insight' | 'breakdown'>
     typeKey: string
     addFilterDefaultOptions?: Record<string, any>
     hideMathSelector?: boolean
@@ -168,7 +168,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             {localFilters.map((filter, index) => (
                                 <SortableActionFilterRow
                                     key={index}
-                                    filter={filter as ActionFilterType}
+                                    filter={filter}
                                     index={index}
                                     filterIndex={index}
                                     filterCount={localFilters.length}
@@ -180,7 +180,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                     ) : (
                         localFilters.map((filter, index) => (
                             <ActionFilterRow
-                                filter={filter as ActionFilterType}
+                                filter={filter}
                                 index={index}
                                 key={index}
                                 singleFilter={singleFilter}

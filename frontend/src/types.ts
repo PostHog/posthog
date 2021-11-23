@@ -392,8 +392,8 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
-    events?: Record<string, any>[]
-    actions?: Record<string, any>[]
+    events?: EntityArrayElement[]
+    actions?: ActionsArrayElement[]
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
@@ -807,6 +807,54 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
+export type ActionsArrayElement = ActionFilter & {
+    // Note that this type I'm specifically adding to try to fix [this
+    // issue](https://github.com/PostHog/posthog/issues/6941) .
+
+    // Essentially there appears to be code paths that end up sending a
+    // filter.events with elements that do not have an `order`, which will fail
+    // as we need this order to be able to interleve `events` and `actions` in
+    // the desired order.
+
+    // There is lots of type cleanup work that could be done here, but to keep
+    // the scope small I am just focussing on the immediate issue.
+    order: number
+
+    // NOTE: I tried to avoid assuming that this could be an extention of
+    // `EntityFilter` by using `Record<string, any>` but this appears to not
+    // work as I get complaints about missing properties, so instead I extent
+    // `EntityFilter` and need to add in further attributes to satisfy the
+    // type checking. Note also that I just declare these to be `any`, as I'm
+    // not sure what they should be, although I'm sure there is a better choice
+    // here.
+    properties?: any
+    math?: any
+}
+
+export type EntityArrayElement = EntityFilter & {
+    // Note that this type I'm specifically adding to try to fix [this
+    // issue](https://github.com/PostHog/posthog/issues/6941) .
+
+    // Essentially there appears to be code paths that end up sending a
+    // filter.events with elements that do not have an `order`, which will fail
+    // as we need this order to be able to interleve `events` and `actions` in
+    // the desired order.
+
+    // There is lots of type cleanup work that could be done here, but to keep
+    // the scope small I am just focussing on the immediate issue.
+    order: number
+
+    // NOTE: I tried to avoid assuming that this could be an extention of
+    // `EntityFilter` by using `Record<string, any>` but this appears to not
+    // work as I get complaints about missing properties, so instead I extent
+    // `EntityFilter` and need to add in further attributes to satisfy the
+    // type checking. Note also that I just declare these to be `any`, as I'm
+    // not sure what they should be, although I'm sure there is a better choice
+    // here.
+    properties?: any
+    math?: any
+}
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
@@ -814,8 +862,8 @@ export interface FilterType {
     date_from?: string | null
     date_to?: string | null
     properties?: PropertyFilter[]
-    events?: Record<string, any>[]
-    actions?: Record<string, any>[]
+    events?: EntityArrayElement[]
+    actions?: ActionsArrayElement[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
@@ -824,7 +872,7 @@ export interface FilterType {
     session?: string
     period?: string
     retention_type?: RetentionType
-    new_entity?: Record<string, any>[]
+    new_entity?: EntityArrayElement[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     path_type?: PathType
@@ -947,7 +995,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
-    properties: PropertyFilter[]
+    properties?: AnyPropertyFilter[]
     type: EntityType
 }
 
