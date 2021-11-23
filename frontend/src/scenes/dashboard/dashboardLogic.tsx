@@ -20,9 +20,10 @@ import {
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
-import { getInsightId, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
+import { getInsightId } from 'scenes/insights/sharedUtils'
 
 export interface DashboardLogicProps {
     id?: number
@@ -99,7 +100,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                             ? `api/shared_dashboards/${props.shareToken}`
                             : `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/?${toParams({
                                   refresh,
-                                  dive_source_id: await getInsightId({ short_id: dive_source_id }),
+                                  dive_source_id: dive_source_id ? await getInsightId(dive_source_id) : undefined,
                               })}`
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)

@@ -1,6 +1,8 @@
 // This is separate from utils.ts because here we don't include `funnelLogic`, `retentionTableLogic`, etc
 
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import { FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 /**
  * Get a key function for InsightLogicProps.
@@ -36,4 +38,12 @@ export function isTrendsInsight(insight?: InsightType | InsightType): boolean {
         insight === InsightType.STICKINESS ||
         insight === InsightType.SESSIONS
     )
+}
+
+export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
+    return (
+        await api.get(
+            `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(shortId)}`
+        )
+    ).results[0]?.id
 }

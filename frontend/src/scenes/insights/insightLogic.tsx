@@ -46,20 +46,6 @@ export const defaultFilterTestAccounts = (): boolean => {
     return localStorage.getItem('default_filter_test_accounts') === 'true' || false
 }
 
-export async function getInsightId(insight: Partial<DashboardItemType>): Promise<number | undefined> {
-    if ('id' in insight) {
-        return insight['id']
-    } else if (insight.short_id) {
-        return (
-            await api.get(
-                `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
-                    insight.short_id
-                )}`
-            )
-        ).results[0]?.id
-    }
-}
-
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
