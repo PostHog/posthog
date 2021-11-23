@@ -95,7 +95,7 @@ export const insightLogic = kea<insightLogicType>({
         saveAsNamingSuccess: (name: string) => ({ name }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
-        saveInsight: true,
+        saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
@@ -547,7 +547,7 @@ export const insightLogic = kea<insightLogicType>({
         deleteTag: async ({ tag }) => {
             actions.setInsightMetadata({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
-        saveInsight: async () => {
+        saveInsight: async ({ setViewMode }) => {
             const savedInsight = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                 {
@@ -559,6 +559,9 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
             )
+            if (setViewMode) {
+                actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+            }
             toast(
                 <div data-attr="success-toast">
                     Insight saved!&nbsp;
@@ -570,10 +573,10 @@ export const insightLogic = kea<insightLogicType>({
         },
         saveAs: async () => {
             prompt({ key: `save-as-insight` }).actions.prompt({
-                title: 'Save as new insight',
+                title: 'Save as',
                 placeholder: 'Please enter the new name',
                 value: values.insight.name + ' (copy)',
-                error: 'You must enter a name',
+                error: 'You must enter name',
                 success: actions.saveAsNamingSuccess,
             })
         },
@@ -588,7 +591,6 @@ export const insightLogic = kea<insightLogicType>({
             if (values.syncWithUrl) {
                 router.actions.replace('/insights', router.values.searchParams, {
                     ...router.values.hashParams,
-                    edit: true,
                     fromItem: insight.id,
                 })
             }
