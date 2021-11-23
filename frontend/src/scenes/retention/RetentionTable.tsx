@@ -18,6 +18,7 @@ import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import UsergroupAddOutlined from '@ant-design/icons/lib/icons/UsergroupAddOutlined'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -111,7 +112,12 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                     visible={modalVisible}
                     closable={true}
                     onCancel={dismissModal}
-                    footer={<Button onClick={dismissModal}>Close</Button>}
+                    footer={
+                        <>
+                            <Button icon={<UsergroupAddOutlined />}>Save as cohort</Button>
+                            <Button onClick={dismissModal}>Close</Button>
+                        </>
+                    }
                     style={{
                         top: 20,
                         minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
