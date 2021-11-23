@@ -31,6 +31,15 @@ class PersonCursorPagination(CursorPagination):
     page_size = 100
 
 
+def get_person_name(person: Person) -> str:
+    if person.properties.get("email"):
+        return person.properties["email"]
+    if len(person.distinct_ids) > 0:
+        # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
+        return sorted(person.distinct_ids, key=is_anonymous_id)[0]
+    return person.pk
+
+
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField()
 
@@ -47,12 +56,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         ]
 
     def get_name(self, person: Person) -> str:
-        if person.properties.get("email"):
-            return person.properties["email"]
-        if len(person.distinct_ids) > 0:
-            # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
-            return sorted(person.distinct_ids, key=is_anonymous_id)[0]
-        return person.pk
+        return get_person_name(person)
 
     def to_representation(self, instance: Person) -> Dict[str, Any]:
         representation = super().to_representation(instance)
@@ -209,11 +213,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
         filter = RetentionFilter(request=request)
+        base_uri = request.build_absolute_uri("/")
 
         if display == TRENDS_TABLE:
-            people = self.retention_class().people_in_period(filter, team)
+            people = self.retention_class(base_uri=base_uri).people_in_period(filter, team)
         else:
-            people = self.retention_class().people(filter, team)
+            people = self.retention_class(base_uri=base_uri).people(filter, team)
 
         next_url = paginated_result(people, request, filter.offset)
 

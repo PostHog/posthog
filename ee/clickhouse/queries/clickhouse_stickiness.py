@@ -9,10 +9,8 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
-from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_SQL,
     GET_TEAM_PERSON_DISTINCT_IDS,
@@ -20,10 +18,6 @@ from ee.clickhouse.sql.person import (
     PEOPLE_SQL,
     PERSON_STATIC_COHORT_TABLE,
 )
-from ee.clickhouse.sql.stickiness.stickiness import STICKINESS_SQL
-from ee.clickhouse.sql.stickiness.stickiness_actions import STICKINESS_ACTIONS_SQL
-from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -33,105 +27,45 @@ from posthog.queries.stickiness import Stickiness
 
 class ClickhouseStickiness(Stickiness):
     def stickiness(self, entity: Entity, filter: StickinessFilter, team_id: int) -> Dict[str, Any]:
+        events_query, event_params = StickinessEventsQuery(entity, filter, team_id).get_query()
 
-        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties + entity.properties, team_id)
-        trunc_func = get_trunc_func_ch(filter.interval)
+        query = f"""
+        SELECT countDistinct(aggregation_target), num_intervals FROM ({events_query})
+        WHERE num_intervals <= %(num_intervals)s
+        GROUP BY num_intervals
+        ORDER BY num_intervals
+        """
 
-        params: Dict = {"team_id": team_id}
-        params = {**params, **prop_filter_params, "num_intervals": filter.total_intervals, **date_params}
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = entity.get_action()
-            action_query, action_params = format_action_filter(action)
-            if action_query == "":
-                return {}
-
-            params = {**params, **action_params}
-            content_sql = STICKINESS_ACTIONS_SQL.format(
-                team_id=team_id,
-                actions_query=action_query,
-                parsed_date_from=parsed_date_from,
-                parsed_date_to=parsed_date_to,
-                filters=prop_filters,
-                trunc_func=trunc_func,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-            )
-        else:
-            content_sql = STICKINESS_SQL.format(
-                team_id=team_id,
-                event=entity.id,
-                parsed_date_from=parsed_date_from,
-                parsed_date_to=parsed_date_to,
-                filters=prop_filters,
-                trunc_func=trunc_func,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-            )
-
-        counts = sync_execute(content_sql, params)
+        counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
         return self.process_result(counts, filter)
+
+    def stickiness_people_query(
+        self, target_entity: Entity, filter: StickinessFilter, team_id: int
+    ) -> Tuple[str, Dict[str, Any]]:
+        events_query, event_params = StickinessEventsQuery(target_entity, filter, team_id).get_query()
+
+        query = f"""
+        SELECT DISTINCT aggregation_target FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
+        """
+
+        return query, {**event_params, "stickiness_day": filter.selected_interval, "offset": filter.offset,}
 
     def _retrieve_people(
         self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
     ) -> ReturnDict:
-        return retrieve_stickiness_people(target_entity, filter, team)
-
-
-def _format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        action = entity.get_action()
-        action_query, params = format_action_filter(action)
-        entity_filter = "AND {}".format(action_query)
-    else:
-        entity_filter = "AND event = %(event)s"
-        params = {"event": entity.id}
-
-    return entity_filter, params
-
-
-def _process_content_sql(target_entity: Entity, filter: StickinessFilter, team: Team) -> Tuple[str, Dict[str, Any]]:
-    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team.pk)
-    prop_filters, prop_filter_params = parse_prop_clauses(filter.properties + target_entity.properties, team.pk)
-    entity_sql, entity_params = _format_entity_filter(entity=target_entity)
-    trunc_func = get_trunc_func_ch(filter.interval)
-
-    params: Dict = {
-        "team_id": team.pk,
-        **prop_filter_params,
-        "stickiness_day": filter.selected_interval,
-        **entity_params,
-        "offset": filter.offset,
-        **date_params,
-    }
-
-    content_sql = STICKINESS_PEOPLE_SQL.format(
-        entity_filter=entity_sql,
-        parsed_date_from=parsed_date_from,
-        parsed_date_to=parsed_date_to,
-        filters=prop_filters,
-        trunc_func=trunc_func,
-        GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-    )
-    return content_sql, params
-
-
-def retrieve_stickiness_people(target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
-
-    content_sql, params = _process_content_sql(target_entity, filter, team)
-
-    people = sync_execute(
-        PEOPLE_SQL.format(
-            content_sql=content_sql,
+        person_ids_query, params = self.stickiness_people_query(target_entity, filter, team.pk)
+        query = PEOPLE_SQL.format(
+            content_sql=person_ids_query,
             query="",
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        ),
-        params,
-    )
-    return ClickhousePersonSerializer(people, many=True).data
+        )
+        people = sync_execute(query, params)
+        return ClickhousePersonSerializer(people, many=True).data
 
 
 def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, filter: StickinessFilter) -> None:
-    content_sql, params = _process_content_sql(target_entity, filter, cohort.team)
+    content_sql, params = ClickhouseStickiness().stickiness_people_query(target_entity, filter, cohort.team_id)
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_SQL.format(

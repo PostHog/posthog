@@ -16,7 +16,7 @@ from posthog.test.base import APIBaseTest
 
 def factory_test_session_recordings_api(session_recording_event_factory):
     class TestSessionRecordings(APIBaseTest):
-        def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None, window_id=""):
+        def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None, window_id="", source=0):
             if team_id == None:
                 team_id = self.team.pk
             session_recording_event_factory(
@@ -25,7 +25,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 timestamp=timestamp,
                 session_id=session_id,
                 window_id=window_id,
-                snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type},
+                snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type, "data": {"source": source}},
             )
 
         def create_chunked_snapshots(
@@ -82,6 +82,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             p = Person.objects.create(
                 team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
+            Person.objects.create(
+                team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
             base_time = now() - relativedelta(days=1)
             self.create_snapshot("user", "1", base_time)
             self.create_snapshot("user", "1", base_time + relativedelta(seconds=10))
@@ -113,6 +116,14 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_session_recordings_dont_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
+            Person.objects.create(
+                team=another_team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
+            Person.objects.create(
+                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
 
             self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=another_team.pk)
             self.create_snapshot("user", "2", now() - relativedelta(days=1))
@@ -139,6 +150,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][1]["person"]["id"], p.pk)
 
         def test_viewed_state_of_session_recording(self):
+            Person.objects.create(
+                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
             base_time = now() - timedelta(days=1)
             SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
             self.create_snapshot("u1", "1", base_time)
@@ -152,6 +166,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][1]["viewed"], True)
 
         def test_setting_viewed_state_of_session_recording(self):
+            Person.objects.create(
+                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
             self.create_snapshot("u1", "1", now() - relativedelta(days=1))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
             response_data = response.json()
@@ -193,6 +210,40 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["result"]["session_recording"]["recording_duration"], "30.0")
             self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
             self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
+
+        def test_get_single_session_recording_metadata_with_active_segments(self):
+            p = Person.objects.create(
+                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
+            session_recording_id = "session_1"
+            base_time = now() - relativedelta(days=1)
+            self.create_snapshot("d1", session_recording_id, base_time, window_id="1", type=3, source=3)
+            self.create_snapshot(
+                "d1", session_recording_id, base_time + relativedelta(seconds=30), window_id="1", type=3, source=3
+            )
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}?include_active_segments=true"
+            )
+            response_data = response.json()
+            self.assertEqual(response_data["result"]["person"]["id"], p.pk)
+            self.assertEqual(parse(response_data["result"]["session_recording"]["start_time"]), base_time)
+            self.assertEqual(
+                parse(response_data["result"]["session_recording"]["end_time"]), base_time + relativedelta(seconds=30)
+            )
+            self.assertEqual(response_data["result"]["session_recording"]["recording_duration"], "30.0")
+            self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
+            self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
+            self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
+            self.assertEqual(
+                parse(
+                    response_data["result"]["session_recording"]["active_segments_by_window_id"]["1"][0]["start_time"]
+                ),
+                base_time,
+            )
+            self.assertEqual(
+                parse(response_data["result"]["session_recording"]["active_segments_by_window_id"]["1"][0]["end_time"]),
+                base_time + relativedelta(seconds=30),
+            )
 
         def test_get_default_limit_of_chunks(self):
             base_time = now()

@@ -1,5 +1,5 @@
-import dataclasses
 import json
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
@@ -114,20 +114,22 @@ def test_includes_only_intervals_within_range(client: Client):
         ]
 
 
-@dataclasses.dataclass
+@dataclass
 class TrendsRequest:
-    date_from: str
-    date_to: str
-    interval: str
-    insight: str
-    display: str
-    events: List[Dict[str, Any]]
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    interval: Optional[str] = None
+    insight: Optional[str] = None
+    display: Optional[str] = None
+    compare: Optional[bool] = None
+    events: List[Dict[str, Any]] = field(default_factory=list)
+    properties: List[Dict[str, Any]] = field(default_factory=list)
 
 
-@dataclasses.dataclass
+@dataclass
 class TrendsRequestBreakdown(TrendsRequest):
-    breakdown: Union[List[int], str]
-    breakdown_type: str
+    breakdown: Optional[Union[List[int], str]] = None
+    breakdown_type: Optional[str] = None
 
 
 def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], team: Team):
@@ -137,14 +139,18 @@ def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], te
         "interval": request.interval,
         "insight": request.insight,
         "display": request.display,
+        "compare": request.compare,
         "events": json.dumps(request.events),
+        "properties": json.dumps(request.properties),
     }
 
     if isinstance(request, TrendsRequestBreakdown):
         data["breakdown"] = request.breakdown
         data["breakdown_type"] = request.breakdown_type
 
-    return client.get(f"/api/projects/{team.id}/insights/trend/", data=data,)
+    filtered_data = {k: v for k, v in data.items() if v is not None}
+
+    return client.get(f"/api/projects/{team.id}/insights/trend/", data=filtered_data,)
 
 
 def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
@@ -153,7 +159,7 @@ def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
     return response.json()
 
 
-@dataclasses.dataclass
+@dataclass
 class NormalizedTrendResult:
     value: float
     label: str

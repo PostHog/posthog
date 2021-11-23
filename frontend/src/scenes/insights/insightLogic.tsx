@@ -83,7 +83,6 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
-        toggleControlsCollapsed: true,
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
         setInsight: (insight: Partial<DashboardItemType>, options: SetInsightOptions) => ({
@@ -120,16 +119,20 @@ export const insightLogic = kea<insightLogicType>({
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
-                        return
+                        return values.insight
                     }
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         insight
                     )
                     breakpoint()
-                    const updatedInsight = { ...response, result: response.result || values.insight.result }
+                    const updatedInsight: Partial<DashboardItemType> = {
+                        ...response,
+                        result: response.result || values.insight.result,
+                    }
                     callback?.(updatedInsight)
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
@@ -144,11 +147,12 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
 
                     // only update the fields that we changed
-                    const updatedInsight = { ...values.insight }
+                    const updatedInsight: Partial<DashboardItemType> = { ...values.insight }
                     for (const key of Object.keys(metadata)) {
                         updatedInsight[key] = response[key]
                     }
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
                     return updatedInsight
                 },
                 // using values.filters, query for new insight results
@@ -349,12 +353,6 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
-        controlsCollapsed: [
-            false,
-            {
-                toggleControlsCollapsed: (state) => !state,
-            },
-        ],
         queryStartTimes: [
             {} as Record<string, number>,
             {
@@ -526,9 +524,6 @@ export const insightLogic = kea<insightLogicType>({
                 clearTimeout(values.timeout)
             }
         },
-        toggleControlsCollapsed: async () => {
-            eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
-        },
         saveNewTag: async ({ tag }) => {
             if (values.insight.tags?.includes(tag)) {
                 errorToast(undefined, 'Oops! Your insight already has that tag.')
@@ -559,6 +554,7 @@ export const insightLogic = kea<insightLogicType>({
                 </div>
             )
             savedInsightsLogic.findMounted()?.actions.loadInsights()
+            dashboardsModel.actions.updateDashboardItem(savedInsight)
         },
         loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query

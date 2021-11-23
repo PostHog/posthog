@@ -18,8 +18,20 @@ interface PersonPaginatedResponse {
 
 const FILTER_ALLOWLIST: string[] = ['is_identified', 'search', 'cohort']
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
-    path: ['scenes', 'persons', 'personsLogic'],
+export interface PersonLogicProps {
+    cohort?: number | 'new' | 'personsModalNew'
+    syncWithUrl?: boolean
+}
+
+export const personsLogic = kea<personsLogicType<PersonLogicProps, PersonPaginatedResponse>>({
+    props: {} as PersonLogicProps,
+    key: (props) => {
+        if (!props.cohort && !props.syncWithUrl) {
+            throw new Error(`personsLogic must be initialized with props.cohort or props.syncWithUrl`)
+        }
+        return props.cohort ? `cohort_${props.cohort}` : 'scene'
+    },
+    path: (key) => ['scenes', 'persons', 'personsLogic', key],
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
@@ -228,12 +240,12 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     }),
     actionToUrl: ({ values, props }) => ({
         setListFilters: () => {
-            if (props.updateURL && router.values.location.pathname.indexOf('/persons') > -1) {
+            if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters, undefined, { replace: true }]
             }
         },
         navigateToTab: () => {
-            if (router.values.location.pathname.indexOf('/person') > -1) {
+            if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
                 return [
                     router.values.location.pathname,
                     router.values.searchParams,
@@ -245,27 +257,39 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             }
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/persons': ({}, searchParams) => {
-            actions.setListFilters(searchParams)
-            if (!values.persons.results.length && !values.personsLoading) {
-                // Initial load
-                actions.loadPersons()
+            if (props.syncWithUrl) {
+                actions.setListFilters(searchParams)
+                if (!values.persons.results.length && !values.personsLoading) {
+                    // Initial load
+                    actions.loadPersons()
+                }
             }
         },
         '/person/*': ({ _: person }, { sessionRecordingId }, { activeTab }) => {
-            if (sessionRecordingId) {
-                if (values.showSessionRecordings) {
-                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                } else {
-                    actions.navigateToTab(PersonsTabType.SESSIONS)
+            if (props.syncWithUrl) {
+                if (sessionRecordingId) {
+                    if (values.showSessionRecordings) {
+                        actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+                    } else {
+                        actions.navigateToTab(PersonsTabType.SESSIONS)
+                    }
+                } else if (activeTab && values.activeTab !== activeTab) {
+                    actions.navigateToTab(activeTab as PersonsTabType)
                 }
-            } else if (activeTab && values.activeTab !== activeTab) {
-                actions.navigateToTab(activeTab as PersonsTabType)
-            }
 
-            if (person) {
-                actions.loadPerson(person) // underscore contains the wildcard
+                if (person) {
+                    actions.loadPerson(person) // underscore contains the wildcard
+                }
+            }
+        },
+    }),
+    events: ({ props, actions }) => ({
+        afterMount: () => {
+            if (props.cohort && typeof props.cohort === 'number') {
+                actions.setListFilters({ cohort: props.cohort })
+                actions.loadPersons()
             }
         },
     }),

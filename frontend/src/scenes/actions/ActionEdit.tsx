@@ -11,10 +11,10 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models/actionsModel'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import dayjs from 'dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import api from '../../lib/api'
+import { dayjs } from 'lib/dayjs'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const relevantActionEditLogic = actionEditLogic({

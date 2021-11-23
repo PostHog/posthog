@@ -394,6 +394,7 @@ export interface RecordingFilters {
     date_to?: string | null
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
@@ -544,14 +545,16 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     zeroOffsetTime?: number // Used in session recording events that have a start time offset
+    colonTimestamp?: string // Used in session recording events list
     person?: Partial<PersonType> | null
     event: string
 }
 
-export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+export interface RecordingEventType extends Omit<EventType, 'timestamp'> {
     percentage: number
     timestamp: number
     queryValue?: string
+    colonTimestamp?: string
 }
 
 export interface EventsTableRowItem {
@@ -655,7 +658,9 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
-    tags: string[] // TODO: To be implemented
+    tags: string[]
+    /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
+    _highlight?: boolean
 }
 
 export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
@@ -767,7 +772,7 @@ export enum ChartDisplayType {
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
-export type BreakdownType = 'cohort' | 'person' | 'event'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export enum InsightType {
@@ -980,6 +985,12 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+
+    // Url that you can GET to retrieve the people that converted in this step
+    converted_people_url: string
+
+    // Url that you can GET to retrieve the people that dropped in this step
+    dropped_people_url: string
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
@@ -1390,4 +1401,9 @@ export enum HelpType {
 export interface VersionType {
     version: string
     release_date?: string
+}
+
+export interface dateMappingOption {
+    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
+    values: string[]
 }

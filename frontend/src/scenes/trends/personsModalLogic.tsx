@@ -1,6 +1,5 @@
 import React from 'react'
 import { Link } from 'lib/components/Link'
-import dayjs from 'dayjs'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
@@ -24,6 +23,7 @@ import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 import { toast } from 'react-toastify'
 import { cohortsModel } from '~/models/cohortsModel'
+import { dayjs } from 'lib/dayjs'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -87,12 +87,38 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toParams({ ...params, ...restParams })
 }
 
-export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
+// Props for the `loadPeopleFromUrl` action.
+// NOTE: this interface isn't particularly clean. Separation of concerns of load
+// and displaying of people and the display of the modal would be helpful to
+// keep this interfaces smaller.
+type LoadPeopleFromUrlProps = {
+    // The url from which we can load urls
+    url: string
+    // The funnel step the dialog should display as the complete/dropped step.
+    // Optional as this call signature includes any parameter from any insght type
+    funnelStep?: number
+    // Used to display in the modal title the property value we're filtering
+    // with
+    breakdown_value?: string | number // NOTE: using snake case to be consistent with the rest of the file
+    // This label is used in the modal title. It's usage depends on the
+    // filter.insight attribute. For insight=FUNNEL we use it as a person
+    // property name
+    label: string
+    // Needed for display
+    date_from?: string | number
+    // Copied from `PersonModalParams`, likely needed for display logic
+    action: ActionFilter | 'session'
+    // Copied from `PersonModalParams`, likely needed for diplay logic
+    pathsDropoff?: boolean
+}
+
+export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProps, PersonModalParams>>({
     path: ['scenes', 'trends', 'personsModalLogic'],
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
+        loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
@@ -130,7 +156,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     day: date_from,
                     breakdown_value,
                 }),
-                loadPeopleFromUrl: (_, { label, date_from, action, breakdown_value }) => ({
+                loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value }) => ({
                     people: [],
                     count: 0,
                     day: date_from,
@@ -279,7 +305,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 url,
                 funnelStep,
                 breakdown_value = '',
-                date_from,
+                date_from = '',
                 action,
                 label,
                 pathsDropoff,

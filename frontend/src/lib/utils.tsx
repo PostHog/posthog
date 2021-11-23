@@ -1,9 +1,8 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
-import { Button, Spin } from 'antd'
-import dayjs from 'dayjs'
-import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
+import { Button } from 'antd'
+import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode, dateMappingOption } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -11,6 +10,8 @@ import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
+import { dayjs } from 'lib/dayjs'
+import { Spinner } from './components/Spinner/Spinner'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -225,7 +226,7 @@ export function successToast(title?: string, message?: string): void {
 export function Loading(props: Record<string, any>): JSX.Element {
     return (
         <div className="loading-overlay" style={props.style}>
-            <Spin />
+            <Spinner size="lg" />
         </div>
     )
 }
@@ -240,7 +241,7 @@ export function TableRowLoading({
     return (
         <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
             <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
-                <Spin />
+                <Spinner />
             </td>
         </tr>
     )
@@ -249,7 +250,7 @@ export function TableRowLoading({
 export function SceneLoading(): JSX.Element {
     return (
         <div style={{ textAlign: 'center', marginTop: '20vh' }}>
-            <Spin />
+            <Spinner size="lg" />
         </div>
     )
 }
@@ -619,47 +620,65 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function eventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>): string {
+export function eventToDescription(
+    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
+    shortForm: boolean = false
+): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
         return event.properties.$pathname
     }
     if (event.event === '$autocapture') {
-        return autoCaptureEventToDescription(event)
+        return autoCaptureEventToDescription(event, shortForm)
     }
     // All other events and actions
     return event.event
 }
 
-export function autoCaptureEventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
+export function autoCaptureEventToDescription(
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
+    shortForm: boolean = false
+): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
-    let name: string | JSX.Element = ''
-    if (event.properties.$event_type === 'click') {
-        name += 'clicked '
-    }
-    if (event.properties.$event_type === 'change') {
-        name += 'typed something into '
-    }
-    if (event.properties.$event_type === 'submit') {
-        name += 'submitted '
+
+    const getVerb = (): string => {
+        if (event.properties.$event_type === 'click') {
+            return 'clicked'
+        }
+        if (event.properties.$event_type === 'change') {
+            return 'typed something into'
+        }
+        if (event.properties.$event_type === 'submit') {
+            return 'submitted'
+        }
+        return 'interacted with'
     }
 
-    if (event.elements.length > 0) {
-        if (event.elements[0].tag_name === 'a') {
-            name += 'link'
-        } else if (event.elements[0].tag_name === 'img') {
-            name += 'image'
-        } else {
-            name += event.elements[0].tag_name
+    const getTag = (): string => {
+        if (event.elements?.[0]?.tag_name === 'a') {
+            return 'link'
+        } else if (event.elements?.[0]?.tag_name === 'img') {
+            return 'image'
         }
-        if (event.elements[0].text) {
-            name += ' with text "' + event.elements[0].text + '"'
-        } else if (event.elements[0].attributes['attr__aria-label']) {
-            name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
-        }
+        return event.elements?.[0]?.tag_name ?? 'element'
     }
-    return name
+
+    const getValue = (): string | null => {
+        if (event.elements?.[0]?.text) {
+            return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
+        } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
+            return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
+        }
+        return null
+    }
+
+    if (shortForm) {
+        return [getVerb(), getValue() ?? getTag()].filter((x) => x).join(' ')
+    } else {
+        const value = getValue()
+        return [getVerb(), getTag(), value].filter((x) => x).join(' ')
+    }
 }
 
 export function determineDifferenceType(
@@ -683,11 +702,6 @@ export function determineDifferenceType(
     }
 }
 
-interface dateMappingOption {
-    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
-    values: string[]
-}
-
 export const dateMapping: Record<string, dateMappingOption> = {
     Custom: { values: [] },
     Today: { values: ['dStart'] },
@@ -709,7 +723,8 @@ export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
-    defaultValue: string
+    defaultValue: string,
+    dateOptions: Record<string, dateMappingOption> = dateMapping
 ): string {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
@@ -740,7 +755,7 @@ export function dateFilterToText(
     }
 
     let name = defaultValue
-    Object.entries(dateMapping).map(([key, { values }]) => {
+    Object.entries(dateOptions).map(([key, { values }]) => {
         if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
             name = key
         }
@@ -748,25 +763,23 @@ export function dateFilterToText(
     return name
 }
 
-export function copyToClipboard(value: string, description?: string): boolean {
+export function copyToClipboard(value: string, description: string = 'text'): boolean {
     if (!navigator.clipboard) {
-        toast.info('Oops! Clipboard capabilities are only available over HTTPS or localhost.')
+        toast.info('Oops! Clipboard capabilities are only available over HTTPS or on localhost.')
         return false
     }
-    const descriptionAdjusted = description
-        ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
-        : ''
+
     try {
         navigator.clipboard.writeText(value)
         toast(
             <div>
                 <h1 className="text-success">Copied to clipboard!</h1>
-                <p>{descriptionAdjusted} has been copied to your clipboard.</p>
+                <p>{capitalizeFirstLetter(description)} has been copied to your clipboard.</p>
             </div>
         )
         return true
     } catch (e) {
-        toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
+        toast.error(`Could not copy ${description} to clipboard: ${e}`)
         return false
     }
 }
@@ -1155,4 +1168,27 @@ export function isMultiSeriesFormula(formula?: string): boolean {
     }
     const count = (formula.match(/[a-zA-Z]/g) || []).length
     return count > 1
+}
+
+export function floorMsToClosestSecond(ms: number): number {
+    return Math.floor(ms / 1000) * 1000
+}
+
+export function ceilMsToClosestSecond(ms: number): number {
+    return Math.ceil(ms / 1000) * 1000
+}
+
+// https://stackoverflow.com/questions/40929260/find-last-index-of-element-inside-array-by-certain-condition
+export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: number, obj: T[]) => boolean): number {
+    let l = array.length
+    while (l--) {
+        if (predicate(array[l], l, array)) {
+            return l
+        }
+    }
+    return -1
+}
+
+export function isEllipsisActive(e: HTMLElement | null): boolean {
+    return !!e && e.offsetWidth < e.scrollWidth
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Modal, Button, Spin } from 'antd'
+import { Table, Modal, Button } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
@@ -12,13 +12,12 @@ import {
 } from 'scenes/retention/types'
 
 import './RetentionTable.scss'
-import dayjs from 'dayjs'
-import utc from 'dayjs/plugin/utc'
-dayjs.extend(utc)
 
 import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { dayjs } from 'lib/dayjs'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -120,7 +119,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                     }}
                     title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
                 >
-                    {results && !peopleLoading ? (
+                    {!peopleLoading ? (
                         <div>
                             {results[selectedRow]?.values[0]?.count === 0 ? (
                                 <span>No persons during this period.</span>
@@ -205,7 +204,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                             )}
                         </div>
                     ) : (
-                        <Spin />
+                        <Spinner size="sm" />
                     )}
                 </Modal>
             )}

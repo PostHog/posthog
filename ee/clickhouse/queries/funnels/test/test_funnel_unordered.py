@@ -99,8 +99,8 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
-                    "breakdown": "Chrome",
-                    "breakdown_value": "Chrome",
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
                 },
                 {
                     "action_id": "play movie",
@@ -112,13 +112,13 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
-                    "breakdown": "Chrome",
-                    "breakdown_value": "Chrome",
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
+        self.assertCountEqual(self._get_people_at_step(filter, 1, ["Chrome"]), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, ["Chrome"]), [])
 
         assert_funnel_results_equal(
             result[1],
@@ -133,8 +133,8 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
-                    "breakdown": "Safari",
-                    "breakdown_value": "Safari",
+                    "breakdown": ["Safari"],
+                    "breakdown_value": ["Safari"],
                 },
                 {
                     "action_id": "play movie",
@@ -146,13 +146,13 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "type": "events",
                     "average_conversion_time": 3600,
                     "median_conversion_time": 3600,
-                    "breakdown": "Safari",
-                    "breakdown_value": "Safari",
+                    "breakdown": ["Safari"],
+                    "breakdown_value": ["Safari"],
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 1, ["Safari"]), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, ["Safari"]), [person1.uuid])
 
 
 class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_person)):  # type: ignore
