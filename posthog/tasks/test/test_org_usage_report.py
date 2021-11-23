@@ -186,7 +186,7 @@ def create_person(distinct_id: str, team: Team) -> Person:
     return Person.objects.create(team=team, distinct_ids=[distinct_id])
 
 
-def create_feature_flag(team: Team, user: User, **kwargs) -> FeatureFlag:
+def create_feature_flag(team: Team, user: User, **kwargs) -> FeatureFlag:  # type: ignore
     return FeatureFlag.objects.create(team=team, name="Beta feature", key="beta-feature", created_by=user, **kwargs)
 
 
