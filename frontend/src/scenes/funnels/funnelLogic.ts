@@ -1161,6 +1161,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             if (values.filters.aggregation_group_type_index != undefined) {
                 return
             }
+            console.log({ cpu: step.converted_people_url, dpu: step.dropped_people_url })
             personsModalLogic.actions.loadPeopleFromUrl({
                 url: converted ? step.converted_people_url : step.dropped_people_url,
                 // NOTE: although we have the url that contains all of the info needed

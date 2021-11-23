@@ -46,6 +46,7 @@ describe('funnelLogic', () => {
                 results: [{ people: [] }],
             }
         } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
+            console.log('funnel endpoint')
             return {
                 is_cached: true,
                 last_refresh: '2021-09-16T13:41:41.297295Z',
@@ -195,6 +196,36 @@ describe('funnelLogic', () => {
             },
         },
         onLogic: (l) => (logic = l),
+    })
+
+    describe('processing breakdown properties', () => {
+        it('can handle single property breakdown', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES], {
+                'FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES': false,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                    },
+                })
+            })
+                .toFinishListeners()
+                .toMatchValues({
+                    steps: [],
+                    flattenedBreakdowns: [],
+                    flattenedSteps: [],
+                    flattenedStepsByBreakdown: [],
+                    results: [],
+                    stepResults: [],
+                    stepsWithCount: [],
+                    stepsWithConversionMetrics: [],
+                    visibleStepsWithConversionMetrics: [],
+                })
+        })
     })
 
     describe('core assumptions', () => {
@@ -844,36 +875,6 @@ describe('funnelLogic', () => {
                 rating: 2,
                 comments: 'tests',
             })
-        })
-    })
-
-    describe('processing breakdown properties', () => {
-        it('can handle single property breakdown', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES], {
-                'FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES': false,
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                        breakdown: '$browser',
-                        breakdown_type: 'event',
-                    },
-                })
-            })
-                .toFinishListeners()
-                .toMatchValues({
-                    steps: [],
-                    flattenedBreakdowns: [],
-                    flattenedSteps: [],
-                    flattenedStepsByBreakdown: [],
-                    results: [],
-                    stepResults: [],
-                    stepsWithCount: [],
-                    stepsWithConversionMetrics: [],
-                    visibleStepsWithConversionMetrics: [],
-                })
         })
     })
 })
