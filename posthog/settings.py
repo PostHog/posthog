@@ -733,7 +733,7 @@ structlog.configure(
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
-VERSION_REQUIREMENTS = [VersionRequirement(service="postgres", version_range=">=14.0.0,<15.0.0",)]
+VERSION_REQUIREMENTS = [VersionRequirement(service="postgres", version_range=">=12.0.0,<15.0.0",)]
 
 if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     VERSION_REQUIREMENTS = VERSION_REQUIREMENTS + [
