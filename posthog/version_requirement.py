@@ -19,7 +19,7 @@ class ServiceVersionRequirement:
             self.supported_version = SimpleSpec(supported_version)
         except:
             raise Exception(
-                f"supported_version is invalid. See the Docs for SimpleSpec: https://pypi.org/project/semantic-version/"
+                f"The provided supported_version for service {service} is invalid. See the Docs for SimpleSpec: https://pypi.org/project/semantic-version/"
             )
 
     def is_service_in_accepted_version(self):
