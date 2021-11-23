@@ -6,8 +6,6 @@ import { AvailableFeature, InsightType, ItemMode, PropertyOperator } from '~/typ
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
@@ -471,10 +469,6 @@ describe('insightLogic', () => {
 
     describe('takes data from other logics if available', () => {
         it('dashboardLogic', async () => {
-            // 0. the feature flag must be set
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
-
             // 1. the URL must have the dashboard and insight IDs
             router.actions.push(urls.insightView('42'), {}, { fromDashboard: 33 })
 
@@ -501,10 +495,6 @@ describe('insightLogic', () => {
         })
 
         it('savedInsightLogic', async () => {
-            // 0. the feature flag must be set
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
-
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
             savedInsightsLogic.mount()
@@ -531,7 +521,6 @@ describe('insightLogic', () => {
     })
 
     test('keeps saved filters', async () => {
-        featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: '42',
             filters: { insight: InsightType.FUNNELS },
@@ -610,11 +599,10 @@ describe('insightLogic', () => {
         await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
     })
 
-    test('Save as new insight', async () => {
-        const url = combineUrl('/insights', { insight: InsightType.FUNNELS }).url
+    test('save as new insight', async () => {
+        const url = combineUrl('/insights/42', { insight: InsightType.FUNNELS }).url
         router.actions.push(url)
 
-        featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: InsightType.FUNNELS },
@@ -629,15 +617,15 @@ describe('insightLogic', () => {
             .toDispatchActions(['setInsight'])
             .toMatchValues({
                 filters: partial({ insight: InsightType.FUNNELS }),
-                // savedFilters: partial({ insight: InsightType.FUNNELS }),
                 insight: partial({ id: 12, name: 'New Insight (copy)' }),
                 filtersChanged: true,
                 syncWithUrl: true,
             })
-        await expectLogic()
-            .toDispatchActions(router, ['locationChanged'])
-            .toMatchValues(router, {
-                hashParams: { edit: true, fromItem: 12 },
+
+        await expectLogic(router)
+            .toDispatchActions(['push', 'locationChanged'])
+            .toMatchValues({
+                location: partial({ pathname: '/insights/12/edit' }),
             })
     })
 })
