@@ -580,11 +580,7 @@ export const insightLogic = kea<insightLogicType>({
             toast(`You're now working on a copy of ${values.insight.name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
             if (values.syncWithUrl) {
-                router.actions.push('/insights', router.values.searchParams, {
-                    ...router.values.hashParams,
-                    edit: true,
-                    fromItem: insight.id,
-                })
+                router.actions.push(urls.insightEdit(insight.id))
             }
         },
         loadInsightSuccess: async ({ payload, insight }) => {
@@ -664,7 +660,7 @@ export const insightLogic = kea<insightLogicType>({
                     actions.createAndRedirectToNewInsight(searchParams)
                     return
                 }
-                const insightId = params.id || null
+                const insightId = params.id ? parseInt(params.id) : null
                 if (!insightId) {
                     // only allow editing insights with IDs for now
                     router.actions.replace(urls.insightNew(searchParams))
@@ -672,7 +668,7 @@ export const insightLogic = kea<insightLogicType>({
                 }
 
                 let loadedFromAnotherLogic = false
-                const insightIdChanged = !values.insight.short_id || values.insight.short_id !== insightId
+                const insightIdChanged = !values.insight.id || values.insight.id !== insightId
 
                 if (!values.insight.result || insightIdChanged) {
                     const insight = findInsightFromMountedLogic(insightId, hashParams.fromDashboard)

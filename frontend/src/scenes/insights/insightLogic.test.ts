@@ -582,8 +582,8 @@ describe('insightLogic', () => {
         await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
     })
 
-    test('Save as new insight', async () => {
-        const url = combineUrl('/insights', { insight: InsightType.FUNNELS }).url
+    test('save as new insight', async () => {
+        const url = combineUrl('/insights/42', { insight: InsightType.FUNNELS }).url
         router.actions.push(url)
 
         logic = insightLogic({
@@ -600,15 +600,15 @@ describe('insightLogic', () => {
             .toDispatchActions(['setInsight'])
             .toMatchValues({
                 filters: partial({ insight: InsightType.FUNNELS }),
-                // savedFilters: partial({ insight: InsightType.FUNNELS }),
                 insight: partial({ id: 12, name: 'New Insight (copy)' }),
                 filtersChanged: true,
                 syncWithUrl: true,
             })
-        await expectLogic()
-            .toDispatchActions(router, ['locationChanged'])
-            .toMatchValues(router, {
-                hashParams: { edit: true, fromItem: 12 },
+
+        await expectLogic(router)
+            .toDispatchActions(['push', 'locationChanged'])
+            .toMatchValues({
+                location: partial({ pathname: '/insights/12/edit' }),
             })
     })
 })
