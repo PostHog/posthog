@@ -6,8 +6,6 @@ import { AvailableFeature, InsightType, ItemMode, PropertyOperator } from '~/typ
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
@@ -454,10 +452,6 @@ describe('insightLogic', () => {
 
     describe('takes data from other logics if available', () => {
         it('dashboardLogic', async () => {
-            // 0. the feature flag must be set
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
-
             // 1. the URL must have the dashboard and insight IDs
             router.actions.push(urls.insightView(42), {}, { fromDashboard: 33 })
 
@@ -484,10 +478,6 @@ describe('insightLogic', () => {
         })
 
         it('savedInsightLogic', async () => {
-            // 0. the feature flag must be set
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TURBO_MODE], { [FEATURE_FLAGS.TURBO_MODE]: true })
-
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
             savedInsightsLogic.mount()
@@ -514,7 +504,6 @@ describe('insightLogic', () => {
     })
 
     test('keeps saved filters', async () => {
-        featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: InsightType.FUNNELS },
@@ -597,7 +586,6 @@ describe('insightLogic', () => {
         const url = combineUrl('/insights', { insight: InsightType.FUNNELS }).url
         router.actions.push(url)
 
-        featureFlagLogic.mount()
         logic = insightLogic({
             dashboardItemId: 42,
             filters: { insight: InsightType.FUNNELS },
