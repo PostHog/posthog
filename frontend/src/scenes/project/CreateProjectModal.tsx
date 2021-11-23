@@ -67,7 +67,7 @@ export function CreateProjectModal({
                     ? `You cannot create a project in ${currentOrganization.name}`
                     : 'You cannot create a project'
             }
-            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
+            okButtonProps={onClose ? undefined : { style: { display: 'none' } }}
             onCancel={closeModal}
             visible={isVisible}
         >
