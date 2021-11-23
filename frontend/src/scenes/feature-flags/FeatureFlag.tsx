@@ -30,6 +30,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -194,7 +195,7 @@ export function FeatureFlag(): JSX.Element {
                                         }}
                                     </Form.Item>
                                     <Form.Item name="active" noStyle valuePropName="checked">
-                                        <Switch />
+                                        <LemonSwitch disabled />
                                     </Form.Item>
                                 </Form.Item>
                                 {featureFlagId !== 'new' && (

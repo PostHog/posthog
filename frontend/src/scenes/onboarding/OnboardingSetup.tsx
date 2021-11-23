@@ -1,6 +1,6 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
-import { Button, Col, Collapse, Progress, Row, Switch } from 'antd'
+import { Button, Col, Collapse, Progress, Row } from 'antd'
 import {
     ProjectOutlined,
     CodeOutlined,
@@ -24,6 +24,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 const { Panel } = Collapse
 
@@ -234,7 +235,7 @@ export function OnboardingSetup(): JSX.Element {
                                             ) : (
                                                 <span style={{ color: 'var(--danger)' }}>Disabled</span>
                                             )}
-                                            <Switch
+                                            <LemonSwitch
                                                 checked={currentTeam?.session_recording_opt_in}
                                                 loading={currentTeamLoading}
                                                 style={{ marginLeft: 6 }}

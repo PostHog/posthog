@@ -1,7 +1,8 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { Col, Row, Switch } from 'antd'
+import { Col, Row } from 'antd'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 /* TODO: This should be moved to user's settings (good first issue) */
 export function ToolbarSettings(): JSX.Element {
@@ -12,8 +13,7 @@ export function ToolbarSettings(): JSX.Element {
         <div>
             <Row style={{ flexFlow: 'row' }}>
                 <Col>
-                    <Switch
-                        // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                    <LemonSwitch
                         id="posthog-toolbar-switch"
                         onChange={() => {
                             updateUser({

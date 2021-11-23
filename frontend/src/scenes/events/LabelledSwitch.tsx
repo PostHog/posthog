@@ -1,4 +1,5 @@
-import { Space, Switch, Typography } from 'antd'
+import { Space, Typography } from 'antd'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import React from 'react'
 import './LabelledSwitch.scss'
 
@@ -16,7 +17,7 @@ export function LabelledSwitch({ align, enabled, label, onToggle }: LabelledSwit
                 <Typography.Text ellipsis={true} className="labelled-switch-title">
                     {label}
                 </Typography.Text>
-                <Switch checked={enabled} onChange={onToggle} />
+                <LemonSwitch checked={enabled} onChange={onToggle} />
             </div>
         </Space>
     )

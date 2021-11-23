@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Switch } from 'antd'
 import { userLogic } from 'scenes/userLogic'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
@@ -9,8 +9,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     return (
         <div>
-            <Switch
-                // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+            <LemonSwitch
                 id="email-preferences"
                 data-attr="email-preferences"
                 onChange={() => {

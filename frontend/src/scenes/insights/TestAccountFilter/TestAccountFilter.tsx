@@ -1,4 +1,4 @@
-import { Row, Switch } from 'antd'
+import { Row } from 'antd'
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React from 'react'
@@ -6,6 +6,7 @@ import { FilterType } from '~/types'
 import { SettingOutlined } from '@ant-design/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function TestAccountFilter({
     filters,
@@ -26,14 +27,13 @@ export function TestAccountFilter({
             }
         >
             <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
-                <Switch
+                <LemonSwitch
                     disabled={!hasFilters}
                     checked={hasFilters ? filters.filter_test_accounts : false}
                     onChange={(checked: boolean) => {
                         localStorage.setItem('default_filter_test_accounts', checked.toString())
                         onChange({ filter_test_accounts: checked })
                     }}
-                    size="small"
                 />
                 <label
                     style={{

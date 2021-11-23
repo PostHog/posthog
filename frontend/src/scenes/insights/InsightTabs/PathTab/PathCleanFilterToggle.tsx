@@ -1,9 +1,10 @@
-import { Row, Switch } from 'antd'
+import { Row, } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
 import { FilterType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function PathCleanFilterToggle({
     filters,
@@ -32,7 +33,7 @@ export function PathCleanFilterToggle({
                 >
                     Apply global path URL cleaning
                 </label>
-                <Switch
+                <LemonSwitch
                     disabled={!hasFilters}
                     checked={hasFilters ? filters.path_replacements : false}
                     onChange={(checked: boolean) => {

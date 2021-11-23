@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Space,  Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -28,6 +28,7 @@ import { canInstallPlugins } from '../access'
 import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -142,7 +143,7 @@ export function PluginCard({
                                 cancelText="No"
                                 disabled={rearranging}
                             >
-                                <Switch checked={pluginConfig.enabled ?? false} disabled={rearranging} />
+                                <LemonSwitch checked={pluginConfig.enabled ?? false} disabled={rearranging} />
                             </Popconfirm>
                         </Col>
                     )}

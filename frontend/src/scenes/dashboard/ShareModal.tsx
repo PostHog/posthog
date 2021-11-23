@@ -1,14 +1,16 @@
 import React, { useState } from 'react'
-import { Modal, Switch, Button } from 'antd'
+import { Modal, Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
     const { setIsSharedDashboard } = useActions(dashboardLogic)
     const [isShared, setIsShared] = useState(dashboard?.is_shared)
     const url = window.location.origin
+
     return dashboard ? (
         <Modal
             visible={visible}
@@ -17,9 +19,9 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
             title="Share your dashboard with people outside of PostHog."
             destroyOnClose
         >
-            <Switch
-                onClick={(_, e) => e.stopPropagation()}
-                checked={isShared}
+            <LemonSwitch
+                onClick={(e) => e.stopPropagation()}
+                checked={isShared ?? false}
                 data-attr="share-dashboard-switch"
                 onChange={(active) => {
                     setIsShared(active)

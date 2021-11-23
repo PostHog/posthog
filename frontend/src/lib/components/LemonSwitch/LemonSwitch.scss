@@ -6,9 +6,15 @@
     flex-shrink: 0;
     width: 36px;
     height: 20px;
+    line-height: 20px;
     background: none;
     border: none;
     cursor: pointer;
+    vertical-align: middle;
+    &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
 }
 
 .LemonSwitch__slider {

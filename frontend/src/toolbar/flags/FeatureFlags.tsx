@@ -3,11 +3,12 @@ import './featureFlags.scss'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { Radio, Switch, Row, Typography, List, Button, Input } from 'antd'
+import { Radio,  Row, Typography, List, Button, Input } from 'antd'
 import { AnimatedCollapsible } from './AnimatedCollapsible'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/urls'
 import { IconExternalLinkBold } from 'lib/components/icons'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function FeatureFlags(): JSX.Element {
     const { showLocalFeatureFlagWarning, searchTerm, filteredFlags } = useValues(featureFlagsLogic)
@@ -79,7 +80,7 @@ export function FeatureFlags(): JSX.Element {
                                         >
                                             <IconExternalLinkBold />
                                         </a>
-                                        <Switch
+                                        <LemonSwitch
                                             checked={!!currentValue}
                                             onChange={(checked) => {
                                                 const newValue =

@@ -1,7 +1,7 @@
 // DEPRECATED in favor of SessionsRecordings.tsx
 import React, { useRef } from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
-import { Button, Space, Badge, Switch, Row } from 'antd'
+import { Button, Space, Badge, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDetailedTime, stripHTTP, pluralize, humanFriendlyDuration } from '~/lib/utils'
@@ -32,6 +32,7 @@ import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDraw
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -187,8 +188,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 <div className="sessions-view-actions-left-items">
                     {filters.length > 0 && (
                         <Row className="action ml-05">
-                            <Switch
-                                // @ts-expect-error `id` prop is valid on switch
+                            <LemonSwitch
                                 id="show-only-matches"
                                 onChange={setShowOnlyMatches}
                                 checked={showOnlyMatches}

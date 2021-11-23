@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { Input, Switch } from 'antd'
+import { Input } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function SessionRecording(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -16,8 +17,7 @@ export function SessionRecording(): JSX.Element {
     return (
         <div style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 8 }}>
-                <Switch
-                    // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                <LemonSwitch
                     id="opt-in-session-recording-switch"
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
@@ -38,7 +38,7 @@ export function SessionRecording(): JSX.Element {
             {currentTeam?.session_recording_opt_in && !preflight?.cloud && !preflight?.is_clickhouse_enabled && (
                 <>
                     <div style={{ marginBottom: 8 }}>
-                        <Switch
+                        <LemonSwitch
                             data-attr="session-recording-retention-period-switch"
                             onChange={(checked) => {
                                 const newPeriod = checked ? 7 : null

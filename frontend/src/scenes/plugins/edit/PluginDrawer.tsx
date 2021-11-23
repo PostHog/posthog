@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Popconfirm, Space, Switch, Tag } from 'antd'
+import { Button, Form, Popconfirm, Space,  Tag } from 'antd'
 import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -20,6 +20,7 @@ import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -32,7 +33,7 @@ function EnabledDisabledSwitch({
 }): JSX.Element {
     return (
         <>
-            <Switch checked={value} onChange={onChange} />
+            <LemonSwitch checked={value} onChange={onChange} />
             <strong style={{ paddingLeft: 10 }}>{value ? 'Enabled' : 'Disabled'}</strong>
         </>
     )

@@ -1,5 +1,4 @@
 import React from 'react'
-import { Switch } from 'antd'
 import { AvailableFeature } from '~/types'
 import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
@@ -8,6 +7,7 @@ import { sceneLogic } from '../../sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { LockOutlined, UnlockOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -46,8 +46,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                     </>
                 )}
             </p>
-            <Switch
-                // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+            <LemonSwitch
                 id="access-control-switch"
                 onChange={(checked) => {
                     guardAvailableFeature(

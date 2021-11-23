@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Switch } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function IPCapture(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -9,8 +9,7 @@ export function IPCapture(): JSX.Element {
 
     return (
         <div>
-            <Switch
-                // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+            <LemonSwitch
                 id="anonymize-ip"
                 onChange={(checked) => {
                     updateCurrentTeam({ anonymize_ips: checked })

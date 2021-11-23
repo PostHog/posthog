@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Button, Card, Input, Divider, Select, Skeleton, Switch } from 'antd'
+import { Button, Card, Input, Divider, Select, Skeleton } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
 import { Members } from './Members'
@@ -12,6 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -119,8 +120,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
                 Notification Preferences
             </h2>
             <div>
-                <Switch
-                    // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                <LemonSwitch
                     id="is-member-join-email-enabled-switch"
                     data-attr="is-member-join-email-enabled-switch"
                     onChange={(checked) => {
