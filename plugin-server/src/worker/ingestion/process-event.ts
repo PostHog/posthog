@@ -212,8 +212,9 @@ export class EventsProcessor {
 
     public isNewPersonPropertiesUpdateEnabled(teamId: number): boolean {
         try {
-            const teamsStrs = this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS.split(',').filter(String)
-            const teams = teamsStrs.map((teamId) => Number(teamId))
+            const teams = this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS.split(',')
+                .filter(String)
+                .map(Number)
             return !!teams.includes(teamId)
         } catch (error) {
             Sentry.captureException(error)
