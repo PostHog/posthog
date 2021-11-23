@@ -6,6 +6,7 @@ import { disableHourFor, disableMinuteFor } from 'lib/utils'
 import { CalendarOutlined } from '@ant-design/icons'
 import { defaultInterval, IntervalKeyType, intervals } from 'lib/components/IntervalFilter/intervals'
 import { InsightType } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface InvertalFilterProps {
     view: InsightType
@@ -13,8 +14,11 @@ interface InvertalFilterProps {
 }
 
 export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
-    const { interval } = useValues(intervalFilterLogic)
-    const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
+    const { insightProps } = useValues(insightLogic)
+    const {
+        filters: { interval },
+    } = useValues(intervalFilterLogic(insightProps))
+    const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic(insightProps))
     const options = Object.entries(intervals).map(([key, { label }]) => ({
         key,
         value: key,

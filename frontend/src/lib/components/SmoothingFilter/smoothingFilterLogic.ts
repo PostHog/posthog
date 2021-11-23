@@ -1,23 +1,23 @@
 import { kea } from 'kea'
 import { smoothingFilterLogicType } from './smoothingFilterLogicType'
-import { FilterType, InsightLogicProps, SmoothingType } from '~/types'
+import { InsightLogicProps, SmoothingType } from '~/types'
 import { smoothingOptions } from './smoothings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const smoothingFilterLogic = kea<smoothingFilterLogicType>({
+    path: ['lib', 'components', 'SmoothingFilter', 'smoothingFilterLogic'],
     props: {} as InsightLogicProps,
     connect: (props: InsightLogicProps) => ({
         values: [insightLogic(props), ['filters']],
         actions: [insightLogic(props), ['setFilters']],
     }),
-    // Have your own setSmoothing action that calls setFilters with the right params
     actions: () => ({
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setSmoothing: (filter: SmoothingType) => ({ filter }),
     }),
-    listeners: ({ actions, props }) => ({
+    listeners: ({ actions, values }) => ({
         setSmoothing: async ({ filter }) => {
-            insightLogic(props).actions.setFilters({
+            actions.setFilters({
+                ...values.filters,
                 smoothing_intervals: filter,
             })
         },
