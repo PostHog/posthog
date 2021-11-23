@@ -53,10 +53,7 @@ export const metaLogic = kea<metaLogicType>({
                 // Find snapshot to pull resolution from
                 const lastIndex = findLastIndex(snapshots, (s: eventWithTime) => 'width' in s.data)
                 if (lastIndex === -1) {
-                    return {
-                        width: 0,
-                        height: 0,
-                    }
+                    return null
                 }
                 const currIndex = snapshots.findIndex(
                     (s: eventWithTime) => s.timestamp > time.current && 'width' in s.data

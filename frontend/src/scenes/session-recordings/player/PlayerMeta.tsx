@@ -61,7 +61,7 @@ export function PlayerMeta(): JSX.Element {
                                     {formatDisplayPercentage(scale)}%)
                                 </>
                             ) : (
-                                <>Resolution not found</>
+                                <>Resolution: ...</>
                             )}
                         </span>
                     )}
