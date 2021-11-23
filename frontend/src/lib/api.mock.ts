@@ -72,9 +72,11 @@ export function defaultAPIMocks(
     } else if (
         [
             `api/projects/${MOCK_TEAM_ID}/actions/`,
+            `api/projects/${MOCK_TEAM_ID}/annotations/`,
             `api/projects/${MOCK_TEAM_ID}/event_definitions/`,
             `api/projects/${MOCK_TEAM_ID}/dashboards/`,
             `api/projects/${MOCK_TEAM_ID}/dashboards`,
+            `api/projects/${MOCK_TEAM_ID}/groups/`,
             'api/projects/@current/event_definitions/',
         ].includes(pathname)
     ) {

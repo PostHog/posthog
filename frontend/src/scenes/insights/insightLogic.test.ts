@@ -345,7 +345,6 @@ describe('insightLogic', () => {
             router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
             await expectLogic(router)
                 .delay(1)
-                .printActions({ compact: true })
                 .toMatchValues({
                     location: partial({ pathname: urls.insightEdit('43') }),
                     searchParams: partial({ insight: 'FUNNELS' }),
