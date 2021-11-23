@@ -236,7 +236,6 @@ const api = {
     },
 
     async get(url: string, signal?: AbortSignal): Promise<any> {
-        console.log(url, 'starting')
         if (url.indexOf('http') !== 0) {
             if (!url.startsWith('/')) {
                 url = '/' + url
@@ -244,7 +243,6 @@ const api = {
 
             url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
-        console.log(url, 'transformed')
         let response
         const startTime = new Date().getTime()
         try {
