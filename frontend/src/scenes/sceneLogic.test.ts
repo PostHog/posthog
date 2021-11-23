@@ -60,7 +60,7 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.SavedInsights,
         })
-    })
+    }, 10000)
 
     it('persists the loaded scenes', async () => {
         await expectLogic(logic)
