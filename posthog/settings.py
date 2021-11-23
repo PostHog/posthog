@@ -735,6 +735,9 @@ EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
 SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env("SKIP_SERVICE_VERSION_REQUIREMENTS", TEST, type_cast=str_to_bool)
 
+if SKIP_SERVICE_VERSION_REQUIREMENTS:
+    print_warning("Skipping service version requirements. This is dangerous and PostHog might not work as expected!")
+
 SERVICE_VERSION_REQUIREMENTS = [
     ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0",),
     ServiceVersionRequirement(service="redis", supported_version=">=5.0.0,<=6.2.0",),
