@@ -226,7 +226,7 @@ class FeatureFlagMatcher:
     @property
     def hashed_identifier(self) -> Optional[str]:
         """
-        If aggregating by prople, returns distinct_id.
+        If aggregating by people, returns distinct_id.
 
         Otherwise, returns the relevant group_key.
 
