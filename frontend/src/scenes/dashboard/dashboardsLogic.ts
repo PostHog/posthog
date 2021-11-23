@@ -7,12 +7,18 @@ import { DashboardType } from '~/types'
 import { uniqueBy } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-export const dashboardsLogic = kea<dashboardsLogicType>({
+export enum DashboardsTab {
+    All = 'all',
+    Pinned = 'pinned',
+}
+
+export const dashboardsLogic = kea<dashboardsLogicType<DashboardsTab>>({
     path: ['scenes', 'dashboard', 'dashboardsLogic'],
     actions: {
         addNewDashboard: true,
         setNewDashboardDrawer: (shown: boolean) => ({ shown }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setCurrentTab: (tab: DashboardsTab) => ({ tab }),
     },
     reducers: {
         newDashboardDrawer: [
@@ -24,15 +30,23 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
         searchTerm: {
             setSearchTerm: (_, { searchTerm }) => searchTerm,
         },
+        currentTab: [
+            DashboardsTab.All,
+            {
+                setCurrentTab: (_, { tab }) => tab,
+            },
+        ],
     },
     selectors: {
         dashboards: [
-            (selectors) => [dashboardsModel.selectors.nameSortedDashboards, selectors.searchTerm],
-            (dashboards: DashboardType[], searchTerm: string) => {
+            (selectors) => [dashboardsModel.selectors.nameSortedDashboards, selectors.searchTerm, selectors.currentTab],
+            (dashboards, searchTerm, currentTab) => {
                 dashboards = dashboards
                     .filter((d) => !d.deleted)
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
-
+                if (currentTab === DashboardsTab.Pinned) {
+                    dashboards = dashboards.filter((d) => d.pinned)
+                }
                 if (!searchTerm) {
                     return dashboards
                 }

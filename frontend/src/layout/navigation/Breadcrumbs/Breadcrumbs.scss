@@ -1,0 +1,49 @@
+@import '~/vars.scss';
+
+.Breadcrumbs {
+    display: flex;
+    align-items: center;
+    // Make the container full width to aid horizontal scroll while automatically retaining proper padding
+    width: 100vw;
+    padding: 0 calc((100vw - 100%) / 2);
+    margin-left: calc((100vw - 100%) / -2);
+    margin-top: 1rem;
+    cursor: default;
+    overflow-x: auto;
+    @media screen and (min-width: $lg) {
+        // Disable fullwidth hacks for viewport widths where the sidebar affects layout
+        width: auto;
+        padding: 0;
+        margin-left: 0;
+        margin-top: 1.5rem;
+    }
+}
+
+.Breadcrumbs__breadcrumb {
+    display: flex;
+    align-items: center;
+    font-weight: $medium;
+    white-space: pre;
+    user-select: none;
+
+    &--current {
+        color: $text_default;
+        cursor: default;
+    }
+
+    > :first-child {
+        margin-right: 0.5rem;
+    }
+
+    &--actionable {
+        cursor: pointer;
+        color: $primary;
+    }
+}
+
+.Breadcrumbs__separator {
+    flex-shrink: 0;
+    margin: 0 0.5rem;
+    font-size: 1rem;
+    color: var(--primary-alt);
+}

@@ -72,7 +72,7 @@
         "@sentry/browser": "^6.11.0",
         "@types/d3-sankey": "^0.11.2",
         "@types/md5": "^2.3.0",
-        "@types/react-virtualized": "^9.21.11",
+        "@types/react-virtualized": "^9.21.14",
         "antd": "^4.11.2",
         "antd-dayjs-webpack-plugin": "^1.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
@@ -93,7 +93,7 @@
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^0.1.0",
         "md5": "^2.3.0",
-        "posthog-js": "1.16.5",
+        "posthog-js": "1.16.6",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "0.8.0",
@@ -117,6 +117,7 @@
         "rrweb": "^1.0.6",
         "sass": "^1.26.2",
         "use-debounce": "^6.0.1",
+        "use-resize-observer": "^8.0.0",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {

@@ -4,13 +4,14 @@ import { combineUrl } from 'kea-router'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PersonsTabType, PersonType, SessionsPropertyFilter } from '~/types'
+import { PersonType, SessionsPropertyFilter } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
+import { urls } from 'scenes/urls'
 interface PersonsTableType {
     people: PersonType[]
     loading?: boolean
@@ -19,7 +20,6 @@ interface PersonsTableType {
     loadPrevious?: () => void
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
-    backTo?: string // text to display next to `back to` arrow. if "Insights," deep link to Persons > Sessions
     sessionsFilters?: Partial<SessionsPropertyFilter>[] // sessions filters from trends graphs
     date?: string
 }
@@ -27,18 +27,8 @@ interface PersonsTableType {
 export const deepLinkToPersonSessions = (
     person: PersonType,
     sessionsFilters?: Partial<SessionsPropertyFilter>[],
-    date?: string,
-    backTo?: string
-): string =>
-    combineUrl(
-        `/person/${encodeURIComponent(person.distinct_ids[0])}`,
-        { filters: sessionsFilters, date },
-        {
-            backTo,
-            backToURL: window.location.pathname + window.location.search + window.location.hash,
-            activeTab: backTo === 'Insights' ? PersonsTabType.SESSIONS : PersonsTabType.EVENTS,
-        }
-    ).url
+    date?: string
+): string => combineUrl(urls.person(person.distinct_ids[0]), { filters: sessionsFilters, date }).url
 
 export function PersonsTable({
     people,
@@ -48,7 +38,6 @@ export function PersonsTable({
     loadPrevious,
     loadNext,
     allColumns,
-    backTo = 'Persons',
     sessionsFilters = [],
     date = '',
 }: PersonsTableType): JSX.Element {
@@ -105,7 +94,7 @@ export function PersonsTable({
             return (
                 <>
                     <Link
-                        to={deepLinkToPersonSessions(person, sessionsFilters, date, backTo)}
+                        to={deepLinkToPersonSessions(person, sessionsFilters, date)}
                         data-attr={`goto-person-arrow-${index}`}
                         data-test-goto-person
                     >

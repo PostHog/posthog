@@ -167,7 +167,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
             },
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            duplicateDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            duplicateDashboardSuccess: (state, { dashboard }) => ({
+                ...state,
+                [dashboard.id]: { ...dashboard, _highlight: true },
+            }),
         },
         lastDashboardId: [
             null as null | number,

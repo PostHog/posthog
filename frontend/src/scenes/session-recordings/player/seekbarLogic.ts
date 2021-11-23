@@ -8,7 +8,7 @@ import {
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { clamp } from 'lib/utils'
 import { playerMetaData } from 'rrweb/typings/types'
-import { EventType, SeekbarEventType, SessionPlayerTime } from '~/types'
+import { EventType, RecordingEventType, SessionPlayerTime } from '~/types'
 import {
     convertValueToX,
     convertXToValue,
@@ -88,7 +88,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         ],
         markersWithPositions: [
             (selectors) => [selectors.eventsToShow, selectors.meta],
-            (events: EventType[], meta): SeekbarEventType[] => {
+            (events: EventType[], meta): RecordingEventType[] => {
                 return events
                     .map((e) => ({
                         ...e,
@@ -202,7 +202,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         afterMount: () => {
             window.addEventListener('resize', () => actions.setCurrentTime(values.time.current))
         },
-        afterUnmount: () => {
+        beforeUnmount: () => {
             window.removeEventListener('resize', () => actions.setCurrentTime(values.time.current))
         },
     }),
