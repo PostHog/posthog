@@ -1,4 +1,4 @@
-import { EntityFilter, ActionFilter, FilterType, DashboardItemType } from '~/types'
+import { EntityFilter, ActionFilter, FilterType, DashboardItemType, InsightShortId } from '~/types'
 import { ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -65,7 +65,7 @@ export function extractObjectDiffKeys(
 }
 
 export function findInsightFromMountedLogic(
-    insightId: string,
+    insightId: InsightShortId,
     dashboardId: number | undefined
 ): Partial<DashboardItemType> | null {
     if (dashboardId) {

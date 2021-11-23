@@ -28,7 +28,7 @@ import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 export const scene: SceneExport = {
     component: Insight,
     logic: insightLogic,
-    paramsToProps: ({ params: { id } }) => ({ dashboardItemId: id ? parseInt(id) : null, syncWithUrl: true }),
+    paramsToProps: ({ params: { shortId } }) => ({ dashboardItemId: shortId, syncWithUrl: true }),
 }
 
 export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
