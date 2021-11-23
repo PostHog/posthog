@@ -79,9 +79,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (shortId: string, loading = false) => ({ shortId, loading }),
-        setRefreshStatuses: (shortIds: string[], loading = false) => ({ shortIds, loading }),
-        setRefreshError: (shortId: string) => ({ shortId }),
+        setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
+        setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
+        setRefreshError: (shortId: InsightShortId) => ({ shortId }),
     },
 
     loaders: ({ actions, props }) => ({

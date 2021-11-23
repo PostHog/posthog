@@ -82,7 +82,7 @@ describe('insightLogic', () => {
             return {
                 results: [
                     { id: 42, short_id: Insight42, result: ['result 42'], filters: API_FILTERS },
-                    { id: 43, short_id: '43', result: ['result 43'], filters: API_FILTERS },
+                    { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
                 ],
             }
         } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {

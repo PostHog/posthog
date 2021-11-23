@@ -3,12 +3,14 @@ import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
-import dashboardJson from './__mocks__/dashboard.json'
+import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemType } from '~/types'
+import { DashboardItemType, DashboardType } from '~/types'
+
+const dashboardJson = _dashboardJson as any as DashboardType
 
 jest.mock('lib/api')
 
@@ -25,12 +27,12 @@ describe('dashboardLogic', () => {
                 items: [
                     { ...dashboardJson.items[0], result: null },
                     { ...dashboardJson.items[1], result: null },
-                    { ...dashboardJson.items[0], id: 666 },
-                    { ...dashboardJson.items[1], id: 999 },
+                    { ...dashboardJson.items[0], id: 666, short_id: '666' },
+                    { ...dashboardJson.items[1], id: 999, short_id: '999' },
                 ],
             }
         } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights/`)) {
-            return dashboardJson.items.find(({ id }) => id === parseInt(pathname.split('/')[4]))
+            return dashboardJson.items.find(({ id }: any) => String(id) === pathname.split('/')[4])
         }
         return defaultAPIMocks(url)
     })
@@ -107,10 +109,10 @@ describe('dashboardLogic', () => {
                         // and updates the action in the model
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.id === dashboardJson.items[1].id,
+                            a.payload.item.short_id === dashboardJson.items[1].short_id,
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.id === dashboardJson.items[0].id,
+                            a.payload.item.short_id === dashboardJson.items[0].short_id,
                         // no longer reloading
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[0].short_id, false),
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[1].short_id, false),
@@ -147,7 +149,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActionsInAnyOrder([
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.id === dashboardJson.items[0].id,
+                            a.payload.item.short_id === dashboardJson.items[0].short_id,
                         logic.actionCreators.setRefreshStatus(dashboardJson.items[0].short_id, false),
                     ])
                     .toMatchValues({
