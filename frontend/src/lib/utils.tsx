@@ -507,7 +507,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
-    const mDisplay = m > 0 ? m + 'min' : ''
+    const mDisplay = m > 0 ? m + 'm' : ''
     const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
 
     let units: string[] = []
@@ -529,7 +529,7 @@ export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, wit
         return 'Never'
     }
     const parsedDate = dayjs(date)
-    let formatString = 'MMMM Do YYYY h:mm'
+    let formatString = 'MMMM DD YYYY h:mm'
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
     if (parsedDate.isSame(dayjs(), 'm')) {
