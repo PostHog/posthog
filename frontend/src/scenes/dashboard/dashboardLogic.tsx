@@ -533,9 +533,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 try {
                     breakpoint()
 
-                    const insightId = await getInsightId(dashboardItem)
                     const refreshedDashboardItem = await api.get(
-                        `api/projects/${values.currentTeamId}/insights/${insightId}/?${toParams({
+                        `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             refresh: true,
                         })}`
                     )

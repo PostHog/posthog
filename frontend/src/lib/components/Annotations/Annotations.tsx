@@ -2,7 +2,7 @@ import React from 'react'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
-import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
+import { AnnotationType, AnnotationScope } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 interface AnnotationsProps {
@@ -10,7 +10,7 @@ interface AnnotationsProps {
     leftExtent: number
     interval: number
     topExtent: number
-    dashboardItemId?: InsightShortId
+    insightId?: number
     color: string | null
     graphColor: string
     accessoryColor: string | null
@@ -24,7 +24,7 @@ export function Annotations({
     leftExtent,
     interval,
     topExtent,
-    dashboardItemId,
+    insightId,
     onClick,
     color,
     accessoryColor,
@@ -32,10 +32,10 @@ export function Annotations({
     graphColor,
     currentDateMarker,
 }: AnnotationsProps): JSX.Element[] {
-    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightShortId: dashboardItemId }))
+    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
 
     const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
-        useActions(annotationsLogic({ insightShortId: dashboardItemId }))
+        useActions(annotationsLogic({ insightId }))
 
     const markers: JSX.Element[] = []
 
@@ -49,8 +49,8 @@ export function Annotations({
             annotations={annotationsToMark}
             onCreate={(input: string, applyAll: boolean) => {
                 if (applyAll) {
-                    createGlobalAnnotation(input, date, dashboardItemId)
-                } else if (dashboardItemId) {
+                    createGlobalAnnotation(input, date, insightId)
+                } else if (insightId) {
                     createAnnotationNow(input, date)
                 } else {
                     createAnnotation(input, date)
