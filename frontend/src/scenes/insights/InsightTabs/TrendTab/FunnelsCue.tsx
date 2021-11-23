@@ -56,7 +56,7 @@ const funnelsCueLogic = kea<funnelsCueLogicType>({
         },
         setFilters: async ({ filters }) => {
             const step_count = (filters.events?.length ?? 0) + (filters.actions?.length ?? 0)
-            if (!values.isFirstLoad && filters.insight === InsightType.TRENDS && step_count >= 2) {
+            if (!values.isFirstLoad && filters.insight === InsightType.TRENDS && step_count >= 3) {
                 actions.setShouldShow(true)
                 !values.permanentOptOut && posthog.capture('funnel cue 7301 - shown', { step_count })
             } else {
