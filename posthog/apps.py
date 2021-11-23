@@ -3,7 +3,6 @@ import os
 import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 
 from posthog.utils import get_git_branch, get_git_commit, get_machine_id
 from posthog.version import VERSION
@@ -34,12 +33,13 @@ class PostHogConfig(AppConfig):
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
 
-        for version_requirement in settings.VERSION_REQUIREMENTS:
-            [in_range, version] = version_requirement.is_service_in_accepted_version()
-            if not in_range:
-                start_anyway = input(
-                    f"Service {version_requirement.service} is in version {version}. Expected range: {str(version_requirement.supported_version)}. PostHog may not work correctly with the current version. Continue? [y/n]"
-                )
-                if start_anyway.lower() != "y":
-                    print(f"Unsupported version for service {version_requirement.service}, exiting...")
-                    exit(1)
+        if not settings.TEST and not settings.DEBUG:
+            for version_requirement in settings.VERSION_REQUIREMENTS:
+                [in_range, version] = version_requirement.is_service_in_accepted_version()
+                if not in_range:
+                    start_anyway = input(
+                        f"Service {version_requirement.service} is in version {version}. Expected range: {str(version_requirement.supported_version)}. PostHog may not work correctly with the current version. Continue? [y/n]"
+                    )
+                    if start_anyway.lower() != "y":
+                        print(f"Unsupported version for service {version_requirement.service}, exiting...")
+                        exit(1)
