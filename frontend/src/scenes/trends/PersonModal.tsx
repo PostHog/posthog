@@ -215,7 +215,7 @@ export function ActorRow({ actor }: ActorRowProps): JSX.Element {
     } as ExpandIconProps
     const _isGroupType = isGroupType(actor)
 
-    function Header() {
+    function Header(): JSX.Element {
         return _isGroupType ? (
             <GroupActorHeader actor={actor} withIcon={false} />
         ) : (
@@ -223,9 +223,9 @@ export function ActorRow({ actor }: ActorRowProps): JSX.Element {
         )
     }
 
-    function Inline() {
+    function Inline(): JSX.Element {
         return _isGroupType ? (
-            <div></div>
+            <></>
         ) : (
             <CopyToClipboardInline
                 explicitValue={actor.distinct_ids[0]}
