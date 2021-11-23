@@ -73,12 +73,10 @@ export const FEATURE_FLAGS = {
     MULTIVARIATE_SUPPORT: '5440-multivariate-support', // owner: @mariusandra
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
-    NEW_PATHS_UI: 'new-paths-ui', // owner: @EDsCODE
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     REMOVE_SESSIONS: '6050-remove-sessions', // owner: @rcmarron
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown', // owner: @alexkim205
     RENAME_FILTERS: '6063-rename-filters', // owner: @alexkim205
-    CORRELATION_ANALYSIS: 'correlation-analysis', // owner: @neilkakkar
     SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     NEW_SESSIONS_PLAYER_EVENTS_LIST: 'new-sessions-player-events-list', // owner: @rcmarron / @alexkim205

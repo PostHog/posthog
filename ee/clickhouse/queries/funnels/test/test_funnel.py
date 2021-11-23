@@ -1538,3 +1538,18 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 0)
+
+    def test_breakdown_values_is_set_on_the_query_with_fewer_than_two_entities(self):
+        """
+        failing test for https://sentry.io/organizations/posthog/issues/2807609211/?project=1899813&referrer=slack
+        """
+
+        filter_with_breakdown = {
+            "events": [{"id": "with one entity", "type": "events", "order": 0},],
+            "breakdown": "something",
+        }
+
+        try:
+            ClickhouseFunnel(Filter(data=filter_with_breakdown), self.team).run()
+        except KeyError as ke:
+            assert False, f"Should not have raised a key error: {ke}"

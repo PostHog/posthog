@@ -44,14 +44,6 @@ describe('eventsListLogic', () => {
         })
     })
 
-    describe('cache clearing', () => {
-        it('recalculate row heights when events are loaded', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadEventsSuccess({})
-            }).toDispatchActions(['clearCellCache'])
-        })
-    })
-
     describe('handle event click', () => {
         it('happy case', async () => {
             await expectLogic(logic, () => {

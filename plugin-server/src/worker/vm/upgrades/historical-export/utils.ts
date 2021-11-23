@@ -184,7 +184,6 @@ export const convertPostgresEventToPluginEvent = async (db: DB, event: Event): P
             properties['$elements'] = transformPostgresElementsToEventPayloadFormat(dbElements)
         }
     }
-    console.log(properties)
 
     properties['$$historical_export_source_db'] = 'postgres'
     const parsedEvent = {
