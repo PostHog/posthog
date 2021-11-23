@@ -17,7 +17,6 @@ export default {
 } as ComponentMeta<typeof _LemonSwitch>
 
 export function LemonSwitch({ loading }: { loading: boolean }): JSX.Element {
-    const [isChecked, setIsChecked] = useState(false)
 
-    return <_LemonSwitch loading={loading} checked={isChecked} onChange={setIsChecked} />
+    return <_LemonSwitch loading={loading} />
 }
