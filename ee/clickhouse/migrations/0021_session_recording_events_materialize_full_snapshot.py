@@ -6,7 +6,7 @@ from ee.clickhouse.sql.session_recording_events import SESSION_RECORDING_EVENTS_
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_REPLICATION
 
 
-def create_has_full_snapshot_materialized_column():
+def create_has_full_snapshot_materialized_column(database):
 
     if "has_full_snapshot" in get_materialized_columns(SESSION_RECORDING_EVENTS_TABLE, use_cache=False):
         # Field is already materialized
