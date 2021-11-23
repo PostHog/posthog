@@ -19,8 +19,6 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import React from 'react'
 import { Link } from 'lib/components/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -53,7 +51,7 @@ export const insightLogic = kea<insightLogicType>({
 
     connect: {
         values: [teamLogic, ['currentTeamId']],
-        logic: [eventUsageLogic, dashboardsModel, featureFlagLogic],
+        logic: [eventUsageLogic, dashboardsModel],
     },
 
     actions: () => ({
@@ -646,10 +644,7 @@ export const insightLogic = kea<insightLogicType>({
                 if (hashParams.fromItem) {
                     const insightIdChanged = !values.insight.id || values.insight.id !== hashParams.fromItem
 
-                    if (
-                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] &&
-                        (!values.insight.result || insightIdChanged)
-                    ) {
+                    if (!values.insight.result || insightIdChanged) {
                         const insight = findInsightFromMountedLogic(hashParams.fromItem, hashParams.fromDashboard)
                         if (insight) {
                             actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
@@ -684,16 +679,14 @@ export const insightLogic = kea<insightLogicType>({
         afterMount: () => {
             if (!props.cachedResults) {
                 if (props.dashboardItemId && !props.filters) {
-                    if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE]) {
-                        const insight = findInsightFromMountedLogic(
-                            props.dashboardItemId,
-                            router.values.hashParams.fromDashboard
-                        )
-                        if (insight) {
-                            actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                            if (insight?.result) {
-                                return
-                            }
+                    const insight = findInsightFromMountedLogic(
+                        props.dashboardItemId,
+                        router.values.hashParams.fromDashboard
+                    )
+                    if (insight) {
+                        actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
+                        if (insight?.result) {
+                            return
                         }
                     }
                     actions.loadInsight(props.dashboardItemId)
