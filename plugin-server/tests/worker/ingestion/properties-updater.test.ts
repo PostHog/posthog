@@ -147,7 +147,6 @@ describe('updatePersonProperties()', () => {
         expect(props).toEqual({ a: 'a', b: 'b' })
     })
 
-
     // TODO test that we can't change the person in the middle of the update
 })
 
