@@ -57,6 +57,7 @@ describe('sceneLogic', () => {
             scene: Scene.Annotations,
         })
         router.actions.push(urls.savedInsights())
+        await expectLogic(router).toDispatchActions(['push'])
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.SavedInsights,
         })
