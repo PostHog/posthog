@@ -54,6 +54,10 @@ const indexJs = `
             }
         }
     }
+
+    export async function onAction(action, event) {
+        testConsole.log('onAction', action, event)
+    }
 `
 
 // TODO: merge these tests with clickhouse/e2e.test.ts
@@ -164,6 +168,41 @@ describe('e2e', () => {
             expect(savedMatches).toStrictEqual([
                 { id: expect.any(Number), event_id: expect.any(Number), action_id: 69 },
             ])
+        })
+    })
+
+    describe('onAction', () => {
+        const awaitOnActionLogs = async () =>
+            await new Promise((resolve) => {
+                resolve(testConsole.read().filter((log) => log[1] === 'onAction event'))
+            })
+
+        test('onAction receives the action and event', async () => {
+            await posthog.capture('onAction event', { foo: 'bar' })
+
+            await delayUntilEventIngested(awaitOnActionLogs, 1)
+
+            const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
+
+            const [logName, action, event] = log
+
+            expect(logName).toEqual('onAction')
+            expect(action).toEqual(
+                expect.objectContaining({
+                    id: 69,
+                    name: 'Test Action',
+                    team_id: 2,
+                    deleted: false,
+                    post_to_slack: true,
+                })
+            )
+            expect(event).toEqual(
+                expect.objectContaining({
+                    distinct_id: 'plugin-id-60',
+                    team_id: 2,
+                    event: 'onAction event',
+                })
+            )
         })
     })
 
