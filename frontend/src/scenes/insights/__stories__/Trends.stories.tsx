@@ -12,7 +12,6 @@ export default {
     title: 'PostHog/Scenes/Insights/Trends',
 } as Meta
 
-export const Base = keaStory(Insights, trendsJson)
 export const TrendsSmoothing = (): JSX.Element => {
     worker.use(
         rest.post('/api/insight/trends', (_, res, ctx) => {

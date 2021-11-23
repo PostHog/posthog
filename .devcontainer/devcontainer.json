@@ -42,5 +42,16 @@
     "postStartCommand": ".devcontainer/container_start.sh",
 
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
-    "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009]
+    "forwardPorts": [
+        8000, // api server
+        5432, // pg
+        6379, // redis
+        8123, // clickhouse http
+        8234, // frontend dev server
+        9000, // clickhouse binary protocol
+        9092,
+        9440,
+        9009,
+        6006 // storybook
+    ]
 }
