@@ -13,9 +13,6 @@ export function InsightSaveButton({
 }): JSX.Element {
     const menu = (
         <Menu>
-            <Menu.Item key="1" onClick={() => saveInsight({ setViewMode: true })}>
-                Save
-            </Menu.Item>
             <Menu.Item key="2" onClick={saveInsight} data-attr="insight-save-and-continue">
                 Save and continue editing
             </Menu.Item>
