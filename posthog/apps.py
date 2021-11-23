@@ -34,12 +34,12 @@ class PostHogConfig(AppConfig):
             posthoganalytics.disabled = True
 
         if not settings.TEST and not settings.DEBUG:
-            for version_requirement in settings.VERSION_REQUIREMENTS:
-                [in_range, version] = version_requirement.is_service_in_accepted_version()
+            for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:
+                [in_range, version] = service_version_requirement.is_service_in_accepted_version()
                 if not in_range:
                     start_anyway = input(
-                        f"Service {version_requirement.service} is in version {version}. Expected range: {str(version_requirement.supported_version)}. PostHog may not work correctly with the current version. Continue? [y/n]"
+                        f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. Continue? [y/n]"
                     )
                     if start_anyway.lower() != "y":
-                        print(f"Unsupported version for service {version_requirement.service}, exiting...")
+                        print(f"Unsupported version for service {service_version_requirement.service}, exiting...")
                         exit(1)

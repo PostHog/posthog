@@ -1,7 +1,7 @@
 from semantic_version.base import SimpleSpec, Version
 
 
-class VersionRequirement:
+class ServiceVersionRequirement:
     accepted_services = ("clickhouse", "postgresql")
 
     def __init__(self, service, supported_version):

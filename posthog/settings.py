@@ -29,7 +29,7 @@ from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import AnalyticsDBMS
 from posthog.utils import print_warning, str_to_bool
-from posthog.version_requirement import VersionRequirement
+from posthog.version_requirement import ServiceVersionRequirement
 
 
 def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
@@ -733,9 +733,9 @@ structlog.configure(
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
-VERSION_REQUIREMENTS = [VersionRequirement(service="postgresql", supported_version=">=11.0.0,<15.0.0",)]
+SERVICE_VERSION_REQUIREMENTS = [ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<15.0.0",)]
 
 if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
-    VERSION_REQUIREMENTS = VERSION_REQUIREMENTS + [
-        VersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
+    SERVICE_VERSION_REQUIREMENTS = SERVICE_VERSION_REQUIREMENTS + [
+        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
     ]
