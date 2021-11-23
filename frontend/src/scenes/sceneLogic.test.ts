@@ -53,10 +53,11 @@ describe('sceneLogic', () => {
     })
 
     it('changing URL runs openScene, loadScene and setScene', async () => {
-        await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
+        await expectLogic(logic).toDispatchActionsInAnyOrder(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.Annotations,
         })
         router.actions.push(urls.dashboard(123))
+        await expectLogic(router).toDispatchActions(['push'])
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.Dashboard,
         })
