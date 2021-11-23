@@ -68,7 +68,6 @@ export function CreateProjectModal({
                     : 'You cannot create a project'
             }
             cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            closable={!!onClose}
             onCancel={closeModal}
             visible={isVisible}
         >
@@ -84,7 +83,6 @@ export function CreateProjectModal({
             }
             okText="Create project"
             cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            closable={!!onClose}
             onOk={handleSubmit}
             onCancel={closeModal}
             visible={isVisible}

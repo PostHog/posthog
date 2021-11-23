@@ -30,7 +30,6 @@ export function CreateOrganizationModal({
             title="Creating an organization"
             okText="Create organization"
             cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            closable={!!onClose}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {
