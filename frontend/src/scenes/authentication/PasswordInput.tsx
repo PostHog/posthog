@@ -27,7 +27,7 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
         inputName = 'password',
         ...props
     }: PasswordInputProps,
-    ref: React.LegacyRef<Input>
+    ref: React.Ref<Input>
 ): JSX.Element {
     return (
         <div style={{ marginBottom: 24, ...style }} className="password-input">
@@ -84,7 +84,7 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
                 {...props}
             >
-                <Input
+                <Input.Password
                     ref={ref}
                     className="ph-ignore-input"
                     type="password"
