@@ -256,7 +256,9 @@ const api = {
             throw { status: 0, message: e }
         }
 
-        if (!response.ok) {
+        if (!response) {
+            return {}
+        } else if (!response.ok) {
             reportError('GET', url, response, startTime)
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
@@ -276,7 +278,10 @@ const api = {
             },
             body: isFormData ? data : JSON.stringify(data),
         })
-        if (!response.ok) {
+
+        if (!response) {
+            return {}
+        } else if (!response.ok) {
             reportError('PATCH', url, response, startTime)
             const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
@@ -299,7 +304,10 @@ const api = {
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
         })
-        if (!response.ok) {
+
+        if (!response) {
+            return {}
+        } else if (!response.ok) {
             reportError('POST', url, response, startTime)
             const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
@@ -320,7 +328,10 @@ const api = {
                 'X-CSRFToken': getCookie('csrftoken') || '',
             },
         })
-        if (!response.ok) {
+
+        if (!response) {
+            return {}
+        } else if (!response.ok) {
             reportError('DELETE', url, response, startTime)
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
