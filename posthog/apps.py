@@ -33,7 +33,7 @@ class PostHogConfig(AppConfig):
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
 
-        if not settings.TEST:
+        if not settings.SKIP_SERVICE_VERSION_REQUIREMENTS:
             for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:
                 [in_range, version] = service_version_requirement.is_service_in_accepted_version()
                 if not in_range:
