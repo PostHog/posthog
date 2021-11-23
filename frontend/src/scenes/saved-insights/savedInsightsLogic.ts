@@ -4,12 +4,11 @@ import api from 'lib/api'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
-import { prompt } from 'lib/logic/prompt'
-import { toast } from 'react-toastify'
 import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Sorting } from 'lib/components/LemonTable/LemonTable'
 
 export const INSIGHTS_PER_PAGE = 15
 
@@ -57,8 +56,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         addGraph: (type: string) => ({ type }),
-
-        renameInsight: (id: number) => ({ id }),
+        renameInsight: (insight: DashboardItemType) => ({ insight }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
         loadInsights: true,
     },
@@ -136,6 +134,23 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             (s) => [s.filters],
             (filters) => !objectsEqual(cleanFilters({ ...filters, tab: SavedInsightsTabs.All }), cleanFilters({})),
         ],
+        sorting: [
+            (s) => [s.filters],
+            (filters): Sorting | null => {
+                if (!filters.order) {
+                    return null
+                }
+                return filters.order.startsWith('-')
+                    ? {
+                          columnKey: filters.order.substr(1),
+                          order: -1,
+                      }
+                    : {
+                          columnKey: filters.order,
+                          order: 1,
+                      }
+            },
+        ],
         paramsFromFilters: [
             (s) => [s.filters],
             (filters) => ({
@@ -191,20 +206,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 }
             }
         },
-        renameInsight: async ({ id }) => {
-            prompt({ key: `rename-insight-${id}` }).actions.prompt({
-                title: 'Rename panel',
-                placeholder: 'Please enter the new name',
-                value: name,
-                error: 'You must enter name',
-                success: async (name: string) => {
-                    const insight = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, {
-                        name,
-                    })
-                    toast('Successfully renamed item')
-                    actions.setInsight(insight)
-                },
-            })
+        renameInsight: async ({ insight }) => {
+            dashboardItemsModel.actions.renameDashboardItem(insight)
         },
         duplicateInsight: async ({ insight }) => {
             await api.create(`api/projects/${values.currentTeamId}/insights`, insight)

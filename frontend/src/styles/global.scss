@@ -766,8 +766,8 @@ code.code {
     overflow-y: auto;
 }
 
-// AntD overrrides, placed inside #root to increase specifity (nicely avoiding the need for !important)
-#root {
+// AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
+body {
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {
@@ -777,5 +777,11 @@ code.code {
                 border-bottom-color: var(--border);
             }
         }
+    }
+    .ant-dropdown {
+        border-radius: var(--radius);
+    }
+    .ant-dropdown-menu {
+        border-radius: var(--radius);
     }
 }

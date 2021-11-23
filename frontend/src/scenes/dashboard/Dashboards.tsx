@@ -199,9 +199,8 @@ export function Dashboards(): JSX.Element {
                 <LemonTable
                     dataSource={dashboards}
                     rowKey="id"
-                    pagination={{ pageSize: 100 }}
                     columns={columns}
-                    defaultSorting={{ columnIndex: 0, order: 1 }}
+                    defaultSorting={{ columnKey: 'name', order: 1 }}
                     emptyState={
                         searchTerm ? (
                             `No ${
@@ -216,6 +215,7 @@ export function Dashboards(): JSX.Element {
                             </>
                         ) : undefined
                     }
+                    nouns={['dashboard', 'dashboards']}
                 />
             ) : (
                 <div className="mt">

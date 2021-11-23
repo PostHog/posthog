@@ -66,6 +66,7 @@ export function FeatureFlags(): JSX.Element {
         },
         {
             title: 'Status',
+            dataIndex: 'active',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
             width: 90,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
@@ -169,8 +170,9 @@ export function FeatureFlags(): JSX.Element {
                 columns={columns}
                 rowKey="key"
                 loading={featureFlagsLoading}
-                defaultSorting={{ columnIndex: 2, order: 1 }}
+                defaultSorting={{ columnKey: 'key', order: 1 }}
                 pagination={{ pageSize: 20 }}
+                nouns={['feature flag', 'feature flags']}
                 data-attr="feature-flag-table"
             />
         </div>
