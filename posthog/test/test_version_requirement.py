@@ -60,6 +60,11 @@ class TestVersionRequirement(TestCase):
         self.assertEqual(version5.minor, 0)
         self.assertEqual(version5.patch, 0)
 
+        version6 = VersionRequirement.version_string_to_semver("11.13 (Ubuntu 11.13-2.heroku1+1)")
+        self.assertEqual(version6.major, 11)
+        self.assertEqual(version6.minor, 13)
+        self.assertEqual(version6.patch, 0)
+
     @patch("posthog.version_requirement.VersionRequirement.get_service_version", lambda x: Version("12.1.2"))
     def test_ranges(self):
         v1 = VersionRequirement(service="postgresql", supported_version="==14.0.0")
