@@ -22,7 +22,7 @@ describe('insightLogic', () => {
     beforeEach(initKeaTests)
 
     mockAPI(async (url) => {
-        const { pathname, searchParams } = url
+        const { pathname, searchParams, method, data } = url
         const throwAPIError = (): void => {
             throw { status: 0, statusText: 'error from the API' }
         }
@@ -60,6 +60,8 @@ describe('insightLogic', () => {
                     { id: 43, result: ['result 43'], filters: API_FILTERS },
                 ],
             }
+        } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
+            return { id: 12, name: data?.name }
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
@@ -552,5 +554,36 @@ describe('insightLogic', () => {
 
         logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
         await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
+    })
+
+    test('Save as new insight', async () => {
+        const url = combineUrl('/insights', { insight: InsightType.FUNNELS }).url
+        router.actions.push(url)
+
+        featureFlagLogic.mount()
+        logic = insightLogic({
+            dashboardItemId: 42,
+            filters: { insight: InsightType.FUNNELS },
+            savedFilters: { insight: InsightType.FUNNELS },
+            syncWithUrl: true,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.saveAsNamingSuccess('New Insight (copy)')
+        })
+            .toDispatchActions(['setInsight'])
+            .toMatchValues({
+                filters: partial({ insight: InsightType.FUNNELS }),
+                // savedFilters: partial({ insight: InsightType.FUNNELS }),
+                insight: partial({ id: 12, name: 'New Insight (copy)' }),
+                filtersChanged: true,
+                syncWithUrl: true,
+            })
+        await expectLogic()
+            .toDispatchActions(router, ['locationChanged'])
+            .toMatchValues(router, {
+                hashParams: { edit: true, fromItem: 12 },
+            })
     })
 })
