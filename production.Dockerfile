@@ -113,7 +113,7 @@ RUN yarn build && \
     rm -rf ./node_modules
 
 # Generate Django's static files
-RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 # Add a dedicated 'posthog' user and group, move files into its home dir and set the
 # proper file permissions. This alleviates compliance issue for not running a
