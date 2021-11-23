@@ -283,6 +283,7 @@ class ClickhouseTrendsBreakdown:
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
+                "entity_math": entity.math,
                 "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
                 "date_to": date,
                 "breakdown_value": breakdown_value,
