@@ -54,6 +54,10 @@ const indexJs = `
             }
         }
     }
+
+    export async function onAction(action, event) {
+        testConsole.log('onAction', action, event)
+    }
 `
 
 // TODO: merge these tests with clickhouse/e2e.test.ts
@@ -167,6 +171,41 @@ describe('e2e', () => {
         })
     })
 
+    describe('onAction', () => {
+        const awaitOnActionLogs = async () =>
+            await new Promise((resolve) => {
+                resolve(testConsole.read().filter((log) => log[1] === 'onAction event'))
+            })
+
+        test('onAction receives the action and event', async () => {
+            await posthog.capture('onAction event', { foo: 'bar' })
+
+            await delayUntilEventIngested(awaitOnActionLogs, 1)
+
+            const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
+
+            const [logName, action, event] = log
+
+            expect(logName).toEqual('onAction')
+            expect(action).toEqual(
+                expect.objectContaining({
+                    id: 69,
+                    name: 'Test Action',
+                    team_id: 2,
+                    deleted: false,
+                    post_to_slack: true,
+                })
+            )
+            expect(event).toEqual(
+                expect.objectContaining({
+                    distinct_id: 'plugin-id-60',
+                    team_id: 2,
+                    event: 'onAction event',
+                })
+            )
+        })
+    })
+
     describe('e2e export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
             await new Promise((resolve) => {
@@ -254,7 +293,7 @@ describe('e2e', () => {
                 type: 'Export historical events',
                 jobOp: 'start',
                 payload: {
-                    dateFrom: new Date().toISOString(),
+                    dateFrom: new Date(Date.now() - ONE_HOUR).toISOString(),
                     dateTo: new Date().toISOString(),
                 },
             }
@@ -262,28 +301,16 @@ describe('e2e', () => {
 
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
 
-            // pass in an incorrect date range first
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delay(10000)
-
-            const exportedEventsCountAfterFirstJob = testConsole
-                .read()
-                .filter((log) => log[0] === 'exported historical event').length
-            expect(exportedEventsCountAfterFirstJob).toEqual(0)
-
-            // pass in the correct date range
-            kwargs.payload.dateFrom = new Date(Date.now() - ONE_HOUR).toISOString()
             args = Object.values(kwargs)
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
             await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
-            const exportedEventsCountAfterSecondJob = exportLogs.length
+            const exportedEventsCountAfterJob = exportLogs.length
             const exportedEvents = exportLogs.map((log) => log[1])
 
-            expect(exportedEventsCountAfterSecondJob).toEqual(4)
+            expect(exportedEventsCountAfterJob).toEqual(4)
             expect(exportedEvents.map((e) => e.event)).toEqual(
                 expect.arrayContaining(['historicalEvent1', 'historicalEvent2', 'historicalEvent3', 'historicalEvent4'])
             )

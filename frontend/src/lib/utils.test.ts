@@ -21,7 +21,7 @@ import {
     ceilMsToClosestSecond,
     floorMsToClosestSecond,
 } from './utils'
-import { ActionFilter, PropertyOperator } from '~/types'
+import { ActionFilter, ElementType, PropertyOperator } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -198,6 +198,14 @@ describe('dateFilterToText()', () => {
         expect(dateFilterToText('-1d', 'dStart', 'default')).toEqual('Yesterday')
         expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
     })
+
+    it('can have overridden date options', () => {
+        expect(
+            dateFilterToText('-21d', null, 'default', {
+                'Last 3 weeks': { values: ['-21d'] },
+            })
+        ).toEqual('Last 3 weeks')
+    })
 })
 
 describe('hexToRGBA()', () => {
@@ -361,14 +369,39 @@ describe('eventToName()', () => {
         )
     })
 
-    it('handles autocapture as expected', () => {
+    it('handles no text autocapture as expected', () => {
         expect(
             eventToDescription({
                 ...baseEvent,
                 event: '$autocapture',
                 properties: { $event_type: 'click' },
             })
-        ).toEqual('clicked ')
+        ).toEqual('clicked element')
+    })
+
+    it('handles long form autocapture as expected', () => {
+        expect(
+            eventToDescription({
+                ...baseEvent,
+                event: '$autocapture',
+                properties: { $event_type: 'click' },
+                elements: [{ tag_name: 'button', text: 'hello' } as ElementType],
+            })
+        ).toEqual('clicked button with text "hello"')
+    })
+
+    it('handles short form autocapture as expected', () => {
+        expect(
+            eventToDescription(
+                {
+                    ...baseEvent,
+                    event: '$autocapture',
+                    properties: { $event_type: 'click' },
+                    elements: [{ tag_name: 'button', text: 'hello' } as ElementType],
+                },
+                true
+            )
+        ).toEqual('clicked "hello"')
     })
 
     it('handles unknown event/action', () => {

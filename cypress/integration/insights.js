@@ -16,6 +16,38 @@ describe('Insights', () => {
         cy.get('[data-attr=funnel-bar-graph]').should('exist')
     })
 
+    it('Create new insight and save copy', () => {
+        cy.visit('/saved_insights')
+        cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
+        cy.get('[data-attr-insight-type="TRENDS"').click()
+
+        // apply filter
+        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
+        cy.get('[data-attr=prop-val]').click()
+        cy.get('[data-attr=prop-val-0]').click({ force: true })
+
+        // Save
+        cy.get('[data-attr="insight-save-button"]').click()
+        cy.get('[data-attr="insight-edit-button"]').click()
+
+        // Save and continue editing
+        cy.get('[data-attr="insight-save-dropdown"]').click()
+        cy.get('[data-attr="insight-save-and-continue"]').click()
+        cy.get('[data-attr="add-action-event-button"]').should('exist')
+
+        // Add another graph series, and save as new insight
+        cy.get('[data-attr="add-action-event-button"]').click()
+        cy.get('[data-attr="insight-save-dropdown"]').click()
+        cy.get('[data-attr="insight-save-as-new-insight"]').click()
+
+        cy.get('.ant-modal .ant-btn-primary').click()
+        cy.get('[data-attr="insight-name"').contains('(copy)').should('exist')
+        // Check we're in edit mode
+        cy.get('[data-attr="insight-save-button"]').should('exist')
+    })
+
     it('Shows not found error with invalid short URL', () => {
         cy.visit('/i/i_dont_exist')
         cy.location('pathname').should('eq', '/i/i_dont_exist')

@@ -172,7 +172,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             },
         ],
         fromDate: [
-            dayjs().subtract(30, 'days').format('YYYY-MM-DD') as null | string,
+            dayjs().subtract(7, 'days').format('YYYY-MM-DD') as null | string,
             {
                 setDateRange: (_, { incomingFromDate }) => incomingFromDate ?? null,
             },
