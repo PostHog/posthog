@@ -29,6 +29,7 @@ from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import AnalyticsDBMS
 from posthog.utils import print_warning, str_to_bool
+from posthog.version_requirement import ServiceVersionRequirement
 
 
 def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
@@ -502,8 +503,10 @@ else:
 
 # Broker
 
+IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
+
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
-if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
+if TEST or DEBUG or IS_COLLECT_STATIC:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.getenv("REDIS_URL", "")
@@ -731,3 +734,20 @@ structlog.configure(
 
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
+
+SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
+    "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool
+)
+
+if SKIP_SERVICE_VERSION_REQUIREMENTS:
+    print_warning("Skipping service version requirements. This is dangerous and PostHog might not work as expected!")
+
+SERVICE_VERSION_REQUIREMENTS = [
+    ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0",),
+    ServiceVersionRequirement(service="redis", supported_version=">=5.0.0,<=6.3.0",),
+]
+
+if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
+    SERVICE_VERSION_REQUIREMENTS = SERVICE_VERSION_REQUIREMENTS + [
+        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
+    ]
