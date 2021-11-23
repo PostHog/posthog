@@ -30,7 +30,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             },
             returning_entity: filters.returning_entity || { id: '$pageview', type: 'events', name: '$pageview' },
             date_to: filters.date_to,
-            period: filters.period || 'Day',
+            period: filters.period || 'Week',
             retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
