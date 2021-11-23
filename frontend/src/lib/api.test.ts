@@ -9,24 +9,42 @@ describe('API helper', () => {
             window.fetch = fakeFetch
         })
 
-        it('adds a leading slash to relative URLs', () => {
-            api.get('relative/url')
-            expect(fakeFetch.mock.calls[0][0]).toEqual('/relative/url/')
-        })
+        const testCases = [
+            {
+                url: 'relative/url',
+                expected: '/relative/url/',
+            },
+            {
+                url: '/absolute/url',
+                expected: '/absolute/url/',
+            },
+            {
+                url: 'relative/url?with=parameters',
+                expected: '/relative/url?with=parameters',
+            },
+            {
+                url: '/absolute/url?with=parameters',
+                expected: '/absolute/url?with=parameters',
+            },
+            {
+                url: 'http://some/url',
+                expected: 'http://some/url',
+            },
+            {
+                url: 'https://some/url',
+                expected: 'https://some/url',
+            },
+        ]
 
-        it('does not add leading slash when absolute url with no http', () => {
-            api.get('/absolute/url')
-            expect(fakeFetch.mock.calls[0][0]).toEqual('/absolute/url/')
-        })
+        const verbs = ['get', 'update', 'create', 'delete']
 
-        it('does not add leading slash to http urls', () => {
-            api.get('http://some/url')
-            expect(fakeFetch.mock.calls[0][0]).toEqual('http://some/url')
-        })
-
-        it('does not add leading slash to https urls', () => {
-            api.get('https://some/url')
-            expect(fakeFetch.mock.calls[0][0]).toEqual('https://some/url')
+        verbs.forEach((verb) => {
+            testCases.forEach((testCase) => {
+                it(`when API is using verb ${verb} it normalises ${testCase.url} to ${testCase.expected}`, () => {
+                    api[verb](testCase.url)
+                    expect(fakeFetch.mock.calls[0][0]).toEqual(testCase.expected)
+                })
+            })
         })
     })
 })

@@ -127,6 +127,17 @@ class ApiRequest {
     }
 }
 
+const normalise_url = (url: string): string => {
+    if (url.indexOf('http') !== 0) {
+        if (!url.startsWith('/')) {
+            url = '/' + url
+        }
+
+        url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+    }
+    return url
+}
+
 const api = {
     actions: {
         async get(actionId: ActionType['id']): Promise<ActionType> {
@@ -236,13 +247,7 @@ const api = {
     },
 
     async get(url: string, signal?: AbortSignal): Promise<any> {
-        if (url.indexOf('http') !== 0) {
-            if (!url.startsWith('/')) {
-                url = '/' + url
-            }
-
-            url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
+        url = normalise_url(url)
         let response
         const startTime = new Date().getTime()
         try {
@@ -260,9 +265,7 @@ const api = {
     },
 
     async update(url: string, data: any): Promise<any> {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
+        url = normalise_url(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
@@ -285,9 +288,7 @@ const api = {
     },
 
     async create(url: string, data?: any): Promise<any> {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
+        url = normalise_url(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
@@ -310,9 +311,7 @@ const api = {
     },
 
     async delete(url: string): Promise<any> {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
+        url = normalise_url(url)
         const startTime = new Date().getTime()
         const response = await fetch(url, {
             method: 'DELETE',
