@@ -589,7 +589,7 @@ export const insightLogic = kea<insightLogicType>({
             toast(`You're now working on a copy of ${values.insight.name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
             if (values.syncWithUrl) {
-                router.actions.replace('/insights', router.values.searchParams, {
+                router.actions.push('/insights', router.values.searchParams, {
                     ...router.values.hashParams,
                     edit: true,
                     fromItem: insight.id,
