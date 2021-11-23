@@ -1,58 +1,49 @@
-from typing import Literal
-
 from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialized_column_name
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
+from ee.clickhouse.sql.session_recording_events import SESSION_RECORDING_EVENTS_TABLE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_REPLICATION
 
-HAS_FULL_SNAPSHOT_FIELD_NAME = "has_full_snapshot"
-SESSION_RECORDING_EVENTS_TABLE_NAME: Literal["session_recording_events"] = "session_recording_events"
 
+def create_has_full_snapshot_materialized_column():
 
-def create_has_full_snapshot_materialized_column(database):
-
-    if HAS_FULL_SNAPSHOT_FIELD_NAME in get_materialized_columns(SESSION_RECORDING_EVENTS_TABLE_NAME, use_cache=False):
+    if "has_full_snapshot" in get_materialized_columns(SESSION_RECORDING_EVENTS_TABLE, use_cache=False):
         # Field is already materialized
         return
-
-    column_name = materialized_column_name(SESSION_RECORDING_EVENTS_TABLE_NAME, HAS_FULL_SNAPSHOT_FIELD_NAME)
-
-    extract_bool_string = f"JSONExtractBool(snapshot_data, '{HAS_FULL_SNAPSHOT_FIELD_NAME}')"
 
     if CLICKHOUSE_REPLICATION:
         sync_execute(
             f"""
-            ALTER TABLE sharded_{SESSION_RECORDING_EVENTS_TABLE_NAME}
+            ALTER TABLE sharded_{SESSION_RECORDING_EVENTS_TABLE}
             ON CLUSTER {CLICKHOUSE_CLUSTER}
             ADD COLUMN IF NOT EXISTS
-            {column_name} BOOLEAN MATERIALIZED {extract_bool_string}
+            has_full_snapshot BOOLEAN MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot')
         """
         )
         sync_execute(
             f"""
-            ALTER TABLE {SESSION_RECORDING_EVENTS_TABLE_NAME}
+            ALTER TABLE {SESSION_RECORDING_EVENTS_TABLE}
             ON CLUSTER {CLICKHOUSE_CLUSTER}
             ADD COLUMN IF NOT EXISTS
-            {column_name} BOOLEAN
+            has_full_snapshot BOOLEAN
         """
         )
     else:
         sync_execute(
             f"""
-            ALTER TABLE {SESSION_RECORDING_EVENTS_TABLE_NAME}
+            ALTER TABLE {SESSION_RECORDING_EVENTS_TABLE}
             ON CLUSTER {CLICKHOUSE_CLUSTER}
             ADD COLUMN IF NOT EXISTS
-            {column_name} BOOLEAN MATERIALIZED {extract_bool_string}
+            has_full_snapshot BOOLEAN MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot')
         """
         )
 
     sync_execute(
-        f"""ALTER TABLE {SESSION_RECORDING_EVENTS_TABLE_NAME}
+        f"""ALTER TABLE {SESSION_RECORDING_EVENTS_TABLE}
          ON CLUSTER {CLICKHOUSE_CLUSTER}
-         COMMENT COLUMN {column_name} %(comment)s
-         """,
-        {"comment": f"column_materializer::{HAS_FULL_SNAPSHOT_FIELD_NAME}"},
+         COMMENT COLUMN has_full_snapshot column_materializer::has_full_snapshot
+         """
     )
 
 

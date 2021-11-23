@@ -137,7 +137,7 @@ def backfill_materialized_columns(
     )
 
 
-def materialized_column_name(table: TablesWithMaterializedColumns, property: PropertyName) -> str:
+def materialized_column_name(table: TableWithProperties, property: PropertyName) -> str:
     "Returns a sanitized and unique column name to use for materialized column"
 
     prefix = "mat_" if table == "events" else "pmat_"

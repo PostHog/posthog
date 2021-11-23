@@ -193,7 +193,7 @@
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
-            SUM(pmat_has_full_snapshot) as full_snapshots
+            SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events
      WHERE team_id = 2
        AND timestamp >= '2021-08-13 12:00:00'
@@ -276,7 +276,7 @@
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
-            SUM(pmat_has_full_snapshot) as full_snapshots
+            SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events
      WHERE team_id = 2
        AND timestamp >= '2021-01-13 12:00:00'
@@ -345,7 +345,7 @@
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
-            SUM(pmat_has_full_snapshot) as full_snapshots
+            SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events
      WHERE team_id = 2
        AND timestamp >= '2021-01-13 12:00:00'
@@ -413,7 +413,7 @@
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
-            SUM(pmat_has_full_snapshot) as full_snapshots
+            SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events
      WHERE team_id = 2
        AND timestamp >= '2021-01-13 12:00:00'

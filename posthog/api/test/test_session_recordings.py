@@ -17,7 +17,15 @@ from posthog.test.base import APIBaseTest
 def factory_test_session_recordings_api(session_recording_event_factory):
     class TestSessionRecordings(APIBaseTest):
         def create_snapshot(
-            self, distinct_id, session_id, timestamp, team_id=None, window_id="", source=0, has_full_snapshot=True
+            self,
+            distinct_id,
+            session_id,
+            timestamp,
+            team_id=None,
+            window_id="",
+            source=0,
+            has_full_snapshot=True,
+            type=2,
         ):
             if team_id == None:
                 team_id = self.team.pk
@@ -30,7 +38,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 snapshot_data={
                     "timestamp": timestamp.timestamp() * 1000,
                     "has_full_snapshot": has_full_snapshot,
-                    "type": 2 if has_full_snapshot else 3,
+                    "type": type,
                     "data": {"source": source},
                 },
             )
@@ -226,7 +234,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             session_recording_id = "session_1"
             base_time = now() - relativedelta(days=1)
             self.create_snapshot(
-                "d1", session_recording_id, base_time, window_id="1", has_full_snapshot=False, source=3
+                "d1", session_recording_id, base_time, window_id="1", has_full_snapshot=False, source=3, type=3
             )
             self.create_snapshot(
                 "d1",
@@ -234,6 +242,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 base_time + relativedelta(seconds=30),
                 window_id="1",
                 has_full_snapshot=False,
+                type=3,
                 source=3,
             )
             response = self.client.get(
