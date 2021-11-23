@@ -7,6 +7,7 @@ import { useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
 import { formatDisplayPercentage } from 'scenes/funnels/funnelUtils'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 export function PlayerMeta(): JSX.Element {
     const { sessionPerson, description, resolution, scale, meta, loading } = useValues(metaLogic)
@@ -38,7 +39,9 @@ export function PlayerMeta(): JSX.Element {
                     {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1, width: 80 }} />
                     ) : (
-                        <span className="time text-small">{meta.startTime && dayjs(meta.startTime).fromNow()}</span>
+                        <span className="time text-muted">
+                            {meta.startTime && <TZLabel time={dayjs(meta.startTime)} />}
+                        </span>
                     )}
                 </Col>
             </Row>
@@ -47,14 +50,14 @@ export function PlayerMeta(): JSX.Element {
                     {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1 }} />
                     ) : (
-                        <span className="text-small">{description}</span>
+                        <span className="">{description}</span>
                     )}
                 </Row>
-                <Row className="player-meta-other-resolution">
+                <Row className="player-meta-other-resolution mt-05">
                     {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1, width: '100%' }} />
                     ) : (
-                        <span className="text-small">
+                        <span className="">
                             {resolution ? (
                                 <>
                                     Resolution: {resolution.width} x {resolution.height} (
