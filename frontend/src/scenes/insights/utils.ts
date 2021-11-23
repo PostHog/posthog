@@ -3,6 +3,8 @@ import { ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import api from 'lib/api'
+import { getCurrentTeamId } from 'lib/utils/logics'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -85,4 +87,9 @@ export function findInsightFromMountedLogic(
     }
 
     return null
+}
+
+export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
+    return (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+        .results[0]?.id
 }

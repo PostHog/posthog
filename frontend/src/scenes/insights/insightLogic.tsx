@@ -25,7 +25,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { extractObjectDiffKeys, findInsightFromMountedLogic } from './utils'
+import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -546,8 +546,13 @@ export const insightLogic = kea<insightLogicType>({
             actions.setInsightMetadata({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
         saveInsight: async ({ setViewMode }) => {
+            const insightId =
+                values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
+            if (!insightId) {
+                throw new Error('Can only save saved insights whose id is known.')
+            }
             const savedInsight: DashboardItemType = await api.update(
-                `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
                 { ...values.insight, saved: true }
             )
             actions.setInsight(

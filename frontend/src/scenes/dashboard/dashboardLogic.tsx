@@ -23,7 +23,7 @@ import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
-import { getInsightId } from 'scenes/insights/sharedUtils'
+import { getInsightId } from 'scenes/insights/utils'
 
 export interface DashboardLogicProps {
     id?: number
