@@ -44,6 +44,7 @@ test('empty plugins', async () => {
     expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm'])
     expect(Object.keys(vm.methods).sort()).toEqual([
         'exportEvents',
+        'onAction',
         'onEvent',
         'onSnapshot',
         'processEvent',
@@ -1091,7 +1092,7 @@ describe('exportEvents', () => {
         expect(Object.keys(vm.tasks.job)).toEqual(
             expect.arrayContaining(['exportEventsWithRetry', 'exportHistoricalEvents', 'Export historical events'])
         )
-        expect(Object.keys(vm.tasks.schedule)).toEqual([])
+        expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
         expect(
             Object.keys(vm.methods)
                 .filter((m) => !!vm.methods[m as keyof typeof vm.methods])

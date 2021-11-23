@@ -204,12 +204,18 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                     <span> {key}</span>
                                 </>
                             )}
-                            defaultValue="Last 30 days"
+                            defaultValue="Last 7 days"
                             bordered={true}
                             dateFrom={fromDate ?? undefined}
                             dateTo={toDate ?? undefined}
                             onChange={(changedDateFrom, changedDateTo) => {
                                 setDateRange(changedDateFrom, changedDateTo)
+                            }}
+                            dateOptions={{
+                                Custom: { values: [] },
+                                'Last 24 hours': { values: ['-24h'] },
+                                'Last 7 days': { values: ['-7d'] },
+                                'Last 21 days': { values: ['-21d'] },
                             }}
                         />
                     </Row>

@@ -3,12 +3,11 @@ import { RecordingEventsFilters, RecordingEventType } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
-import { CellMeasurerCache } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/commonjs/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-export const DEFAULT_ROW_HEIGHT = 50
+export const DEFAULT_ROW_HEIGHT = 65 // Two lines
 export const OVERSCANNED_ROW_COUNT = 50
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
@@ -28,7 +27,6 @@ export const eventsListLogic = kea<eventsListLogicType>({
         setLocalFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setRenderedRows: (renderMeta: RenderedRows) => ({ renderMeta }),
         setList: (list: List) => ({ list }),
-        clearCellCache: true,
         enablePositionFinder: true,
         disablePositionFinder: true,
         scrollTo: (rowIndex?: number) => ({ rowIndex }),
@@ -67,20 +65,10 @@ export const eventsListLogic = kea<eventsListLogicType>({
             },
         ],
     },
-    listeners: ({ cache, actions, values }) => ({
+    listeners: ({ actions, values }) => ({
         setLocalFilters: async (_, breakpoint) => {
             await breakpoint(250)
             actions.setFilters(values.localFilters)
-            actions.clearCellCache()
-        },
-        loadEventsSuccess: () => {
-            // TODO: We could be smarter here and only clear the cache of event rows that were recently added
-            actions.clearCellCache()
-        },
-        clearCellCache: async (_, breakpoint) => {
-            await breakpoint(250)
-            cache.cellMeasurerCache?.clearAll()
-            values.list?.measureAllRows()
         },
         scrollTo: async ({ rowIndex: _rowIndex }, breakpoint) => {
             const rowIndex = _rowIndex ?? values.currentEventsIndices.startIndex
@@ -99,7 +87,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
             }
         },
     }),
-    selectors: ({ cache }) => ({
+    selectors: () => ({
         listEvents: [
             (selectors) => [selectors.eventsToShow],
             (events: RecordingEventType[]): RecordingEventType[] => {
@@ -109,7 +97,6 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 }))
             },
         ],
-        cellMeasurerCache: [() => [], () => cache.cellMeasurerCache],
         currentEventsTimeRange: [
             (selectors) => [selectors.listEvents, selectors.zeroOffsetTime],
             (events, time) => {
@@ -206,18 +193,5 @@ export const eventsListLogic = kea<eventsListLogicType>({
             (selectors) => [selectors.sessionEventsDataLoading, selectors.firstChunkLoaded],
             (eventsLoading, firstChunkLoaded) => !firstChunkLoaded || eventsLoading,
         ],
-    }),
-    events: ({ cache, actions }) => ({
-        afterMount: () => {
-            cache.cellMeasurerCache = new CellMeasurerCache({
-                fixedWidth: true,
-                defaultHeight: DEFAULT_ROW_HEIGHT,
-            })
-            window.addEventListener('resize', actions.clearCellCache)
-        },
-        afterUnmount: () => {
-            cache.cellMeasurerCache = null
-            window.removeEventListener('resize', actions.clearCellCache)
-        },
     }),
 })

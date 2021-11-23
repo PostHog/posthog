@@ -134,7 +134,7 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
-            feature_flags = get_overridden_feature_flags(team, data["distinct_id"])
+            feature_flags = get_overridden_feature_flags(team, data["distinct_id"], data.get("groups", {}))
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
