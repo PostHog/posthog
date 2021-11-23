@@ -38,7 +38,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
     props: {} as {
         hashParams: Record<string, any>
     },
-    connect: {
+    connect: () => ({
         values: [
             preflightLogic,
             ['preflight'],
@@ -54,10 +54,10 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
             ['rawDashboards', 'lastDashboardId'],
             featureFlagLogic,
             ['featureFlag'],
-            personsLogic,
+            personsLogic({ syncWithUrl: true }),
             ['person'],
         ],
-    },
+    }),
     selectors: () => ({
         breadcrumbs: [
             (s) => [

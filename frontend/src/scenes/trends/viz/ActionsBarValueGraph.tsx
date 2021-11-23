@@ -3,7 +3,7 @@ import { LineGraph } from '../../insights/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { LineGraphEmptyState } from '../../insights/EmptyStates'
+import { InsightEmptyState } from '../../insights/EmptyStates'
 import { FilterType, TrendResultWithAggregate } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -109,6 +109,6 @@ export function ActionsBarValueGraph({
             }
         />
     ) : (
-        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
     )
 }

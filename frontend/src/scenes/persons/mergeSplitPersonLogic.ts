@@ -22,10 +22,13 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType<ActivityType,
     props: {} as SplitPersonLogicProps,
     key: (props) => props.person.id,
     path: (key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key || 'new'],
-    connect: {
-        actions: [personsLogic, ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown']],
-        values: [personsLogic, ['persons']],
-    },
+    connect: () => ({
+        actions: [
+            personsLogic({ syncWithUrl: true }),
+            ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown'],
+        ],
+        values: [personsLogic({ syncWithUrl: true }), ['persons']],
+    }),
     actions: {
         setActivity: (activity: ActivityType) => ({ activity }),
         setSelectedPersonsToMerge: (persons: PersonIds) => ({ persons }),

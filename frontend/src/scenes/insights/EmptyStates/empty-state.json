@@ -1,0 +1,1310 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/insights",
+                "search": "?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24feature_flag_called%22%2C%22name%22%3A%22%24feature_flag_called%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=%5B%5D&filter_test_accounts=false&new_entity=%5B%5D&date_from=-1d&date_to=dStart",
+                "hash": "#fromItem=34&edit=true"
+            },
+            "searchParams": {
+                "insight": "TRENDS",
+                "interval": "day",
+                "display": "ActionsLineGraph",
+                "actions": [],
+                "events": [
+                    {
+                        "id": "$feature_flag_called",
+                        "name": "$feature_flag_called",
+                        "type": "events",
+                        "order": 0
+                    }
+                ],
+                "properties": [],
+                "filter_test_accounts": false,
+                "new_entity": [],
+                "date_from": "-1d",
+                "date_to": "dStart"
+            },
+            "hashParams": {
+                "fromItem": 34,
+                "edit": true
+            },
+            "lastMethod": "REPLACE"
+        }
+    },
+    "scenes": {
+        "organizationLogic": {
+            "currentOrganization": {
+                "id": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                "name": "Hogflix",
+                "slug": "hogflix",
+                "created_at": "2021-11-12T20:24:37.580946Z",
+                "updated_at": "2021-11-19T05:32:26.185018Z",
+                "membership_level": 15,
+                "personalization": {},
+                "setup": {
+                    "is_active": false,
+                    "current_section": null
+                },
+                "plugins_access_level": 9,
+                "teams": [
+                    {
+                        "id": 2,
+                        "uuid": "017d15d7-c4df-0000-9a71-a7bc0ba5f8f8",
+                        "organization": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                        "api_token": "phc_R5kpRUNBf7GVsQ5oBTVX0ApKnMnjE9MJU4n3jVluTKG",
+                        "name": "HogFlix Demo App",
+                        "completed_snippet_onboarding": true,
+                        "ingested_event": true,
+                        "is_demo": true,
+                        "timezone": "UTC",
+                        "access_control": false,
+                        "effective_membership_level": 15
+                    }
+                ],
+                "available_features": [
+                    "zapier",
+                    "organizations_projects",
+                    "google_login",
+                    "dashboard_collaboration",
+                    "ingestion_taxonomy",
+                    "paths_advanced",
+                    "correlation_analysis",
+                    "project_based_permissioning",
+                    "saml"
+                ],
+                "domain_whitelist": [],
+                "is_member_join_email_enabled": true
+            },
+            "currentOrganizationLoading": false,
+            "organizationBeingDeleted": null
+        },
+        "teamLogic": {
+            "currentTeam": {
+                "id": 2,
+                "uuid": "017d15d7-c4df-0000-9a71-a7bc0ba5f8f8",
+                "organization": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                "api_token": "phc_R5kpRUNBf7GVsQ5oBTVX0ApKnMnjE9MJU4n3jVluTKG",
+                "app_urls": [],
+                "name": "HogFlix Demo App",
+                "slack_incoming_webhook": null,
+                "created_at": "2021-11-12T20:30:01.952257Z",
+                "updated_at": "2021-11-19T05:18:21.129579Z",
+                "anonymize_ips": false,
+                "completed_snippet_onboarding": true,
+                "ingested_event": true,
+                "test_account_filters": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "@posthog.com",
+                        "operator": "not_icontains"
+                    },
+                    {
+                        "key": "$host",
+                        "value": ["localhost:8000"],
+                        "operator": "is_not"
+                    }
+                ],
+                "path_cleaning_filters": [],
+                "is_demo": true,
+                "timezone": "UTC",
+                "data_attributes": ["data-attr"],
+                "correlation_config": {
+                    "excluded_event_names": ["$autocapture"],
+                    "excluded_person_property_names": []
+                },
+                "session_recording_opt_in": false,
+                "session_recording_retention_period_days": null,
+                "effective_membership_level": 15,
+                "access_control": false
+            },
+            "currentTeamLoading": false,
+            "teamBeingDeleted": null
+        },
+        "userLogic": {
+            "user": {
+                "date_joined": "2021-11-12T20:24:39.015588Z",
+                "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                "first_name": "Jane Doe",
+                "email": "test@posthog.com",
+                "email_opt_in": true,
+                "anonymize_data": false,
+                "toolbar_mode": "toolbar",
+                "has_password": true,
+                "is_staff": false,
+                "is_impersonated": false,
+                "team": {
+                    "id": 2,
+                    "uuid": "017d15d7-c4df-0000-9a71-a7bc0ba5f8f8",
+                    "organization": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                    "api_token": "phc_R5kpRUNBf7GVsQ5oBTVX0ApKnMnjE9MJU4n3jVluTKG",
+                    "name": "HogFlix Demo App",
+                    "completed_snippet_onboarding": true,
+                    "ingested_event": true,
+                    "is_demo": true,
+                    "timezone": "UTC",
+                    "access_control": false,
+                    "effective_membership_level": 15
+                },
+                "organization": {
+                    "id": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                    "name": "Hogflix",
+                    "slug": "hogflix",
+                    "created_at": "2021-11-12T20:24:37.580946Z",
+                    "updated_at": "2021-11-19T05:32:26.185018Z",
+                    "membership_level": 15,
+                    "personalization": {},
+                    "setup": {
+                        "is_active": false,
+                        "current_section": null
+                    },
+                    "plugins_access_level": 9,
+                    "teams": [
+                        {
+                            "id": 2,
+                            "uuid": "017d15d7-c4df-0000-9a71-a7bc0ba5f8f8",
+                            "organization": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                            "api_token": "phc_R5kpRUNBf7GVsQ5oBTVX0ApKnMnjE9MJU4n3jVluTKG",
+                            "name": "HogFlix Demo App",
+                            "completed_snippet_onboarding": true,
+                            "ingested_event": true,
+                            "is_demo": true,
+                            "timezone": "UTC",
+                            "access_control": false,
+                            "effective_membership_level": 15
+                        }
+                    ],
+                    "available_features": [
+                        "zapier",
+                        "organizations_projects",
+                        "google_login",
+                        "dashboard_collaboration",
+                        "ingestion_taxonomy",
+                        "paths_advanced",
+                        "correlation_analysis",
+                        "project_based_permissioning",
+                        "saml"
+                    ],
+                    "domain_whitelist": [],
+                    "is_member_join_email_enabled": true
+                },
+                "organizations": [
+                    {
+                        "id": "017d15d2-d1c8-0000-f3be-db08551065e8",
+                        "name": "Hogflix",
+                        "slug": "hogflix",
+                        "membership_level": 15
+                    }
+                ],
+                "events_column_config": {
+                    "active": "DEFAULT"
+                }
+            },
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "preflightLogic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": false,
+                    "celery": false,
+                    "db": true,
+                    "initiated": true,
+                    "cloud": false,
+                    "realm": "hosted-clickhouse",
+                    "available_social_auth_providers": {
+                        "github": false,
+                        "gitlab": false,
+                        "google-oauth2": false,
+                        "saml": false
+                    },
+                    "can_create_org": true,
+                    "email_service_available": false,
+                    "ee_available": true,
+                    "is_clickhouse_enabled": true,
+                    "db_backend": "clickhouse",
+                    "available_timezones": {
+                        "US/Pacific": -8,
+                        "UTC": 0
+                    },
+                    "opt_out_capture": false,
+                    "posthog_version": "1.30.0",
+                    "is_debug": true,
+                    "is_event_property_usage_enabled": false,
+                    "licensed_users_available": null,
+                    "site_url": "http://localhost:8000",
+                    "instance_preferences": {
+                        "debug_queries": false,
+                        "disable_paid_fs": false
+                    }
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "Insights",
+            "loadedScenes": {
+                "404": {
+                    "name": "404",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {},
+                        "hashParams": {}
+                    }
+                },
+                "4xx": {
+                    "name": "4xx",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {},
+                        "hashParams": {}
+                    }
+                },
+                "ProjectUnavailable": {
+                    "name": "ProjectUnavailable",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {},
+                        "hashParams": {}
+                    }
+                },
+                "Insights": {
+                    "name": "Insights",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {
+                            "insight": "TRENDS",
+                            "interval": "day",
+                            "display": "ActionsLineGraph",
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "$feature_flag_called",
+                                    "name": "$feature_flag_called",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ],
+                            "properties": [],
+                            "filter_test_accounts": false,
+                            "new_entity": [],
+                            "date_from": "-1d",
+                            "date_to": "dStart"
+                        },
+                        "hashParams": {
+                            "fromItem": 34,
+                            "edit": true
+                        }
+                    },
+                    "lastTouch": 1637337759727
+                },
+                "InsightRouter": {
+                    "name": "InsightRouter",
+                    "sceneParams": {
+                        "params": {},
+                        "searchParams": {
+                            "insight": "TRENDS"
+                        },
+                        "hashParams": {}
+                    },
+                    "lastTouch": 1637337747337
+                }
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null,
+            "lastReloadAt": null
+        },
+        "instance": {
+            "SystemStatus": {
+                "systemStatusLogic": {
+                    "systemStatus": {
+                        "overview": [],
+                        "internal_metrics": {}
+                    },
+                    "systemStatusLoading": false,
+                    "queries": null,
+                    "queriesLoading": false,
+                    "analyzeQueryResult": null,
+                    "analyzeQueryResultLoading": false,
+                    "tab": "overview",
+                    "error": null,
+                    "openSections": ["0"],
+                    "analyzeModalOpen": false,
+                    "analyzeQuery": ""
+                }
+            },
+            "Licenses": {
+                "licenseLogic": {
+                    "licenses": [
+                        {
+                            "id": 1,
+                            "key": "123",
+                            "plan": "enterprise",
+                            "valid_until": "2022-11-19T05:33:55.999116Z",
+                            "max_users": null,
+                            "created_at": "2021-11-19T05:33:56.018147Z"
+                        },
+                        {
+                            "id": 2,
+                            "key": "123",
+                            "plan": "enterprise",
+                            "valid_until": "2022-11-19T05:34:05.318528Z",
+                            "max_users": null,
+                            "created_at": "2021-11-19T05:34:05.318819Z"
+                        },
+                        {
+                            "id": 3,
+                            "key": "123",
+                            "plan": "enterprise",
+                            "valid_until": "2022-11-19T05:34:12.400864Z",
+                            "max_users": null,
+                            "created_at": "2021-11-19T05:34:12.417724Z"
+                        }
+                    ],
+                    "licensesLoading": false,
+                    "error": null
+                }
+            }
+        },
+        "organization": {
+            "Settings": {
+                "bulkInviteLogic": {
+                    "invitedTeamMembers": [],
+                    "invitedTeamMembersLoading": false,
+                    "invites": [
+                        {
+                            "target_email": "",
+                            "first_name": "",
+                            "isValid": true
+                        }
+                    ]
+                }
+            }
+        },
+        "feature-flags": {
+            "featureFlagLogic": {
+                "featureFlag": null,
+                "featureFlagLoading": false,
+                "featureFlagId": null
+            }
+        },
+        "persons": {
+            "personsLogic": {
+                "persons": {
+                    "next": null,
+                    "previous": null,
+                    "results": []
+                },
+                "personsLoading": false,
+                "person": null,
+                "personLoading": false,
+                "cohorts": null,
+                "cohortsLoading": false,
+                "deletedPerson": false,
+                "deletedPersonLoading": false,
+                "listFilters": {},
+                "hasNewKeys": false,
+                "activeTab": null,
+                "splitMergeModalShown": false
+            }
+        },
+        "billing": {
+            "billingLogic": {
+                "billing": null,
+                "billingLoading": false,
+                "plans": [],
+                "plansLoading": false,
+                "billingSubscription": null,
+                "billingSubscriptionLoading": false
+            }
+        },
+        "insights": {
+            "InsightDateFilter": {
+                "insightDateFilterLogic": {
+                    "dates": {
+                        "dateFrom": "-1d",
+                        "dateTo": "dStart"
+                    },
+                    "highlightDateChange": false,
+                    "initialLoad": false
+                }
+            },
+            "insightLogic": {
+                "scene": {
+                    "insight": {
+                        "id": 34,
+                        "short_id": "GDMg1ekj",
+                        "name": "Rough Dunlin",
+                        "filters": {
+                            "insight": "TRENDS",
+                            "interval": "day",
+                            "display": "ActionsLineGraph",
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "$feature_flag_called",
+                                    "name": "$feature_flag_called",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ],
+                            "properties": [],
+                            "filter_test_accounts": false,
+                            "new_entity": [],
+                            "date_from": "-1d",
+                            "date_to": "dStart"
+                        },
+                        "filters_hash": "cache_f9f6c2699aa06287232c19cdc5038876",
+                        "order": null,
+                        "deleted": false,
+                        "dashboard": null,
+                        "dive_dashboard": null,
+                        "layouts": {},
+                        "color": null,
+                        "last_refresh": null,
+                        "refreshing": false,
+                        "result": [
+                            {
+                                "action": {
+                                    "id": "$feature_flag_called",
+                                    "type": "events",
+                                    "order": 0,
+                                    "name": "$feature_flag_called",
+                                    "custom_name": null,
+                                    "math": null,
+                                    "math_property": null,
+                                    "math_group_type_index": null,
+                                    "properties": []
+                                },
+                                "label": "$feature_flag_called",
+                                "count": 0,
+                                "data": [0, 0],
+                                "labels": ["18-Nov-2021", "19-Nov-2021"],
+                                "days": ["2021-11-18", "2021-11-19"],
+                                "persons_urls": [
+                                    {
+                                        "filter": {
+                                            "entity_id": "$feature_flag_called",
+                                            "entity_type": "events",
+                                            "date_from": "2021-11-18",
+                                            "date_to": "2021-11-18"
+                                        },
+                                        "url": "api/projects/2/actions/people/?date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24feature_flag_called%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24feature_flag_called%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24feature_flag_called&entity_type=events"
+                                    },
+                                    {
+                                        "filter": {
+                                            "entity_id": "$feature_flag_called",
+                                            "entity_type": "events",
+                                            "date_from": "2021-11-19",
+                                            "date_to": "2021-11-19"
+                                        },
+                                        "url": "api/projects/2/actions/people/?date_from=2021-11-19&date_to=2021-11-19&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24feature_flag_called%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24feature_flag_called%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24feature_flag_called&entity_type=events"
+                                    }
+                                ],
+                                "filter": {
+                                    "date_from": "-1d",
+                                    "date_to": "dStart",
+                                    "display": "ActionsLineGraph",
+                                    "events": [
+                                        {
+                                            "id": "$feature_flag_called",
+                                            "type": "events",
+                                            "order": 0,
+                                            "name": "$feature_flag_called",
+                                            "custom_name": null,
+                                            "math": null,
+                                            "math_property": null,
+                                            "math_group_type_index": null,
+                                            "properties": []
+                                        }
+                                    ],
+                                    "insight": "TRENDS",
+                                    "interval": "day"
+                                }
+                            }
+                        ],
+                        "created_at": "2021-11-19T16:02:27.397535Z",
+                        "description": "",
+                        "updated_at": "2021-11-19T16:02:27.397601Z",
+                        "tags": [],
+                        "favorited": false,
+                        "saved": false,
+                        "created_by": {
+                            "id": 1,
+                            "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                            "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                            "first_name": "Jane Doe",
+                            "email": "test@posthog.com"
+                        },
+                        "is_sample": false,
+                        "next": null
+                    },
+                    "insightLoading": false,
+                    "filters": {
+                        "insight": "TRENDS",
+                        "interval": "day",
+                        "display": "ActionsLineGraph",
+                        "actions": [],
+                        "events": [
+                            {
+                                "id": "$feature_flag_called",
+                                "name": "$feature_flag_called",
+                                "type": "events",
+                                "order": 0
+                            }
+                        ],
+                        "properties": [],
+                        "filter_test_accounts": false,
+                        "new_entity": [],
+                        "date_from": "-1d",
+                        "date_to": "dStart"
+                    },
+                    "savedFilters": {
+                        "insight": "TRENDS",
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0
+                            }
+                        ],
+                        "actions": [],
+                        "display": "ActionsLineGraph",
+                        "interval": "day",
+                        "properties": [],
+                        "filter_test_accounts": false
+                    },
+                    "showTimeoutMessage": false,
+                    "maybeShowTimeoutMessage": false,
+                    "showErrorMessage": false,
+                    "maybeShowErrorMessage": false,
+                    "timeout": 1006,
+                    "lastRefresh": "2021-11-19T16:02:39.931989Z",
+                    "isLoading": false,
+                    "isFirstLoad": false,
+                    "controlsCollapsed": false,
+                    "queryStartTimes": {
+                        "588ff989-cdde-4ef7-8704-1bde6e8938ed": 1637337747491,
+                        "66404beb-1b48-4523-bdd6-8e176c05a216": 1637337753595,
+                        "05bdb345-de9a-4e92-8eeb-db327d1252dd": 1637337756275,
+                        "e7f25e52-2b6e-4d6f-9fac-da8f9ad2d737": 1637337759737
+                    },
+                    "lastInsightModeSource": null,
+                    "insightMode": "edit",
+                    "tagLoading": false
+                }
+            },
+            "ActionFilter": {
+                "entityFilterLogic": {
+                    "trends_TRENDS": {
+                        "selectedFilter": null,
+                        "localFilters": [
+                            {
+                                "id": "$feature_flag_called",
+                                "name": "$feature_flag_called",
+                                "type": "events",
+                                "order": 0
+                            }
+                        ],
+                        "entityFilterVisible": [],
+                        "modalVisible": false
+                    }
+                },
+                "renameModalLogic": {
+                    "trends_TRENDS": {
+                        "name": ""
+                    }
+                }
+            },
+            "InsightsTable": {
+                "insightsTableLogic": {
+                    "calcColumnState": "total"
+                }
+            }
+        },
+        "trends": {
+            "personsModalLogic": {
+                "people": null,
+                "peopleLoading": false,
+                "searchTerm": "",
+                "cohortModalVisible": false,
+                "firstLoadedPeople": null,
+                "loadingMorePeople": false,
+                "showingPeople": false,
+                "peopleParams": null
+            },
+            "trendsLogic": {
+                "scene": {
+                    "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
+                    "visibilityMap": {
+                        "0": true
+                    },
+                    "breakdownValuesLoading": false
+                }
+            }
+        },
+        "funnels": {
+            "funnelLogic": {
+                "scene": {
+                    "people": [],
+                    "peopleLoading": false,
+                    "correlations": {
+                        "events": []
+                    },
+                    "correlationsLoading": false,
+                    "propertyCorrelations": {
+                        "events": []
+                    },
+                    "propertyCorrelationsLoading": false,
+                    "eventWithPropertyCorrelations": {},
+                    "eventWithPropertyCorrelationsLoading": false,
+                    "stepReference": "total",
+                    "isGroupingOutliers": true,
+                    "error": null,
+                    "correlationTypes": ["success", "failure"],
+                    "propertyCorrelationTypes": ["success", "failure"],
+                    "skewWarningHidden": false,
+                    "correlationFeedbackHidden": false,
+                    "correlationDetailedFeedbackVisible": false,
+                    "correlationFeedbackRating": 0,
+                    "correlationDetailedFeedback": "",
+                    "propertyNames": [],
+                    "nestedTableExpandedKeys": [],
+                    "shouldReportCorrelationViewed": false,
+                    "shouldReportPropertyCorrelationViewed": false
+                }
+            }
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "receivedFeatureFlags": true
+            }
+        },
+        "components": {
+            "PersonalAPIKeys": {
+                "personalAPIKeysLogic": {
+                    "keys": [],
+                    "keysLoading": false
+                }
+            },
+            "CommandPalette": {
+                "commandPaletteLogic": {
+                    "isPaletteShown": false,
+                    "keyboardResultIndex": 0,
+                    "hoverResultIndex": null,
+                    "input": "",
+                    "activeFlow": null,
+                    "rawCommandRegistrations": {
+                        "go-to": {
+                            "key": "go-to",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"],
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Go to Dashboards"
+                                }
+                            ]
+                        },
+                        "open-urls": {
+                            "key": "open-urls",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"]
+                        },
+                        "debug-clickhouse-queries": {
+                            "key": "debug-clickhouse-queries",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Debug queries (ClickHouse)"
+                            }
+                        },
+                        "calculator": {
+                            "key": "calculator",
+                            "scope": "global"
+                        },
+                        "create-personal-api-key": {
+                            "key": "create-personal-api-key",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Personal API Key"
+                            }
+                        },
+                        "create-dashboard": {
+                            "key": "create-dashboard",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Dashboard"
+                            }
+                        },
+                        "share-feedback": {
+                            "key": "share-feedback",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Share Feedback",
+                                "synonyms": ["send opinion", "ask question", "message posthog", "github issue"]
+                            }
+                        }
+                    }
+                }
+            },
+            "HelpButton": {
+                "HelpButton": {
+                    "isHelpVisible": false
+                }
+            },
+            "BackTo": {
+                "backTo": null
+            },
+            "CompareFilter": {
+                "compareFilterLogic": {
+                    "compare": false,
+                    "disabled": false
+                }
+            },
+            "SaveToDashboard": {
+                "saveToDashboardModalLogic": {
+                    "34": {
+                        "_dashboardId": null
+                    }
+                }
+            },
+            "PropertyFilters": {
+                "propertyFilterLogic": {
+                    "trends-filters": {
+                        "filters": [{}]
+                    }
+                }
+            },
+            "Annotations": {
+                "annotationsLogic": {
+                    "34_annotations": {
+                        "annotations": [],
+                        "annotationsLoading": false,
+                        "annotationsToCreate": [],
+                        "diffType": "day"
+                    }
+                }
+            },
+            "VisibilitySensor": {
+                "visibilitySensorLogic": {
+                    "correlation-scene": {
+                        "innerHeight": 581,
+                        "visible": true
+                    },
+                    "correlation-scene-properties": {
+                        "innerHeight": 581,
+                        "visible": true
+                    }
+                }
+            },
+            "ChartFilter": {
+                "chartFilterLogic": {
+                    "chartFilter": "ActionsLineGraph"
+                }
+            },
+            "IntervalFilter": {
+                "intervalFilterLogic": {
+                    "interval": "day",
+                    "dateFrom": "-1d"
+                }
+            }
+        },
+        "experimental": {
+            "NPSPrompt": {
+                "step": 0,
+                "hidden": true,
+                "payload": null
+            }
+        }
+    },
+    "models": {
+        "actionsModel": {
+            "actions": [
+                {
+                    "id": 9,
+                    "name": "new action",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "9",
+                            "event": "correlation interaction",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-18T03:52:55.629603Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-18T03:52:55.629105Z",
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                        "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                        "first_name": "Jane Doe",
+                        "email": "test@posthog.com"
+                    },
+                    "team_id": 2
+                },
+                {
+                    "id": 8,
+                    "name": "Entered Free Trial",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "8",
+                            "event": "entered_free_trial",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.711843Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.494238Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 7,
+                    "name": "Purchase",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "7",
+                            "event": "purchase",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.693882Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.465794Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 6,
+                    "name": "Watched Movie",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "6",
+                            "event": "watched_movie",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.273208Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.260641Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 5,
+                    "name": "Rated App",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "5",
+                            "event": "rated_app",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.255899Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.284401Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 4,
+                    "name": "Installed App",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "4",
+                            "event": "installed_app",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:03.238262Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.313787Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 3,
+                    "name": "HogFlix paid",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "3",
+                            "event": "$autocapture",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": "button",
+                            "url": "http://hogflix.com/2",
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:02.751479Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.431438Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 2,
+                    "name": "HogFlix signed up",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "2",
+                            "event": "$autocapture",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": "button",
+                            "url": "http://hogflix.com/1",
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:02.724308Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.391735Z",
+                    "created_by": null,
+                    "team_id": 2
+                },
+                {
+                    "id": 1,
+                    "name": "HogFlix homepage view",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "1",
+                            "event": "$pageview",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": "http://hogflix.com",
+                            "name": null,
+                            "url_matching": "exact",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-11-12T20:30:02.691259Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-11-12T20:30:05.350260Z",
+                    "created_by": null,
+                    "team_id": 2
+                }
+            ],
+            "actionsLoading": false
+        },
+        "annotationsModel": {
+            "globalAnnotations": [
+                {
+                    "id": 1,
+                    "content": "123123",
+                    "date_marker": "2021-11-17T06:00:00Z",
+                    "creation_type": "USR",
+                    "dashboard_item": null,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                        "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                        "first_name": "Jane Doe",
+                        "email": "test@posthog.com"
+                    },
+                    "created_at": "2021-11-18T03:56:02.252300Z",
+                    "updated_at": "2021-11-18T03:56:02.252964Z",
+                    "deleted": false,
+                    "scope": "organization"
+                }
+            ],
+            "globalAnnotationsLoading": false
+        },
+        "cohortsModel": {
+            "cohorts": [
+                {
+                    "id": 1,
+                    "name": "test",
+                    "description": "",
+                    "groups": [
+                        {
+                            "days": null,
+                            "count": null,
+                            "label": null,
+                            "end_date": null,
+                            "event_id": null,
+                            "action_id": null,
+                            "properties": [
+                                {
+                                    "key": "is_demo",
+                                    "type": "person",
+                                    "value": ["true"],
+                                    "operator": "exact"
+                                }
+                            ],
+                            "start_date": null,
+                            "count_operator": null
+                        }
+                    ],
+                    "deleted": false,
+                    "is_calculating": false,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "017d15d2-d767-0000-a77c-37e2376ebf2d",
+                        "distinct_id": "FEBH70MxhdPGwZXqv74SJobJ7lrC9NtawPNzS3nXXtH",
+                        "first_name": "Jane Doe",
+                        "email": "test@posthog.com"
+                    },
+                    "created_at": "2021-11-18T04:01:39.878752Z",
+                    "last_calculation": "2021-11-18T17:50:19.809394Z",
+                    "errors_calculating": 0,
+                    "count": 0,
+                    "is_static": false
+                }
+            ],
+            "cohortsLoading": false,
+            "pollTimeout": null
+        },
+        "dashboardsModel": {
+            "rawDashboards": {
+                "2": {
+                    "id": 2,
+                    "name": "Web Analytics",
+                    "description": "",
+                    "pinned": false,
+                    "items": null,
+                    "created_at": "2021-11-12T20:30:02.798795Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "PSF6rewcq76I_bP07eRB4QV5fx3XSA",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                },
+                "3": {
+                    "id": 3,
+                    "name": "App Analytics",
+                    "description": "",
+                    "pinned": false,
+                    "items": null,
+                    "created_at": "2021-11-12T20:30:03.292080Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "PP8vvl1ywSmrogQlX8P0uNsqZ2moqw",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                },
+                "4": {
+                    "id": 4,
+                    "name": "Sales & Revenue",
+                    "description": "",
+                    "pinned": false,
+                    "items": null,
+                    "created_at": "2021-11-12T20:30:03.739938Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "yXKUan54_W5teydFHVSwH6lkDFNxVw",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                }
+            },
+            "rawDashboardsLoading": false,
+            "sharedDashboard": null,
+            "sharedDashboardLoading": false,
+            "dashboard": null,
+            "dashboardLoading": false,
+            "redirect": true,
+            "lastDashboardId": 3,
+            "diveSourceId": null
+        },
+        "eventDefinitionsModel": {
+            "eventStorage": {
+                "count": 29,
+                "results": [
+                    {
+                        "id": "017d15d8-126d-0001-508f-78eb18a4c6d5",
+                        "name": "$autocapture",
+                        "owner": {
+                            "distinct_id": "",
+                            "first_name": "",
+                            "email": ""
+                        },
+                        "description": null,
+                        "tags": null,
+                        "volume_30_day": null,
+                        "query_usage_30_day": null,
+                        "updated_at": null,
+                        "updated_by": null
+                    }
+                ],
+                "next": null
+            },
+            "eventStorageLoading": false
+        },
+        "personPropertiesModel": {
+            "personProperties": [
+                {
+                    "name": "is_demo",
+                    "count": 320
+                }
+            ],
+            "personPropertiesLoading": false
+        },
+        "propertyDefinitionsModel": {
+            "propertyStorage": {
+                "count": 159,
+                "results": [
+                    {
+                        "id": "017d15d7-d483-0000-f0ed-0a56c7f24580",
+                        "name": "$active_feature_flags",
+                        "description": null,
+                        "tags": null,
+                        "is_numerical": false,
+                        "updated_at": null,
+                        "updated_by": null,
+                        "query_usage_30_day": null
+                    }
+                ],
+                "next": null
+            },
+            "propertyStorageLoading": false
+        },
+        "groupsModel": {
+            "groupTypes": [
+                {
+                    "group_type": "project",
+                    "group_type_index": 0
+                },
+                {
+                    "group_type": "organization",
+                    "group_type_index": 1
+                },
+                {
+                    "group_type": "instance",
+                    "group_type_index": 2
+                }
+            ],
+            "groupTypesLoading": false
+        },
+        "groupPropertiesModel": {
+            "allGroupProperties": {
+                "0": [
+                    {
+                        "name": "id",
+                        "count": 1
+                    }
+                ],
+                "1": [
+                    {
+                        "name": "available_features",
+                        "count": 1
+                    }
+                ]
+            },
+            "allGroupPropertiesLoading": false
+        }
+    },
+    "layout": {
+        "navigation": {
+            "navigationLogic": {
+                "latestVersion": "1.30.0",
+                "latestVersionLoading": false,
+                "isSideBarShownRaw": true,
+                "isAnnouncementShown": true,
+                "isSitePopoverOpen": false,
+                "isInviteModalShown": false,
+                "isCreateOrganizationModalShown": false,
+                "isCreateProjectModalShown": false,
+                "isToolbarModalShown": false,
+                "isProjectSwitcherShown": false,
+                "hotkeyNavigationEngaged": false
+            }
+        }
+    }
+}

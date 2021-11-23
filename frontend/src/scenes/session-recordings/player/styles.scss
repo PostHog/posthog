@@ -39,18 +39,26 @@
             }
         }
 
-        .player-events {
-            width: 30%;
-            min-width: 300px;
-            max-width: 400px;
-            height: unset;
-            position: relative;
+        .player-sidebar {
+            display: flex;
+            flex-direction: column;
+            width: 350px;
             padding: $recording_spacing $recording_spacing 0 0;
+
+            .player-meta {
+                margin-bottom: $recording_spacing;
+            }
+
+            .player-events {
+                width: 100%;
+                height: 100%;
+                position: relative;
+            }
         }
     }
 
     // In small screen view when player events is outside of player body
-    .player-events {
+    .player-sidebar {
         width: 100%;
         min-width: unset;
         max-width: unset;
