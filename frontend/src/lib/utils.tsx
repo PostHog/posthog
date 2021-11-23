@@ -257,8 +257,9 @@ export function SceneLoading(): JSX.Element {
 }
 
 export async function deleteWithUndo({ undo = false, ...props }: Record<string, any>): Promise<void> {
-    let objectId = props.object.id || props.object.short_id
-    if (props.endpoint.includes('/insights') && props.object.short_id) {
+    let objectId = props.object.id
+    // TODO: make sure this only gets called with `id` and get rid of this
+    if (props.endpoint.includes('/insights') && !objectId) {
         objectId = await getInsightId({ short_id: props.object.short_id })
     }
 

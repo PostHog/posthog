@@ -502,10 +502,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             })
         },
         updateItemColor: async ({ shortId, color }) => {
+            // TODO: get rid of this
             const insightId = await getInsightId({ short_id: shortId })
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { color })
         },
         setDiveDashboard: async ({ shortId, dive_dashboard }) => {
+            // TODO: get rid of this
             const insightId = await getInsightId({ short_id: shortId })
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { dive_dashboard })
         },

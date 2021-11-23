@@ -51,6 +51,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         annotations: {
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
+                // TODO: get rid of this
                 const insightId = props.pageKey ? await getInsightId({ short_id: props.pageKey }) : null
                 const params = {
                     ...(insightId ? { dashboardItemId: insightId } : {}),
