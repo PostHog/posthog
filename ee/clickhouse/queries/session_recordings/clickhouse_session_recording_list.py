@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
@@ -66,7 +67,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
-            COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
+            SUM({full_snapshot_select_clause}) as full_snapshots
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s
@@ -148,6 +149,13 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
 
     def _determine_should_join_events(self):
         return self._filter.entities and len(self._filter.entities) > 0
+
+    def _get_full_snapshot_select_clause(self) -> str:
+        materialized_columns = get_materialized_columns("session_recording_events", use_cache=False)
+        has_full_snapshot_field_name = "has_full_snapshot"
+        if has_full_snapshot_field_name in materialized_columns:
+            return materialized_columns[has_full_snapshot_field_name]
+        return "JSONExtractBool(snapshot_data, 'has_full_snapshot')"
 
     def _get_properties_select_clause(self) -> str:
         session_id_clause, _ = get_property_string_expr("events", "$session_id", "'$session_id'", "properties")
@@ -264,11 +272,13 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         person_id_clause, person_id_params = self._get_person_id_clause()
         duration_clause, duration_params = self._get_duration_clause()
         properties_select_clause = self._get_properties_select_clause()
+        full_snapshot_select_clause = self._get_full_snapshot_select_clause()
 
         core_recordings_query = self._core_session_recordings_query.format(
             recording_start_time_clause=recording_start_time_clause,
             duration_clause=duration_clause,
             events_timestamp_clause=events_timestamp_clause,
+            full_snapshot_select_clause=full_snapshot_select_clause,
         )
 
         if not self._determine_should_join_events():
