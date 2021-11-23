@@ -650,7 +650,7 @@ export const insightLogic = kea<insightLogicType>({
                 filters: cleanFilters(filters || {}),
                 result: null,
             }
-            const createdInsight: Partial<DashboardItemType> = await api.create(
+            const createdInsight: DashboardItemType = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )
