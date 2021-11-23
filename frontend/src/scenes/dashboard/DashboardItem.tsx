@@ -185,7 +185,7 @@ export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
     ) as DisplayedType
 }
 
-const dashboardDiveLink = (dive_dashboard: number, dive_source_id: string): string => {
+const dashboardDiveLink = (dive_dashboard: number, dive_source_id: InsightShortId): string => {
     return combineUrl(`/dashboard/${dive_dashboard}`, { dive_source_id: dive_source_id }).url
 }
 

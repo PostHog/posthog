@@ -50,7 +50,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dive_source_id,
         }: {
             refresh?: boolean
-            dive_source_id?: number
+            dive_source_id?: InsightShortId
         } = {}) => ({
             refresh,
             dive_source_id,
@@ -88,13 +88,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         allItems: [
             null as DashboardType | null,
             {
-                loadDashboardItems: async ({
-                    refresh,
-                    dive_source_id,
-                }: {
-                    refresh?: boolean
-                    dive_source_id?: number
-                } = {}) => {
+                loadDashboardItems: async ({ refresh, dive_source_id }) => {
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
                         return
@@ -105,7 +99,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                             ? `api/shared_dashboards/${props.shareToken}`
                             : `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/?${toParams({
                                   refresh,
-                                  dive_source_id,
+                                  dive_source_id: await getInsightId({ short_id: dive_source_id }),
                               })}`
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
@@ -119,7 +113,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         throw error
                     }
                 },
-                updateDashboard: async (filters) => {
+                updateDashboard: async (filters: Partial<FilterType>) => {
                     return await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
                         filters,
                     })
