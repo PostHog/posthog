@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
+import { humanFriendlyDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
 import { Button, Col, Row, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
@@ -18,6 +18,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './SessionRecordingTable.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -79,7 +80,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         {
             title: 'Start time',
             render: function RenderStartTime(_: any, sessionRecording: SessionRecordingType) {
-                return humanFriendlyDetailedTime(sessionRecording.start_time)
+                return <TZLabel time={sessionRecording.start_time} formatString="MMMM DD, YYYY h:mm" />
             },
         },
         {
