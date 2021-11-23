@@ -247,14 +247,23 @@ export function LemonTable<T extends Record<string, any>>({
                                         }
                                     >
                                         <Tooltip
-                                            title={column.sorter && (() => {
-                                                    const nextSorting = getNextSorting(currentSorting,determineColumnKey(column, 'sorting'), disableSortingCancellation)
-                                                    return `Click to ${nextSorting ? nextSorting.order === 1
-                                                                  ? 'sort ascending'
-                                                                  : 'sort descending'
-                                                              : 'cancel sorting'
-                                                      }`
-                                            })}
+                                            title={
+                                                column.sorter &&
+                                                (() => {
+                                                    const nextSorting = getNextSorting(
+                                                        currentSorting,
+                                                        determineColumnKey(column, 'sorting'),
+                                                        disableSortingCancellation
+                                                    )
+                                                    return `Click to ${
+                                                        nextSorting
+                                                            ? nextSorting.order === 1
+                                                                ? 'sort ascending'
+                                                                : 'sort descending'
+                                                            : 'cancel sorting'
+                                                    }`
+                                                })
+                                            }
                                         >
                                             {' '}
                                             <div className="LemonTable__header-content">
