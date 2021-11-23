@@ -12,12 +12,13 @@ import {
     PropertyFilter,
     PersonType,
     FunnelCorrelationResultsType,
+    GroupActorType,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { TrendPeople } from 'scenes/trends/types'
+import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
@@ -122,13 +123,13 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
-        setPersonsModalFilters: (searchTerm: string, people: TrendPeople, filters: Partial<FilterType>) => ({
+        setPersonsModalFilters: (searchTerm: string, people: TrendActors, filters: Partial<FilterType>) => ({
             searchTerm,
             people,
             filters,
         }),
-        saveFirstLoadedPeople: (people: TrendPeople) => ({ people }),
-        setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
+        saveFirstLoadedPeople: (people: TrendActors) => ({ people }),
+        setFirstLoadedPeople: (firstLoadedPeople: TrendActors | null) => ({ firstLoadedPeople }),
         savePeopleParams: (peopleParams: PersonModalParams) => ({ peopleParams }),
     }),
     reducers: () => ({
@@ -146,7 +147,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             },
         ],
         people: [
-            null as TrendPeople | null,
+            null as TrendActors | null,
             {
                 loadPeople: (_, { peopleParams: { action, label, date_from, breakdown_value } }) => ({
                     people: [],
@@ -169,7 +170,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             },
         ],
         firstLoadedPeople: [
-            null as TrendPeople | null,
+            null as TrendActors | null,
             {
                 saveFirstLoadedPeople: (_, { people }) => people,
             },
@@ -210,8 +211,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
-                let people: PaginatedResponse<{
-                    people: PersonType[]
+                let actors: PaginatedResponse<{
+                    people: PersonType[] | GroupActorType[]
                     count: number
                 }> | null = null
                 const {
@@ -231,19 +232,19 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
 
                 if (filters.funnel_correlation_person_entity) {
                     const cleanedParams = cleanFilters(filters)
-                    people = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
+                    actors = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
                 } else if (filters.insight === InsightType.LIFECYCLE) {
                     const filterParams = parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                         filters
                     )
-                    people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
+                    actors = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
                 } else if (filters.insight === InsightType.STICKINESS) {
                     const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
                         filters
                     )
-                    people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
+                    actors = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
                 } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
                     let params
                     if (filters.funnel_viz_type === FunnelVizType.Trends) {
@@ -269,12 +270,12 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     }
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
-                    people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
+                    actors = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
-                    people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+                    actors = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                 } else {
-                    people = await api.actions.getPeople(
+                    actors = await api.actions.getPeople(
                         { label, action, date_from, date_to, breakdown_value },
                         filters,
                         searchTerm
@@ -282,18 +283,18 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 }
                 breakpoint()
                 const peopleResult = {
-                    people: people?.results[0]?.people,
-                    count: people?.results[0]?.count || 0,
+                    people: actors?.results[0]?.people,
+                    count: actors?.results[0]?.count || 0,
                     action,
                     label,
                     day: date_from,
                     breakdown_value,
-                    next: people?.next,
+                    next: actors?.next,
                     funnelStep,
                     pathsDropoff,
-                } as TrendPeople
+                } as TrendActors
 
-                eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people?.next)
+                eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!actors?.next)
 
                 if (saveOriginal) {
                     actions.saveFirstLoadedPeople(peopleResult)

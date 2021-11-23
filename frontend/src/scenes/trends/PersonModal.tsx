@@ -2,10 +2,10 @@ import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined, UserOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
-import { FilterType, PersonType, InsightType } from '~/types'
+import { FilterType, PersonType, InsightType, GroupActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { midEllipsis, pluralize } from 'lib/utils'
+import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import './PersonModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -14,6 +14,7 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
+import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 
 export interface PersonModalProps {
     visible: boolean
@@ -35,6 +36,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
+    const _isGroupType = people?.people?.[0] && isGroupType(people.people[0])
 
     const title = useMemo(
         () =>
@@ -144,7 +146,8 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         <div className="user-count-subheader">
                             <UserOutlined /> This list contains{' '}
                             <b>
-                                {people.count} unique {pluralize(people.count, 'user', undefined, false)}
+                                {people.count} unique{' '}
+                                {pluralize(people.count, _isGroupType ? 'group' : 'user', undefined, false)}
                             </b>
                             {peopleParams?.pointValue !== undefined &&
                                 peopleParams.action !== 'session' &&
@@ -162,9 +165,9 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         </div>
                         <div style={{ background: '#FAFAFA' }}>
                             {people.count > 0 ? (
-                                people?.people.map((person) => (
-                                    <div key={person.id}>
-                                        <PersonRow person={person} />
+                                people?.people.map((actor) => (
+                                    <div key={actor.id}>
+                                        <ActorRow actor={actor} />
                                     </div>
                                 ))
                             ) : (
@@ -197,39 +200,56 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     )
 }
 
-interface PersonRowProps {
-    person: PersonType
+interface ActorRowProps {
+    actor: PersonType | GroupActorType
 }
 
-export function PersonRow({ person }: PersonRowProps): JSX.Element {
+export function ActorRow({ actor }: ActorRowProps): JSX.Element {
     const [showProperties, setShowProperties] = useState(false)
     const expandProps = {
         record: '',
         onExpand: () => setShowProperties(!showProperties),
         expanded: showProperties,
-        expandable: Object.keys(person.properties).length > 0,
+        expandable: Object.keys(actor.properties).length > 0,
         prefixCls: 'ant-table',
     } as ExpandIconProps
+    const _isGroupType = isGroupType(actor)
+
+    function Header() {
+        return _isGroupType ? (
+            <GroupActorHeader actor={actor} withIcon={false} />
+        ) : (
+            <PersonHeader person={actor} withIcon={false} />
+        )
+    }
+
+    function Inline() {
+        return _isGroupType ? (
+            <div></div>
+        ) : (
+            <CopyToClipboardInline
+                explicitValue={actor.distinct_ids[0]}
+                iconStyle={{ color: 'var(--primary)' }}
+                iconPosition="end"
+                className="text-small text-muted-alt"
+            >
+                {midEllipsis(actor.distinct_ids[0], 32)}
+            </CopyToClipboardInline>
+        )
+    }
 
     return (
-        <div key={person.id} className="person-row-container">
+        <div key={actor.id} className="person-row-container">
             <div className="person-row">
                 <ExpandIcon {...expandProps} />
                 <div className="person-ids">
                     <strong>
-                        <PersonHeader person={person} withIcon={false} />
+                        <Header />
                     </strong>
-                    <CopyToClipboardInline
-                        explicitValue={person.distinct_ids[0]}
-                        iconStyle={{ color: 'var(--primary)' }}
-                        iconPosition="end"
-                        className="text-small text-muted-alt"
-                    >
-                        {midEllipsis(person.distinct_ids[0], 32)}
-                    </CopyToClipboardInline>
+                    <Inline />
                 </div>
             </div>
-            {showProperties && <PropertiesTable properties={person.properties} className="person-modal-properties" />}
+            {showProperties && <PropertiesTable properties={actor.properties} className="person-modal-properties" />}
         </div>
     )
 }

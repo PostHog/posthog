@@ -2,7 +2,17 @@ import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import { Button } from 'antd'
-import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode, dateMappingOption } from '~/types'
+import {
+    EventType,
+    FilterType,
+    ActionFilter,
+    IntervalType,
+    ItemMode,
+    DashboardMode,
+    dateMappingOption,
+    PersonType,
+    GroupActorType,
+} from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -1191,4 +1201,8 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
 
 export function isEllipsisActive(e: HTMLElement | null): boolean {
     return !!e && e.offsetWidth < e.scrollWidth
+}
+
+export function isGroupType(actor: PersonType | GroupActorType): actor is GroupActorType {
+    return (actor as GroupActorType).group_key !== undefined
 }
