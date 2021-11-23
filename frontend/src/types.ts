@@ -623,9 +623,11 @@ export interface PlanInterface {
 export type InsightShortId = string & { readonly '': unique symbol }
 
 export interface DashboardItemType {
-    // id: number
-    name: string
+    /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
+    /** The primary key in the database, used as well in API endpoints */
+    id: number
+    name: string
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>
@@ -645,7 +647,8 @@ export interface DashboardItemType {
     result: any | null
     updated_at: string
     tags: string[]
-    next?: string // only used in the frontend to store the next breakdown url
+    /** Only used in the frontend to store the next breakdown url */
+    next?: string
 }
 
 export interface DashboardType {
