@@ -26,7 +26,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {
             prompt({ key: `rename-dashboard-item-${item.short_id}` }).actions.prompt({
-                title: 'Rename panel',
+                title: 'Rename insight',
                 placeholder: 'Please enter the new name',
                 value: item.name,
                 error: 'You must enter name',

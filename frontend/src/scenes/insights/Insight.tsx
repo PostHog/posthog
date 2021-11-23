@@ -21,6 +21,7 @@ import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
+import { InsightSaveButton } from './InsightSaveButton'
 import posthog from 'posthog-js'
 import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 
@@ -45,8 +46,16 @@ export function Insight({ id }: { id?: string } = {}): JSX.Element {
         tagLoading,
         metadataEditable,
     } = useValues(logic)
-    const { setActiveView, setInsightMode, saveInsight, setFilters, setInsightMetadata, saveNewTag, deleteTag } =
-        useActions(logic)
+    const {
+        setActiveView,
+        setInsightMode,
+        saveInsight,
+        setFilters,
+        setInsightMetadata,
+        saveNewTag,
+        deleteTag,
+        saveAs,
+    } = useActions(logic)
 
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
@@ -141,14 +150,7 @@ export function Insight({ id }: { id?: string } = {}): JSX.Element {
                                 Edit
                             </HotkeyButton>
                         ) : (
-                            <Button
-                                style={{ marginLeft: 8 }}
-                                type="primary"
-                                onClick={saveInsight}
-                                data-attr="insight-save-button"
-                            >
-                                Save
-                            </Button>
+                            <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
                         )}
                     </Col>
                 </Row>

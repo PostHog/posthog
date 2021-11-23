@@ -166,7 +166,6 @@ export const convertPostgresEventToPluginEvent = (event: Event): HistoricalExpor
     if (eventName === '$autocapture' && elements) {
         properties['$elements'] = convertDatabaseElementsToRawElements(elements)
     }
-    console.log(properties)
 
     properties['$$historical_export_source_db'] = 'postgres'
     const parsedEvent = {

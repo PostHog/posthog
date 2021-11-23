@@ -57,7 +57,9 @@ export function InsightContainer(): JSX.Element {
         showErrorMessage,
         insightLoading,
     } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
+        funnelLogic(insightProps)
+    )
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: insight.short_id }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: insight.short_id }))
 
@@ -184,11 +186,7 @@ export function InsightContainer(): JSX.Element {
             </Card>
             {renderTable()}
 
-            {preflight?.is_clickhouse_enabled &&
-            activeView === InsightType.FUNNELS &&
-            featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
-                <FunnelCorrelation />
-            ) : null}
+            {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

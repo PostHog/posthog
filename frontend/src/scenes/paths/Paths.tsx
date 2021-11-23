@@ -4,7 +4,6 @@ import { copyToClipboard, stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Button, Menu, Dropdown, Tooltip, Row } from 'antd'
 import { IconPathsCompletedArrow, IconPathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
@@ -24,29 +23,25 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
-
-function NoData(): JSX.Element {
-    return (
-        <div style={{ padding: '1rem' }}>
-            We don't have enough data to show anything here. You might need to send us some frontend (JS) events, as we
-            use the <pre style={{ display: 'inline' }}>$current_url</pre> property to calculate paths.
-        </div>
-    )
-}
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
+const FALLBACK_CANVAS_WIDTH = 1000
+const FALLBACK_CANVAS_HEIGHT = 0
 
 const isMonochrome = (color: string): boolean => color === 'white' || color === 'black'
 
 interface PathsProps {
-    dashboardItemId: number | null
-    color: string
+    dashboardItemId?: number | null
+    color?: string
 }
 
-export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
+export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
     const canvas = useRef<HTMLDivElement>(null)
-    const size = useWindowSize()
+    const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
+        useResizeObserver({ ref: canvas })
     const { insightProps } = useValues(insightLogic)
     const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
     const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(pathsLogic(insightProps))
@@ -58,7 +53,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     useEffect(() => {
         setPathItemCards([])
         renderPaths()
-    }, [paths, !pathsLoading, size, color])
+    }, [paths, !pathsLoading, canvasWidth, canvasHeight, color])
 
     const createCanvas = (width: number, height: number): D3Selector => {
         return d3
@@ -260,14 +255,10 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
             return Math.max(prev, Number(currNum.match(/[^_]*/)))
         }, 0)
 
-        const minWidth = canvas?.current?.offsetWidth
-            ? canvas.current.offsetWidth > 1000 || maxLayer < 3
-                ? canvas.current.offsetWidth
-                : 1000
-            : 1000
+        const minWidth = canvasWidth > FALLBACK_CANVAS_WIDTH || maxLayer < 3 ? canvasWidth : FALLBACK_CANVAS_WIDTH
 
-        const width = maxLayer > 5 && canvas?.current?.offsetWidth ? (minWidth / 5) * maxLayer : minWidth
-        const height = canvas?.current?.offsetHeight || 0
+        const width = maxLayer > 5 && canvasWidth ? (minWidth / 5) * maxLayer : minWidth
+        const height = canvasHeight
 
         const svg = createCanvas(width, height)
         const sankey = createSankey(width, height)
@@ -287,15 +278,9 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     }
 
     return (
-        <div
-            style={{
-                position: 'relative',
-                overflowX: 'scroll',
-            }}
-            id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
-        >
+        <div className="paths-container" id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}>
             <div ref={canvas} className="paths" data-attr="paths-viz">
-                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <NoData />}
+                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
                 {!pathsError &&
                     pathItemCards &&
                     pathItemCards.map((pathItemCard: PathNodeData, idx) => {

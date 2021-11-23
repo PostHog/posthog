@@ -11,6 +11,9 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.group import Group
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
@@ -44,11 +47,11 @@ class FeatureFlag(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
 
-    def matches(self, distinct_id: str) -> Optional[FeatureFlagMatch]:
-        return FeatureFlagMatcher(distinct_id, self).get_match()
+    def matches(self, *args, **kwargs) -> Optional[FeatureFlagMatch]:
+        return FeatureFlagMatcher(self, *args, **kwargs).get_match()
 
     def get_analytics_metadata(self) -> Dict:
-        filter_count = sum(len(group.get("properties", [])) for group in self.conditions)
+        filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
 
         return {
@@ -56,7 +59,7 @@ class FeatureFlag(models.Model):
             "has_variants": variants_count > 0,
             "variants_count": variants_count,
             "has_filters": filter_count > 0,
-            "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.conditions),
+            "has_rollout_percentage": any(condition.get("rollout_percentage") for condition in self.conditions),
             "filter_count": filter_count,
             "created_at": self.created_at,
         }
@@ -65,6 +68,11 @@ class FeatureFlag(models.Model):
     def conditions(self):
         "Each feature flag can have multiple conditions to match, they are OR-ed together."
         return self.get_filters().get("groups", []) or []
+
+    @property
+    def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
+        "If None, aggregating this feature flag by persons, otherwise by groups of given group_type_index"
+        return self.get_filters().get("aggregation_group_type_index", None)
 
     @property
     def variants(self):
@@ -108,13 +116,41 @@ class FeatureFlagOverride(models.Model):
         }
 
 
+class FlagsMatcherCache:
+    def __init__(self, team_id: int):
+        self.team_id = team_id
+
+    @cached_property
+    def group_types_to_indexes(self) -> Dict[GroupTypeName, GroupTypeIndex]:
+        group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
+        return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
+
+    @cached_property
+    def group_type_index_to_name(self) -> Dict[GroupTypeIndex, GroupTypeName]:
+        return {value: key for key, value in self.group_types_to_indexes.items()}
+
+
 class FeatureFlagMatcher:
-    def __init__(self, distinct_id: str, feature_flag: FeatureFlag):
-        self.distinct_id = distinct_id
+    def __init__(
+        self,
+        feature_flag: FeatureFlag,
+        distinct_id: str,
+        groups: Dict[GroupTypeName, str] = {},
+        cache: Optional[FlagsMatcherCache] = None,
+    ):
         self.feature_flag = feature_flag
+        self.distinct_id = distinct_id
+        self.groups = groups
+        self.cache = cache or FlagsMatcherCache(self.feature_flag.team_id)
 
     def get_match(self) -> Optional[FeatureFlagMatch]:
-        is_match = any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.conditions))
+        # If aggregating flag by groups and relevant group type is not passed - flag is off!
+        if self.hashed_identifier is None:
+            return None
+
+        is_match = any(
+            self.is_condition_match(condition, index) for index, condition in enumerate(self.feature_flag.conditions)
+        )
         if is_match:
             return FeatureFlagMatch(variant=self.get_matching_variant())
         else:
@@ -126,10 +162,10 @@ class FeatureFlagMatcher:
                 return variant["key"]
         return None
 
-    def is_group_match(self, match_group: Dict, match_group_index: int):
-        rollout_percentage = match_group.get("rollout_percentage")
-        if len(match_group.get("properties", [])) > 0:
-            if not self._match_distinct_id(match_group_index):
+    def is_condition_match(self, condition: Dict, condition_index: int):
+        rollout_percentage = condition.get("rollout_percentage")
+        if len(condition.get("properties", [])) > 0:
+            if not self._condition_matches(condition_index):
                 return False
             elif not rollout_percentage:
                 return True
@@ -139,8 +175,8 @@ class FeatureFlagMatcher:
 
         return True
 
-    def _match_distinct_id(self, match_group_index: int) -> bool:
-        return len(self.query_conditions) > 0 and self.query_conditions[0][match_group_index]
+    def _condition_matches(self, condition_index: int) -> bool:
+        return len(self.query_conditions) > 0 and self.query_conditions[0][condition_index]
 
     # Define contiguous sub-domains within [0, 1].
     # By looking up a random hash value, you can find the associated variant key.
@@ -158,19 +194,26 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> List[List[bool]]:
-        query: QuerySet = Person.objects.filter(
-            team_id=self.feature_flag.team_id,
-            persondistinctid__distinct_id=self.distinct_id,
-            persondistinctid__team_id=self.feature_flag.team_id,
-        )
+        if self.feature_flag.aggregation_group_type_index is None:
+            query: QuerySet = Person.objects.filter(
+                team_id=self.feature_flag.team_id,
+                persondistinctid__distinct_id=self.distinct_id,
+                persondistinctid__team_id=self.feature_flag.team_id,
+            )
+        else:
+            query = Group.objects.filter(
+                team_id=self.feature_flag.team_id,
+                group_type_index=self.feature_flag.aggregation_group_type_index,
+                group_key=self.hashed_identifier,
+            )
 
         fields = []
-        for index, match_group in enumerate(self.feature_flag.conditions):
-            key = f"match_group_{index}"
+        for index, condition in enumerate(self.feature_flag.conditions):
+            key = f"condition_{index}"
 
-            if len(match_group.get("properties", {})) > 0:
+            if len(condition.get("properties", {})) > 0:
                 expr: Any = properties_to_Q(
-                    Filter(data=match_group).properties, team_id=self.feature_flag.team_id, is_person_query=True
+                    Filter(data=condition).properties, team_id=self.feature_flag.team_id, is_direct_query=True
                 )
             else:
                 expr = RawSQL("true", [])
@@ -180,12 +223,29 @@ class FeatureFlagMatcher:
 
         return list(query.values_list(*fields))
 
-    # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
-    # Given the same distinct_id and key, it'll always return the same float. These floats are
+    @property
+    def hashed_identifier(self) -> Optional[str]:
+        """
+        If aggregating by people, returns distinct_id.
+
+        Otherwise, returns the relevant group_key.
+
+        If relevant group is not passed to the flag, None is returned and handled in get_match.
+        """
+        if self.feature_flag.aggregation_group_type_index is None:
+            return self.distinct_id
+        else:
+            # :TRICKY: If aggregating by groups
+            group_type_name = self.cache.group_type_index_to_name.get(self.feature_flag.aggregation_group_type_index)
+            group_key = self.groups.get(group_type_name)  # type: ignore
+            return group_key
+
+    # This function takes a identifier and a feature flag key and returns a float between 0 and 1.
+    # Given the same identifier and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
-    # we can do _hash(key, distinct_id) < 0.2
+    # we can do _hash(key, identifier) < 0.2
     def get_hash(self, salt="") -> float:
-        hash_key = f"{self.feature_flag.key}.{self.distinct_id}{salt}"
+        hash_key = f"{self.feature_flag.key}.{self.hashed_identifier}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
@@ -199,7 +259,10 @@ class FeatureFlagMatcher:
 
 
 # Return a Dict with all active flags and their values
-def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bool, str, None]]:
+def get_active_feature_flags(
+    team: Team, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
+) -> Dict[str, Union[bool, str, None]]:
+    cache = FlagsMatcherCache(team.pk)
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage",
@@ -207,7 +270,7 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bo
 
     for feature_flag in feature_flags:
         try:
-            match = feature_flag.matches(distinct_id)
+            match = feature_flag.matches(distinct_id, groups, cache)
             if match:
                 flags_enabled[feature_flag.key] = match.variant or True
         except Exception as err:
@@ -216,8 +279,10 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bo
 
 
 # Return feature flags with per-user overrides
-def get_overridden_feature_flags(team: Team, distinct_id: str,) -> Dict[str, Union[bool, str, None]]:
-    feature_flags = get_active_feature_flags(team, distinct_id)
+def get_overridden_feature_flags(
+    team: Team, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
+) -> Dict[str, Union[bool, str, None]]:
+    feature_flags = get_active_feature_flags(team, distinct_id, groups)
 
     # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
     person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team=team).values_list("person_id")[:1]
@@ -231,9 +296,8 @@ def get_overridden_feature_flags(team: Team, distinct_id: str,) -> Dict[str, Uni
     for feature_flag_override in feature_flag_overrides:
         key = feature_flag_override.feature_flag.key
         value = feature_flag_override.override_value
-        if value is False:
-            if key in feature_flags:
-                del feature_flags[key]
+        if value is False and key in feature_flags:
+            del feature_flags[key]
         else:
             feature_flags[key] = value
 

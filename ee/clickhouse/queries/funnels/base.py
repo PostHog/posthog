@@ -356,8 +356,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 extra_join = self._get_cohort_breakdown_join()
             else:
                 values = self._get_breakdown_conditions()
-                if values:
-                    self.params.update({"breakdown_values": values})
+                self.params.update({"breakdown_values": values})
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,

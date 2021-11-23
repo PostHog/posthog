@@ -23,11 +23,12 @@ OperatorType = Literal[
     "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
 ]
 
+GroupTypeName = str
 GroupTypeIndex = int
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
-CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "group"]
+CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]
 
 
 class Property:
@@ -93,27 +94,29 @@ class Property:
             cohort_id = int(cast(Union[str, int], value))
             return Q(Exists(CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("id"),).only("id")))
 
+        column = "group_properties" if self.type == "group" else "properties"
+
         if self.operator == "is_not":
-            return Q(~lookup_q(f"properties__{self.key}", value) | ~Q(properties__has_key=self.key))
+            return Q(~lookup_q(f"{column}__{self.key}", value) | ~Q(**{f"{column}__has_key": self.key}))
         if self.operator == "is_set":
-            return Q(**{"properties__{}__isnull".format(self.key): False})
+            return Q(**{f"{column}__{self.key}__isnull": False})
         if self.operator == "is_not_set":
-            return Q(**{"properties__{}__isnull".format(self.key): True})
+            return Q(**{f"{column}__{self.key}__isnull": True})
         if self.operator in ("regex", "not_regex") and not is_valid_regex(value):
             # Return no data for invalid regexes
             return Q(pk=-1)
         if isinstance(self.operator, str) and self.operator.startswith("not_"):
             return Q(
-                ~Q(**{"properties__{}__{}".format(self.key, self.operator[4:]): value})
-                | ~Q(properties__has_key=self.key)
-                | Q(**{"properties__{}".format(self.key): None})
+                ~Q(**{f"{column}__{self.key}__{self.operator[4:]}": value})
+                | ~Q(**{f"{column}__has_key": self.key})
+                | Q(**{f"{column}__{self.key}": None})
             )
 
         if self.operator == "exact" or self.operator is None:
-            return lookup_q(f"properties__{self.key}", value)
+            return lookup_q(f"{column}__{self.key}", value)
         else:
             assert not isinstance(value, list)
-            return Q(**{f"properties__{self.key}__{self.operator}": value})
+            return Q(**{f"{column}__{self.key}__{self.operator}": value})
 
 
 def lookup_q(key: str, value: Any) -> Q:

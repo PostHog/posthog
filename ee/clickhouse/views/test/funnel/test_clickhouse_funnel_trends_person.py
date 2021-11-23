@@ -50,7 +50,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         response_1_data = response_1.json()
 
         self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-        self.assertEqual([person["uuid"] for person in response_1_data["results"][0]["people"]], [str(user_a.uuid)])
+        self.assertEqual([person["id"] for person in response_1_data["results"][0]["people"]], [str(user_a.uuid)])
 
         # No users converted 2021-06-07
         response_2 = self.client.get(
@@ -60,7 +60,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         response_2_data = response_2.json()
 
         self.assertEqual(response_2.status_code, status.HTTP_200_OK)
-        self.assertEqual([person["uuid"] for person in response_2_data["results"][0]["people"]], [])
+        self.assertEqual([person["id"] for person in response_2_data["results"][0]["people"]], [])
 
         # No users dropped off starting 2021-06-08
         response_3 = self.client.get(
@@ -70,4 +70,4 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         response_3_data = response_3.json()
 
         self.assertEqual(response_3.status_code, status.HTTP_200_OK)
-        self.assertEqual([person["uuid"] for person in response_3_data["results"][0]["people"]], [])
+        self.assertEqual([person["id"] for person in response_3_data["results"][0]["people"]], [])
