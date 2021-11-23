@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Set, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
@@ -55,7 +56,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
-            COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
+            SUM({full_snapshot_select_clause}) as full_snapshots
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s
@@ -131,6 +132,13 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             f", events.{column_name} as {column_name}" for column_name in self._column_optimizer.event_columns_to_query
         )
         return clause
+
+    def _get_full_snapshot_select_clause(self) -> str:
+        materialized_columns = get_materialized_columns("session_recording_events", use_cache=False)
+        has_full_snapshot_field_name = "has_full_snapshot"
+        if has_full_snapshot_field_name in materialized_columns:
+            return materialized_columns[has_full_snapshot_field_name]
+        return "JSONExtractBool(snapshot_data, 'has_full_snapshot')"
 
     def _has_entity_filters(self):
         return self._filter.entities and len(self._filter.entities) > 0
@@ -239,6 +247,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         duration_clause, duration_params = self._get_duration_clause()
         event_filters = self.format_event_filters()
         properties_select_clause = self._get_properties_select_clause()
+        full_snapshot_select_clause = self._get_full_snapshot_select_clause()
 
         return (
             self._session_recordings_query_with_entity_filter.format(
@@ -253,6 +262,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
                 event_filter_where_conditions=event_filters.where_conditions,
                 event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
                 event_filter_aggregate_having_clause=event_filters.aggregate_having_clause,
+                full_snapshot_select_clause=full_snapshot_select_clause,
             ),
             {
                 **base_params,
