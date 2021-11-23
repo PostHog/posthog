@@ -47,7 +47,7 @@ export async function runOnAction(server: Hub, action: Action, event: PluginEven
                     server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_action.ERROR`)
                 }
                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_action`, timer)
-                //captureTimeSpentRunning(event.team_id, timer, 'onAction')
+                captureTimeSpentRunning(event.team_id, timer, 'onAction')
             }
         })
     )
