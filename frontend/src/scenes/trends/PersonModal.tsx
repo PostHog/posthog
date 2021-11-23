@@ -21,9 +21,16 @@ export interface PersonModalProps {
     view: InsightType
     filters: Partial<FilterType>
     onSaveCohort: () => void
+    showPersonsModalActions?: boolean
 }
 
-export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
+export function PersonModal({
+    visible,
+    view,
+    filters,
+    onSaveCohort,
+    showPersonsModalActions = true,
+}: PersonModalProps): JSX.Element {
     const {
         people,
         loadingMorePeople,
@@ -69,8 +76,11 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
         [filters, people, isInitialLoad]
     )
 
-    const isDownloadCsvAvailable = view === InsightType.TRENDS
-    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
+    const isDownloadCsvAvailable = view === InsightType.TRENDS && showPersonsModalActions
+    const isSaveAsCohortAvailable =
+        clickhouseFeaturesEnabled &&
+        (view === InsightType.TRENDS || view === InsightType.STICKINESS) &&
+        showPersonsModalActions
 
     return (
         <Modal
