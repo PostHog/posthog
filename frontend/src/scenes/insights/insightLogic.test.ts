@@ -18,6 +18,7 @@ const API_FILTERS = {
     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
 }
 
+const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
 const Insight43 = '43' as InsightShortId
 const Insight44 = '44' as InsightShortId
@@ -85,7 +86,7 @@ describe('insightLogic', () => {
                 ],
             }
         } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
-            return { id: 12, name: data?.name }
+            return { id: 12, short_id: Insight12, name: data?.name }
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
@@ -630,7 +631,7 @@ describe('insightLogic', () => {
             .toDispatchActions(['setInsight'])
             .toMatchValues({
                 filters: partial({ insight: InsightType.FUNNELS }),
-                insight: partial({ id: 12, name: 'New Insight (copy)' }),
+                insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 filtersChanged: true,
                 syncWithUrl: true,
             })
