@@ -63,8 +63,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
-        updateItemColor: (shortId: InsightShortId, color: string) => ({ shortId, color }),
-        setDiveDashboard: (shortId: InsightShortId, dive_dashboard: number | null) => ({ shortId, dive_dashboard }),
+        updateItemColor: (insightId: number, color: string) => ({ insightId, color }),
+        setDiveDashboard: (insightId: number, dive_dashboard: number | null) => ({ insightId, dive_dashboard }),
         refreshAllDashboardItems: (items?: DashboardItemType[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -190,16 +190,16 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         ),
                     } as DashboardType
                 },
-                updateItemColor: (state, { shortId, color }) => {
+                updateItemColor: (state, { insightId, color }) => {
                     return {
                         ...state,
-                        items: state?.items.map((i) => (i.short_id === shortId ? { ...i, color } : i)),
+                        items: state?.items.map((i) => (i.id === insightId ? { ...i, color } : i)),
                     } as DashboardType
                 },
-                setDiveDashboard: (state, { shortId, dive_dashboard }) => {
+                setDiveDashboard: (state, { insightId, dive_dashboard }) => {
                     return {
                         ...state,
-                        items: state?.items.map((i) => (i.short_id === shortId ? { ...i, dive_dashboard } : i)),
+                        items: state?.items.map((i) => (i.id === insightId ? { ...i, dive_dashboard } : i)),
                     } as DashboardType
                 },
                 [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }): DashboardType => {
@@ -503,14 +503,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     }) || [],
             })
         },
-        updateItemColor: async ({ shortId, color }) => {
-            // TODO: get rid of this
-            const insightId = await getInsightId({ short_id: shortId })
+        updateItemColor: async ({ insightId, color }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { color })
         },
-        setDiveDashboard: async ({ shortId, dive_dashboard }) => {
-            // TODO: get rid of this
-            const insightId = await getInsightId({ short_id: shortId })
+        setDiveDashboard: async ({ insightId, dive_dashboard }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { dive_dashboard })
         },
         refreshAllDashboardItemsManual: () => {

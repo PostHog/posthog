@@ -51,8 +51,8 @@ import { urls } from 'scenes/urls'
 interface DashboardItemProps {
     item: DashboardItemType
     dashboardId?: number
-    updateItemColor?: (shortId: InsightShortId, itemClassName: string) => void
-    setDiveDashboard?: (shortId: InsightShortId, dashboardId: number | null) => void
+    updateItemColor?: (insightId: number, itemClassName: string) => void
+    setDiveDashboard?: (insightId: number, diveDashboard: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     isReloading?: boolean
@@ -447,7 +447,7 @@ export function DashboardItem({
                                                                 <Menu.Item
                                                                     key={itemClassName}
                                                                     onClick={() =>
-                                                                        updateItemColor(item.short_id, itemClassName)
+                                                                        updateItemColor(item.id, itemClassName)
                                                                     }
                                                                     data-attr={
                                                                         'dashboard-item-' +
@@ -489,9 +489,7 @@ export function DashboardItem({
                                                                     diveIndex
                                                                 }
                                                                 key={dashboard.id}
-                                                                onClick={() =>
-                                                                    setDiveDashboard(item.short_id, dashboard.id)
-                                                                }
+                                                                onClick={() => setDiveDashboard(item.id, dashboard.id)}
                                                                 disabled={dashboard.id === item.dive_dashboard}
                                                             >
                                                                 {dashboard.name}
@@ -502,7 +500,7 @@ export function DashboardItem({
                                                                 'dashboard-item-' + index + '-dive-dashboard-remove'
                                                             }
                                                             key="remove"
-                                                            onClick={() => setDiveDashboard(item.short_id, null)}
+                                                            onClick={() => setDiveDashboard(item.id, null)}
                                                             className="text-danger"
                                                         >
                                                             Remove
