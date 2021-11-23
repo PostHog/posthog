@@ -18,13 +18,14 @@ export const propertyDefinitionsModel = kea<
 >({
     path: ['models', 'propertyDefinitionsModel'],
     actions: () => ({
+        loadPropertyDefinitions: (initial = false) => ({ initial }),
         updatePropertyDefinition: (property: PropertyDefinition) => ({ property }),
     }),
     loaders: ({ values }) => ({
         propertyStorage: [
             { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
             {
-                loadPropertyDefinitions: async (initial?: boolean) => {
+                loadPropertyDefinitions: async ({ initial }, breakpoint) => {
                     const url = initial
                         ? 'api/projects/@current/property_definitions/?limit=5000'
                         : values.propertyStorage.next
@@ -32,6 +33,7 @@ export const propertyDefinitionsModel = kea<
                         throw new Error('Incorrect call to propertyDefinitionsLogic.loadPropertyDefinitions')
                     }
                     const propertyStorage = await api.get(url)
+                    breakpoint()
                     return {
                         count: propertyStorage.count,
                         results: [...values.propertyStorage.results, ...propertyStorage.results],

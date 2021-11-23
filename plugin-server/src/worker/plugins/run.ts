@@ -4,6 +4,7 @@ import { Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../..
 import { processError } from '../../utils/db/error'
 import { statusReport } from '../../utils/status-report'
 import { IllegalOperationError } from '../../utils/utils'
+import { Action } from './../../types'
 
 function captureTimeSpentRunning(teamId: TeamId, timer: Date, func: PluginFunction): void {
     const timeSpentRunning = new Date().getTime() - timer.getTime()
@@ -31,6 +32,27 @@ export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void>
     )
 }
 
+export async function runOnAction(server: Hub, action: Action, event: PluginEvent): Promise<void> {
+    const pluginsToRun = getPluginsForTeam(server, event.team_id)
+
+    await Promise.all(
+        pluginsToRun.map(async (pluginConfig) => {
+            const onAction = await pluginConfig.vm?.getOnAction()
+            if (onAction) {
+                const timer = new Date()
+                try {
+                    await onAction(action, event)
+                } catch (error) {
+                    await processError(server, pluginConfig, error, event)
+                    server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_action.ERROR`)
+                }
+                server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_action`, timer)
+                captureTimeSpentRunning(event.team_id, timer, 'onAction')
+            }
+        })
+    )
+}
+
 export async function runOnSnapshot(server: Hub, event: PluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
@@ -43,9 +65,9 @@ export async function runOnSnapshot(server: Hub, event: PluginEvent): Promise<vo
                     await onSnapshot(event)
                 } catch (error) {
                     await processError(server, pluginConfig, error, event)
-                    server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_event.ERROR`)
+                    server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_snapshot.ERROR`)
                 }
-                server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_event`, timer)
+                server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_snapshot`, timer)
                 captureTimeSpentRunning(event.team_id, timer, 'onSnapshot')
             }
         })

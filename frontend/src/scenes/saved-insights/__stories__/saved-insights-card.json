@@ -6639,9 +6639,6 @@
                     }
                 }
             },
-            "BackTo": {
-                "backTo": null
-            },
             "Annotations": {
                 "annotationsLogic": {
                     "1789_annotations": {

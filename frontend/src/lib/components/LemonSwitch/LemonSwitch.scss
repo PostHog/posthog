@@ -3,6 +3,7 @@
 .LemonSwitch {
     position: relative;
     display: inline-block;
+    flex-shrink: 0;
     width: 36px;
     height: 20px;
     background: none;
@@ -21,6 +22,9 @@
     background-color: var(--border);
     transition: background-color 100ms ease;
     .LemonSwitch--checked & {
+        background-color: rgba($primary, 0.25);
+    }
+    .LemonSwitch--alt.LemonSwitch--checked & {
         background-color: rgba($primary_alt, 0.25);
     }
 }
@@ -48,6 +52,9 @@
         border-left-color: transparent;
     }
     .LemonSwitch--loading &::after {
+        border-left-color: var(--primary);
+    }
+    .LemonSwitch--alt.LemonSwitch--loading &::after {
         border-left-color: var(--primary-alt);
     }
     .LemonSwitch--loading.LemonSwitch--checked &::after {
@@ -55,6 +62,10 @@
     }
     .LemonSwitch--checked & {
         transform: translateX(1rem);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+    .LemonSwitch--alt.LemonSwitch--checked & {
         background-color: var(--primary-alt);
         border-color: var(--primary-alt);
     }
@@ -63,14 +74,5 @@
     }
     .LemonSwitch--active.LemonSwitch--checked & {
         transform: translateX(1rem) scale(1.1);
-    }
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
     }
 }

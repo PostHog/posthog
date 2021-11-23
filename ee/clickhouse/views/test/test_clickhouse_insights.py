@@ -39,303 +39,6 @@ def _create_event(**kwargs):
 class ClickhouseTestInsights(
     ClickhouseTestMixin, LicensedTestMixin, insight_test_factory(_create_event, _create_person)  # type: ignore
 ):
-    @snapshot_clickhouse_queries
-    def test_insight_trends_basic(self):
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            p1 = _create_person(distinct_ids=["1"], team=self.team)
-            p2 = _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-
-            request = TrendsRequest(
-                date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
-                display="ActionsLineGraph",
-                events=[
-                    {
-                        "id": "$pageview",
-                        "math": "dau",
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [],
-                        "math_property": None,
-                    }
-                ],
-            )
-            data = get_trends_time_series_ok(self.client, request, self.team)
-
-        assert data["$pageview"]["2012-01-13"].value == 0
-        assert data["$pageview"]["2012-01-14"].value == 2
-        assert data["$pageview"]["2012-01-14"].label == "14-Jan-2012"
-        assert data["$pageview"]["2012-01-15"].value == 0
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            people = get_trends_people_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
-
-        assert sorted([p["id"] for p in people]) == sorted([p1.pk, p2.pk])
-
-    @snapshot_clickhouse_queries
-    def test_insight_trends_aggregate(self):
-
-        with freeze_time("2012-01-13T03:21:34.000Z"):
-            p1 = _create_person(distinct_ids=["1"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            p2 = _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequest(
-                date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
-                display="ActionsPie",
-                events=[
-                    {
-                        "id": "$pageview",
-                        "math": None,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [],
-                        "math_property": None,
-                    }
-                ],
-            )
-            data = get_trends_aggregate_ok(self.client, request, self.team)
-
-        assert data["$pageview"].value == 2
-        assert data["$pageview"].label == "$pageview"
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            people = get_trends_people_ok(self.client, data["$pageview"].person_url)
-
-        assert sorted([p["id"] for p in people]) == sorted([p1.pk, p2.pk])
-
-    @snapshot_clickhouse_queries
-    def test_insight_trends_cumulative(self):
-        with freeze_time("2012-01-13T03:21:34.000Z"):
-            p1 = _create_person(distinct_ids=["1"], team=self.team)
-            p2 = _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            p3 = _create_person(distinct_ids=["3"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="3", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-
-        # Total Volume
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequest(
-                date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
-                display="ActionsLineGraphCumulative",
-                events=[
-                    {
-                        "id": "$pageview",
-                        "math": None,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [],
-                        "math_property": None,
-                    }
-                ],
-            )
-            data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
-
-        assert data_response["$pageview"]["2012-01-13"].value == 2
-        assert data_response["$pageview"]["2012-01-14"].value == 4
-        assert data_response["$pageview"]["2012-01-15"].value == 4
-        assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
-
-        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p2.pk, p3.pk])
-
-        # DAU
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequest(
-                date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
-                display="ActionsLineGraphCumulative",
-                events=[
-                    {
-                        "id": "$pageview",
-                        "math": "dau",
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [],
-                        "math_property": None,
-                    }
-                ],
-            )
-            data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
-
-        assert data_response["$pageview"]["2012-01-13"].value == 2
-        assert data_response["$pageview"]["2012-01-14"].value == 3
-        assert data_response["$pageview"]["2012-01-15"].value == 3
-        assert data_response["$pageview"]["2012-01-14"].label == "14-Jan-2012"
-
-        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p2.pk, p3.pk])
-
-        # breakdown
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequestBreakdown(
-                date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
-                display="ActionsLineGraphCumulative",
-                breakdown="key",
-                breakdown_type="event",
-                events=[
-                    {
-                        "id": "$pageview",
-                        "math": None,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [],
-                        "math_property": None,
-                    }
-                ],
-            )
-            data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(
-                self.client, data_response["$pageview - val"]["2012-01-14"].person_url
-            )
-
-        assert data_response["$pageview - val"]["2012-01-13"].value == 1
-        assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
-        assert data_response["$pageview - val"]["2012-01-14"].value == 3
-        assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
-
-        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p3.pk])
-
-        # breakdown dau
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            request = TrendsRequestBreakdown(
-                date_from="-14d",
-                date_to="2012-01-15",
-                interval="day",
-                insight="TRENDS",
-                display="ActionsLineGraphCumulative",
-                breakdown="key",
-                breakdown_type="event",
-                events=[
-                    {
-                        "id": "$pageview",
-                        "math": "dau",
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [],
-                        "math_property": None,
-                    }
-                ],
-            )
-            data_response = get_trends_time_series_ok(self.client, request, self.team)
-            people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
-
-        assert data_response["$pageview - val"]["2012-01-13"].value == 1
-        assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
-        assert data_response["$pageview - val"]["2012-01-14"].value == 2
-        assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
-
-        assert sorted([p["id"] for p in person_response]) == sorted([p1.pk, p3.pk])
-
-    @test_with_materialized_columns(["key"])
-    def test_breakdown_with_filter(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
-        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
-        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "oh"})
-
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "breakdown": "key",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-                "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["count"], 1)
-        # don't return none option when empty
-        self.assertEqual(response["result"][0]["breakdown_value"], "val")
-        person_response = self.client.get("/" + response["result"][0]["persons_urls"][-1]["url"]).json()
-        self.assertEqual(len(person_response["results"][0]["people"]), 1)
-
-        data = deep_dump_object(
-            {
-                "date_from": "-14d",
-                "breakdown": "key",
-                "display": "ActionsPie",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["aggregated_value"], 1)
-
-        person_response = self.client.get("/" + response["result"][0]["persons"]["url"]).json()
-        self.assertEqual(len(person_response["results"][0]["people"]), 1)
-
-    def test_insight_trends_compare(self):
-        with freeze_time("2012-01-05T03:21:34.000Z"):
-            _create_person(distinct_ids=["1"], team=self.team)
-            _create_person(distinct_ids=["2"], team=self.team)
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"key": "val"})
-            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"key": "notval"})
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            data = deep_dump_object(
-                {
-                    "date_from": "-7d",
-                    "compare": True,
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
-                }
-            )
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/", data=data).json()
-
-        self.assertEqual(response["result"][0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0])
-        self.assertEqual(response["result"][1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0])
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            first_series_response = self.client.get("/" + response["result"][0]["persons_urls"][-2]["url"]).json()
-            second_series_response = self.client.get("/" + response["result"][1]["persons_urls"][-4]["url"]).json()
-            zero_response = self.client.get("/" + response["result"][1]["persons_urls"][-1]["url"]).json()
-
-        self.assertEqual(len(first_series_response["results"][0]["people"]), 2)
-        self.assertEqual(len(second_series_response["results"][0]["people"]), 2)
-        self.assertEqual(len(zero_response["results"][0]["people"]), 0)
-
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -1003,58 +706,125 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             else:
                 self.assertEqual(response.status_code, 200)
 
-    @patch("ee.clickhouse.views.insights.ClickhouseInsightsViewSet.calculate_funnel")
-    def test_that_multi_property_breakdown_is_not_breaking(self, mcf):
-
-        test_cases: List[Dict[str, Any]] = [
-            # single property
-            {"breakdown": "$browser", "funnel result": ["Chrome", "Safari"], "expected": ["Chrome", "Safari"]},
-            # single property client, multi property query result
-            {"breakdown": "$browser", "funnel result": [["Chrome"], ["Safari"]], "expected": ["Chrome", "Safari"]},
-            # multi property client, multi property query result
+    def test_single_property_breakdown(self):
+        journeys_for(
             {
-                "breakdown": ["$browser"],
-                "funnel result": [["Chrome"], ["Safari"]],
-                "expected": [["Chrome"], ["Safari"]],
-            },
-        ]
-
-        for test_case in test_cases:
-
-            filter_with_breakdown = {
-                "insight": "FUNNELS",
-                "date_from": "-14d",
-                "actions": [],
-                "events": [
-                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-                    {"id": "$pageview", "type": "events", "order": 1, "name": "$pageview"},
+                "person1": [
+                    {"event": "$pageview", "properties": {"$browser": "Chrome", "$browser_version": 95}},
+                    {"event": "$pageleave", "properties": {"$browser": "Chrome", "$browser_version": 95}},
                 ],
-                "display": "FunnelViz",
-                "interval": "day",
-                "properties": [],
-                "funnel_viz_type": "steps",
-                "exclusions": [],
-                "breakdown": test_case["breakdown"],
-                "breakdown_type": "event",
-                "funnel_from_step": 0,
-                "funnel_to_step": 1,
-            }
+                "person2": [
+                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                ],
+            },
+            self.team,
+        )
 
-            mcf.return_value = {"result": [[self.as_result(b), self.as_result(b)] for b in test_case["funnel result"]]}
+        filter_with_breakdown = {
+            "insight": "FUNNELS",
+            "date_from": "-14d",
+            "actions": [],
+            "events": [
+                {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+                {"id": "$pageleave", "name": "$pageleave", "type": "events", "order": 1},
+            ],
+            "display": "FunnelViz",
+            "interval": "day",
+            "properties": [],
+            "funnel_viz_type": "steps",
+            "exclusions": [],
+            "breakdown": "$browser",
+            "breakdown_type": "event",
+            "funnel_from_step": 0,
+            "funnel_to_step": 1,
+        }
 
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel", filter_with_breakdown)
-            self.assertEqual(200, response.status_code)
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel?refresh=true", filter_with_breakdown)
+        self.assertEqual(200, response.status_code)
 
-            response_data = response.json()
+        response_data = response.json()
+        result = response_data["result"]
 
-            result = response_data["result"]
+        self.assertEqual(result[0][0]["name"], "$pageview")
+        self.assertEqual(result[0][0]["count"], 1)
+        self.assertEqual("Chrome", result[0][0]["breakdown"])
+        self.assertEqual("Chrome", result[0][0]["breakdown_value"])
 
-            # input events have chrome and safari so results is an array with two arrays as its contents
-            for i in range(0, 2):
-                for funnel_data in result[i]:
-                    self.assertIsInstance(funnel_data["name"], str)
-                    self.assertEqual(test_case["expected"][i], funnel_data["breakdown"])
-                    self.assertEqual(test_case["expected"][i], funnel_data["breakdown_value"])
+        self.assertEqual(result[0][1]["name"], "$pageleave")
+        self.assertEqual(result[0][1]["count"], 1)
+        self.assertEqual("Chrome", result[0][1]["breakdown"])
+        self.assertEqual("Chrome", result[0][1]["breakdown_value"])
+
+        self.assertEqual(result[1][0]["name"], "$pageview")
+        self.assertEqual(result[1][0]["count"], 1)
+        self.assertEqual("Safari", result[1][0]["breakdown"])
+        self.assertEqual("Safari", result[1][0]["breakdown_value"])
+
+        self.assertEqual(result[1][1]["name"], "$pageleave")
+        self.assertEqual(result[1][1]["count"], 0)
+        self.assertEqual("Safari", result[1][1]["breakdown"])
+        self.assertEqual("Safari", result[1][1]["breakdown_value"])
+
+    def test_multi_property_breakdown(self):
+        journeys_for(
+            {
+                "person1": [
+                    {"event": "$pageview", "properties": {"$browser": "Chrome", "$browser_version": 95}},
+                    {"event": "$pageleave", "properties": {"$browser": "Chrome", "$browser_version": 95}},
+                ],
+                "person2": [
+                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                ],
+            },
+            self.team,
+        )
+
+        filter_with_breakdown = {
+            "insight": "FUNNELS",
+            "date_from": "-14d",
+            "actions": [],
+            "events": [
+                {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+                {"id": "$pageleave", "name": "$pageleave", "type": "events", "order": 1},
+            ],
+            "display": "FunnelViz",
+            "interval": "day",
+            "properties": [],
+            "funnel_viz_type": "steps",
+            "exclusions": [],
+            "breakdowns": '[{"property": "$browser", "type": "event"}, {"property": "$browser_version", "type": "event"}]',
+            "breakdown_type": "event",
+            "funnel_from_step": 0,
+            "funnel_to_step": 1,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel?refresh=true", filter_with_breakdown)
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+        result = response_data["result"]
+
+        self.assertEqual(result[0][0]["name"], "$pageview")
+        self.assertEqual(result[0][0]["count"], 1)
+        self.assertEqual(["Safari", "11"], result[0][0]["breakdown"])
+        self.assertEqual(["Safari", "11"], result[0][0]["breakdown_value"])
+
+        self.assertEqual(result[0][1]["name"], "$pageleave")
+        self.assertEqual(result[0][1]["count"], 0)
+        self.assertEqual(["Safari", "11"], result[0][1]["breakdown"])
+        self.assertEqual(["Safari", "11"], result[0][1]["breakdown_value"])
+
+        self.assertEqual(result[1][0]["name"], "$pageview")
+        self.assertEqual(result[1][0]["count"], 1)
+        self.assertEqual(["Chrome", "95"], result[1][0]["breakdown"])
+        self.assertEqual(["Chrome", "95"], result[1][0]["breakdown_value"])
+
+        self.assertEqual(result[1][1]["name"], "$pageleave")
+        self.assertEqual(result[1][1]["count"], 1)
+        self.assertEqual(["Chrome", "95"], result[1][1]["breakdown"])
+        self.assertEqual(["Chrome", "95"], result[1][1]["breakdown_value"])
 
     @staticmethod
     def as_result(breakdown_properties: Union[str, List[str]]) -> Dict[str, Any]:

@@ -2,10 +2,10 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
-import dayjs from 'dayjs'
 import { appUrlsLogicType } from './appUrlsLogicType'
 import { TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { dayjs } from 'lib/dayjs'
 
 const defaultValue = 'https://'
 

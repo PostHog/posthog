@@ -319,6 +319,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     onEvent: (event: PluginEvent) => Promise<void>
+    onAction: (action: Action, event: PluginEvent) => Promise<void>
     onSnapshot: (event: PluginEvent) => Promise<void>
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
@@ -328,6 +329,7 @@ export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     onEvent?: (event: PluginEvent) => Promise<void>
+    onAction?: (action: Action, event: PluginEvent) => Promise<void>
     onSnapshot?: (event: PluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
@@ -469,6 +471,9 @@ export interface DeadLetterQueueEvent {
     _offset: number
 }
 
+export type PropertiesLastUpdatedAt = Record<string, string>
+export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
+
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
     id: number
@@ -477,18 +482,20 @@ export interface BasePerson {
     is_user_id: number
     is_identified: boolean
     uuid: string
-    properties_last_updated_at: Record<string, any>
-    properties_last_operation: Record<string, any> | null
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation | null
 }
 
 /** Raw Person row from database. */
 export interface RawPerson extends BasePerson {
     created_at: string
+    version: string | null
 }
 
 /** Usable Person model. */
 export interface Person extends BasePerson {
     created_at: DateTime
+    version: number
 }
 
 /** Clickhouse Person model. */
@@ -502,9 +509,33 @@ export interface ClickHousePerson {
     timestamp: string
 }
 
+export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
+
+interface BaseGroup {
+    id: number
+    team_id: number
+    group_type_index: GroupTypeIndex
+    group_key: string
+    group_properties: Properties
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation
+}
+
+/** Raw Group row from database. */
+export interface RawGroup extends BaseGroup {
+    created_at: string
+    version: string
+}
+
+/** Usable Group model. */
+export interface Group extends BaseGroup {
+    created_at: DateTime
+    version: number
+}
+
 /** Clickhouse Group model */
 export interface ClickhouseGroup {
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     group_key: string
     created_at: string
     team_id: number
@@ -698,7 +729,7 @@ export interface JobQueueConsumerControl {
     resume: () => Promise<void> | void
 }
 
-export type IngestEventResponse = { success?: boolean; error?: string }
+export type IngestEventResponse = { success?: boolean; error?: string; actionMatches?: Action[] }
 
 export interface EventDefinitionType {
     id: string
@@ -717,15 +748,15 @@ export interface PropertyDefinitionType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'processEvent' | 'onSnapshot' | 'pluginTask'
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export enum CeleryTriggeredJobOperation {
     Start = 'start',
 }
 
-export type GroupTypeToColumnIndex = Record<string, number>
+export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
-export enum PersonPropertyUpdateOperation {
+export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
 }

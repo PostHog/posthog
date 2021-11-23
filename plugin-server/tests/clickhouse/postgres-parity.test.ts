@@ -6,8 +6,8 @@ import {
     Database,
     Hub,
     LogLevel,
-    PersonPropertyUpdateOperation,
     PluginsServerConfig,
+    PropertyUpdateOperation,
     Team,
     TimestampFormat,
 } from '../../src/types'
@@ -105,14 +105,14 @@ describe('postgres parity', () => {
                     userPropOnce: expect.any(String),
                 },
                 properties_last_operation: {
-                    userProp: PersonPropertyUpdateOperation.Set,
-                    userPropOnce: PersonPropertyUpdateOperation.SetOnce,
+                    userProp: PropertyUpdateOperation.Set,
+                    userPropOnce: PropertyUpdateOperation.SetOnce,
                 },
                 team_id: 2,
                 is_user_id: null,
                 is_identified: true,
                 uuid: uuid,
-                version: null,
+                version: 0,
             },
         ])
         const postgresDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.Postgres)
@@ -150,6 +150,7 @@ describe('postgres parity', () => {
         expect(postgresPersons.length).toEqual(1)
 
         expect(postgresPersons[0].is_identified).toEqual(true)
+        expect(postgresPersons[0].version).toEqual(1)
         expect(postgresPersons[0].properties).toEqual({ replacedUserProp: 'propValue' })
 
         expect(clickHousePersons[0].is_identified).toEqual(1)
@@ -159,7 +160,9 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        await hub.db.updatePerson(person, { created_at: randomDate, is_identified: false })
+        const updatedPerson = await hub.db.updatePerson(person, { created_at: randomDate, is_identified: false })
+
+        expect(updatedPerson.version).toEqual(2)
 
         await delayUntilEventIngested(async () =>
             (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => !p.is_identified)

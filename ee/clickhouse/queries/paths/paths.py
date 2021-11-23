@@ -5,7 +5,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
@@ -141,16 +141,15 @@ class ClickhousePaths:
         """
 
     def get_path_query_funnel_cte(self, funnel_filter: Filter):
-        funnel_persons_generator = ClickhouseFunnelPersons(
+        funnel_persons_generator = ClickhouseFunnelActors(
             funnel_filter,
             self._team,
             include_timestamp=bool(self._filter.funnel_paths),
             include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
             no_person_limit=True,
         )
-        funnel_persons_query = funnel_persons_generator.get_query()
+        funnel_persons_query, funnel_persons_param = funnel_persons_generator.actor_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
-        funnel_persons_param = funnel_persons_generator.params
         new_funnel_params = {"funnel_" + str(key): val for key, val in funnel_persons_param.items()}
         self.params.update(new_funnel_params)
         return f"""

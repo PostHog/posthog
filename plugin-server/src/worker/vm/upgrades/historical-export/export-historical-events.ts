@@ -17,12 +17,17 @@ import {
     fetchTimestampBoundariesForTeam,
 } from './utils'
 
-const EVENTS_TIME_INTERVAL = 10 * 60 * 1000 // 10 minutes
+const TEN_MINUTES = 1000 * 60 * 10
+const EVENTS_TIME_INTERVAL = TEN_MINUTES
 const EVENTS_PER_RUN = 100
+
 const TIMESTAMP_CURSOR_KEY = 'timestamp_cursor'
 const MAX_UNIX_TIMESTAMP_KEY = 'max_timestamp'
 const MIN_UNIX_TIMESTAMP_KEY = 'min_timestamp'
 const EXPORT_RUNNING_KEY = 'is_export_running'
+const RUN_EVERY_MINUTE_LAST_RUN_KEY = 'run_every_minute_last'
+const BATCH_ID_CURSOR_KEY = 'batch_id'
+const OLD_TIMESTAMP_CURSOR_KEY = 'old_timestamp_cursor'
 
 const INTERFACE_JOB_NAME = 'Export historical events'
 
@@ -38,6 +43,8 @@ export function addHistoricalEventsExportCapability(
 
     const oldSetupPlugin = methods.setupPlugin
 
+    const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
+
     methods.setupPlugin = async () => {
         // Fetch the max and min timestamps for a team's events
         const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
@@ -47,7 +54,50 @@ export function addHistoricalEventsExportCapability(
         // the historical export to duplicate them
         meta.global.timestampBoundariesForTeam = timestampBoundaries
 
+        await meta.utils.cursor.init(BATCH_ID_CURSOR_KEY)
+
+        const storedTimestampCursor = await meta.storage.get(TIMESTAMP_CURSOR_KEY, null)
+        await meta.storage.set(OLD_TIMESTAMP_CURSOR_KEY, storedTimestampCursor || 0)
+        await meta.storage.set(RUN_EVERY_MINUTE_LAST_RUN_KEY, Date.now() + TEN_MINUTES)
+
         await oldSetupPlugin?.()
+    }
+
+    tasks.schedule.runEveryMinute = {
+        name: 'runEveryMinute',
+        type: PluginTaskType.Schedule,
+        exec: async () => {
+            const lastRun = await meta.storage.get(RUN_EVERY_MINUTE_LAST_RUN_KEY, 0)
+            const exportShouldBeRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
+
+            const have10MinutesPassed = Date.now() - Number(lastRun) < TEN_MINUTES
+
+            // only run every 10 minutes _if_ an export is in progress
+            if (!exportShouldBeRunning || !have10MinutesPassed) {
+                return
+            }
+
+            const oldTimestampCursor = await meta.storage.get(OLD_TIMESTAMP_CURSOR_KEY, 0)
+            const currentTimestampCursor = await meta.storage.get(TIMESTAMP_CURSOR_KEY, 0)
+
+            // if the cursor hasn't been incremented after 10 minutes that means we didn't pick up from
+            // where we left off  automatically after a restart, or something else has gone wrong
+            // thus, kick off a new export chain with a new batchId
+            if (exportShouldBeRunning && oldTimestampCursor === currentTimestampCursor) {
+                const batchId = await meta.utils.cursor.increment(BATCH_ID_CURSOR_KEY)
+                createLog(`Restarting export after noticing inactivity. Batch ID: ${batchId}`)
+                await meta.jobs
+                    .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true, batchId })
+                    .runNow()
+            }
+
+            // set the old timestamp cursor to the current one so we can see if it changed in 10 minutes
+            await meta.storage.set(OLD_TIMESTAMP_CURSOR_KEY, currentTimestampCursor)
+
+            await meta.storage.set(RUN_EVERY_MINUTE_LAST_RUN_KEY, Date.now())
+
+            await oldRunEveryMinute?.()
+        },
     }
 
     tasks.job['exportHistoricalEvents'] = {
@@ -66,6 +116,8 @@ export function addHistoricalEventsExportCapability(
             if (exportAlreadyRunning) {
                 return
             }
+
+            await meta.storage.set(RUN_EVERY_MINUTE_LAST_RUN_KEY, Date.now() + TEN_MINUTES)
             await meta.storage.set(EXPORT_RUNNING_KEY, true)
 
             // get rid of all state pertaining to a previous run
@@ -77,8 +129,10 @@ export function addHistoricalEventsExportCapability(
 
             await meta.global.initTimestampsAndCursor(payload)
 
+            const batchId = await meta.utils.cursor.increment(BATCH_ID_CURSOR_KEY)
+
             await meta.jobs
-                .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true })
+                .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true, batchId: batchId })
                 .runNow()
         },
     }
@@ -86,6 +140,12 @@ export function addHistoricalEventsExportCapability(
     meta.global.exportHistoricalEvents = async (payload): Promise<void> => {
         if (payload.retriesPerformedSoFar >= 15) {
             // create some log error here
+            return
+        }
+
+        // this is handling for duplicates when the plugin server restarts
+        const currentBatchId = await meta.storage.get(BATCH_ID_CURSOR_KEY, 0)
+        if (currentBatchId !== payload.batchId) {
             return
         }
 
@@ -133,16 +193,19 @@ export function addHistoricalEventsExportCapability(
             fetchEventsError = error
         }
 
-        const incrementTimestampCursor = events.length === 0
+        if (payload.retriesPerformedSoFar === 0) {
+            const incrementTimestampCursor = events.length === 0
 
-        await meta.jobs
-            .exportHistoricalEvents({
-                timestampCursor,
-                incrementTimestampCursor,
-                retriesPerformedSoFar: 0,
-                intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
-            })
-            .runNow()
+            await meta.jobs
+                .exportHistoricalEvents({
+                    timestampCursor,
+                    incrementTimestampCursor,
+                    retriesPerformedSoFar: 0,
+                    intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
+                    batchId: payload.batchId,
+                })
+                .runNow()
+        }
 
         let exportEventsError: Error | unknown | null = null
 

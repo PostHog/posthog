@@ -6,7 +6,7 @@ import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     RecordingEventsFilters,
-    SeekbarEventType,
+    RecordingEventType,
     SessionPlayerData,
     SessionRecordingId,
     SessionRecordingMeta,
@@ -15,11 +15,8 @@ import {
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import dayjs from 'dayjs'
-import utc from 'dayjs/plugin/utc'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-
-dayjs.extend(utc)
+import { dayjs } from 'lib/dayjs'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -33,7 +30,7 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
 }
 
 // TODO: Replace this with permanent querying alternative in backend. Filtering on frontend should do for now.
-const makeEventsQueryable = (events: SeekbarEventType[]): SeekbarEventType[] => {
+const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[] => {
     return events.map((e) => ({
         ...e,
         queryValue: `${getKeyMapping(e.event, 'event')?.label ?? e.event ?? ''} ${eventToDescription(e)}`.replace(
@@ -88,6 +85,14 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 },
             },
         ],
+        sessionEventsDataLoading: [
+            false,
+            {
+                loadEventsSuccess: (_, { sessionEventsData }) => {
+                    return !!sessionEventsData?.next
+                },
+            },
+        ],
         source: [
             RecordingWatchedSource.Unknown as RecordingWatchedSource,
             {
@@ -100,11 +105,11 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
         },
-        loadRecordingSnapshotsSuccess: async () => {
+        loadRecordingSnapshotsSuccess: () => {
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
             if (!!values.sessionPlayerData?.next) {
-                await actions.loadRecordingSnapshots(undefined, values.sessionPlayerData.next)
+                actions.loadRecordingSnapshots(undefined, values.sessionPlayerData.next)
             }
             // Finished loading entire recording. Now make it known!
             else {
@@ -168,23 +173,23 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     }),
     loaders: ({ values }) => ({
         sessionPlayerData: {
-            loadRecordingMeta: async ({ sessionRecordingId }): Promise<SessionPlayerData> => {
+            loadRecordingMeta: async ({ sessionRecordingId }, breakpoint): Promise<SessionPlayerData> => {
                 const params = toParams({ save_view: true })
                 const response = await api.get(
                     `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}?${params}`
                 )
-
+                breakpoint()
                 return {
                     ...response.result,
                     session_recording: parseMetadataResponse(response.result?.session_recording),
                     snapshots: values.sessionPlayerData?.snapshots ?? [],
                 }
             },
-            loadRecordingSnapshots: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
+            loadRecordingSnapshots: async ({ sessionRecordingId, url }, breakpoint): Promise<SessionPlayerData> => {
                 const apiUrl =
                     url || `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
                 const response = await api.get(apiUrl)
-
+                breakpoint()
                 const currData = values.sessionPlayerData
                 return {
                     ...currData,
@@ -194,13 +199,14 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             },
         },
         sessionEventsData: {
-            loadEvents: async ({ url }) => {
+            loadEvents: async ({ url }, breakpoint) => {
                 if (!values.eventsApiParams) {
                     return values.sessionEventsData
                 }
                 // Use `url` if there is a `next` url to fetch
                 const apiUrl = url || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
                 const response = await api.get(apiUrl)
+                breakpoint()
 
                 return {
                     ...values.sessionEventsData,
@@ -211,6 +217,10 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         },
     }),
     selectors: {
+        loading: [
+            (selectors) => [selectors.sessionEventsDataLoading, selectors.sessionPlayerDataLoading],
+            (eventsLoading, playerLoading) => eventsLoading || playerLoading,
+        ],
         sessionEvents: [
             (selectors) => [selectors.sessionEventsData, selectors.sessionPlayerData],
             (eventsData, playerData) => {
@@ -230,7 +240,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             (selectors) => [selectors.filters, selectors.sessionEvents],
             (filters, events) => {
                 return filters?.query
-                    ? new Fuse<SeekbarEventType>(makeEventsQueryable(events), {
+                    ? new Fuse<RecordingEventType>(makeEventsQueryable(events), {
+                          threshold: 0.3,
                           keys: ['queryValue'],
                           findAllMatches: true,
                           ignoreLocation: true,

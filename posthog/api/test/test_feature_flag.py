@@ -67,6 +67,15 @@ class TestFeatureFlag(APIBaseTest):
     def test_is_simple_flag(self):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": "Beta feature", "key": "beta-feature", "filters": {"groups": [{"rollout_percentage": 65,}]},},
+            format="json",
+        ).json()
+        self.assertTrue(feature_flag["is_simple_flag"])
+        self.assertEqual(feature_flag["rollout_percentage"], 65)
+
+    def test_is_not_simple_flag(self):
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
             data={
                 "name": "Beta feature",
                 "key": "beta-feature",
@@ -84,7 +93,18 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
-        self.assertIsNone(feature_flag["rollout_percentage"])
+
+    def test_is_simple_flag_groups(self):
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65,}]},
+            },
+            format="json",
+        ).json()
+        self.assertFalse(feature_flag["is_simple_flag"])
 
     @patch("posthoganalytics.capture")
     def test_create_feature_flag(self, mock_capture):
@@ -265,7 +285,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
         self.assertEqual(instance.name, "Updated name")
-        self.assertEqual(instance.groups[0]["rollout_percentage"], 65)
+        self.assertEqual(instance.conditions[0]["rollout_percentage"], 65)
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(

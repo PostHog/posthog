@@ -29,8 +29,8 @@ export function Timestamp(): JSX.Element {
                 </span>
             </Tooltip>
             <div className="rrweb-timestamp">
-                {colonDelimitedDuration(zeroOffsetTime.current / 1000)} /{' '}
-                {colonDelimitedDuration(meta.totalTime / 1000)}
+                {colonDelimitedDuration(Math.floor(zeroOffsetTime.current / 1000))} /{' '}
+                {colonDelimitedDuration(Math.floor(meta.totalTime / 1000))}
             </div>
         </>
     )

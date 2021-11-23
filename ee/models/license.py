@@ -56,7 +56,6 @@ class License(models.Model):
     SCALE_FEATURES = [
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
-        AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.GOOGLE_LOGIN,
         AvailableFeature.DASHBOARD_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
@@ -66,6 +65,7 @@ class License(models.Model):
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = SCALE_FEATURES + [
+        AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}

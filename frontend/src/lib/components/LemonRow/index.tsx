@@ -79,3 +79,13 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
     return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
 }
 export const LemonRow = React.forwardRef(LemonRowInternal)
+
+export interface LemonSpacerProps {
+    /** Twice the default amount of margin. */
+    large?: boolean
+}
+
+/** A separator ideal for being sandwiched between LemonRows. */
+export function LemonSpacer({ large = false }: LemonSpacerProps): JSX.Element {
+    return <div className={clsx('LemonSpacer', large && 'LemonSpacer--large')} />
+}

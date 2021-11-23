@@ -1,18 +1,17 @@
 from datetime import timedelta
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
-from rest_framework.utils.serializer_helpers import ReturnDict
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.person import ClickhousePersonSerializer
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
-from ee.clickhouse.sql.person import GET_PERSONS_FROM_EVENT_QUERY
+from ee.clickhouse.sql.person import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
 from posthog.models.team import Team
 
@@ -36,18 +35,25 @@ def _handle_date_interval(filter: Filter) -> Filter:
     return filter.with_data(data)
 
 
-class TrendsPersonQuery:
-    def __init__(self, team: Team, entity: Entity, filter: Filter):
-        self.team = team
-        self.entity = entity
-        self.filter = filter
+class TrendsPersonQuery(ActorBaseQuery):
+    entity: Entity
 
-        if self.filter.display != TRENDS_CUMULATIVE and not self.filter.display in TRENDS_DISPLAY_BY_VALUE:
-            self.filter = _handle_date_interval(self.filter)
+    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter):
+        if not entity:
+            raise ValueError("Entity is required")
 
-    def get_query(self) -> Tuple[str, Dict]:
+        if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
+            filter = _handle_date_interval(filter)
+
+        super().__init__(team, filter, entity)
+
+    @cached_property
+    def is_aggregating_by_groups(self) -> bool:
+        return self.entity.math == "unique_group"
+
+    def actor_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self.team.pk)
+            cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self._team.pk)
             self.filter = self.filter.with_data(
                 {"properties": self.filter.properties + [Property(key="id", value=cohort.pk, type="cohort")]}
             )
@@ -56,28 +62,38 @@ class TrendsPersonQuery:
             and isinstance(self.filter.breakdown, str)
             and isinstance(self.filter.breakdown_value, str)
         ):
-            breakdown_prop = Property(
-                key=self.filter.breakdown, value=self.filter.breakdown_value, type=self.filter.breakdown_type
-            )
+            if self.filter.breakdown_type == "group":
+                breakdown_prop = Property(
+                    key=self.filter.breakdown,
+                    value=self.filter.breakdown_value,
+                    type=self.filter.breakdown_type,
+                    group_type_index=self.filter.breakdown_group_type_index,
+                )
+            else:
+                breakdown_prop = Property(
+                    key=self.filter.breakdown, value=self.filter.breakdown_value, type=self.filter.breakdown_type
+                )
+
             self.filter = self.filter.with_data({"properties": self.filter.properties + [breakdown_prop]})
 
         events_query, params = TrendsEventQuery(
             filter=self.filter,
-            team_id=self.team.pk,
+            team_id=self._team.pk,
             entity=self.entity,
-            should_join_distinct_ids=True,
-            should_join_persons=True,
-            extra_fields=["distinct_id", "team_id"],
-            extra_person_fields=["created_at", "person_props", "is_identified"],
+            should_join_distinct_ids=not self.is_aggregating_by_groups,
+            should_join_persons=not self.is_aggregating_by_groups,
+            extra_fields=[] if self.is_aggregating_by_groups else ["distinct_id", "team_id"],
         ).get_query()
 
         return (
-            GET_PERSONS_FROM_EVENT_QUERY.format(events_query=events_query),
+            GET_ACTORS_FROM_EVENT_QUERY.format(id_field=self._aggregation_actor_field, events_query=events_query),
             {**params, "offset": self.filter.offset, "limit": 200},
         )
 
-    def get_people(self) -> ReturnDict:
-        query, params = self.get_query()
-        people = sync_execute(query, params)
-
-        return ClickhousePersonSerializer(people, many=True).data
+    @cached_property
+    def _aggregation_actor_field(self) -> str:
+        if self.is_aggregating_by_groups:
+            group_type_index = self.entity.math_group_type_index
+            return f"$group_{group_type_index}"
+        else:
+            return "person_id"

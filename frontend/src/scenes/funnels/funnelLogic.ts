@@ -32,7 +32,6 @@ import {
     EntityTypes,
     PropertyFilter,
     PropertyOperator,
-    BreakdownType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -90,7 +89,12 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
     '$initial_geoip_subdivision_name',
 ]
 
-export const funnelLogic = kea<funnelLogicType>({
+type openPersonsModelProps = {
+    step: FunnelStep
+    converted: boolean
+}
+
+export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     path: (key) => ['scenes', 'funnels', 'funnelLogic', key],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
@@ -129,20 +133,9 @@ export const funnelLogic = kea<funnelLogicType>({
             index,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        openPersonsModal: (
-            step: FunnelStep | FunnelStepWithNestedBreakdown,
-            stepNumber: number,
-            breakdown_value?: string | number,
-            breakdown?: string,
-            breakdown_type?: BreakdownType,
-            customSteps?: number[]
-        ) => ({
+        openPersonsModalForStep: ({ step, converted }: openPersonsModelProps) => ({
             step,
-            stepNumber,
-            breakdown_value,
-            breakdown,
-            breakdown_type,
-            customSteps,
+            converted,
         }),
         openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
             correlation,
@@ -1020,11 +1013,9 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         correlationAnalysisAvailable: [
-            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled, s.featureFlags],
-            (hasAvailableFeature, clickhouseFeaturesEnabled, featureFlags) =>
-                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
-                clickhouseFeaturesEnabled &&
-                hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
+            (hasAvailableFeature, clickhouseFeaturesEnabled): boolean =>
+                clickhouseFeaturesEnabled && hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
         allProperties: [
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],
@@ -1034,7 +1025,13 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.groupTypes],
-            (filters, groupTypes): { singular: string; plural: string } => {
+            (
+                filters,
+                groupTypes
+            ): {
+                singular: string
+                plural: string
+            } => {
                 if (filters.aggregation_group_type_index != undefined && groupTypes.length > 0) {
                     const groupType = groupTypes[filters.aggregation_group_type_index]
                     return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
@@ -1067,7 +1064,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            if (values.correlationAnalysisAvailable) {
+            if (values.correlationAnalysisAvailable && insight.filters?.funnel_viz_type === FunnelVizType.Steps) {
                 actions.loadCorrelations()
                 actions.setPropertyNames(values.allProperties) // select all properties by default
             }
@@ -1137,20 +1134,21 @@ export const funnelLogic = kea<funnelLogicType>({
                 saved: true,
             })
         },
-        openPersonsModal: ({ step, stepNumber, breakdown_value, breakdown, breakdown_type, customSteps }) => {
+        openPersonsModalForStep: ({ step, converted }) => {
             // :TODO: Support 'person' modal for groups
             if (values.filters.aggregation_group_type_index != undefined) {
                 return
             }
-            personsModalLogic.actions.loadPeople({
-                action: 'session',
-                breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
+            personsModalLogic.actions.loadPeopleFromUrl({
+                url: converted ? step.converted_people_url : step.dropped_people_url,
+                // NOTE: although we have the url that contains all of the info needed
+                // to return people, we currently still need to pass something in for the
+                // purpose of the modal displaying the label.
+                funnelStep: converted ? step.order : -step.order,
+                breakdown_value: step.breakdown_value,
                 label: step.name,
-                date_from: '',
-                date_to: '',
-                filters: { ...values.filters, breakdown, breakdown_type, funnel_custom_steps: customSteps },
-                saveOriginal: true,
-                funnelStep: stepNumber,
+                // NOTE: session value copied from previous code, not clear that this should be the case
+                action: 'session',
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
@@ -1291,7 +1289,11 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
-            { visible }: { visible: boolean },
+            {
+                visible,
+            }: {
+                visible: boolean
+            },
             breakpoint: BreakPointFunction
         ) => {
             if (visible && values.shouldReportCorrelationViewed) {
@@ -1302,7 +1304,11 @@ export const funnelLogic = kea<funnelLogicType>({
         },
 
         [visibilitySensorLogic({ id: `${values.correlationPropKey}-properties` }).actionTypes.setVisible]: async (
-            { visible }: { visible: boolean },
+            {
+                visible,
+            }: {
+                visible: boolean
+            },
             breakpoint: BreakPointFunction
         ) => {
             if (visible && values.shouldReportPropertyCorrelationViewed) {
@@ -1347,7 +1353,12 @@ const appendToCorrelationConfig = (
     })
 }
 
-const parseBreakdownValue = (item: string): { breakdown: string; breakdown_value: string } => {
+const parseBreakdownValue = (
+    item: string
+): {
+    breakdown: string
+    breakdown_value: string
+} => {
     const components = item.split('::')
     if (components.length === 1) {
         return { breakdown: components[0], breakdown_value: '' }
@@ -1359,7 +1370,12 @@ const parseBreakdownValue = (item: string): { breakdown: string; breakdown_value
     }
 }
 
-const parseEventAndProperty = (event: FunnelCorrelation['event']): { name: string; properties?: PropertyFilter[] } => {
+const parseEventAndProperty = (
+    event: FunnelCorrelation['event']
+): {
+    name: string
+    properties?: PropertyFilter[]
+} => {
     const components = event.event.split('::')
     /*
       The `event` is either an event name, or event::property::property_value

@@ -13,6 +13,7 @@ import {
     FunnelCorrelationType,
     TeamType,
     InsightType,
+    FunnelVizType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,6 +40,10 @@ describe('funnelLogic', () => {
             return {
                 ...MOCK_DEFAULT_TEAM,
                 correlation_config: correlationConfig,
+            }
+        } else if (url.pathname === '/some/people/url') {
+            return {
+                results: [{ people: [] }],
             }
         } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
             return {
@@ -384,22 +389,24 @@ describe('funnelLogic', () => {
 
         it('setFilters calls personsModalLogic.loadPeople', async () => {
             await expectLogic(logic, () => {
-                logic.actions.openPersonsModal(
-                    {
+                logic.actions.openPersonsModalForStep({
+                    step: {
                         action_id: '$pageview',
                         average_conversion_time: 0,
                         count: 1,
                         name: '$pageview',
                         order: 0,
                         type: 'events',
+                        converted_people_url: '/some/people/url',
+                        dropped_people_url: '/some/people/url',
                     },
-                    2
-                )
+                    converted: true,
+                })
             }).toDispatchActions([
                 (action) => {
                     return (
-                        action.type === personsModalLogic.actionTypes.loadPeople &&
-                        action.payload.peopleParams?.label === '$pageview'
+                        action.type === personsModalLogic.actionTypes.loadPeopleFromUrl &&
+                        action.payload?.label === '$pageview'
                     )
                 },
             ])
@@ -502,17 +509,7 @@ describe('funnelLogic', () => {
         // teamLogic to update the currentTeam, and also explicitly mount the
         // userLogic.
 
-        it('initially not loaded', async () => {
-            await expectLogic(logic)
-                .toFinishListeners()
-                .toMatchValues({
-                    propertyCorrelations: { events: [] },
-                })
-        })
-
         it('Selecting all properties returns expected result', async () => {
-            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
-
             await expectLogic(logic, () => logic.actions.setPropertyNames(logic.values.allProperties))
                 .toFinishListeners()
                 .toMatchValues({
@@ -549,12 +546,11 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('are updated when results are loaded, when feature flag set', async () => {
-            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
-
+        it('are updated when results are loaded, when steps visualisation set', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setPropertyNames(logic.values.allProperties)
-                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
+                logic.actions.loadResultsSuccess({
+                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
+                })
             })
                 .toFinishListeners()
                 .toMatchValues({
@@ -581,8 +577,15 @@ describe('funnelLogic', () => {
                 })
         })
 
+        it('are not triggered when results are loaded, when trends visualisation set', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({
+                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Trends },
+                })
+            }).toNotHaveDispatchedActions(['loadCorrelations', 'loadPropertyCorrelations'])
+        })
+
         it('triggers update to correlation list when property excluded from project', async () => {
-            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
             userLogic.mount()
 
             // Make sure we have loaded the team already
@@ -649,7 +652,6 @@ describe('funnelLogic', () => {
         })
 
         it('loads property exclude list from Project settings', async () => {
-            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
             correlationConfig = { excluded_person_property_names: ['some property'] }
 
             // TODO: move api mocking to this test. I couldn't seem to figure
@@ -685,7 +687,6 @@ describe('funnelLogic', () => {
         })
 
         it('loads event exclude list from Project settings', async () => {
-            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
             correlationConfig = { excluded_event_names: ['some event'] }
 
             // TODO: move api mocking to this test. I couldn't seem to figure
@@ -700,7 +701,9 @@ describe('funnelLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
+                logic.actions.loadResultsSuccess({
+                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
+                })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -718,7 +721,6 @@ describe('funnelLogic', () => {
         })
 
         it('loads event property exclude list from Project settings', async () => {
-            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis'], { 'correlation-analysis': true })
             correlationConfig = { excluded_event_property_names: ['name'] }
 
             await expectLogic(teamLogic, () => teamLogic.actions.loadCurrentTeam())
@@ -752,8 +754,7 @@ describe('funnelLogic', () => {
         })
 
         it('Selecting all group properties selects correct properties', async () => {
-            featureFlagLogic.actions.setFeatureFlags(['correlation-analysis', 'group-analytics'], {
-                'correlation-analysis': true,
+            featureFlagLogic.actions.setFeatureFlags(['group-analytics'], {
                 'group-analytics': true,
             })
             // FF set after mount, so groupPropertiesModel is empty. Hence, force reload these values.

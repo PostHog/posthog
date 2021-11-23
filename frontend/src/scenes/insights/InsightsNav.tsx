@@ -5,6 +5,9 @@ import React from 'react'
 import { HotKeys, InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import clsx from 'clsx'
 
 const { TabPane } = Tabs
 
@@ -15,6 +18,7 @@ function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
 export function InsightsNav(): JSX.Element {
     const { activeView } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <Tabs
@@ -63,19 +67,6 @@ export function InsightsNav(): JSX.Element {
                 tab={
                     <Tooltip
                         placement="top"
-                        title="View average and distribution of session durations."
-                        data-attr="insight-sessions-tab"
-                    >
-                        Sessions
-                        <InsightHotkey hotkey="o" />
-                    </Tooltip>
-                }
-                key={InsightType.SESSIONS}
-            />
-            <TabPane
-                tab={
-                    <Tooltip
-                        placement="top"
                         title={
                             <>
                                 Stickiness shows you how many days users performed an action repeatedly within a
@@ -108,6 +99,21 @@ export function InsightsNav(): JSX.Element {
                     </Tooltip>
                 }
                 key={InsightType.LIFECYCLE}
+            />
+            <TabPane
+                tab={
+                    <Tooltip
+                        placement="top"
+                        title="View average and distribution of session durations."
+                        data-attr="insight-sessions-tab"
+                    >
+                        <div className={clsx(featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && 'deprecated')}>
+                            Sessions
+                            <InsightHotkey hotkey="o" />
+                        </div>
+                    </Tooltip>
+                }
+                key={InsightType.SESSIONS}
             />
         </Tabs>
     )

@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
@@ -13,6 +13,7 @@ from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -20,7 +21,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
 
-    _filter: Union[Filter, PathFilter, RetentionFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter, SessionRecordingsFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _person_query: ClickhousePersonQuery
@@ -32,7 +33,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter, SessionRecordingsFilter],
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,
@@ -73,7 +74,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
-    def _get_disintct_id_query(self) -> str:
+    def _get_distinct_id_query(self) -> str:
         if self._should_join_distinct_ids:
             return f"""
             INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS {self.DISTINCT_ID_TABLE_ALIAS}
@@ -98,11 +99,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if any(
             self._should_property_join_persons(prop) for entity in self._filter.entities for prop in entity.properties
         ):
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
-            return
-
-        if self._filter.breakdown_type == "person":
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return

@@ -1,0 +1,119 @@
+# name: TestFeatureFlagsWithOverrides.test_group_flags_with_overrides
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id = 2)
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_group_flags_with_overrides.1
+  '
+  SELECT UPPER(("posthog_person"."properties" ->> 'email')::text) LIKE UPPER('%posthog.com%') AS "condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'distinct_id'
+         AND "posthog_persondistinctid"."team_id = 2 AND "posthog_person"."team_id = 2)
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_group_flags_with_overrides.2
+  '
+  SELECT ("posthog_person"."properties" -> 'email') = '"tim@posthog.com"' AS "condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'distinct_id'
+         AND "posthog_persondistinctid"."team_id = 2 AND "posthog_person"."team_id = 2)
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_group_flags_with_overrides.3
+  '
+  SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."team_id",
+         "posthog_grouptypemapping"."group_type",
+         "posthog_grouptypemapping"."group_type_index"
+  FROM "posthog_grouptypemapping"
+  WHERE "posthog_grouptypemapping"."team_id = 2
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_group_flags_with_overrides.4
+  '
+  SELECT ("posthog_group"."group_properties" -> 'name') = '"foo.inc"' AS "condition_0"
+  FROM "posthog_group"
+  WHERE ("posthog_group"."group_key" = 'PostHog'
+         AND "posthog_group"."group_type_index" = 0
+         AND "posthog_group"."team_id = 2)
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_group_flags_with_overrides.5
+  '
+  SELECT "posthog_featureflagoverride"."id",
+         "posthog_featureflagoverride"."feature_flag_id",
+         "posthog_featureflagoverride"."override_value",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key"
+  FROM "posthog_featureflagoverride"
+  INNER JOIN "posthog_featureflag" ON ("posthog_featureflagoverride"."feature_flag_id" = "posthog_featureflag"."id")
+  WHERE ("posthog_featureflagoverride"."team_id = 2 AND "posthog_featureflagoverride"."user_id" IN (SELECT W0."id" FROM "posthog_user" W0 WHERE W0."distinct_id" IN (SELECT V0."distinct_id" FROM "posthog_persondistinctid" V0 WHERE V0."person_id" IN (SELECT U0."person_id" FROM "posthog_persondistinctid" U0 WHERE (U0."distinct_id" = 'distinct_id' AND U0."team_id = 2)
+  LIMIT 1))
+  LIMIT 1))
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_person_flags_with_overrides
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id = 2)
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_person_flags_with_overrides.1
+  '
+  SELECT UPPER(("posthog_person"."properties" ->> 'email')::text) LIKE UPPER('%posthog.com%') AS "condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'distinct_id'
+         AND "posthog_persondistinctid"."team_id = 2 AND "posthog_person"."team_id = 2)
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_person_flags_with_overrides.2
+  '
+  SELECT ("posthog_person"."properties" -> 'email') = '"tim@posthog.com"' AS "condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'distinct_id'
+         AND "posthog_persondistinctid"."team_id = 2 AND "posthog_person"."team_id = 2)
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_person_flags_with_overrides.3
+  '
+  SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."team_id",
+         "posthog_grouptypemapping"."group_type",
+         "posthog_grouptypemapping"."group_type_index"
+  FROM "posthog_grouptypemapping"
+  WHERE "posthog_grouptypemapping"."team_id = 2
+  '
+---
+# name: TestFeatureFlagsWithOverrides.test_person_flags_with_overrides.4
+  '
+  SELECT "posthog_featureflagoverride"."id",
+         "posthog_featureflagoverride"."feature_flag_id",
+         "posthog_featureflagoverride"."override_value",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key"
+  FROM "posthog_featureflagoverride"
+  INNER JOIN "posthog_featureflag" ON ("posthog_featureflagoverride"."feature_flag_id" = "posthog_featureflag"."id")
+  WHERE ("posthog_featureflagoverride"."team_id = 2 AND "posthog_featureflagoverride"."user_id" IN (SELECT W0."id" FROM "posthog_user" W0 WHERE W0."distinct_id" IN (SELECT V0."distinct_id" FROM "posthog_persondistinctid" V0 WHERE V0."person_id" IN (SELECT U0."person_id" FROM "posthog_persondistinctid" U0 WHERE (U0."distinct_id" = 'distinct_id' AND U0."team_id = 2)
+  LIMIT 1))
+  LIMIT 1))
+  '
+---

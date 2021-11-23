@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import { Hub, IngestEventResponse, TimestampFormat } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
+import { Action } from './../../types'
 import { generateEventDeadLetterQueueMessage } from './utils'
 
 export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestEventResponse> {
@@ -24,9 +25,11 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             uuid! // it will throw if it's undefined
         )
 
+        let actionMatches: Action[] = []
+
         if (result) {
             const person = await hub.db.fetchPerson(team_id, distinctId)
-            const actionMatches = await hub.actionMatcher.match(event, person, result.elements)
+            actionMatches = await hub.actionMatcher.match(event, person, result.elements)
             await hub.hookCannon.findAndFireHooks(event, person, site_url, actionMatches)
 
             // eventId is undefined for CH deployments
@@ -37,7 +40,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
         }
         // We don't want to return the inserted DB entry that `processEvent` returns.
         // This response is passed to piscina and would be discarded anyway.
-        return { success: true }
+        return { actionMatches, success: true }
     } catch (e) {
         status.info('🔔', e)
         Sentry.captureException(e, { extra: { event } })
