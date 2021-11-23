@@ -55,17 +55,19 @@ export async function ingestEvent(
         ])
 
         if (actionMatches.length > 0) {
-            await Promise.all(
-                actionMatches.map((actionMatch) =>
+            const promises = []
+            for (const actionMatch of actionMatches) {
+                promises.push(
                     runInstrumentedFunction({
                         server,
-                        event: processedEvent!,
+                        event: processedEvent,
                         func: (event) => workerMethods.onAction(actionMatch, event),
                         statsKey: `kafka_queue.on_action`,
                         timeoutMessage: 'After 30 seconds still running onAction',
                     })
                 )
-            )
+            }
+            await Promise.all(promises)
         }
     }
 
