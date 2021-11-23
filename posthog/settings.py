@@ -740,7 +740,7 @@ if SKIP_SERVICE_VERSION_REQUIREMENTS:
 
 SERVICE_VERSION_REQUIREMENTS = [
     ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0",),
-    ServiceVersionRequirement(service="redis", supported_version=">=5.0.0,<=6.2.0",),
+    ServiceVersionRequirement(service="redis", supported_version=">=5.0.0,<=6.3.0",),
 ]
 
 if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
